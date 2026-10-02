@@ -8,7 +8,8 @@ import type { ResolvedPath } from "../workspace/workspace.js";
 export interface OperationDescriptor {
   /** Stable operation name, e.g. "filesystem.read_file". */
   readonly operation: string;
-  readonly capability: Capability;
+  /** Capability, or capabilities that must all be granted. */
+  readonly capability: Capability | readonly Capability[];
   /** Every path the operation touches (targets, working directories). */
   readonly paths?: readonly ResolvedPath[];
 }
@@ -24,9 +25,12 @@ export class ExecutionGuard {
   constructor(private readonly engine: PermissionEngine) {}
 
   async run<T>(context: AuthContext, op: OperationDescriptor, execute: () => Promise<T>): Promise<T> {
-    const decision = this.engine.authorize({ context, capability: op.capability, paths: op.paths ?? [] });
-    if (!decision.allowed) {
-      throw new PermissionDeniedError(decision.reason, { operation: op.operation, missing: decision.missing });
+    const capabilities: readonly Capability[] = typeof op.capability === "string" ? [op.capability] : op.capability;
+    for (const capability of capabilities) {
+      const decision = this.engine.authorize({ context, capability, paths: op.paths ?? [] });
+      if (!decision.allowed) {
+        throw new PermissionDeniedError(decision.reason, { operation: op.operation, missing: decision.missing });
+      }
     }
     return execute();
   }

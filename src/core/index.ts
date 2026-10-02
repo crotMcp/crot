@@ -10,3 +10,5 @@ export * from "./execution/guard.js";
 export * from "./crot-core.js";
 export * from "./capabilities/filesystem/schemas.js";
 export * from "./capabilities/filesystem/service.js";
+export * from "./capabilities/process/schemas.js";
+export * from "./capabilities/process/service.js";
