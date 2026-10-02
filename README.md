@@ -15,6 +15,7 @@ Implemented (ARCHITECTURE.md §16, steps 1–6):
 - Filesystem capability
 - Shell/process capability (foreground commands and managed background processes)
 - Audit logging
+- Platform layer: Linux, macOS and Windows behaviour behind Core interfaces
 - CROT MCP: thin adapter over Core, stdio transport
 
 Not yet implemented: remote (HTTP) MCP transport and MCP authorization, Native
@@ -23,7 +24,7 @@ Host, Browser Extension, installer, account/licensing layer.
 ## Requirements
 
 - Node.js 20 or newer
-- Linux or macOS (Windows code paths exist but are not yet covered by CI)
+- Linux, macOS or Windows (all three are covered by CI)
 
 ## Quick start
 
@@ -67,8 +68,12 @@ is a later milestone (ARCHITECTURE.md §16, step 7).
 ### Configuration
 
 See [`examples/crot.config.example.json`](examples/crot.config.example.json).
-Relative paths in a config file are resolved against the file's directory. CROT
+Relative paths in a config file are resolved against the file's directory, `~`
+is expanded, and a UTF-8 byte-order mark is accepted. On Windows, paths in JSON
+can use forward slashes (`"C:/Users/me/project"`) or escaped backslashes. CROT
 has no built-in project paths; the workspace is always chosen by the user.
+Prefer absolute paths on the command line: MCP clients may start CROT in any
+directory (CROT warns when a relative path is resolved).
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -113,13 +118,54 @@ process. To prevent command execution, leave `shell.execute` and
 `process.manage` out of the capability set (for example, a read-only setup is
 `"capabilities": ["filesystem.read"]`).
 
+## Platform support
+
+OS-specific behaviour lives behind Core platform interfaces (`src/core/platform/`),
+implemented with portable Node.js APIs by `createNodePlatform()`. The future CROT
+Native Host can provide stronger implementations of the same interfaces (for
+example Windows Job Objects) without changes to Core or to the permission model.
+Platform code performs no authorization.
+
+| Interface | Responsibility | Linux / macOS | Windows |
+| --- | --- | --- | --- |
+| `PathRules` | path syntax validation and comparison | POSIX paths; case sensitivity probed per workspace (default macOS volumes are case-insensitive, with Unicode normalization) | drive letters and UNC paths, `/` or `\`, always case-insensitive; rejects device names (`CON`, `NUL`, `COM1`…), alternate data streams, `\\?\`/`\\.\` paths, drive-relative paths (`D:x`) and names ending in `.` or space |
+| `ProcessLauncher` | command resolution, start, tree termination | PATH lookup; every child leads its own process group, so the whole tree is terminated, including descendants that outlive the command | PATH + PATHEXT lookup; `.cmd`/`.bat` files (`npm`, `npx`, …) run through `cmd.exe` with escaped arguments; tree termination with `taskkill /T` |
+| `ShellProvider` | shell scripts | `sh` (default), `bash`, `zsh`, `pwsh` when installed | `cmd` (default), `powershell`, `pwsh`, `bash` when installed; PowerShell scripts are passed as `-EncodedCommand` |
+| `EnvironmentPolicy` | child environment | case-sensitive names | case-insensitive names (`PATH` overrides `Path` instead of duplicating it) |
+| `PlatformInfo` | reported in `crot_status` and the MCP instructions | OS, architecture, path style, default and available shells | same |
+
+Environment overrides may set a variable to `null` to remove it. A foreground
+command owns its process tree: descendants still running when it finishes or
+times out are terminated; use `process_start` for long-running processes.
+
+### Known platform limitations
+
+- Windows: without Job Objects, descendants whose parent has already exited
+  cannot be terminated; graceful termination of console programs is not
+  possible (`taskkill` without `/F` is ignored), so CROT escalates to forced
+  termination after a grace period. Arguments passed to `.cmd`/`.bat` files
+  follow cmd.exe rules; a batch file that re-expands `%*` unsafely can still
+  misinterpret special characters.
+- Command output is decoded as UTF-8. Windows console programs using a legacy
+  code page may produce garbled non-ASCII output.
+- MCP clients started from a desktop launcher (macOS Dock, Linux desktop) may
+  pass a minimal `PATH`; set `PATH` explicitly via the client configuration or
+  per command.
+
 ## Security properties
 
 - Validated inputs: strict zod schemas owned by Core; unknown fields are rejected.
-- Path traversal protection: paths are canonicalized (realpath of the longest
-  existing prefix), so `..` and symlinks cannot leave the workspace unnoticed;
+- Path traversal protection: paths are validated against platform rules and
+  canonicalized (realpath of the longest existing prefix), so `..`, symlinks and
+  junctions cannot leave the workspace unnoticed; comparisons honour the
+  filesystem's case sensitivity;
   recursive listing never follows symlinks; entry operations (stat, delete, move)
-  act on links, not their targets; the workspace root cannot be deleted or moved.
+  act on links, not their targets; the workspace root cannot be deleted or moved;
+  FIFOs, sockets and devices are never opened as files.
+- Protected paths: the audit log and the configuration file in use cannot be
+  modified, deleted or moved through CROT tools in any mode (enforced by the
+  PermissionEngine; listed in `crot_status`). A command run with `shell.execute`
+  is not restricted by this rule.
 - Controlled subprocesses: argv execution without a shell by default; shell
   scripts are a separate, explicit tool; mandatory timeouts for foreground
   commands; process-tree termination; bounded output capture.
@@ -136,7 +182,7 @@ process. To prevent command execution, leave `shell.execute` and
 | `crot_status` | — |
 | `fs_read_file`, `fs_list_directory`, `fs_stat` | `filesystem.read` |
 | `fs_write_file`, `fs_create_directory`, `fs_delete`, `fs_move` | `filesystem.write` |
-| `process_exec`, `shell_run` | `shell.execute` |
+| `process_exec`, `shell_run` (optional `shell`) | `shell.execute` |
 | `process_start` | `process.manage` + `shell.execute` |
 | `process_list`, `process_read_output`, `process_stop`, `process_remove` | `process.manage` |
 
@@ -152,6 +198,7 @@ src/
     workspace/             workspace boundary and path resolution
     config/                configuration schema and loading
     execution/             ExecutionGuard (authorize → execute → audit)
+    platform/              PathRules, ProcessLauncher, ShellProvider, EnvironmentPolicy, PlatformInfo
     audit/                 audit events and sinks
     capabilities/
       filesystem/          FileSystemService + input schemas
@@ -178,4 +225,6 @@ npm test           # also builds the sources into a temporary directory for the 
 npm run check      # typecheck + test + build
 ```
 
-CI runs on Ubuntu and macOS with Node 20 and 22.
+CI runs on Ubuntu, macOS and Windows with Node 20 and 22. Windows-specific
+behaviour (cmd quoting, PATHEXT lookup, path rules, environment casing) is also
+unit-tested as pure functions on every OS.
