@@ -8,8 +8,11 @@
  * The browser bridge is only a transport for the CROT Browser Extension: every
  * browser tool call is authorized by Core's PermissionEngine.
  * In stdio mode stdout is reserved for the MCP protocol; all diagnostics go to stderr.
+ * `crot-mcp browser install` registers the CROT Host with Chromium browsers and exits.
  */
+import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { DEFAULT_HTTP_TOKEN_FILE_NAME, LocalTokenVerifier, loadOrCreateLocalToken } from "../adapters/http/auth.js";
 import { CrotHttpServer } from "../adapters/http/server.js";
@@ -17,13 +20,15 @@ import { localContextResolver } from "../adapters/mcp/context.js";
 import { createCrotMcpServer } from "../adapters/mcp/server.js";
 import type { BrowserBridge } from "../browser-bridge/server.js";
 import { browserProtectedPaths, startBrowserBridge } from "../cli/browser.js";
+import { formatInstallResult, installBrowserHost, regExeWriter } from "../cli/browser-install.js";
 import { flushStream, installLifecycle } from "../cli/lifecycle.js";
 import { parseCli, USAGE } from "../cli/options.js";
 import { parseConfig } from "../core/config/load.js";
 import { expandHome } from "../core/config/paths.js";
 import { CORE_VERSION, CrotCore } from "../core/crot-core.js";
 import { CrotError } from "../core/errors.js";
-import { hostDirectories } from "../core/platform/node-platform.js";
+import { hostDirectories, osFamily } from "../core/platform/node-platform.js";
+import { createPrivateFileProtection } from "../core/platform/private-files.js";
 import { NativeHost } from "../native-host/native-host.js";
 
 const log = (message: string) => process.stderr.write(`crot: ${message}\n`);
@@ -39,6 +44,10 @@ async function main(): Promise<void> {
   }
   if (command.kind === "version") {
     process.stdout.write(`${CORE_VERSION}\n`);
+    return;
+  }
+  if (command.kind === "browser-install") {
+    await installBrowser();
     return;
   }
 
@@ -130,6 +139,23 @@ async function main(): Promise<void> {
   process.stdout.on("error", () => lifecycle.stop("stdout closed", 0));
 
   await server.connect(transport);
+}
+
+/** `crot-mcp browser install`: register this CROT installation as the native-messaging host for the current user. */
+async function installBrowser(): Promise<void> {
+  const windows = process.platform === "win32";
+  const result = await installBrowserHost({
+    os: osFamily(process.platform),
+    home: os.homedir(),
+    env: process.env,
+    stateDir: hostDirectories(process.env).state,
+    nodePath: process.execPath,
+    // dist/bin/crot-browser-relay.js next to this file.
+    relayScript: fileURLToPath(new URL("./crot-browser-relay.js", import.meta.url)),
+    privateFiles: createPrivateFileProtection(windows),
+    ...(windows ? { registry: regExeWriter(process.env.SystemRoot ?? "C:\\Windows") } : {}),
+  });
+  process.stdout.write(formatInstallResult(result));
 }
 
 async function serveHttp(
