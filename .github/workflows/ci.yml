@@ -25,6 +25,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      # Verify the production build; tests build their own copy for the stdio end-to-end test.
+      # CROT Browser Extension sources and tests (against a fake chrome API).
+      - run: npm run typecheck:extension
+      # Verify the production builds; tests build their own copy of CROT for the stdio and browser end-to-end tests.
       - run: npm run build
+      - run: npm run build:extension
       - run: npm test
+      - run: npm run test:extension
