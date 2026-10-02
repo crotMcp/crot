@@ -140,15 +140,28 @@ describe.runIf(isWindows)("process: shell (Windows)", () => {
   });
 
   it("merges environment variables case-insensitively", async () => {
+    // Runner PATH values are several KB (beyond this core's 1 KB output cap), so the child
+    // compares the merged value itself and reports a small, fixed-size result.
     const marker = "C:\\crot-marker";
+    const parentName = Object.keys(process.env).find((n) => n.toUpperCase() === "PATH")!;
+    const expected = `${process.env[parentName]};${marker}`;
+    const script = [
+      "const k=Object.keys(process.env).filter(n=>n.toUpperCase()==='PATH');",
+      "const v=process.env[k[0]];",
+      "console.log(JSON.stringify({names:k,equal:v===process.env.CROT_EXPECTED_PATH,length:v.length}))",
+    ].join("");
     const r = await core.processes.exec(ctx, {
       command: node,
-      args: ["-e", "const k=Object.keys(process.env).filter(n=>n.toUpperCase()==='PATH');console.log(JSON.stringify([k.length, process.env.PATH]))"],
-      env: { path: `${process.env.PATH};${marker}` },
+      args: ["-e", script],
+      env: { path: expected, CROT_EXPECTED_PATH: expected },
     });
-    const [count, value] = JSON.parse(r.stdout.trim()) as [number, string];
-    expect(count).toBe(1);
-    expect(value.endsWith(marker)).toBe(true);
+    expect(r.stderr).toBe("");
+    expect(r.stdoutTruncated).toBe(false);
+    const result = JSON.parse(r.stdout.trim()) as { names: string[]; equal: boolean; length: number };
+    // One variable, spelled as in the parent (e.g. "Path"), holding exactly the override.
+    expect(result.names).toEqual([parentName]);
+    expect(result.equal).toBe(true);
+    expect(result.length).toBe(expected.length);
   });
 });
 
