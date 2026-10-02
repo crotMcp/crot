@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "workspace": {
+    "root": "/absolute/path/to/your/project",
+    "name": "my-project"
+  },
+  "permissions": {
+    "mode": "sandbox"
+  },
+  "limits": {
+    "defaultCommandTimeoutMs": 120000,
+    "maxCommandTimeoutMs": 3600000,
+    "maxOutputBytes": 1048576,
+    "maxReadBytes": 10485760,
+    "maxBackgroundProcesses": 16
+  },
+  "audit": {
+    "sink": "file",
+    "path": "./crot-audit.jsonl"
+  }
+}
