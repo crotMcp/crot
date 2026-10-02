@@ -9,7 +9,7 @@ README describes the current implementation and how to run it.
 
 ## Status
 
-Implemented (ARCHITECTURE.md §16, steps 1–6):
+Implemented (ARCHITECTURE.md §16, steps 1–6, and the first part of step 7):
 
 - CROT Core: configuration, workspace, central permission engine, execution guard
 - Filesystem capability
@@ -17,9 +17,11 @@ Implemented (ARCHITECTURE.md §16, steps 1–6):
 - Audit logging
 - Platform layer: Linux, macOS and Windows behaviour behind Core interfaces
 - CROT MCP: thin adapter over Core, stdio transport
+- CROT MCP over Streamable HTTP: **loopback only**, bearer-token authentication
+  behind a replaceable verifier (see [HTTP transport](#http-transport))
 
-Not yet implemented: remote (HTTP) MCP transport and MCP authorization, Native
-Host, Browser Extension, installer, account/licensing layer.
+Not yet implemented: remote (non-loopback) exposure and MCP authorization
+(OAuth/OIDC), Native Host, Browser Extension, installer, account/licensing layer.
 
 ## Requirements
 
@@ -37,6 +39,9 @@ node dist/bin/crot-mcp.js --workspace /path/to/project
 
 # Full control: the agent gets the OS-level capabilities of the CROT process.
 node dist/bin/crot-mcp.js --workspace /path/to/project --mode full-control
+
+# Streamable HTTP on loopback (bearer token required).
+node dist/bin/crot-mcp.js --workspace /path/to/project --http
 ```
 
 Register it in any MCP client that supports stdio servers, for example:
@@ -52,8 +57,9 @@ Register it in any MCP client that supports stdio servers, for example:
 }
 ```
 
-Clients that only connect to remote MCP servers need the remote transport, which
-is a later milestone (ARCHITECTURE.md §16, step 7).
+Clients that speak Streamable HTTP can connect to the loopback endpoint (see
+[HTTP transport](#http-transport)). Clients that only reach servers on the
+internet need remote exposure, which is not part of this version.
 
 ### Command-line options
 
@@ -64,6 +70,9 @@ is a later milestone (ARCHITECTURE.md §16, step 7).
 | `-m, --mode <mode>` | `sandbox` or `full-control` (overrides the config file) |
 | `--audit-log <file>` | Append audit events to a JSON-lines file |
 | `--no-audit` | Disable audit logging |
+| `--http` | Serve MCP over Streamable HTTP instead of stdio |
+| `--http-host <host>` | HTTP bind address; loopback only (default `127.0.0.1`) |
+| `--http-port <port>` | HTTP port (default `7337`; `0` picks a free port) |
 
 ### Configuration
 
@@ -89,6 +98,15 @@ directory (CROT warns when a relative path is resolved).
 | `audit.sink` | `stderr` | `file`, `stderr` or `none` |
 | `audit.path` | `<logs>/audit.jsonl` | Audit file for the `file` sink (see [Default locations](#default-locations)) |
 | `environment.path` | `auto` | `PATH` for commands: `auto`, `login-shell` or `inherited` (see [Startup PATH](#startup-path)) |
+| `http.enabled` | `false` | Serve over Streamable HTTP instead of stdio |
+| `http.host` | `127.0.0.1` | Bind address; only loopback (`127.0.0.0/8`, `::1`, `localhost`) is accepted |
+| `http.port` | `7337` | TCP port (`0`: any free port) |
+| `http.auth.mode` | `local-token` | Authentication method (the only one in this version) |
+| `http.auth.tokenFile` | `<state>/http-token` | Bearer token file, created on first start |
+| `http.allowedOrigins` | `[]` | Browser origins allowed; requests with any other `Origin` are rejected |
+| `http.maxRequestBytes` | 4 MiB | Maximum request body |
+| `http.maxSessions` | 16 | Concurrent MCP sessions |
+| `http.sessionIdleTimeoutMs` | 1 800 000 | Idle sessions are closed after this time |
 
 ### Default locations
 
@@ -107,8 +125,79 @@ defaulted.
   exists, it is loaded (command-line flags still override it) and protected
   like any other configuration file.
 - `"audit": { "sink": "file" }` without a `path` writes to `<logs>/audit.jsonl`.
-- The directories are reported in `crot_status` (`platform.directories`); the
-  state directory is reserved for later milestones.
+- The HTTP token file defaults to `<state>/http-token`.
+- The directories are reported in `crot_status` (`platform.directories`).
+
+## HTTP transport
+
+`--http` (or `http.enabled: true`) serves the same CROT MCP server over the MCP
+Streamable HTTP transport of the official SDK (`StreamableHTTPServerTransport`)
+at `http://127.0.0.1:7337/mcp`. HTTP is only another adapter: every session gets
+its own MCP server instance created by the same `createCrotMcpServer`, bound to
+the same `CrotCore`, so tools, Core services, the PermissionEngine and audit are
+identical to stdio. There is no HTTP-specific filesystem, process or permission
+logic.
+
+**Authentication.** Every request needs `Authorization: Bearer <token>`, also on
+loopback. With `local-token`, CROT creates a random 256-bit token in the token
+file on first start (`0600` in a `0700` directory on POSIX; inherited ACLs on
+Windows) and logs only its location and a fingerprint, never the token. Local
+clients read the token from that file. Tokens are compared in constant time.
+The token file is added to Core's protected paths, so CROT tools cannot modify
+it.
+
+Authentication happens behind a replaceable `AccessTokenVerifier`
+(`src/adapters/http/auth.ts`), shape-compatible with the SDK's OAuth token
+verifier. It only establishes the principal; authorization stays with the
+PermissionEngine. A future OAuth/OIDC resource-server verifier (user/device
+identity, accounts) replaces the provisional token without changes to the HTTP
+server, the MCP tools, Core or the PermissionEngine.
+
+**Principal.** HTTP requests run as
+`{ id: "local-token:<fingerprint>", kind: "remote", transport: "http", authMethod: "local-token", client }`,
+recorded in every audit event; stdio requests remain
+`{ id: "local-user", kind: "local", transport: "stdio" }`. Credentials never
+reach Core or the audit log.
+
+**Request pipeline.** Checked in order, before anything reaches the MCP server
+or Core:
+
+| Check | Rejection |
+| --- | --- |
+| `Host` is a loopback name on the bound port (DNS rebinding) | 403 |
+| path is `/mcp` | 404 |
+| `Origin`, if present, is in `http.allowedOrigins` (empty by default) | 403 |
+| method is `POST`, `GET` or `DELETE` | 405 |
+| valid bearer credential | 401 with `WWW-Authenticate: Bearer` |
+| body ≤ `http.maxRequestBytes` | 413 |
+| body is JSON | 400 (`-32700`) |
+| session: a new one only via `initialize`; existing ones only for the principal that opened them | 400 / 404 |
+| session count ≤ `http.maxSessions` | 503 |
+
+Rejections are JSON-RPC error objects without internal details or stack traces;
+unexpected failures return a generic `500 Internal error`. Core errors (for
+example `PERMISSION_DENIED`) are returned as MCP tool errors exactly as on
+stdio.
+
+**Lifecycle.** One shutdown path for both transports: on a shutdown signal the
+HTTP server stops accepting connections, closes all sessions and open
+connections, then `core.shutdown()` terminates processes, drains and flushes the
+audit log. Idle sessions are closed after `http.sessionIdleTimeoutMs`.
+
+**Limitations (honest status).**
+
+- Loopback only. Binding any other address is refused; remote exposure needs
+  TLS and a real authorization server, which are future milestones.
+- The local token is a provisional, static, shared credential: no expiry,
+  rotation or per-device identity. Anyone who can read the token file can act
+  as the HTTP principal. Delete the file to rotate it (restart required).
+- No TLS: traffic is plaintext on the loopback interface.
+- In `full_control` mode an agent can read the token file (writes are blocked
+  by the protected paths); in sandbox mode the token file is outside the
+  workspace unless configured otherwise.
+- HTTP-level rejections (401, 403, ...) are logged to stderr, not to the audit
+  log, which records Core operations only.
+- On Windows the token file relies on the ACLs inherited from `%LOCALAPPDATA%`.
 
 ## Permission model
 
@@ -126,6 +215,8 @@ Rules:
 | --- | --- | --- |
 | `sandbox` | `filesystem.read`, `filesystem.write`, `shell.execute`, `process.manage`, `git.read`, `git.write` | Workspace only |
 | `full_control` | all capabilities | Unrestricted |
+
+The rules are the same for every transport and principal.
 
 Enforced capabilities today: `filesystem.read`, `filesystem.write`,
 `filesystem.full`, `shell.execute`, `process.manage`. The others (`git.*`,
@@ -156,7 +247,7 @@ Platform code performs no authorization.
 | `EncodingSupport` | decoding of command output | UTF-8 | UTF-8; output that is not valid UTF-8 is decoded with the console (OEM) code page, detected from the registry; `cmd` scripts run in a `cmd.exe` started after the console is switched to UTF-8 (`chcp 65001`), so built-ins such as `echo` and `dir` write UTF-8 (see [Output encoding](#output-encoding)); PowerShell writes UTF-8 |
 | startup `PATH` | `PATH` for commands and shell detection | login shell `PATH` for desktop-launched clients, plus standard directories (see below) | inherited |
 | `PlatformDirectories` | default config/state/log locations | XDG (Linux), `~/Library` (macOS) | `%APPDATA%`, `%LOCALAPPDATA%` |
-| `PrivateFileProtection` | audit log (and future state) files | created `0600` in `0700` directories; existing files checked | inherited ACLs, reported as not restricted by Core |
+| `PrivateFileProtection` | audit log, HTTP token file | created `0600` in `0700` directories; existing files checked | inherited ACLs, reported as not restricted by Core |
 | `PlatformInfo` | reported in `crot_status` and the MCP instructions | OS, architecture, path style, shells, encodings, process-control guarantees, PATH source, directories | same |
 
 Environment overrides may set a variable to `null` to remove it. A foreground
@@ -206,10 +297,12 @@ mksh, yash and fish; if the shell fails or times out, CROT keeps the inherited
 
 ### Shutdown
 
-The stdio server shuts down gracefully when the client closes stdin or stdout,
-and on the platform's shutdown signals: `SIGINT`, `SIGTERM` and `SIGHUP` (POSIX
+The stdio server shuts down gracefully when the client closes stdin or stdout;
+both the stdio and the HTTP server shut down on the platform's shutdown signals:
+`SIGINT`, `SIGTERM` and `SIGHUP` (POSIX
 terminal hang-up); on Windows also `SIGBREAK` (Ctrl+Break) and `SIGHUP` (console
-window closed). Shutdown stops accepting commands, terminates every process tree
+window closed). Shutdown closes the transport (for HTTP: stops listening, closes
+every session and connection), stops accepting commands, terminates every process tree
 CROT started (background processes and running foreground commands; graceful
 first on POSIX, forced immediately on Windows, where graceful termination of
 console programs is not possible), waits for operations in flight to write
@@ -247,7 +340,7 @@ exit hook force-kills any process tree that is still running.
   write the ANSI code page instead (for example some Python versions when
   output is redirected) need `encoding: "ansi"`; non-UTF-8 output that happens
   to be valid UTF-8 is decoded as UTF-8.
-- Windows audit log access is governed by the ACLs inherited from its
+- Windows audit log and token file access is governed by the ACLs inherited from their
   directory; Core does not restrict them (the default `%LOCALAPPDATA%` location
   is private to the user). Owner-only modes are applied on POSIX only.
 - The startup `PATH` heuristic relies on `SHLVL`; set `environment.path` to
@@ -262,10 +355,12 @@ The Native Host will implement the same platform interfaces with native code:
   process is created, so every descendant is contained and terminated, even
   after its parent exited or when CROT is killed (`processControl.treeTermination: "job-object"`).
 - Graceful termination of Windows console programs (`GenerateConsoleCtrlEvent`).
-- Restrictive Windows ACLs for CROT's private files, set by the Native Host or
-  installer.
+- Restrictive Windows ACLs for CROT's private files (audit log, HTTP token),
+  set by the Native Host or installer.
 - OS-level sandboxing of commands (Core's sandbox confines paths and working
   directories, not what a command does).
+- Credential provisioning for the HTTP transport (device identity/registration
+  verifier, token rotation) and running CROT as a supervised service.
 
 ## Security properties
 
@@ -277,7 +372,8 @@ The Native Host will implement the same platform interfaces with native code:
   recursive listing never follows symlinks; entry operations (stat, delete, move)
   act on links, not their targets; the workspace root cannot be deleted or moved;
   FIFOs, sockets and devices are never opened as files.
-- Protected paths: the audit log and the configuration file in use cannot be
+- Protected paths: the audit log, the configuration file in use and the HTTP
+  token file cannot be
   modified, deleted or moved through CROT tools in any mode (enforced by the
   PermissionEngine; listed in `crot_status`). A command run with `shell.execute`
   is not restricted by this rule. Protection from other local users is
@@ -288,10 +384,12 @@ The Native Host will implement the same platform interfaces with native code:
   scripts are a separate, explicit tool; mandatory timeouts for foreground
   commands; process-tree termination; bounded output capture.
 - Auditability: every authorized, failed and denied operation is recorded with
-  principal, capabilities, paths, outcome and duration. Audit events never
-  contain file contents, command output, stdin or environment values.
+  principal (including transport and authentication method), capabilities,
+  paths, outcome and duration. Audit events never
+  contain file contents, command output, stdin, environment values or credentials.
 - No telemetry and no network communication: CROT itself makes no outbound
-  connections. The stdio server communicates only with the client that launched it.
+  connections. The stdio server communicates only with the client that launched
+  it; the HTTP server listens on loopback only and requires authentication.
 
 ## MCP tools
 
@@ -304,7 +402,8 @@ The Native Host will implement the same platform interfaces with native code:
 | `process_start` | `process.manage` + `shell.execute` |
 | `process_list`, `process_read_output`, `process_stop`, `process_remove` | `process.manage` |
 
-Paths outside the workspace additionally require `filesystem.full`.
+Paths outside the workspace additionally require `filesystem.full`. The tool
+set is identical on stdio and HTTP.
 
 ## Code layout
 
@@ -324,15 +423,16 @@ src/
       process/             ProcessService + input schemas
     crot-core.ts           composition root
   adapters/mcp/            CROT MCP: tool catalogue, server, request → AuthContext
+  adapters/http/           Streamable HTTP transport: request pipeline, sessions,
+                           AccessTokenVerifier seam, local token, AuthInfo → Principal
   cli/                     command-line option parsing, host shutdown lifecycle
-  bin/crot-mcp.ts          stdio entry point
-tests/                     vitest suites (core, capabilities, MCP adapter, CLI, stdio e2e)
+  bin/crot-mcp.ts          entry point (stdio or --http)
+tests/                     vitest suites (core, capabilities, MCP and HTTP adapters, CLI, stdio e2e)
 ```
 
 Dependency direction: `bin` → `adapters` → `core`. Core never imports the MCP
-SDK. A future transport (remote HTTP with MCP authorization) supplies its own
-`ContextResolver` that derives the principal from the request's `authInfo`; tools
-and Core remain unchanged.
+SDK. The HTTP adapter supplies its own `ContextResolver` that derives the
+principal from the request's verified `authInfo`; tools and Core are unchanged.
 
 ## Development
 
