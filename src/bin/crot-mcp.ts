@@ -8,11 +8,15 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { localContextResolver } from "../adapters/mcp/context.js";
 import { createCrotMcpServer } from "../adapters/mcp/server.js";
+import { flushStream, installLifecycle } from "../cli/lifecycle.js";
 import { parseCli, USAGE } from "../cli/options.js";
 import { CORE_VERSION, CrotCore } from "../core/crot-core.js";
 import { CrotError } from "../core/errors.js";
 
 const log = (message: string) => process.stderr.write(`crot: ${message}\n`);
+
+/** Deadline for a graceful shutdown (Windows terminates a closed console's processes after about 5-10 s). */
+const SHUTDOWN_TIMEOUT_MS = 5_000;
 
 async function main(): Promise<void> {
   const command = await parseCli(process.argv.slice(2));
@@ -47,22 +51,28 @@ async function main(): Promise<void> {
   const server = createCrotMcpServer(core, { resolveContext: localContextResolver("stdio") });
   const transport = new StdioServerTransport();
 
-  let closing = false;
-  const shutdown = async (code: number) => {
-    if (closing) return;
-    closing = true;
-    try {
-      await server.close();
-    } catch {
-      // Transport may already be closed.
-    }
-    await core.shutdown();
-    process.exit(code);
-  };
-  transport.onclose = () => void shutdown(0);
-  process.stdin.on("end", () => void shutdown(0));
-  process.on("SIGINT", () => void shutdown(0));
-  process.on("SIGTERM", () => void shutdown(0));
+  const lifecycle = installLifecycle({
+    host: process,
+    signals: status.platform.shutdownSignals,
+    timeoutMs: SHUTDOWN_TIMEOUT_MS,
+    log,
+    shutdown: async (reason) => {
+      log(`shutting down (${reason})`);
+      try {
+        await server.close();
+      } catch {
+        // Transport may already be closed.
+      }
+      await core.shutdown();
+      await Promise.all([flushStream(process.stdout), flushStream(process.stderr)]);
+    },
+    emergency: () => core.terminateProcessesSync(),
+    exit: (code) => process.exit(code),
+  });
+  transport.onclose = () => lifecycle.stop("transport closed", 0);
+  process.stdin.on("end", () => lifecycle.stop("stdin closed", 0));
+  // The client went away: writing to stdout fails with EPIPE.
+  process.stdout.on("error", () => lifecycle.stop("stdout closed", 0));
 
   await server.connect(transport);
 }

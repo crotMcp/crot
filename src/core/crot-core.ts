@@ -29,6 +29,9 @@ export interface CrotStatus {
 
 export const CORE_VERSION = "0.1.0";
 
+/** How long shutdown waits for operations in flight to finish and be audited. */
+const SHUTDOWN_DRAIN_MS = 2_000;
+
 export interface CrotCoreOptions {
   /** Override the audit sink derived from configuration (embedding, tests). */
   readonly auditSink?: AuditSink;
@@ -59,6 +62,8 @@ export class CrotCore {
     private readonly audit: AuditSink,
     private readonly auditProtection: PrivateFileStatus | undefined,
   ) {}
+
+  private shuttingDown: Promise<void> | undefined;
 
   static async create(configInput: unknown, options: CrotCoreOptions = {}): Promise<CrotCore> {
     const parsed = parseConfig(configInput);
@@ -100,10 +105,27 @@ export class CrotCore {
     return new CrotCore(config, workspace, permissions, guard, filesystem, processes, platform, audit, auditProtection);
   }
 
-  /** Release resources: terminate background processes and flush the audit log. */
-  async shutdown(): Promise<void> {
-    await this.processes.shutdown();
-    await this.audit.close?.();
+  /**
+   * Release resources, in order: stop accepting commands and terminate every
+   * process tree CROT started; wait for operations in flight to write their
+   * audit records; flush and close the audit sink. Idempotent.
+   */
+  shutdown(): Promise<void> {
+    this.shuttingDown ??= (async () => {
+      await this.processes.shutdown();
+      await this.guard.drain(SHUTDOWN_DRAIN_MS);
+      await this.audit.close?.();
+    })();
+    return this.shuttingDown;
+  }
+
+  /**
+   * Last-resort cleanup when the host process exits without a completed
+   * shutdown (fatal error, second signal, timeout): forced, synchronous
+   * termination of every process tree CROT started. Safe to call repeatedly.
+   */
+  terminateProcessesSync(): void {
+    this.processes.terminateAllSync();
   }
 
   status(): CrotStatus {

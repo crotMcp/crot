@@ -116,6 +116,8 @@ export async function createNodePlatform(options: NodePlatformOptions = {}): Pro
       shells,
       directories: options.directories ?? hostDirectories(hostEnv),
       privateFiles: { mechanism: privateFiles.mechanism, enforced: privateFiles.enforced },
+      processControl: launcher.processControl,
+      shutdownSignals: windows ? ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"] : ["SIGINT", "SIGTERM", "SIGHUP"],
       startupPath: startup.info,
       encoding: { codePages: encodings.codePages, fallback: encodings.fallback },
     },

@@ -42,6 +42,10 @@ export interface PlatformInfo {
   readonly directories: PlatformDirectories;
   /** Protection of CROT's private files (see PrivateFileProtection). */
   readonly privateFiles: { readonly mechanism: PrivateFileProtection["mechanism"]; readonly enforced: boolean };
+  /** Process-tree guarantees of the launcher. */
+  readonly processControl: ProcessControlInfo;
+  /** Signals on which a CROT host process should shut down gracefully. */
+  readonly shutdownSignals: readonly NodeJS.Signals[];
   /** Where the PATH of child processes came from. */
   readonly startupPath: StartupPathInfo;
   /** How command output is decoded (see EncodingSupport). */
@@ -174,6 +178,11 @@ export interface ManagedProcess {
    * the platform allows it (POSIX process groups).
    */
   terminate(mode: TerminationMode): Promise<void>;
+  /**
+   * Forced, synchronous termination of the process tree. Used when CROT itself
+   * is exiting and asynchronous work can no longer complete (process 'exit').
+   */
+  terminateSync(): void;
 }
 
 export interface ProcessLauncher {
@@ -187,6 +196,22 @@ export interface ProcessLauncher {
   launch(spec: CommandSpec, options: LaunchOptions): Promise<ManagedProcess>;
   /** Whether terminate() can reach descendants after the direct child exited. */
   readonly canTerminateOrphanedDescendants: boolean;
+  /** What the launcher guarantees about process trees (reported in crot_status). */
+  readonly processControl: ProcessControlInfo;
+}
+
+/**
+ * Process-tree guarantees of a ProcessLauncher.
+ * - process-group (POSIX): every command leads its own process group.
+ * - taskkill-tree (Windows, Core): tree termination by parent-child links via taskkill /T.
+ * - job-object (Windows, Native Host, future): kernel-enforced containment of every descendant.
+ */
+export interface ProcessControlInfo {
+  readonly treeTermination: "process-group" | "taskkill-tree" | "job-object";
+  /** Descendants are terminated even after their parent exited. */
+  readonly orphanedDescendants: boolean;
+  /** terminate("graceful") lets console programs clean up (SIGTERM); otherwise graceful requests escalate to forced termination after a grace period. */
+  readonly gracefulTermination: boolean;
 }
 
 /** Windows OEM (console) and ANSI code pages. */

@@ -37,6 +37,8 @@ export interface ProcessServiceDeps {
 const STDIO_CLOSE_GRACE_MS = 500;
 /** Delay before a graceful termination is escalated to a forced one. */
 const TERMINATION_GRACE_MS = 2_000;
+/** Grace period before forced termination when CROT shuts down. */
+const SHUTDOWN_GRACE_MS = 1_000;
 /** Number of exited background process records kept for inspection. */
 const MAX_EXITED_RECORDS = 50;
 
@@ -72,7 +74,12 @@ type EnvOverrides = Readonly<Record<string, string | null>> | undefined;
  */
 export class ProcessService {
   private readonly processes = new Map<string, BackgroundProcess>();
+  /** Running foreground commands (terminated on shutdown). */
+  private readonly foreground = new Set<ManagedProcess>();
   private nextId = 1;
+  private closing = false;
+  /** Every tree was terminated by shutdown(); nothing is left for terminateAllSync(). */
+  private terminated = false;
 
   constructor(private readonly deps: ProcessServiceDeps) {}
 
@@ -89,6 +96,7 @@ export class ProcessService {
       details: { command: args.command, args: args.args, ...commonDetails(args, timeoutMs) },
     } as const;
     return this.deps.guard.run(context, op, async () => {
+      this.assertOpen();
       await assertDirectory(cwd);
       const env = this.env(args.env);
       const spec = await this.deps.platform.launcher.resolveCommand(args.command, args.args, { cwd: cwd.absolute, env });
@@ -110,6 +118,7 @@ export class ProcessService {
       details: { shell, script: args.script, ...commonDetails(args, timeoutMs) },
     } as const;
     return this.deps.guard.run(context, op, async () => {
+      this.assertOpen();
       await assertDirectory(cwd);
       const spec = this.deps.platform.shells.command(args.script, shell);
       return this.runForeground(spec, cwd, this.env(args.env), args.stdin, timeoutMs, encoding);
@@ -134,6 +143,7 @@ export class ProcessService {
     // Starting a process both executes a command and creates a managed process.
     const op = { operation: "process.start", capability: ["process.manage", "shell.execute"] as const, paths: [cwd], details };
     return this.deps.guard.run(context, op, async () => {
+      this.assertOpen();
       await assertDirectory(cwd);
       if (this.runningCount() >= this.deps.limits.maxBackgroundProcesses) {
         throw new CrotError("LIMIT_EXCEEDED", `Too many running background processes (limit ${this.deps.limits.maxBackgroundProcesses}).`);
@@ -144,6 +154,11 @@ export class ProcessService {
           ? this.deps.platform.shells.command(args.script, shell)
           : await this.deps.platform.launcher.resolveCommand(args.command!, args.args, { cwd: cwd.absolute, env });
       const proc = await this.deps.platform.launcher.launch(spec, { cwd: cwd.absolute, env, stdin: false });
+      if (this.closing) {
+        // Shutdown began while the process was starting.
+        await proc.terminate("force");
+        throw shuttingDown();
+      }
       const record: BackgroundProcess = {
         id: `p${this.nextId++}`,
         proc,
@@ -240,14 +255,40 @@ export class ProcessService {
     });
   }
 
-  /** Terminate every background process tree. Called when CROT shuts down. */
+  /**
+   * Stop accepting commands and terminate every process tree CROT started
+   * (background processes and running foreground commands): graceful first,
+   * forced after a short grace period. Called when CROT shuts down.
+   */
   async shutdown(): Promise<void> {
+    this.closing = true;
+    const all = [...[...this.processes.values()].map((p) => p.proc), ...this.foreground];
+    // Where graceful termination is not possible (Windows console programs), do not
+    // spend the client's shutdown window on it: terminate the trees immediately.
+    const grace = this.deps.platform.launcher.processControl.gracefulTermination ? SHUTDOWN_GRACE_MS : 0;
     await Promise.all(
-      [...this.processes.values()].map(async (p) => {
-        await terminateTree(p.proc, 1_000);
-        await Promise.race([p.proc.exited, delay(3_000)]);
+      all.map(async (proc) => {
+        await terminateTree(proc, grace);
+        await Promise.race([proc.exited, delay(3_000)]);
       }),
     );
+    this.terminated = this.foreground.size === 0;
+  }
+
+  /**
+   * Forced, synchronous termination of every process tree. For the host
+   * process 'exit' event and fatal errors, when asynchronous shutdown cannot run.
+   */
+  terminateAllSync(): void {
+    this.closing = true;
+    // Avoid signalling process groups that no longer exist (their ids may be reused).
+    if (this.terminated) return;
+    for (const p of this.processes.values()) p.proc.terminateSync();
+    for (const proc of this.foreground) proc.terminateSync();
+  }
+
+  private assertOpen(): void {
+    if (this.closing) throw shuttingDown();
   }
 
   private env(overrides: EnvOverrides): Record<string, string> {
@@ -264,6 +305,22 @@ export class ProcessService {
   ): Promise<ExecResult> {
     const started = Date.now();
     const proc = await this.deps.platform.launcher.launch(spec, { cwd: cwd.absolute, env, stdin: stdin !== undefined });
+    this.foreground.add(proc);
+    try {
+      return await this.collectForeground(proc, started, stdin, timeoutMs, encoding);
+    } finally {
+      this.foreground.delete(proc);
+    }
+  }
+
+  private async collectForeground(
+    proc: ManagedProcess,
+    started: number,
+    stdin: string | undefined,
+    timeoutMs: number,
+    encoding: ResolvedEncoding,
+  ): Promise<ExecResult> {
+    if (this.closing) void proc.terminate("force");
     const stdout = new OutputBuffer(this.deps.limits.maxOutputBytes, encoding);
     const stderr = new OutputBuffer(this.deps.limits.maxOutputBytes, encoding);
     capture(proc.stdout, stdout);
@@ -327,11 +384,17 @@ export class ProcessService {
   }
 }
 
-/** Graceful termination, escalated to a forced one if the child is still running after `graceMs`. */
+/** Graceful termination, escalated to a forced one if the child is still running after `graceMs` (0: forced right away). */
 async function terminateTree(proc: ManagedProcess, graceMs = TERMINATION_GRACE_MS): Promise<void> {
-  await proc.terminate("graceful");
-  await Promise.race([proc.exited, delay(graceMs)]);
+  if (graceMs > 0) {
+    await proc.terminate("graceful");
+    await Promise.race([proc.exited, delay(graceMs)]);
+  }
   await proc.terminate("force");
+}
+
+function shuttingDown(): CrotError {
+  return new CrotError("OPERATION_FAILED", "CROT is shutting down; no new commands are started.");
 }
 
 /** Collect a stream into a buffer; the buffer is finalized when the stream ends. */

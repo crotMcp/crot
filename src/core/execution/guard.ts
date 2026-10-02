@@ -31,13 +31,46 @@ export interface ExecutionGuardOptions {
  * authorized the operation, and every authorized or denied operation is audited.
  */
 export class ExecutionGuard {
+  /** Operations that have not finished (including their audit record). */
+  private readonly inFlight = new Set<Promise<unknown>>();
+
   constructor(
     private readonly engine: PermissionEngine,
     private readonly audit: AuditSink,
     private readonly options: ExecutionGuardOptions = {},
   ) {}
 
-  async run<T>(context: AuthContext, op: OperationDescriptor, execute: () => Promise<T>): Promise<T> {
+  run<T>(context: AuthContext, op: OperationDescriptor, execute: () => Promise<T>): Promise<T> {
+    const running = this.runGuarded(context, op, execute);
+    const settled = running.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.inFlight.add(settled);
+    void settled.then(() => this.inFlight.delete(settled));
+    return running;
+  }
+
+  /**
+   * Wait until operations in flight have finished and written their audit
+   * records, or until `timeoutMs` elapses. Returns the number still running.
+   */
+  async drain(timeoutMs: number): Promise<number> {
+    if (this.inFlight.size > 0) {
+      let timer: NodeJS.Timeout | undefined;
+      await Promise.race([
+        Promise.all([...this.inFlight]),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, timeoutMs);
+          timer.unref();
+        }),
+      ]);
+      clearTimeout(timer);
+    }
+    return this.inFlight.size;
+  }
+
+  private async runGuarded<T>(context: AuthContext, op: OperationDescriptor, execute: () => Promise<T>): Promise<T> {
     const started = Date.now();
     const capabilities: readonly Capability[] = typeof op.capability === "string" ? [op.capability] : op.capability;
     const base = {

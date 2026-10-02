@@ -48,9 +48,32 @@ export class MemoryAuditSink implements AuditSink {
 
 /** Writes one JSON line per event to a writable stream (stderr for local stdio servers). */
 export class StreamAuditSink implements AuditSink {
-  constructor(private readonly stream: NodeJS.WritableStream) {}
+  constructor(
+    private readonly stream: NodeJS.WritableStream,
+    private readonly flushTimeoutMs = 2_000,
+  ) {}
   async record(event: AuditEvent): Promise<void> {
     this.stream.write(`${JSON.stringify({ type: "crot.audit", ...event })}\n`);
+  }
+
+  /**
+   * Wait until buffered events have been handed to the OS. Pipes are
+   * asynchronous on macOS and Windows, so exiting right away could lose them.
+   */
+  close(): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(resolve, this.flushTimeoutMs);
+      timer.unref();
+      try {
+        this.stream.write("", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      } catch {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
   }
 }
 
