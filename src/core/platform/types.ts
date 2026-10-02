@@ -40,10 +40,32 @@ export interface PlatformInfo {
   readonly shells: readonly ShellInfo[];
   /** OS-conventional default locations (see platformDirectories). */
   readonly directories: PlatformDirectories;
+  /** Protection of CROT's private files (see PrivateFileProtection). */
+  readonly privateFiles: { readonly mechanism: PrivateFileProtection["mechanism"]; readonly enforced: boolean };
   /** Where the PATH of child processes came from. */
   readonly startupPath: StartupPathInfo;
   /** How command output is decoded (see EncodingSupport). */
   readonly encoding: { readonly codePages: CodePages | null; readonly fallback: string | null };
+}
+
+/** How CROT's private files (audit log, state) are protected from other local users. */
+export interface PrivateFileProtection {
+  /** posix-mode: owner-only permission bits; inherited-acl: Windows ACLs inherited from the directory (not restricted by Core). */
+  readonly mechanism: "posix-mode" | "inherited-acl";
+  /** Whether Core itself restricts access to the owner. */
+  readonly enforced: boolean;
+  /** Mode for newly created private files (POSIX), undefined where modes do not apply. */
+  readonly fileMode: number | undefined;
+  /** Create a directory for private files; new directories are owner-only where supported. */
+  ensureDirectory(dir: string): Promise<void>;
+  inspect(file: string): Promise<PrivateFileStatus>;
+}
+
+export interface PrivateFileStatus {
+  readonly mechanism: PrivateFileProtection["mechanism"];
+  /** true/false where Core can determine it; null when it cannot (Windows ACLs). */
+  readonly ownerOnly: boolean | null;
+  readonly detail: string;
 }
 
 /** Default directories for CROT's configuration, state and logs. */
@@ -205,6 +227,7 @@ export interface Platform {
   readonly shells: ShellProvider;
   readonly launcher: ProcessLauncher;
   readonly encodings: EncodingSupport;
+  readonly privateFiles: PrivateFileProtection;
   /** Probe whether paths below `directory` compare case-sensitively. */
   probeCaseSensitivity(directory: string): Promise<boolean>;
 }

@@ -40,6 +40,9 @@ async function main(): Promise<void> {
     log("WARNING: FULL CONTROL mode — the connected agent can access everything this process can.");
   }
   log(`audit: ${status.audit.sink}${status.audit.path ? ` (${status.audit.path})` : ""}`);
+  const protection = status.audit.protection;
+  if (protection && protection.ownerOnly === false) log(`warning: audit log ${protection.detail}`);
+  if (protection && protection.ownerOnly === null) log(`note: audit log ${protection.detail}`);
 
   const server = createCrotMcpServer(core, { resolveContext: localContextResolver("stdio") });
   const transport = new StdioServerTransport();

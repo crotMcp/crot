@@ -12,7 +12,7 @@ import { PermissionEngine } from "./permissions/engine.js";
 import { createPermissionPolicy, type PermissionMode } from "./permissions/policy.js";
 import { DEFAULT_AUDIT_FILE_NAME } from "./platform/directories.js";
 import { createNodePlatform } from "./platform/node-platform.js";
-import type { Platform, PlatformInfo } from "./platform/types.js";
+import type { Platform, PlatformInfo, PrivateFileProtection, PrivateFileStatus } from "./platform/types.js";
 import { Workspace, type WorkspaceInfo } from "./workspace/workspace.js";
 
 export interface CrotStatus {
@@ -21,7 +21,7 @@ export interface CrotStatus {
   readonly workspace: WorkspaceInfo;
   readonly capabilities: readonly { capability: Capability; granted: boolean; enforced: boolean }[];
   readonly limits: Limits;
-  readonly audit: { readonly sink: AuditConfig["sink"]; readonly path?: string };
+  readonly audit: { readonly sink: AuditConfig["sink"]; readonly path?: string; readonly protection?: PrivateFileStatus };
   readonly platform: PlatformInfo;
   /** Paths CROT tools may never modify (audit log, configuration). */
   readonly protectedPaths: readonly string[];
@@ -57,6 +57,7 @@ export class CrotCore {
     readonly processes: ProcessService,
     readonly platform: Platform,
     private readonly audit: AuditSink,
+    private readonly auditProtection: PrivateFileStatus | undefined,
   ) {}
 
   static async create(configInput: unknown, options: CrotCoreOptions = {}): Promise<CrotCore> {
@@ -81,7 +82,9 @@ export class CrotCore {
         ? { mode: config.permissions.mode, capabilities: config.permissions.capabilities }
         : { mode: config.permissions.mode },
     );
-    const audit = options.auditSink ?? createAuditSink(config.audit);
+    const audit = options.auditSink ?? createAuditSink(config.audit, platform.privateFiles);
+    const auditFile = audit instanceof JsonlFileAuditSink ? audit.file : config.audit.sink === "file" ? config.audit.path : undefined;
+    const auditProtection = auditFile ? await platform.privateFiles.inspect(auditFile) : undefined;
     const guarded = [
       ...(options.protectedPaths ?? []),
       ...(config.audit.sink === "file" && config.audit.path ? [config.audit.path] : []),
@@ -94,7 +97,7 @@ export class CrotCore {
     });
     const filesystem = new FileSystemService({ workspace, guard, limits: config.limits });
     const processes = new ProcessService({ workspace, guard, platform, limits: config.limits });
-    return new CrotCore(config, workspace, permissions, guard, filesystem, processes, platform, audit);
+    return new CrotCore(config, workspace, permissions, guard, filesystem, processes, platform, audit, auditProtection);
   }
 
   /** Release resources: terminate background processes and flush the audit log. */
@@ -114,14 +117,18 @@ export class CrotCore {
         enforced: ENFORCED_CAPABILITIES.has(capability),
       })),
       limits: this.config.limits,
-      audit: { sink: this.config.audit.sink, ...(this.config.audit.path ? { path: this.config.audit.path } : {}) },
+      audit: {
+        sink: this.config.audit.sink,
+        ...(this.config.audit.path ? { path: this.config.audit.path } : {}),
+        ...(this.auditProtection ? { protection: this.auditProtection } : {}),
+      },
       platform: this.platform.info,
       protectedPaths: this.permissions.protected,
     };
   }
 }
 
-function createAuditSink(config: AuditConfig): AuditSink {
+function createAuditSink(config: AuditConfig, protection: PrivateFileProtection): AuditSink {
   switch (config.sink) {
     case "none":
       return new NullAuditSink();
@@ -129,6 +136,6 @@ function createAuditSink(config: AuditConfig): AuditSink {
       return new StreamAuditSink(process.stderr);
     case "file":
       if (!config.path) throw new CrotError("CONFIG_ERROR", "audit.path is required for the file sink."); // resolved by create()
-      return new JsonlFileAuditSink(config.path);
+      return new JsonlFileAuditSink(config.path, protection);
   }
 }

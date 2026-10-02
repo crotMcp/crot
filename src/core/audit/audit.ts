@@ -54,16 +54,38 @@ export class StreamAuditSink implements AuditSink {
   }
 }
 
-/** Appends JSON lines to a local file (created with owner-only permissions). Writes are serialized. */
+/** How the audit file and its directory are created (the platform's PrivateFileProtection). */
+export interface AuditFileProtection {
+  ensureDirectory(dir: string): Promise<void>;
+  readonly fileMode: number | undefined;
+}
+
+/** POSIX owner-only defaults, used when no platform protection is supplied. */
+const POSIX_PRIVATE: AuditFileProtection = {
+  ensureDirectory: async (dir) => {
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+  },
+  fileMode: 0o600,
+};
+
+/**
+ * Appends JSON lines to a local file. Writes are serialized. The file and
+ * directory are created through the platform's private-file protection
+ * (owner-only on POSIX; inherited ACLs on Windows).
+ */
 export class JsonlFileAuditSink implements AuditSink {
   private queue: Promise<void> = Promise.resolve();
   private ready: Promise<void> | undefined;
 
-  constructor(readonly file: string) {}
+  constructor(
+    readonly file: string,
+    private readonly protection: AuditFileProtection = POSIX_PRIVATE,
+  ) {}
 
   record(event: AuditEvent): Promise<void> {
-    this.ready ??= mkdir(path.dirname(this.file), { recursive: true }).then(() => undefined);
-    const write = this.queue.then(() => this.ready).then(() => appendFile(this.file, `${JSON.stringify(event)}\n`, { mode: 0o600 }));
+    this.ready ??= this.protection.ensureDirectory(path.dirname(this.file));
+    const options = this.protection.fileMode !== undefined ? { mode: this.protection.fileMode } : {};
+    const write = this.queue.then(() => this.ready).then(() => appendFile(this.file, `${JSON.stringify(event)}\n`, options));
     this.queue = write.catch(() => undefined);
     return write;
   }

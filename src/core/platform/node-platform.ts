@@ -7,6 +7,7 @@ import { createEncodingSupport, parseWindowsCodePages } from "./encoding.js";
 import { createEnvironmentPolicy } from "./environment.js";
 import { createPosixLauncher, createWindowsLauncher, findPosixExecutable } from "./node-launcher.js";
 import { pathRulesFor } from "./path-rules.js";
+import { createPrivateFileProtection } from "./private-files.js";
 import { createShellProvider } from "./shells.js";
 import { resolveStartupPath, type LoginShellRunner } from "./startup-path.js";
 import type { CodePages, OsFamily, Platform, PlatformDirectories, ShellId, ShellInfo, StartupPathMode } from "./types.js";
@@ -99,6 +100,7 @@ export async function createNodePlatform(options: NodePlatformOptions = {}): Pro
       : await detectWindowsCodePages(environment.get(env, "SystemRoot") ?? "C:\\Windows")
     : null;
   const encodings = createEncodingSupport(codePages);
+  const privateFiles = createPrivateFileProtection(windows);
 
   return {
     info: {
@@ -113,6 +115,7 @@ export async function createNodePlatform(options: NodePlatformOptions = {}): Pro
       defaultShell,
       shells,
       directories: options.directories ?? hostDirectories(hostEnv),
+      privateFiles: { mechanism: privateFiles.mechanism, enforced: privateFiles.enforced },
       startupPath: startup.info,
       encoding: { codePages: encodings.codePages, fallback: encodings.fallback },
     },
@@ -122,6 +125,7 @@ export async function createNodePlatform(options: NodePlatformOptions = {}): Pro
     shells: createShellProvider(defaultShell, shells),
     launcher,
     encodings,
+    privateFiles,
     probeCaseSensitivity: (dir) => probeCaseSensitivity(dir, windows),
   };
 }

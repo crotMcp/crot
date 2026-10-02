@@ -52,7 +52,7 @@ describe("audit", () => {
     await core.shutdown();
     const lines = (await readFile(file, "utf8")).trim().split("\n").map((l) => JSON.parse(l) as AuditEvent);
     expect(lines.map((l) => l.operation)).toEqual(["filesystem.write_file", "filesystem.list_directory"]);
-    expect(core.status().audit).toEqual({ sink: "file", path: file });
+    expect(core.status().audit).toMatchObject({ sink: "file", path: file, protection: { mechanism: core.platform.privateFiles.mechanism } });
   });
 
   it("does not fail operations when the audit sink fails", async () => {
