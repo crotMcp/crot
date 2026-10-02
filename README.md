@@ -159,9 +159,10 @@ logic.
 
 **Authentication.** Every request needs `Authorization: Bearer <token>`, also on
 loopback. With `local-token`, CROT creates a random 256-bit token in the token
-file on first start (`0600` in a `0700` directory on POSIX; inherited ACLs on
-Windows) and logs only its location and a fingerprint, never the token. Local
-clients read the token from that file. Tokens are compared in constant time.
+file on first start (`0600` in a `0700` directory on POSIX; an owner-only ACL
+set by the Native Host on Windows) and logs only its location and a
+fingerprint, never the token. Local clients read the token from that file.
+Tokens are compared in constant time.
 The token file is added to Core's protected paths, so CROT tools cannot modify
 it.
 
@@ -216,7 +217,9 @@ audit log. Idle sessions are closed after `http.sessionIdleTimeoutMs`.
   workspace unless configured otherwise.
 - HTTP-level rejections (401, 403, ...) are logged to stderr, not to the audit
   log, which records Core operations only.
-- On Windows the token file relies on the ACLs inherited from `%LOCALAPPDATA%`.
+- On Windows the token file is restricted to the CROT user with an owner-only
+  ACL by the Native Host; administrators and the file owner can still change
+  it (see [`docs/NATIVE_HOST.md`](docs/NATIVE_HOST.md)).
 
 ## Permission model
 
@@ -260,10 +263,11 @@ process. To prevent command execution, leave `shell.execute` and
 ## Platform support
 
 OS-specific behaviour lives behind Core platform interfaces (`src/core/platform/`),
-implemented with portable Node.js APIs by `createNodePlatform()`. The future CROT
-Native Host can provide stronger implementations of the same interfaces (for
-example Windows Job Objects) without changes to Core or to the permission model.
-Platform code performs no authorization.
+implemented with portable Node.js APIs by `createNodePlatform()`. On Windows the
+CROT Native Host ([`docs/NATIVE_HOST.md`](docs/NATIVE_HOST.md)) replaces
+`ProcessLauncher` and `PrivateFileProtection` with stronger implementations
+(kill-on-close Job Objects, owner-only ACLs) without changes to Core or to the
+permission model. Platform code performs no authorization.
 
 | Interface | Responsibility | Linux / macOS | Windows |
 | --- | --- | --- | --- |
@@ -274,7 +278,7 @@ Platform code performs no authorization.
 | `EncodingSupport` | decoding of command output | UTF-8 | UTF-8; output that is not valid UTF-8 is decoded with the console (OEM) code page, detected from the registry; `cmd` scripts run in a `cmd.exe` started after the console is switched to UTF-8 (`chcp 65001`), so built-ins such as `echo` and `dir` write UTF-8 (see [Output encoding](#output-encoding)); PowerShell writes UTF-8 |
 | startup `PATH` | `PATH` for commands and shell detection | login shell `PATH` for desktop-launched clients, plus standard directories (see below) | inherited |
 | `PlatformDirectories` | default config/state/log locations | XDG (Linux), `~/Library` (macOS) | `%APPDATA%`, `%LOCALAPPDATA%` |
-| `PrivateFileProtection` | audit log, HTTP token file | created `0600` in `0700` directories; existing files checked | inherited ACLs, reported as not restricted by Core |
+| `PrivateFileProtection` | audit log, HTTP token file, browser bridge token file | created `0600` in `0700` directories; existing files checked | owner-only ACL set by the Native Host (inheritance removed, verified); Core fallback: inherited ACLs |
 | `PlatformInfo` | reported in `crot_status` and the MCP instructions | OS, architecture, path style, shells, encodings, process-control guarantees, PATH source, directories | same |
 
 Environment overrides may set a variable to `null` to remove it. A foreground
@@ -367,23 +371,23 @@ exit hook force-kills any process tree that is still running.
   write the ANSI code page instead (for example some Python versions when
   output is redirected) need `encoding: "ansi"`; non-UTF-8 output that happens
   to be valid UTF-8 is decoded as UTF-8.
-- Windows audit log and token file access is governed by the ACLs inherited from their
-  directory; Core does not restrict them (the default `%LOCALAPPDATA%` location
-  is private to the user). Owner-only modes are applied on POSIX only.
+- Windows private files (audit log, token files) are restricted with owner-only
+  ACLs by the Native Host; administrators and the file owner can still change
+  them, and if the ACL tools are unavailable the Native Host falls back to the
+  Core mechanism and reports it at startup. Owner-only modes (`0600`/`0700`)
+  are applied on POSIX only.
 - The startup `PATH` heuristic relies on `SHLVL`; set `environment.path` to
   `login-shell` or `inherited` to choose explicitly. Windows `PATH` changes made
   after the client started (for example by an installer) are not picked up.
 
-### Deferred to the CROT Native Host
+### Not yet implemented
 
-The Native Host will implement the same platform interfaces with native code:
+The Native Host already provides Windows kill-on-close Job Objects and
+owner-only ACLs (see [`docs/NATIVE_HOST.md`](docs/NATIVE_HOST.md), including
+its limitations). Not yet implemented:
 
-- Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`), assigned when a
-  process is created, so every descendant is contained and terminated, even
-  after its parent exited or when CROT is killed (`processControl.treeTermination: "job-object"`).
-- Graceful termination of Windows console programs (`GenerateConsoleCtrlEvent`).
-- Restrictive Windows ACLs for CROT's private files (audit log, HTTP token),
-  set by the Native Host or installer.
+- Graceful termination of Windows console programs (`GenerateConsoleCtrlEvent`);
+  graceful termination requests escalate to forced termination.
 - OS-level sandboxing of commands (Core's sandbox confines paths and working
   directories, not what a command does).
 - Credential provisioning for the HTTP transport (device identity/registration
@@ -405,8 +409,9 @@ The Native Host will implement the same platform interfaces with native code:
   PermissionEngine; listed in `crot_status`). A command run with `shell.execute`
   is not restricted by this rule. Protection from other local users is
   separate: on POSIX the audit log is created with mode `0600` (and an existing
-  file readable by others is reported as a warning); on Windows Core does not
-  change ACLs and says so in `crot_status` (`audit.protection.ownerOnly: null`).
+  file readable by others is reported as a warning); on Windows the Native Host
+  restricts it with an owner-only ACL and `crot_status` reports the inspected
+  result (`audit.protection`).
 - Controlled subprocesses: argv execution without a shell by default; shell
   scripts are a separate, explicit tool; mandatory timeouts for foreground
   commands; process-tree termination; bounded output capture.
@@ -491,8 +496,6 @@ npm run test:extension
 ```
 
 CI runs `typecheck`, `typecheck:extension`, `build`, `build:extension`, `test`
-and `test:extension`.
-
-CI runs on Ubuntu, macOS and Windows with Node 20 and 22. Windows-specific
-behaviour (cmd quoting, PATHEXT lookup, path rules, environment casing) is also
-unit-tested as pure functions on every OS.
+and `test:extension` on Ubuntu, macOS and Windows with Node 20 and 22.
+Windows-specific behaviour (cmd quoting, PATHEXT lookup, path rules, environment
+casing) is also unit-tested as pure functions on every OS.
