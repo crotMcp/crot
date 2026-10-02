@@ -123,9 +123,14 @@ class JobManagedProcess implements ManagedProcess {
     private readonly job: JobObject,
     private readonly tracker: JobTracker,
   ) {
-    // Release the job once the whole tree is gone; while descendants run, the job keeps them controllable.
+    // Release the job only once the whole tree is provably gone. Closing the
+    // handle kills remaining members (kill-on-close), so an unreadable or
+    // implausible count keeps the job open; forced termination and host close
+    // still release it.
     void inner.exited.then(() => {
-      if (!job.closed && job.activeProcessCount() === 0) this.release();
+      if (job.closed) return;
+      const counters = job.accounting();
+      if (counters !== null && counters.total >= 1 && counters.active === 0) this.release();
     });
   }
 
