@@ -6,7 +6,7 @@ import type { AuthContext } from "../../auth/principal.js";
 import type { Limits } from "../../config/schema.js";
 import { CrotError, fromNodeError, parseInput } from "../../errors.js";
 import type { ExecutionGuard } from "../../execution/guard.js";
-import type { ResolvedPath, Workspace } from "../../workspace/workspace.js";
+import { displayPath as display, type Workspace } from "../../workspace/workspace.js";
 import {
   CreateDirectoryInputSchema,
   DeleteInputSchema,
@@ -212,11 +212,6 @@ export class FileSystemService {
       return { from: display(from), to: display(to) };
     });
   }
-}
-
-/** Workspace-relative path when inside the workspace, absolute otherwise. */
-export function display(p: ResolvedPath): string {
-  return p.relative ?? p.absolute;
 }
 
 function entryType(info: Stats): EntryType {

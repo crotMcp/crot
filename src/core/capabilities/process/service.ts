@@ -4,8 +4,7 @@ import type { AuthContext } from "../../auth/principal.js";
 import type { Limits } from "../../config/schema.js";
 import { CrotError, parseInput } from "../../errors.js";
 import type { ExecutionGuard } from "../../execution/guard.js";
-import type { ResolvedPath, Workspace } from "../../workspace/workspace.js";
-import { display } from "../filesystem/service.js";
+import { displayPath as display, type ResolvedPath, type Workspace } from "../../workspace/workspace.js";
 import { OutputBuffer } from "./output-buffer.js";
 import {
   ExecInputSchema,

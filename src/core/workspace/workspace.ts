@@ -95,6 +95,11 @@ export class Workspace {
   }
 }
 
+/** Workspace-relative path when inside the workspace, absolute otherwise (for user-facing results). */
+export function displayPath(p: ResolvedPath): string {
+  return p.relative ?? p.absolute;
+}
+
 /** realpath the longest existing prefix of `absolute`, then re-append the missing tail. */
 async function canonicalize(absolute: string): Promise<string> {
   const tail: string[] = [];
