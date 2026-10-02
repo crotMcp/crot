@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { powershellCommand, shellCommand } from "../../src/core/platform/shells.js";
+import { POWERSHELL_PRELUDE, powershellCommand, shellCommand } from "../../src/core/platform/shells.js";
 import { batchFileCommand, cmdScriptCommand, comspecFrom, escapeCmdArgument, findWindowsExecutable, isBatchFile } from "../../src/core/platform/windows-command.js";
 
 const files = (list: string[]) => {
@@ -63,8 +63,12 @@ describe("cmd.exe quoting (pure)", () => {
     expect(spec.args[3]).toBe('"C:\\Program^ Files\\nodejs\\npm.cmd ^"install^" ^"left-pad^""');
   });
 
-  it("wraps cmd scripts like Node's shell option", () => {
-    expect(cmdScriptCommand("cmd.exe", 'echo "a b"')).toMatchObject({ args: ["/d", "/s", "/c", '"echo "a b""'], windowsVerbatimArguments: true });
+  it("wraps cmd scripts like Node's shell option, switching the console to UTF-8 first", () => {
+    expect(cmdScriptCommand("C:\\Windows\\System32\\cmd.exe", 'echo "a b"')).toMatchObject({
+      args: ["/d", "/s", "/c", '""C:\\Windows\\System32\\chcp.com" 65001 >nul 2>nul & echo "a b""'],
+      windowsVerbatimArguments: true,
+      display: 'echo "a b"',
+    });
   });
 
   it("derives ComSpec", () => {
@@ -78,7 +82,8 @@ describe("shell invocations (pure)", () => {
     const spec = powershellCommand("pwsh", "Write-Output 'é \"q\"'");
     expect(spec.args.slice(0, 4)).toEqual(["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand"]);
     const decoded = Buffer.from(spec.args[4]!, "base64").toString("utf16le");
-    expect(decoded.endsWith("Write-Output 'é \"q\"'")).toBe(true);
+    expect(decoded).toBe(`${POWERSHELL_PRELUDE}Write-Output 'é \"q\"'`);
+    expect(POWERSHELL_PRELUDE).toContain("[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)");
   });
 
   it("uses -c for POSIX shells", () => {

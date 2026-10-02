@@ -75,9 +75,16 @@ export function batchFileCommand(comspec: string, file: string, args: readonly s
   };
 }
 
-/** Invocation running a cmd.exe script verbatim (same form Node uses for `shell: true`). */
+/**
+ * Invocation running a cmd.exe script verbatim (same form Node uses for `shell: true`).
+ * The script runs with the UTF-8 console code page (chcp 65001, in the child's own
+ * hidden console), so cmd and console-aware programs write UTF-8 instead of the
+ * OEM code page, which cannot represent most characters.
+ */
 export function cmdScriptCommand(comspec: string, script: string): CommandSpec {
-  return { file: comspec, args: ["/d", "/s", "/c", `"${script}"`], windowsVerbatimArguments: true, display: script };
+  const chcp = w.join(w.dirname(comspec), "chcp.com");
+  const line = `"${chcp}" 65001 >nul 2>nul & ${script}`;
+  return { file: comspec, args: ["/d", "/s", "/c", `"${line}"`], windowsVerbatimArguments: true, display: script };
 }
 
 /** Default cmd.exe location derived from the environment. */

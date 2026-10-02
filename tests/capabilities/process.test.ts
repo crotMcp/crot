@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { codePageEncodingName, decodingFor } from "../../src/core/platform/encoding.js";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { OutputBuffer } from "../../src/core/capabilities/process/output-buffer.js";
 import type { CrotCore } from "../../src/core/crot-core.js";
 import { createTestCore, isAlive, isWindows, makeTempDirs, testContext as ctx, waitFor, type TempDirs } from "../helpers.js";
 
@@ -18,20 +18,6 @@ afterEach(async () => {
   await dirs.cleanup();
 });
 
-
-describe("OutputBuffer", () => {
-  it("keeps the most recent bytes and tracks offsets", () => {
-    const b = new OutputBuffer(4);
-    b.append(Buffer.from("abc"));
-    b.append(Buffer.from("def"));
-    expect(b.text()).toBe("cdef");
-    expect(b.truncated).toBe(true);
-    expect(b.totalBytes).toBe(6);
-    expect(b.readFrom(0)).toEqual({ data: "cdef", nextOffset: 6, droppedBytes: 2 });
-    expect(b.readFrom(5)).toEqual({ data: "f", nextOffset: 6, droppedBytes: 0 });
-    expect(b.readFrom(6)).toEqual({ data: "", nextOffset: 6, droppedBytes: 0 });
-  });
-});
 
 describe("process: exec", () => {
   it("runs a command with arguments, cwd, env and stdin", async () => {
@@ -165,6 +151,90 @@ describe.runIf(isWindows)("process: shell (Windows)", () => {
   });
 });
 
+describe("process: output encoding", () => {
+  const print = (code: string) => ["-e", code];
+
+  it("decodes UTF-8 output and reports the encoding", async () => {
+    const r = await core.processes.exec(ctx, { command: node, args: print("console.log('grüße €✓ 日本')") });
+    expect(r.stdout.trim()).toBe("grüße €✓ 日本");
+    expect(r.encoding).toEqual({ stdout: { name: "utf-8", lossy: false }, stderr: { name: "utf-8", lossy: false } });
+  });
+
+  it("decodes with an explicit encoding", async () => {
+    const r16 = await core.processes.exec(ctx, { command: node, args: print("process.stdout.write(Buffer.from('ü✓','utf16le'))"), encoding: "utf-16le" });
+    expect(r16).toMatchObject({ stdout: "ü✓", encoding: { stdout: { name: "utf-16le", lossy: false } } });
+    const r1252 = await core.processes.exec(ctx, { command: node, args: print("process.stdout.write(Buffer.from([0x80,0x20,0xe9]))"), encoding: "cp1252" });
+    expect(r1252).toMatchObject({ stdout: "€ é", encoding: { stdout: { name: "windows-1252", lossy: false } } });
+  });
+
+  it("rejects unknown encodings before running anything", async () => {
+    await expect(core.processes.exec(ctx, { command: node, args: ["-v"], encoding: "klingon" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  });
+
+  it("auto: never silently corrupts output that is not UTF-8", async () => {
+    const r = await core.processes.exec(ctx, { command: node, args: print("process.stdout.write(Buffer.from([0x81,0x0d,0x0a]))") });
+    const fallback = core.platform.encodings.fallback;
+    if (fallback) {
+      // Windows: decoded with the console (OEM) code page and reported as such.
+      expect(r.encoding.stdout).toEqual({ name: fallback, lossy: false });
+      expect(r.stdout).toBe(decodingFor(fallback)!.decode(Uint8Array.from([0x81, 0x0d, 0x0a]), false));
+    } else {
+      expect(r.encoding.stdout).toEqual({ name: "utf-8", lossy: true });
+    }
+  });
+
+  it("keeps the byte limit and never splits a character at the truncation point", async () => {
+    // 1024-byte limit; 600 three-byte characters = 1800 bytes.
+    const r = await core.processes.exec(ctx, { command: node, args: print("process.stdout.write('€'.repeat(600))") });
+    expect(r.stdoutTruncated).toBe(true);
+    expect(Buffer.byteLength(r.stdout)).toBeLessThanOrEqual(1024);
+    expect(r.stdout).toMatch(/^€+$/);
+    expect(r.encoding.stdout).toEqual({ name: "utf-8", lossy: false });
+  });
+
+  it("background output: holds back a character split across writes", async () => {
+    const script = "const b=Buffer.from('€');process.stdout.write(Buffer.concat([Buffer.from('a'),b.subarray(0,2)]));setTimeout(()=>process.stdout.write(b.subarray(2)),1500)";
+    const p = await core.processes.start(ctx, { command: node, args: print(script) });
+    await waitFor(async () => (await core.processes.readOutput(ctx, { id: p.id })).stdout === "a");
+    const first = await core.processes.readOutput(ctx, { id: p.id });
+    expect(first).toMatchObject({ stdout: "a", nextStdoutOffset: 1, encoding: { stdout: { lossy: false } } });
+    await waitFor(async () => (await core.processes.list(ctx)).find((x) => x.id === p.id)?.status === "exited");
+    const rest = await core.processes.readOutput(ctx, { id: p.id, stdoutOffset: first.nextStdoutOffset });
+    expect(rest).toMatchObject({ stdout: "€", nextStdoutOffset: 4, encoding: { stdout: { name: "utf-8", lossy: false } } });
+  });
+});
+
+describe.runIf(isWindows)("process: output encoding (Windows)", () => {
+  it("detects the console and ANSI code pages", () => {
+    const cp = core.platform.info.encoding.codePages;
+    expect(cp).not.toBeNull();
+    expect(Number.isInteger(cp!.oem) && cp!.oem > 0).toBe(true);
+    expect(Number.isInteger(cp!.ansi) && cp!.ansi > 0).toBe(true);
+    expect(core.platform.info.encoding.fallback).toBe(core.platform.encodings.fallback);
+  });
+
+  it("cmd scripts output UTF-8, including characters outside the OEM code page", async () => {
+    const r = await core.processes.shell(ctx, { script: "echo grüße €✓ 日本" });
+    expect(r.stdout.trim()).toBe("grüße €✓ 日本");
+    expect(r.encoding.stdout).toEqual({ name: "utf-8", lossy: false });
+  });
+
+  it("cmd builtins list non-ASCII file names exactly", async () => {
+    await writeFile(path.join(dirs.workspace, "ünï✓日.txt"), "");
+    const r = await core.processes.shell(ctx, { script: "dir /b *.txt" });
+    expect(r.stdout.trim()).toBe("ünï✓日.txt");
+    expect(r.encoding.stdout.lossy).toBe(false);
+  });
+
+  it("oem and ansi resolve to the detected code pages", async () => {
+    const { oem, ansi } = core.platform.info.encoding.codePages!;
+    const r = await core.processes.exec(ctx, { command: node, args: ["-e", "process.stdout.write('ok')"], encoding: "oem" });
+    expect(r).toMatchObject({ stdout: "ok", encoding: { stdout: { name: codePageEncodingName(oem) } } });
+    const a = await core.processes.exec(ctx, { command: node, args: ["-e", "process.stdout.write('ok')"], encoding: "ansi" });
+    expect(a).toMatchObject({ stdout: "ok", encoding: { stdout: { name: codePageEncodingName(ansi) } } });
+  });
+});
+
 describe("process: shells", () => {
   it("runs PowerShell scripts when available (no command-line quoting)", async (t) => {
     const ps = core.platform.info.shells.find((s) => s.id === "pwsh" || s.id === "powershell");
@@ -172,6 +242,14 @@ describe("process: shells", () => {
     const r = await core.processes.shell(ctx, { script: `$x = 'a "quoted" b'; Write-Output $x; exit 3`, shell: ps!.id, timeoutMs: 30_000 });
     expect(r.exitCode).toBe(3);
     expect(r.stdout.trim()).toBe('a "quoted" b');
+  });
+
+  it("PowerShell output is UTF-8 when available", async (t) => {
+    const ps = core.platform.info.shells.find((s) => s.id === "pwsh" || s.id === "powershell");
+    if (!ps) t.skip();
+    const r = await core.processes.shell(ctx, { script: "Write-Output 'grüße €✓ 日本'", shell: ps!.id, timeoutMs: 30_000 });
+    expect(r.stdout.trim()).toBe("grüße €✓ 日本");
+    expect(r.encoding.stdout).toEqual({ name: "utf-8", lossy: false });
   });
 
   it("reports unavailable shells", async () => {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SHELL_IDS } from "../../platform/types.js";
+import type { OutputEncodingInfo } from "./output-buffer.js";
 
 /** Input schemas for process operations, owned by Core and reused by adapters. */
 const Cwd = z.string().min(1).default(".").describe("Working directory: absolute, or relative to the workspace root.");
@@ -20,6 +21,13 @@ const Shell = z
 const TimeoutMs = z.number().int().positive().optional().describe("Timeout in milliseconds (bounded by the configured maximum).");
 const Command = z.string().min(1).describe("Executable name or path. Not interpreted by a shell.");
 const Args = z.array(z.string()).default([]).describe("Arguments passed verbatim to the executable.");
+const Encoding = z
+  .string()
+  .min(1)
+  .default("auto")
+  .describe(
+    "How to decode stdout/stderr: auto (default: UTF-8; on Windows, output that is not UTF-8 is decoded with the console code page), utf-8, utf-16le, oem, ansi (Windows code pages), cpNNN or another WHATWG encoding label. The encoding used is reported with the output.",
+  );
 const Script = z.string().min(1).describe("Script interpreted by the selected shell (default: /bin/sh on Linux/macOS, cmd.exe on Windows).");
 
 export const ExecInputSchema = z
@@ -29,7 +37,8 @@ export const ExecInputSchema = z
     cwd: Cwd,
     env: Env,
     timeoutMs: TimeoutMs,
-    stdin: z.string().optional().describe("Data written to the process's standard input."),
+    stdin: z.string().optional().describe("Data written to the process's standard input (UTF-8)."),
+    encoding: Encoding,
   })
   .strict();
 
@@ -41,6 +50,7 @@ export const ShellInputSchema = z
     env: Env,
     timeoutMs: TimeoutMs,
     stdin: z.string().optional(),
+    encoding: Encoding,
   })
   .strict();
 
@@ -53,6 +63,7 @@ export const StartProcessInputSchema = z
     cwd: Cwd,
     env: Env,
     timeoutMs: TimeoutMs.describe("Optional lifetime limit. Background processes run until stopped by default."),
+    encoding: Encoding,
   })
   .strict()
   .refine((v) => (v.command === undefined) !== (v.script === undefined), {
@@ -83,6 +94,14 @@ export type ProcessIdInput = z.input<typeof ProcessIdInputSchema>;
 export type ReadOutputInput = z.input<typeof ReadOutputInputSchema>;
 export type StopProcessInput = z.input<typeof StopProcessInputSchema>;
 
+export type { OutputEncodingInfo };
+
+/** Encoding used for each output stream. */
+export interface OutputEncodings {
+  readonly stdout: OutputEncodingInfo;
+  readonly stderr: OutputEncodingInfo;
+}
+
 export interface ExecResult {
   readonly exitCode: number | null;
   readonly signal: string | null;
@@ -93,6 +112,7 @@ export interface ExecResult {
   /** True when earlier output was discarded; only the last maxOutputBytes are kept. */
   readonly stdoutTruncated: boolean;
   readonly stderrTruncated: boolean;
+  readonly encoding: OutputEncodings;
 }
 
 export type ProcessStatus = "running" | "exited";
@@ -120,4 +140,5 @@ export interface ProcessOutput {
   /** Bytes that were discarded before the requested offset could be served. */
   readonly stdoutDroppedBytes: number;
   readonly stderrDroppedBytes: number;
+  readonly encoding: OutputEncodings;
 }

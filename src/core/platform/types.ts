@@ -38,6 +38,8 @@ export interface PlatformInfo {
   readonly caseInsensitiveEnvironment: boolean;
   readonly defaultShell: ShellId;
   readonly shells: readonly ShellInfo[];
+  /** How command output is decoded (see EncodingSupport). */
+  readonly encoding: { readonly codePages: CodePages | null; readonly fallback: string | null };
 }
 
 /** Platform path syntax rules and comparisons. Pure: no filesystem access. */
@@ -136,12 +138,42 @@ export interface ProcessLauncher {
   readonly canTerminateOrphanedDescendants: boolean;
 }
 
+/** Windows OEM (console) and ANSI code pages. */
+export interface CodePages {
+  readonly oem: number;
+  readonly ansi: number;
+}
+
+export interface TextDecoding {
+  /** Canonical name, e.g. "utf-8", "cp850", "windows-1252". */
+  readonly name: string;
+  /** Decode bytes. With `fatal`, return null instead of replacing invalid input. */
+  decode(bytes: Uint8Array, fatal: boolean): string | null;
+}
+
+/**
+ * auto: UTF-8 (UTF-16 when a UTF-16LE BOM is present); output that is not valid
+ * UTF-8 is decoded with `fallback` (the Windows console code page) when there is one.
+ */
+export type ResolvedEncoding = { readonly mode: "auto"; readonly fallback: TextDecoding | null } | { readonly mode: "fixed"; readonly decoding: TextDecoding };
+
+/** Decoding of command output. */
+export interface EncodingSupport {
+  /** Windows OEM/ANSI code pages; null where the native output encoding is UTF-8. */
+  readonly codePages: CodePages | null;
+  /** Encoding used by "auto" for output that is not UTF-8, or null. */
+  readonly fallback: string | null;
+  /** Resolve a requested encoding ("auto", "utf-8", "utf-16le", "oem", "ansi", "cp850", WHATWG labels). Throws INVALID_INPUT. */
+  resolve(requested: string): ResolvedEncoding;
+}
+
 export interface Platform {
   readonly info: PlatformInfo;
   readonly paths: PathRules;
   readonly environment: EnvironmentPolicy;
   readonly shells: ShellProvider;
   readonly launcher: ProcessLauncher;
+  readonly encodings: EncodingSupport;
   /** Probe whether paths below `directory` compare case-sensitively. */
   probeCaseSensitivity(directory: string): Promise<boolean>;
 }

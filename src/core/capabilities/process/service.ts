@@ -3,7 +3,7 @@ import type { AuthContext } from "../../auth/principal.js";
 import type { Limits } from "../../config/schema.js";
 import { CrotError, parseInput } from "../../errors.js";
 import type { ExecutionGuard } from "../../execution/guard.js";
-import type { CommandSpec, ManagedProcess, Platform } from "../../platform/types.js";
+import type { CommandSpec, ManagedProcess, Platform, ResolvedEncoding } from "../../platform/types.js";
 import { displayPath as display, type ResolvedPath, type Workspace } from "../../workspace/workspace.js";
 import { OutputBuffer } from "./output-buffer.js";
 import {
@@ -27,7 +27,7 @@ import {
 export interface ProcessServiceDeps {
   readonly workspace: Workspace;
   readonly guard: ExecutionGuard;
-  readonly platform: Pick<Platform, "launcher" | "shells" | "environment">;
+  readonly platform: Pick<Platform, "launcher" | "shells" | "environment" | "encodings">;
   readonly limits: Pick<Limits, "defaultCommandTimeoutMs" | "maxCommandTimeoutMs" | "maxOutputBytes" | "maxBackgroundProcesses">;
   /** Base environment for children (defaults to the CROT process environment). */
   readonly baseEnv?: Readonly<Record<string, string | undefined>>;
@@ -79,6 +79,7 @@ export class ProcessService {
   /** Run an executable with arguments (no shell) and wait for it to finish. */
   async exec(context: AuthContext, input: ExecInput): Promise<ExecResult> {
     const args = parseInput(ExecInputSchema, input);
+    const encoding = this.deps.platform.encodings.resolve(args.encoding);
     const cwd = await this.deps.workspace.resolve(args.cwd);
     const timeoutMs = this.timeout(args.timeoutMs);
     const op = {
@@ -91,13 +92,14 @@ export class ProcessService {
       await assertDirectory(cwd);
       const env = this.env(args.env);
       const spec = await this.deps.platform.launcher.resolveCommand(args.command, args.args, { cwd: cwd.absolute, env });
-      return this.runForeground(spec, cwd, env, args.stdin, timeoutMs);
+      return this.runForeground(spec, cwd, env, args.stdin, timeoutMs, encoding);
     });
   }
 
   /** Run a script through a shell and wait for it to finish. */
   async shell(context: AuthContext, input: ShellInput): Promise<ExecResult> {
     const args = parseInput(ShellInputSchema, input);
+    const encoding = this.deps.platform.encodings.resolve(args.encoding);
     const cwd = await this.deps.workspace.resolve(args.cwd);
     const timeoutMs = this.timeout(args.timeoutMs);
     const shell = args.shell ?? this.deps.platform.shells.defaultShell;
@@ -110,18 +112,25 @@ export class ProcessService {
     return this.deps.guard.run(context, op, async () => {
       await assertDirectory(cwd);
       const spec = this.deps.platform.shells.command(args.script, shell);
-      return this.runForeground(spec, cwd, this.env(args.env), args.stdin, timeoutMs);
+      return this.runForeground(spec, cwd, this.env(args.env), args.stdin, timeoutMs, encoding);
     });
   }
 
   /** Start a long-running background process (dev server, watcher, ...). */
   async start(context: AuthContext, input: StartProcessInput): Promise<ProcessInfo> {
     const args = parseInput(StartProcessInputSchema, input);
+    const encoding = this.deps.platform.encodings.resolve(args.encoding);
     const cwd = await this.deps.workspace.resolve(args.cwd);
     const timeoutMs = args.timeoutMs === undefined ? undefined : this.timeout(args.timeoutMs);
     const label = args.script ?? [args.command!, ...args.args].join(" ");
     const shell = args.script !== undefined ? (args.shell ?? this.deps.platform.shells.defaultShell) : undefined;
-    const details = { command: label, ...(shell ? { shell } : {}), envKeys: Object.keys(args.env ?? {}), timeoutMs: timeoutMs ?? null };
+    const details = {
+      command: label,
+      ...(shell ? { shell } : {}),
+      envKeys: Object.keys(args.env ?? {}),
+      timeoutMs: timeoutMs ?? null,
+      encoding: args.encoding,
+    };
     // Starting a process both executes a command and creates a managed process.
     const op = { operation: "process.start", capability: ["process.manage", "shell.execute"] as const, paths: [cwd], details };
     return this.deps.guard.run(context, op, async () => {
@@ -141,15 +150,15 @@ export class ProcessService {
         command: label,
         cwd,
         startedAt: new Date(),
-        stdout: new OutputBuffer(this.deps.limits.maxOutputBytes),
-        stderr: new OutputBuffer(this.deps.limits.maxOutputBytes),
+        stdout: new OutputBuffer(this.deps.limits.maxOutputBytes, encoding),
+        stderr: new OutputBuffer(this.deps.limits.maxOutputBytes, encoding),
         endedAt: null,
         exitCode: null,
         signal: null,
         timedOut: false,
       };
-      proc.stdout.on("data", (c: Buffer) => record.stdout.append(c));
-      proc.stderr.on("data", (c: Buffer) => record.stderr.append(c));
+      capture(proc.stdout, record.stdout);
+      capture(proc.stderr, record.stderr);
       let timer: NodeJS.Timeout | undefined;
       if (timeoutMs !== undefined) {
         timer = setTimeout(() => {
@@ -194,6 +203,7 @@ export class ProcessService {
           nextStderrOffset: err.nextOffset,
           stdoutDroppedBytes: out.droppedBytes,
           stderrDroppedBytes: err.droppedBytes,
+          encoding: { stdout: out.encoding, stderr: err.encoding },
         };
       },
     );
@@ -250,13 +260,14 @@ export class ProcessService {
     env: Record<string, string>,
     stdin: string | undefined,
     timeoutMs: number,
+    encoding: ResolvedEncoding,
   ): Promise<ExecResult> {
     const started = Date.now();
     const proc = await this.deps.platform.launcher.launch(spec, { cwd: cwd.absolute, env, stdin: stdin !== undefined });
-    const stdout = new OutputBuffer(this.deps.limits.maxOutputBytes);
-    const stderr = new OutputBuffer(this.deps.limits.maxOutputBytes);
-    proc.stdout.on("data", (c: Buffer) => stdout.append(c));
-    proc.stderr.on("data", (c: Buffer) => stderr.append(c));
+    const stdout = new OutputBuffer(this.deps.limits.maxOutputBytes, encoding);
+    const stderr = new OutputBuffer(this.deps.limits.maxOutputBytes, encoding);
+    capture(proc.stdout, stdout);
+    capture(proc.stderr, stderr);
     if (stdin !== undefined && proc.stdin) proc.stdin.end(stdin);
 
     let timedOut = false;
@@ -273,15 +284,20 @@ export class ProcessService {
     await proc.terminate("force");
     proc.stdout.destroy();
     proc.stderr.destroy();
+    stdout.end();
+    stderr.end();
+    const out = stdout.readAll();
+    const err = stderr.readAll();
     return {
       exitCode: status.code,
       signal: status.signal,
       timedOut,
       durationMs: Date.now() - started,
-      stdout: stdout.text(),
-      stderr: stderr.text(),
+      stdout: out.data,
+      stderr: err.data,
       stdoutTruncated: stdout.truncated,
       stderrTruncated: stderr.truncated,
+      encoding: { stdout: out.encoding, stderr: err.encoding },
     };
   }
 
@@ -318,9 +334,16 @@ async function terminateTree(proc: ManagedProcess, graceMs = TERMINATION_GRACE_M
   await proc.terminate("force");
 }
 
+/** Collect a stream into a buffer; the buffer is finalized when the stream ends. */
+function capture(stream: NodeJS.ReadableStream, buffer: OutputBuffer): void {
+  stream.on("data", (c: Buffer) => buffer.append(c));
+  stream.once("end", () => buffer.end());
+  stream.once("close", () => buffer.end());
+}
+
 /** Audit-safe summary: environment variable names only, never values or stdin contents. */
-function commonDetails(args: { env?: Record<string, string | null> | undefined; stdin?: string | undefined }, timeoutMs: number) {
-  return { envKeys: Object.keys(args.env ?? {}), stdin: args.stdin !== undefined, timeoutMs };
+function commonDetails(args: { env?: Record<string, string | null> | undefined; stdin?: string | undefined; encoding: string }, timeoutMs: number) {
+  return { envKeys: Object.keys(args.env ?? {}), stdin: args.stdin !== undefined, timeoutMs, encoding: args.encoding };
 }
 
 function toInfo(p: BackgroundProcess): ProcessInfo {

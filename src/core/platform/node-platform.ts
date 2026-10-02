@@ -1,16 +1,20 @@
+import { execFile } from "node:child_process";
 import { lstat, readdir, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { createEncodingSupport, parseWindowsCodePages } from "./encoding.js";
 import { createEnvironmentPolicy } from "./environment.js";
 import { createPosixLauncher, createWindowsLauncher, findPosixExecutable } from "./node-launcher.js";
 import { pathRulesFor } from "./path-rules.js";
 import { createShellProvider } from "./shells.js";
-import type { OsFamily, Platform, ShellId, ShellInfo } from "./types.js";
+import type { CodePages, OsFamily, Platform, ShellId, ShellInfo } from "./types.js";
 import { comspecFrom, findWindowsExecutable } from "./windows-command.js";
 
 export interface NodePlatformOptions {
   /** Environment used for shell detection (defaults to process.env). */
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /** Windows code pages (detected with reg.exe when omitted; ignored elsewhere). */
+  readonly codePages?: CodePages | null;
 }
 
 function osFamily(platform: NodeJS.Platform): OsFamily {
@@ -59,6 +63,13 @@ export async function createNodePlatform(options: NodePlatformOptions = {}): Pro
     }
   }
 
+  const codePages = windows
+    ? options.codePages !== undefined
+      ? options.codePages
+      : await detectWindowsCodePages(environment.get(env, "SystemRoot") ?? "C:\\Windows")
+    : null;
+  const encodings = createEncodingSupport(codePages);
+
   return {
     info: {
       os: osFamily(process.platform),
@@ -71,13 +82,25 @@ export async function createNodePlatform(options: NodePlatformOptions = {}): Pro
       caseInsensitiveEnvironment: environment.caseInsensitive,
       defaultShell,
       shells,
+      encoding: { codePages: encodings.codePages, fallback: encodings.fallback },
     },
     paths,
     environment,
     shells: createShellProvider(defaultShell, shells),
     launcher,
+    encodings,
     probeCaseSensitivity: (dir) => probeCaseSensitivity(dir, windows),
   };
+}
+
+/** Read the OEM (console) and ANSI code pages from the registry; null when unavailable. */
+export function detectWindowsCodePages(systemRoot: string): Promise<CodePages | null> {
+  const reg = path.win32.join(systemRoot, "System32", "reg.exe");
+  return new Promise((resolve) => {
+    execFile(reg, ["query", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage"], { windowsHide: true, timeout: 5_000 }, (error, stdout) =>
+      resolve(error ? null : parseWindowsCodePages(String(stdout))),
+    );
+  });
 }
 
 /**

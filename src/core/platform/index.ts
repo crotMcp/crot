@@ -1,6 +1,7 @@
 export * from "./types.js";
 export * from "./path-rules.js";
 export * from "./environment.js";
+export * from "./encoding.js";
 export * from "./shells.js";
 export * from "./windows-command.js";
 export * from "./node-launcher.js";
