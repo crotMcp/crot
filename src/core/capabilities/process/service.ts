@@ -1,9 +1,9 @@
-import type { ChildProcess } from "node:child_process";
 import { stat } from "node:fs/promises";
 import type { AuthContext } from "../../auth/principal.js";
 import type { Limits } from "../../config/schema.js";
 import { CrotError, parseInput } from "../../errors.js";
 import type { ExecutionGuard } from "../../execution/guard.js";
+import type { CommandSpec, ManagedProcess, Platform } from "../../platform/types.js";
 import { displayPath as display, type ResolvedPath, type Workspace } from "../../workspace/workspace.js";
 import { OutputBuffer } from "./output-buffer.js";
 import {
@@ -23,22 +23,26 @@ import {
   type StartProcessInput,
   type StopProcessInput,
 } from "./schemas.js";
-import { killTree, shellSpec, spawnChild, terminate, type SpawnSpec } from "./spawn.js";
 
 export interface ProcessServiceDeps {
   readonly workspace: Workspace;
   readonly guard: ExecutionGuard;
+  readonly platform: Pick<Platform, "launcher" | "shells" | "environment">;
   readonly limits: Pick<Limits, "defaultCommandTimeoutMs" | "maxCommandTimeoutMs" | "maxOutputBytes" | "maxBackgroundProcesses">;
+  /** Base environment for children (defaults to the CROT process environment). */
+  readonly baseEnv?: Readonly<Record<string, string | undefined>>;
 }
 
 /** How long to wait for stdio to close after the child exits (descendants may hold pipes open). */
 const STDIO_CLOSE_GRACE_MS = 500;
+/** Delay before a graceful termination is escalated to a forced one. */
+const TERMINATION_GRACE_MS = 2_000;
 /** Number of exited background process records kept for inspection. */
 const MAX_EXITED_RECORDS = 50;
 
 interface BackgroundProcess {
   readonly id: string;
-  readonly child: ChildProcess;
+  readonly proc: ManagedProcess;
   readonly command: string;
   readonly cwd: ResolvedPath;
   readonly startedAt: Date;
@@ -50,13 +54,18 @@ interface BackgroundProcess {
   timedOut: boolean;
 }
 
+type EnvOverrides = Readonly<Record<string, string | null>> | undefined;
+
 /**
  * Process/shell capability of CROT Core.
  *
- * Commands are spawned without an implicit shell (argv form); shell scripts
- * are an explicit, separate operation. Every operation is authorized through
- * the ExecutionGuard, the working directory is checked against the
- * permission scope, and foreground commands always have a timeout.
+ * Commands are resolved and launched through the platform ProcessLauncher
+ * (argv form, no implicit shell); shell scripts are a separate, explicit
+ * operation through the ShellProvider. Every operation is authorized through
+ * the ExecutionGuard, the working directory is checked against the permission
+ * scope, and foreground commands always have a timeout. A foreground command
+ * owns its process tree: descendants still running when it finishes are
+ * terminated (use background processes for long-running work).
  *
  * Note: SANDBOX confines the working directory and CROT's own file
  * operations; it is not OS-level isolation of what a command itself does.
@@ -70,51 +79,49 @@ export class ProcessService {
   /** Run an executable with arguments (no shell) and wait for it to finish. */
   async exec(context: AuthContext, input: ExecInput): Promise<ExecResult> {
     const args = parseInput(ExecInputSchema, input);
-    const cwd = await this.resolveCwd(args.cwd);
+    const cwd = await this.deps.workspace.resolve(args.cwd);
     const timeoutMs = this.timeout(args.timeoutMs);
-    return this.deps.guard.run(context, {
-        operation: "process.exec",
-        capability: "shell.execute",
-        paths: [cwd],
-        details: { command: args.command, args: args.args, ...commonDetails(args, timeoutMs) },
-      }, async () => {
+    const op = {
+      operation: "process.exec",
+      capability: "shell.execute",
+      paths: [cwd],
+      details: { command: args.command, args: args.args, ...commonDetails(args, timeoutMs) },
+    } as const;
+    return this.deps.guard.run(context, op, async () => {
       await assertDirectory(cwd);
-      return this.runForeground(
-        { file: args.command, args: args.args, cwd: cwd.absolute, env: args.env, stdin: args.stdin !== undefined },
-        args.stdin,
-        timeoutMs,
-      );
+      const env = this.env(args.env);
+      const spec = await this.deps.platform.launcher.resolveCommand(args.command, args.args, { cwd: cwd.absolute, env });
+      return this.runForeground(spec, cwd, env, args.stdin, timeoutMs);
     });
   }
 
-  /** Run a script through the system shell and wait for it to finish. */
+  /** Run a script through a shell and wait for it to finish. */
   async shell(context: AuthContext, input: ShellInput): Promise<ExecResult> {
     const args = parseInput(ShellInputSchema, input);
-    const cwd = await this.resolveCwd(args.cwd);
+    const cwd = await this.deps.workspace.resolve(args.cwd);
     const timeoutMs = this.timeout(args.timeoutMs);
-    return this.deps.guard.run(context, {
-        operation: "process.shell",
-        capability: "shell.execute",
-        paths: [cwd],
-        details: { script: args.script, ...commonDetails(args, timeoutMs) },
-      }, async () => {
+    const shell = args.shell ?? this.deps.platform.shells.defaultShell;
+    const op = {
+      operation: "process.shell",
+      capability: "shell.execute",
+      paths: [cwd],
+      details: { shell, script: args.script, ...commonDetails(args, timeoutMs) },
+    } as const;
+    return this.deps.guard.run(context, op, async () => {
       await assertDirectory(cwd);
-      const sh = shellSpec(args.script);
-      return this.runForeground(
-        { file: sh.file, args: sh.args, cwd: cwd.absolute, env: args.env, stdin: args.stdin !== undefined },
-        args.stdin,
-        timeoutMs,
-      );
+      const spec = this.deps.platform.shells.command(args.script, shell);
+      return this.runForeground(spec, cwd, this.env(args.env), args.stdin, timeoutMs);
     });
   }
 
   /** Start a long-running background process (dev server, watcher, ...). */
   async start(context: AuthContext, input: StartProcessInput): Promise<ProcessInfo> {
     const args = parseInput(StartProcessInputSchema, input);
-    const cwd = await this.resolveCwd(args.cwd);
+    const cwd = await this.deps.workspace.resolve(args.cwd);
     const timeoutMs = args.timeoutMs === undefined ? undefined : this.timeout(args.timeoutMs);
     const label = args.script ?? [args.command!, ...args.args].join(" ");
-    const details = { command: label, envKeys: Object.keys(args.env ?? {}), timeoutMs: timeoutMs ?? null };
+    const shell = args.script !== undefined ? (args.shell ?? this.deps.platform.shells.defaultShell) : undefined;
+    const details = { command: label, ...(shell ? { shell } : {}), envKeys: Object.keys(args.env ?? {}), timeoutMs: timeoutMs ?? null };
     // Starting a process both executes a command and creates a managed process.
     const op = { operation: "process.start", capability: ["process.manage", "shell.execute"] as const, paths: [cwd], details };
     return this.deps.guard.run(context, op, async () => {
@@ -122,11 +129,15 @@ export class ProcessService {
       if (this.runningCount() >= this.deps.limits.maxBackgroundProcesses) {
         throw new CrotError("LIMIT_EXCEEDED", `Too many running background processes (limit ${this.deps.limits.maxBackgroundProcesses}).`);
       }
-      const target = args.script !== undefined ? shellSpec(args.script) : { file: args.command!, args: args.args };
-      const child = await spawnOrThrow({ file: target.file, args: target.args, cwd: cwd.absolute, env: args.env, stdin: false });
+      const env = this.env(args.env);
+      const spec =
+        args.script !== undefined
+          ? this.deps.platform.shells.command(args.script, shell)
+          : await this.deps.platform.launcher.resolveCommand(args.command!, args.args, { cwd: cwd.absolute, env });
+      const proc = await this.deps.platform.launcher.launch(spec, { cwd: cwd.absolute, env, stdin: false });
       const record: BackgroundProcess = {
         id: `p${this.nextId++}`,
-        child,
+        proc,
         command: label,
         cwd,
         startedAt: new Date(),
@@ -137,17 +148,17 @@ export class ProcessService {
         signal: null,
         timedOut: false,
       };
-      child.stdout?.on("data", (c: Buffer) => record.stdout.append(c));
-      child.stderr?.on("data", (c: Buffer) => record.stderr.append(c));
+      proc.stdout.on("data", (c: Buffer) => record.stdout.append(c));
+      proc.stderr.on("data", (c: Buffer) => record.stderr.append(c));
       let timer: NodeJS.Timeout | undefined;
       if (timeoutMs !== undefined) {
         timer = setTimeout(() => {
           record.timedOut = true;
-          terminate(child);
+          void terminateTree(proc);
         }, timeoutMs);
         timer.unref();
       }
-      child.once("exit", (code, signal) => {
+      void proc.exited.then(({ code, signal }) => {
         if (timer) clearTimeout(timer);
         record.endedAt = new Date();
         record.exitCode = code;
@@ -191,18 +202,18 @@ export class ProcessService {
   async stop(context: AuthContext, input: StopProcessInput): Promise<ProcessInfo> {
     const args = parseInput(StopProcessInputSchema, input);
     const record = this.get(args.id);
-    return this.deps.guard.run(context, {
-        operation: "process.stop",
-        capability: "process.manage",
-        paths: [record.cwd],
-        details: { id: record.id, force: args.force },
-      }, async () => {
-      if (!record.endedAt) {
-        const exited = new Promise<void>((resolve) => record.child.once("exit", () => resolve()));
-        if (args.force) killTree(record.child, true);
-        else terminate(record.child);
-        await Promise.race([exited, delay(5_000)]);
-      }
+    const op = {
+      operation: "process.stop",
+      capability: "process.manage",
+      paths: [record.cwd],
+      details: { id: record.id, force: args.force },
+    } as const;
+    return this.deps.guard.run(context, op, async () => {
+      if (args.force) await record.proc.terminate("force");
+      else await terminateTree(record.proc);
+      await Promise.race([record.proc.exited, delay(5_000)]);
+      // Give the exit handler a chance to record the final status.
+      await delay(0);
       return toInfo(record);
     });
   }
@@ -211,64 +222,60 @@ export class ProcessService {
   async remove(context: AuthContext, input: ProcessIdInput): Promise<{ id: string; removed: boolean }> {
     const args = parseInput(ProcessIdInputSchema, input);
     const record = this.get(args.id);
-    return this.deps.guard.run(context, {
-        operation: "process.remove",
-        capability: "process.manage",
-        paths: [record.cwd],
-        details: { id: record.id },
-      }, async () => {
+    const op = { operation: "process.remove", capability: "process.manage", paths: [record.cwd], details: { id: record.id } } as const;
+    return this.deps.guard.run(context, op, async () => {
       if (!record.endedAt) throw new CrotError("INVALID_INPUT", `Process ${record.id} is still running; stop it first.`);
       this.processes.delete(record.id);
       return { id: record.id, removed: true };
     });
   }
 
-  /** Terminate every running background process. Called when CROT shuts down. */
+  /** Terminate every background process tree. Called when CROT shuts down. */
   async shutdown(): Promise<void> {
-    const running = [...this.processes.values()].filter((p) => !p.endedAt);
     await Promise.all(
-      running.map((p) => {
-        const exited = new Promise<void>((resolve) => p.child.once("exit", () => resolve()));
-        terminate(p.child, 1_000);
-        return Promise.race([exited, delay(3_000)]);
+      [...this.processes.values()].map(async (p) => {
+        await terminateTree(p.proc, 1_000);
+        await Promise.race([p.proc.exited, delay(3_000)]);
       }),
     );
   }
 
-  private async runForeground(spec: SpawnSpec, stdin: string | undefined, timeoutMs: number): Promise<ExecResult> {
+  private env(overrides: EnvOverrides): Record<string, string> {
+    return this.deps.platform.environment.merge(this.deps.baseEnv ?? process.env, overrides ?? {});
+  }
+
+  private async runForeground(
+    spec: CommandSpec,
+    cwd: ResolvedPath,
+    env: Record<string, string>,
+    stdin: string | undefined,
+    timeoutMs: number,
+  ): Promise<ExecResult> {
     const started = Date.now();
-    const child = await spawnOrThrow(spec);
+    const proc = await this.deps.platform.launcher.launch(spec, { cwd: cwd.absolute, env, stdin: stdin !== undefined });
     const stdout = new OutputBuffer(this.deps.limits.maxOutputBytes);
     const stderr = new OutputBuffer(this.deps.limits.maxOutputBytes);
-    child.stdout?.on("data", (c: Buffer) => stdout.append(c));
-    child.stderr?.on("data", (c: Buffer) => stderr.append(c));
-    if (stdin !== undefined && child.stdin) {
-      child.stdin.on("error", () => undefined);
-      child.stdin.end(stdin);
-    }
+    proc.stdout.on("data", (c: Buffer) => stdout.append(c));
+    proc.stderr.on("data", (c: Buffer) => stderr.append(c));
+    if (stdin !== undefined && proc.stdin) proc.stdin.end(stdin);
+
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      terminate(child);
+      void terminateTree(proc);
     }, timeoutMs);
 
-    const { code, signal } = await new Promise<{ code: number | null; signal: string | null }>((resolve) => {
-      let exit: { code: number | null; signal: string | null } | undefined;
-      child.once("close", (c, s) => resolve(exit ?? { code: c, signal: s }));
-      child.once("exit", (c, s) => {
-        exit = { code: c, signal: s };
-        // Descendants may keep stdio open; do not wait for them indefinitely.
-        setTimeout(() => {
-          child.stdout?.destroy();
-          child.stderr?.destroy();
-          resolve(exit!);
-        }, STDIO_CLOSE_GRACE_MS).unref();
-      });
-    });
+    const status = await proc.exited;
     clearTimeout(timer);
+    // Descendants may keep stdio open; wait briefly for the streams, then stop waiting.
+    await Promise.race([Promise.all([ended(proc.stdout), ended(proc.stderr)]), delay(STDIO_CLOSE_GRACE_MS)]);
+    // The command owns its process tree: terminate leftovers (POSIX process group).
+    await proc.terminate("force");
+    proc.stdout.destroy();
+    proc.stderr.destroy();
     return {
-      exitCode: code,
-      signal,
+      exitCode: status.code,
+      signal: status.signal,
       timedOut,
       durationMs: Date.now() - started,
       stdout: stdout.text(),
@@ -276,10 +283,6 @@ export class ProcessService {
       stdoutTruncated: stdout.truncated,
       stderrTruncated: stderr.truncated,
     };
-  }
-
-  private async resolveCwd(cwd: string): Promise<ResolvedPath> {
-    return this.deps.workspace.resolve(cwd);
   }
 
   private timeout(requested: number | undefined): number {
@@ -308,15 +311,22 @@ export class ProcessService {
   }
 }
 
+/** Graceful termination, escalated to a forced one if the child is still running after `graceMs`. */
+async function terminateTree(proc: ManagedProcess, graceMs = TERMINATION_GRACE_MS): Promise<void> {
+  await proc.terminate("graceful");
+  await Promise.race([proc.exited, delay(graceMs)]);
+  await proc.terminate("force");
+}
+
 /** Audit-safe summary: environment variable names only, never values or stdin contents. */
-function commonDetails(args: { env?: Record<string, string> | undefined; stdin?: string | undefined }, timeoutMs: number) {
+function commonDetails(args: { env?: Record<string, string | null> | undefined; stdin?: string | undefined }, timeoutMs: number) {
   return { envKeys: Object.keys(args.env ?? {}), stdin: args.stdin !== undefined, timeoutMs };
 }
 
 function toInfo(p: BackgroundProcess): ProcessInfo {
   return {
     id: p.id,
-    pid: p.child.pid ?? null,
+    pid: p.proc.pid ?? null,
     command: p.command,
     cwd: display(p.cwd),
     status: p.endedAt ? "exited" : "running",
@@ -334,23 +344,11 @@ async function assertDirectory(cwd: ResolvedPath): Promise<void> {
   if (!info.isDirectory()) throw new CrotError("INVALID_INPUT", `Working directory is not a directory: ${display(cwd)}`);
 }
 
-/** Spawn and surface launch failures (e.g. unknown executable) as CrotErrors. */
-function spawnOrThrow(spec: SpawnSpec): Promise<ChildProcess> {
-  return new Promise((resolve, reject) => {
-    const child = spawnChild(spec);
-    const onError = (error: NodeJS.ErrnoException) => {
-      reject(
-        error.code === "ENOENT"
-          ? new CrotError("NOT_FOUND", `Executable not found: ${spec.file}`)
-          : new CrotError("OPERATION_FAILED", `Failed to start ${spec.file}: ${error.message}`),
-      );
-    };
-    child.once("error", onError);
-    child.once("spawn", () => {
-      child.off("error", onError);
-      child.on("error", () => undefined);
-      resolve(child);
-    });
+function ended(stream: NodeJS.ReadableStream): Promise<void> {
+  return new Promise((resolve) => {
+    if ((stream as { readableEnded?: boolean }).readableEnded) return resolve();
+    stream.once("end", () => resolve());
+    stream.once("close", () => resolve());
   });
 }
 

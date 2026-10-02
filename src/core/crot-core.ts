@@ -8,6 +8,8 @@ import { ExecutionGuard } from "./execution/guard.js";
 import { CAPABILITIES, ENFORCED_CAPABILITIES, type Capability } from "./permissions/capabilities.js";
 import { PermissionEngine } from "./permissions/engine.js";
 import { createPermissionPolicy, type PermissionMode } from "./permissions/policy.js";
+import { createNodePlatform } from "./platform/node-platform.js";
+import type { Platform, PlatformInfo } from "./platform/types.js";
 import { Workspace, type WorkspaceInfo } from "./workspace/workspace.js";
 
 export interface CrotStatus {
@@ -17,6 +19,7 @@ export interface CrotStatus {
   readonly capabilities: readonly { capability: Capability; granted: boolean; enforced: boolean }[];
   readonly limits: Limits;
   readonly audit: { readonly sink: AuditConfig["sink"]; readonly path?: string };
+  readonly platform: PlatformInfo;
 }
 
 export const CORE_VERSION = "0.1.0";
@@ -26,6 +29,8 @@ export interface CrotCoreOptions {
   readonly auditSink?: AuditSink;
   /** Receives audit sink failures. Defaults to a message on stderr. */
   readonly onAuditError?: (error: unknown) => void;
+  /** Platform implementation (defaults to the Node.js platform for the host OS). */
+  readonly platform?: Platform;
 }
 
 /**
@@ -43,12 +48,18 @@ export class CrotCore {
     readonly guard: ExecutionGuard,
     readonly filesystem: FileSystemService,
     readonly processes: ProcessService,
+    readonly platform: Platform,
     private readonly audit: AuditSink,
   ) {}
 
   static async create(configInput: unknown, options: CrotCoreOptions = {}): Promise<CrotCore> {
     const config = parseConfig(configInput);
-    const workspace = await Workspace.open(config.workspace.root, config.workspace.name);
+    const platform = options.platform ?? (await createNodePlatform());
+    const workspace = await Workspace.open(config.workspace.root, {
+      ...(config.workspace.name ? { name: config.workspace.name } : {}),
+      rules: platform.paths,
+      probeCaseSensitivity: (d) => platform.probeCaseSensitivity(d),
+    });
     const policy = createPermissionPolicy(
       config.permissions.capabilities
         ? { mode: config.permissions.mode, capabilities: config.permissions.capabilities }
@@ -60,8 +71,8 @@ export class CrotCore {
       onAuditError: options.onAuditError ?? ((e) => process.stderr.write(`crot: audit write failed: ${(e as Error).message}\n`)),
     });
     const filesystem = new FileSystemService({ workspace, guard, limits: config.limits });
-    const processes = new ProcessService({ workspace, guard, limits: config.limits });
-    return new CrotCore(config, workspace, permissions, guard, filesystem, processes, audit);
+    const processes = new ProcessService({ workspace, guard, platform, limits: config.limits });
+    return new CrotCore(config, workspace, permissions, guard, filesystem, processes, platform, audit);
   }
 
   /** Release resources: terminate background processes and flush the audit log. */
@@ -82,6 +93,7 @@ export class CrotCore {
       })),
       limits: this.config.limits,
       audit: { sink: this.config.audit.sink, ...(this.config.audit.path ? { path: this.config.audit.path } : {}) },
+      platform: this.platform.info,
     };
   }
 }

@@ -45,7 +45,8 @@ export const TOOLS: readonly ToolDefinition[] = [
   tool({
     name: "crot_status",
     title: "CROT status",
-    description: "Show the permission mode, workspace, granted capabilities and limits of this CROT installation.",
+    description:
+      "Show the operating system and available shells, permission mode, workspace, granted capabilities and limits of this CROT installation.",
     inputSchema: EmptyInputSchema,
     annotations: { ...local, readOnlyHint: true },
     call: async (core) => core.status(),
@@ -114,7 +115,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "process_exec",
     title: "Execute command",
     description:
-      "Run an executable with arguments (no shell interpretation) and wait for it to finish. Returns exit code and the tail of stdout/stderr.",
+      "Run an executable with arguments (no shell interpretation) and wait for it to finish. Resolves PATH (and PATHEXT/.cmd on Windows, e.g. npm). Returns exit code and the tail of stdout/stderr.",
     inputSchema: ExecInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     call: (core, ctx, input) => core.processes.exec(ctx, input),
@@ -122,7 +123,8 @@ export const TOOLS: readonly ToolDefinition[] = [
   tool({
     name: "shell_run",
     title: "Run shell script",
-    description: "Run a script through the system shell (pipes, redirects, &&) and wait for it to finish.",
+    description:
+      "Run a script through a shell (pipes, redirects, &&) and wait for it to finish. Choose 'shell' to match the script syntax; the default is sh on Linux/macOS and cmd on Windows.",
     inputSchema: ShellInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     call: (core, ctx, input) => core.processes.shell(ctx, input),

@@ -2,7 +2,7 @@ import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CrotCore } from "../../src/core/crot-core.js";
-import { createTestCore, makeTempDirs, testContext as ctx, type TempDirs } from "../helpers.js";
+import { canSymlinkFiles, createTestCore, linkDirectory, makeTempDirs, testContext as ctx, type TempDirs } from "../helpers.js";
 
 let dirs: TempDirs;
 let core: CrotCore;
@@ -64,8 +64,8 @@ describe("filesystem: sandbox enforcement", () => {
     });
   });
 
-  it("denies writing through a symlink that points outside", async () => {
-    await symlink(dirs.outside, path.join(dirs.workspace, "escape"));
+  it("denies writing through a directory link that points outside", async () => {
+    await linkDirectory(dirs.outside, path.join(dirs.workspace, "escape"));
     await expect(core.filesystem.writeFile(ctx, { path: "escape/pwned.txt", content: "x" })).rejects.toMatchObject({
       code: "PERMISSION_DENIED",
     });
@@ -116,7 +116,7 @@ describe("filesystem: directories", () => {
 
   it("does not follow symlinks when recursing", async () => {
     await writeFile(path.join(dirs.outside, "secret.txt"), "s");
-    await symlink(dirs.outside, path.join(dirs.workspace, "src", "link"));
+    await linkDirectory(dirs.outside, path.join(dirs.workspace, "src", "link"));
     const deep = await core.filesystem.listDirectory(ctx, { path: "src", recursive: true });
     expect(deep.entries.find((e) => e.path === "link")?.type).toBe("symlink");
     expect(deep.entries.some((e) => e.path.startsWith("link/"))).toBe(false);
@@ -139,10 +139,19 @@ describe("filesystem: directories", () => {
     expect((await core.filesystem.stat(ctx, { path: "a" })).exists).toBe(false);
   });
 
-  it("deletes a symlink itself, not its target", async () => {
+  it("deletes a file symlink itself, not its target", async (t) => {
+    if (!(await canSymlinkFiles())) t.skip();
     await writeFile(path.join(dirs.outside, "keep.txt"), "k");
-    await symlink(path.join(dirs.outside, "keep.txt"), path.join(dirs.workspace, "link.txt"));
+    await symlink(path.join(dirs.outside, "keep.txt"), path.join(dirs.workspace, "link.txt"), "file");
     await core.filesystem.delete(ctx, { path: "link.txt" });
+    expect(await readFile(path.join(dirs.outside, "keep.txt"), "utf8")).toBe("k");
+  });
+
+  it("deletes a directory symlink/junction itself, not its target", async () => {
+    await writeFile(path.join(dirs.outside, "keep.txt"), "k");
+    await linkDirectory(dirs.outside, path.join(dirs.workspace, "dirlink"));
+    expect(await core.filesystem.delete(ctx, { path: "dirlink" })).toEqual({ path: "dirlink", deleted: true });
+    expect((await core.filesystem.stat(ctx, { path: "dirlink" })).exists).toBe(false);
     expect(await readFile(path.join(dirs.outside, "keep.txt"), "utf8")).toBe("k");
   });
 
@@ -150,3 +159,4 @@ describe("filesystem: directories", () => {
     await expect(core.filesystem.delete(ctx, { path: ".", recursive: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
   });
 });
+

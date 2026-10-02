@@ -58,6 +58,8 @@ describe("CROT MCP adapter", () => {
   it("publishes server instructions with mode and workspace", async () => {
     expect(client.getInstructions()).toContain("Permission mode: sandbox");
     expect(client.getInstructions()).toContain(dirs.workspace);
+    expect(client.getInstructions()).toContain(`Operating system: ${core.platform.info.os}`);
+    expect(client.getInstructions()).toContain(`default shell for shell_run: ${core.platform.info.defaultShell}`);
   });
 
   it("reports status", async () => {
@@ -65,6 +67,7 @@ describe("CROT MCP adapter", () => {
     expect(isError).toBe(false);
     expect(body.mode).toBe("sandbox");
     expect(body.workspace.root).toBe(dirs.workspace);
+    expect(body.platform.shells.length).toBeGreaterThan(0);
   });
 
   it("delegates filesystem tools to Core", async () => {

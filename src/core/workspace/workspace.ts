@@ -1,6 +1,8 @@
 import { realpath, stat } from "node:fs/promises";
-import path from "node:path";
 import { CrotError } from "../errors.js";
+import { probeCaseSensitivity } from "../platform/node-platform.js";
+import { pathRulesFor } from "../platform/path-rules.js";
+import type { PathRules } from "../platform/types.js";
 
 /** A path resolved and canonicalized against the workspace. */
 export interface ResolvedPath {
@@ -23,23 +25,43 @@ export interface ResolveOptions {
 export interface WorkspaceInfo {
   readonly name: string;
   readonly root: string;
+  /** Whether paths in the workspace compare case-sensitively (probed on open). */
+  readonly caseSensitive: boolean;
+}
+
+export interface WorkspaceOptions {
+  readonly name?: string;
+  /** Platform path rules (defaults to the host's). */
+  readonly rules?: PathRules;
+  /** Case-sensitivity probe (defaults to the host probe). */
+  readonly probeCaseSensitivity?: (directory: string) => Promise<boolean>;
 }
 
 /**
  * The user-selected workspace. All relative paths are resolved against its
  * root, and it is the boundary used by the PermissionEngine in sandbox mode.
  *
- * Resolution canonicalizes the longest existing prefix with realpath, so
- * `..` segments and symlinks cannot be used to escape the workspace unnoticed.
+ * Resolution validates platform path syntax, then canonicalizes the longest
+ * existing prefix with realpath, so `..` segments, symlinks and junctions
+ * cannot be used to escape the workspace unnoticed. Comparisons honour the
+ * filesystem's case sensitivity (case-insensitive on Windows and default macOS).
  */
 export class Workspace {
   private constructor(
     readonly name: string,
     readonly root: string,
+    readonly rules: PathRules,
+    readonly caseSensitive: boolean,
   ) {}
 
-  static async open(root: string, name?: string): Promise<Workspace> {
-    if (!path.isAbsolute(root)) {
+  static async open(root: string, options: WorkspaceOptions = {}): Promise<Workspace> {
+    const rules = options.rules ?? pathRulesFor(process.platform === "win32" ? "win32" : "posix");
+    try {
+      rules.validate(root);
+    } catch (error) {
+      throw new CrotError("CONFIG_ERROR", `Invalid workspace root: ${(error as Error).message}`);
+    }
+    if (!rules.isAbsolute(root)) {
       throw new CrotError("CONFIG_ERROR", `Workspace root must be an absolute path: ${root}`);
     }
     let canonical: string;
@@ -52,11 +74,13 @@ export class Workspace {
     if (!info.isDirectory()) {
       throw new CrotError("CONFIG_ERROR", `Workspace root is not a directory: ${root}`);
     }
-    return new Workspace(name ?? path.basename(canonical), canonical);
+    const probe = options.probeCaseSensitivity ?? ((d: string) => probeCaseSensitivity(d, process.platform === "win32"));
+    const caseSensitive = await probe(canonical);
+    return new Workspace(options.name ?? rules.basename(canonical), canonical, rules, caseSensitive);
   }
 
   info(): WorkspaceInfo {
-    return { name: this.name, root: this.root };
+    return { name: this.name, root: this.root, caseSensitive: this.caseSensitive };
   }
 
   /** Resolve a user-supplied path (absolute, or relative to the workspace root). */
@@ -64,34 +88,37 @@ export class Workspace {
     if (typeof input !== "string" || input.length === 0) {
       throw new CrotError("INVALID_INPUT", "Path must be a non-empty string.");
     }
-    if (input.includes("\0")) {
-      throw new CrotError("INVALID_INPUT", "Path must not contain NUL bytes.");
-    }
-    const lexical = path.resolve(this.root, input);
+    this.rules.validate(input);
+    const lexical = this.rules.resolve(this.root, input);
     const follow = options.followFinalSymlink ?? true;
 
     let canonical: string;
-    if (follow || lexical === path.parse(lexical).root) {
-      canonical = await canonicalize(lexical);
+    if (follow || lexical === this.rules.root(lexical)) {
+      canonical = await canonicalize(lexical, this.rules);
     } else {
-      canonical = path.join(await canonicalize(path.dirname(lexical)), path.basename(lexical));
+      canonical = this.rules.join(await canonicalize(this.rules.dirname(lexical), this.rules), this.rules.basename(lexical));
     }
     return this.describe(canonical);
   }
 
   /** Classify an already canonical absolute path. */
   describe(canonicalAbsolute: string): ResolvedPath {
-    const rel = path.relative(this.root, canonicalAbsolute);
-    const inside = rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+    const segments = this.rules.relativeSegments(this.root, canonicalAbsolute, this.caseSensitive);
+    const inside = segments !== null;
     return {
       absolute: canonicalAbsolute,
-      relative: inside ? (rel === "" ? "." : rel.split(path.sep).join("/")) : null,
+      relative: segments === null ? null : segments.length === 0 ? "." : segments.join("/"),
       insideWorkspace: inside,
     };
   }
 
   isRoot(p: ResolvedPath): boolean {
-    return p.absolute === this.root;
+    return this.rules.equals(this.root, p.absolute, this.caseSensitive);
+  }
+
+  /** Whether `candidate` is `ancestor` or inside it, using this workspace's path semantics. */
+  contains(ancestor: string, candidate: string): boolean {
+    return this.rules.relativeSegments(ancestor, candidate, this.caseSensitive) !== null;
   }
 }
 
@@ -101,19 +128,27 @@ export function displayPath(p: ResolvedPath): string {
 }
 
 /** realpath the longest existing prefix of `absolute`, then re-append the missing tail. */
-async function canonicalize(absolute: string): Promise<string> {
+async function canonicalize(absolute: string, rules: PathRules): Promise<string> {
   const tail: string[] = [];
   let current = absolute;
   for (;;) {
     try {
       const real = await realpath(current);
-      return tail.length === 0 ? real : path.join(real, ...tail.reverse());
+      return tail.length === 0 ? real : rules.join(real, ...tail.reverse());
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
-      const parent = path.dirname(current);
+      if (code !== "ENOENT" && code !== "ENOTDIR") {
+        if (code === "EINVAL" || code === "ENAMETOOLONG") {
+          throw new CrotError("INVALID_INPUT", `Invalid path (${code}): ${absolute}`);
+        }
+        if (code === "EACCES" || code === "EPERM") {
+          throw new CrotError("OPERATION_FAILED", `Operating system denied access while resolving ${absolute} (${code})`);
+        }
+        throw error;
+      }
+      const parent = rules.dirname(current);
       if (parent === current) return absolute;
-      tail.push(path.basename(current));
+      tail.push(rules.basename(current));
       current = parent;
     }
   }

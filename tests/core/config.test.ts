@@ -49,7 +49,9 @@ describe("CrotCore", () => {
     const core = await createTestCore({ workspace: { root: dirs.workspace, name: "demo" } });
     const status = core.status();
     expect(status.mode).toBe("sandbox");
-    expect(status.workspace).toEqual({ name: "demo", root: dirs.workspace });
+    expect(status.workspace).toMatchObject({ name: "demo", root: dirs.workspace });
+    expect(typeof status.workspace.caseSensitive).toBe("boolean");
+    expect(status.platform.shells.some((s) => s.id === status.platform.defaultShell)).toBe(true);
     expect(status.capabilities.find((c) => c.capability === "filesystem.full")).toEqual({
       capability: "filesystem.full",
       granted: false,

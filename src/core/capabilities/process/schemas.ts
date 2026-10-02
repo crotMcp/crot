@@ -1,15 +1,26 @@
 import { z } from "zod";
+import { SHELL_IDS } from "../../platform/types.js";
 
 /** Input schemas for process operations, owned by Core and reused by adapters. */
 const Cwd = z.string().min(1).default(".").describe("Working directory: absolute, or relative to the workspace root.");
+const EnvName = z
+  .string()
+  .min(1)
+  .regex(/^[^=\0]+$/, "Environment variable names must not contain '=' or NUL.");
 const Env = z
-  .record(z.string(), z.string())
+  .record(EnvName, z.string().regex(/^[^\0]*$/, "Environment values must not contain NUL.").nullable())
   .optional()
-  .describe("Environment variables added to (or overriding) the CROT process environment.");
+  .describe(
+    "Environment variables added to or overriding the CROT process environment; null removes a variable. Names are case-insensitive on Windows.",
+  );
+const Shell = z
+  .enum(SHELL_IDS)
+  .optional()
+  .describe("Shell to use (sh, bash, zsh, cmd, powershell, pwsh). Defaults to the platform shell; see crot_status for available shells.");
 const TimeoutMs = z.number().int().positive().optional().describe("Timeout in milliseconds (bounded by the configured maximum).");
 const Command = z.string().min(1).describe("Executable name or path. Not interpreted by a shell.");
 const Args = z.array(z.string()).default([]).describe("Arguments passed verbatim to the executable.");
-const Script = z.string().min(1).describe("Script interpreted by the system shell (/bin/sh -c, or cmd.exe /c on Windows).");
+const Script = z.string().min(1).describe("Script interpreted by the selected shell (default: /bin/sh on Linux/macOS, cmd.exe on Windows).");
 
 export const ExecInputSchema = z
   .object({
@@ -25,6 +36,7 @@ export const ExecInputSchema = z
 export const ShellInputSchema = z
   .object({
     script: Script,
+    shell: Shell,
     cwd: Cwd,
     env: Env,
     timeoutMs: TimeoutMs,
@@ -37,6 +49,7 @@ export const StartProcessInputSchema = z
     command: Command.optional(),
     args: Args,
     script: Script.optional(),
+    shell: Shell.describe("Shell for 'script' (ignored for 'command')."),
     cwd: Cwd,
     env: Env,
     timeoutMs: TimeoutMs.describe("Optional lifetime limit. Background processes run until stopped by default."),

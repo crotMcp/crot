@@ -54,8 +54,10 @@ export function createCrotMcpServer(core: CrotCore, options: CrotMcpServerOption
 function instructions(core: CrotCore): string {
   const s = core.status();
   const granted = s.capabilities.filter((c) => c.granted).map((c) => c.capability);
+  const p = s.platform;
   return [
     "CROT gives you access to the user's local computer.",
+    `Operating system: ${p.os} (${p.arch}); path style: ${p.pathStyle}; default shell for shell_run: ${p.defaultShell}; available shells: ${p.shells.map((x) => x.id).join(", ")}.`,
     `Permission mode: ${s.mode}. Workspace: ${s.workspace.root}.`,
     "Relative paths and the default working directory resolve against the workspace root.",
     s.mode === "sandbox"
