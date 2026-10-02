@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { CrotError } from "../../core/errors.js";
@@ -81,17 +81,41 @@ async function readToken(file: string): Promise<string | undefined> {
 /**
  * Read the local token from `file`, creating it (owner-only where the
  * platform supports it) when it does not exist.
+ *
+ * Where the platform restricts files after creation (protectFile, Windows
+ * ACLs through the Native Host), a new file is created empty, restricted, and
+ * only then receives the token; an existing file is restricted before use.
+ * Failure to restrict is an error, never a silent downgrade.
  */
 export async function loadOrCreateLocalToken(file: string, privateFiles: PrivateFileProtection): Promise<{ token: string; created: boolean }> {
   const existing = await readToken(file);
   if (existing !== undefined) {
     if (existing.length === 0) throw new CrotError("CONFIG_ERROR", `The HTTP token file ${file} is empty.`);
+    if (privateFiles.protectFile) {
+      try {
+        await privateFiles.protectFile(file);
+      } catch (error) {
+        throw new CrotError("CONFIG_ERROR", `Cannot restrict access to the HTTP token file ${file}: ${(error as Error).message}`);
+      }
+    }
     return { token: existing, created: false };
   }
   await privateFiles.ensureDirectory(path.dirname(file));
   const token = generateAccessToken();
+  const mode = privateFiles.fileMode !== undefined ? { mode: privateFiles.fileMode } : {};
   try {
-    await writeFile(file, `${token}\n`, { encoding: "utf8", flag: "wx", ...(privateFiles.fileMode !== undefined ? { mode: privateFiles.fileMode } : {}) });
+    if (privateFiles.protectFile) {
+      await writeFile(file, "", { flag: "wx", ...mode });
+      try {
+        await privateFiles.protectFile(file);
+      } catch (error) {
+        await rm(file, { force: true });
+        throw error;
+      }
+      await writeFile(file, `${token}\n`, { encoding: "utf8", flag: "r+" });
+    } else {
+      await writeFile(file, `${token}\n`, { encoding: "utf8", flag: "wx", ...mode });
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
       const raced = await readToken(file);

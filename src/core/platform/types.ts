@@ -52,22 +52,32 @@ export interface PlatformInfo {
   readonly encoding: { readonly codePages: CodePages | null; readonly fallback: string | null };
 }
 
-/** How CROT's private files (audit log, state) are protected from other local users. */
+/** How CROT's private files (audit log, state, HTTP token) are protected from other local users. */
 export interface PrivateFileProtection {
-  /** posix-mode: owner-only permission bits; inherited-acl: Windows ACLs inherited from the directory (not restricted by Core). */
-  readonly mechanism: "posix-mode" | "inherited-acl";
-  /** Whether Core itself restricts access to the owner. */
+  /**
+   * posix-mode: owner-only permission bits (Core).
+   * inherited-acl: Windows ACLs inherited from the directory, not restricted (Core).
+   * windows-acl: explicit owner-only Windows ACLs, inheritance removed (Native Host).
+   */
+  readonly mechanism: "posix-mode" | "inherited-acl" | "windows-acl";
+  /** Whether the platform itself restricts access to the owner. */
   readonly enforced: boolean;
   /** Mode for newly created private files (POSIX), undefined where modes do not apply. */
   readonly fileMode: number | undefined;
   /** Create a directory for private files; new directories are owner-only where supported. */
   ensureDirectory(dir: string): Promise<void>;
+  /**
+   * Restrict an existing file to the CROT user. Provided where protection is
+   * not expressed by a creation mode (Windows ACLs). Callers create the file
+   * empty, call protectFile, and only then write secrets into it.
+   */
+  protectFile?(file: string): Promise<void>;
   inspect(file: string): Promise<PrivateFileStatus>;
 }
 
 export interface PrivateFileStatus {
   readonly mechanism: PrivateFileProtection["mechanism"];
-  /** true/false where Core can determine it; null when it cannot (Windows ACLs). */
+  /** true/false where the platform can determine it; null when it cannot (Core on Windows). */
   readonly ownerOnly: boolean | null;
   readonly detail: string;
 }
@@ -181,7 +191,7 @@ export interface ManagedProcess {
   readonly hasExited: boolean;
   /**
    * Terminate the process tree. Works after the direct child has exited where
-   * the platform allows it (POSIX process groups).
+   * the platform allows it (POSIX process groups, Windows Job Objects).
    */
   terminate(mode: TerminationMode): Promise<void>;
   /**
@@ -210,7 +220,8 @@ export interface ProcessLauncher {
  * Process-tree guarantees of a ProcessLauncher.
  * - process-group (POSIX): every command leads its own process group.
  * - taskkill-tree (Windows, Core): tree termination by parent-child links via taskkill /T.
- * - job-object (Windows, Native Host, future): kernel-enforced containment of every descendant.
+ * - job-object (Windows, Native Host): kernel-enforced containment of every descendant
+ *   (kill-on-close Job Object per command).
  */
 export interface ProcessControlInfo {
   readonly treeTermination: "process-group" | "taskkill-tree" | "job-object";

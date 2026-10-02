@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdir, open } from "node:fs/promises";
 import path from "node:path";
 import type { Principal } from "../auth/principal.js";
 import type { Capability } from "../permissions/capabilities.js";
@@ -81,6 +81,8 @@ export class StreamAuditSink implements AuditSink {
 export interface AuditFileProtection {
   ensureDirectory(dir: string): Promise<void>;
   readonly fileMode: number | undefined;
+  /** Restrict an existing file (Windows ACLs via the Native Host); called before the first event is written. */
+  protectFile?(file: string): Promise<void>;
 }
 
 /** POSIX owner-only defaults, used when no platform protection is supplied. */
@@ -94,7 +96,8 @@ const POSIX_PRIVATE: AuditFileProtection = {
 /**
  * Appends JSON lines to a local file. Writes are serialized. The file and
  * directory are created through the platform's private-file protection
- * (owner-only on POSIX; inherited ACLs on Windows).
+ * (owner-only on POSIX; inherited ACLs on Windows with Core; explicit
+ * owner-only ACLs on Windows with the Native Host).
  */
 export class JsonlFileAuditSink implements AuditSink {
   private queue: Promise<void> = Promise.resolve();
@@ -106,7 +109,7 @@ export class JsonlFileAuditSink implements AuditSink {
   ) {}
 
   record(event: AuditEvent): Promise<void> {
-    this.ready ??= this.protection.ensureDirectory(path.dirname(this.file));
+    this.ready ??= this.prepare();
     const options = this.protection.fileMode !== undefined ? { mode: this.protection.fileMode } : {};
     const write = this.queue.then(() => this.ready).then(() => appendFile(this.file, `${JSON.stringify(event)}\n`, options));
     this.queue = write.catch(() => undefined);
@@ -115,5 +118,14 @@ export class JsonlFileAuditSink implements AuditSink {
 
   async close(): Promise<void> {
     await this.queue;
+  }
+
+  /** Create the directory; where protection is applied after creation, create and restrict the file before any event is written. */
+  private async prepare(): Promise<void> {
+    await this.protection.ensureDirectory(path.dirname(this.file));
+    if (!this.protection.protectFile) return;
+    const handle = await open(this.file, "a", this.protection.fileMode);
+    await handle.close();
+    await this.protection.protectFile(this.file);
   }
 }
