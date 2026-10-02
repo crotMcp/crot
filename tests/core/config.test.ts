@@ -2,9 +2,8 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadConfigFile, parseConfig } from "../../src/core/config/load.js";
-import { CrotCore } from "../../src/core/crot-core.js";
 import { CrotError } from "../../src/core/errors.js";
-import { makeTempDirs, type TempDirs } from "../helpers.js";
+import { createTestCore, makeTempDirs, type TempDirs } from "../helpers.js";
 
 let dirs: TempDirs;
 beforeEach(async () => {
@@ -47,7 +46,7 @@ describe("configuration", () => {
 
 describe("CrotCore", () => {
   it("reports status", async () => {
-    const core = await CrotCore.create({ workspace: { root: dirs.workspace, name: "demo" } });
+    const core = await createTestCore({ workspace: { root: dirs.workspace, name: "demo" } });
     const status = core.status();
     expect(status.mode).toBe("sandbox");
     expect(status.workspace).toEqual({ name: "demo", root: dirs.workspace });
@@ -60,7 +59,7 @@ describe("CrotCore", () => {
 
   it("rejects sandbox configs that grant filesystem.full", async () => {
     await expect(
-      CrotCore.create({ workspace: { root: dirs.workspace }, permissions: { mode: "sandbox", capabilities: ["filesystem.full"] } }),
+      createTestCore({ workspace: { root: dirs.workspace }, permissions: { mode: "sandbox", capabilities: ["filesystem.full"] } }),
     ).rejects.toThrow(CrotError);
   });
 });

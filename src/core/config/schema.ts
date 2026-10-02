@@ -23,6 +23,18 @@ export const LimitsSchema = z
   })
   .strict();
 
+export const AuditConfigSchema = z
+  .object({
+    /**
+     * file: append JSON lines to `path`; stderr: write JSON lines to standard error;
+     * none: disable auditing. Audit data never leaves the machine.
+     */
+    sink: z.enum(["file", "stderr", "none"]).default("stderr"),
+    path: z.string().min(1).optional(),
+  })
+  .strict()
+  .refine((a) => a.sink !== "file" || a.path !== undefined, { message: "audit.path is required when audit.sink is 'file'." });
+
 export const CrotConfigSchema = z
   .object({
     version: z.literal(1).default(1),
@@ -42,9 +54,11 @@ export const CrotConfigSchema = z
       .strict()
       .default({ mode: "sandbox" }),
     limits: LimitsSchema.default(LimitsSchema.parse({})),
+    audit: AuditConfigSchema.default({ sink: "stderr" }),
   })
   .strict();
 
 export type CrotConfig = z.output<typeof CrotConfigSchema>;
 export type CrotConfigInput = z.input<typeof CrotConfigSchema>;
 export type Limits = z.output<typeof LimitsSchema>;
+export type AuditConfig = z.output<typeof AuditConfigSchema>;

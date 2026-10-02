@@ -73,7 +73,12 @@ export class ProcessService {
     const args = parseInput(ExecInputSchema, input);
     const cwd = await this.resolveCwd(args.cwd);
     const timeoutMs = this.timeout(args.timeoutMs);
-    return this.deps.guard.run(context, { operation: "process.exec", capability: "shell.execute", paths: [cwd] }, async () => {
+    return this.deps.guard.run(context, {
+        operation: "process.exec",
+        capability: "shell.execute",
+        paths: [cwd],
+        details: { command: args.command, args: args.args, ...commonDetails(args, timeoutMs) },
+      }, async () => {
       await assertDirectory(cwd);
       return this.runForeground(
         { file: args.command, args: args.args, cwd: cwd.absolute, env: args.env, stdin: args.stdin !== undefined },
@@ -88,7 +93,12 @@ export class ProcessService {
     const args = parseInput(ShellInputSchema, input);
     const cwd = await this.resolveCwd(args.cwd);
     const timeoutMs = this.timeout(args.timeoutMs);
-    return this.deps.guard.run(context, { operation: "process.shell", capability: "shell.execute", paths: [cwd] }, async () => {
+    return this.deps.guard.run(context, {
+        operation: "process.shell",
+        capability: "shell.execute",
+        paths: [cwd],
+        details: { script: args.script, ...commonDetails(args, timeoutMs) },
+      }, async () => {
       await assertDirectory(cwd);
       const sh = shellSpec(args.script);
       return this.runForeground(
@@ -104,15 +114,16 @@ export class ProcessService {
     const args = parseInput(StartProcessInputSchema, input);
     const cwd = await this.resolveCwd(args.cwd);
     const timeoutMs = args.timeoutMs === undefined ? undefined : this.timeout(args.timeoutMs);
-    const op = { operation: "process.start", paths: [cwd] };
+    const label = args.script ?? [args.command!, ...args.args].join(" ");
+    const details = { command: label, envKeys: Object.keys(args.env ?? {}), timeoutMs: timeoutMs ?? null };
     // Starting a process both executes a command and creates a managed process.
-    return this.deps.guard.run(context, { ...op, capability: ["process.manage", "shell.execute"] }, async () => {
+    const op = { operation: "process.start", capability: ["process.manage", "shell.execute"] as const, paths: [cwd], details };
+    return this.deps.guard.run(context, op, async () => {
       await assertDirectory(cwd);
       if (this.runningCount() >= this.deps.limits.maxBackgroundProcesses) {
         throw new CrotError("LIMIT_EXCEEDED", `Too many running background processes (limit ${this.deps.limits.maxBackgroundProcesses}).`);
       }
       const target = args.script !== undefined ? shellSpec(args.script) : { file: args.command!, args: args.args };
-      const label = args.script ?? [args.command!, ...args.args].join(" ");
       const child = await spawnOrThrow({ file: target.file, args: target.args, cwd: cwd.absolute, env: args.env, stdin: false });
       const record: BackgroundProcess = {
         id: `p${this.nextId++}`,
@@ -181,7 +192,12 @@ export class ProcessService {
   async stop(context: AuthContext, input: StopProcessInput): Promise<ProcessInfo> {
     const args = parseInput(StopProcessInputSchema, input);
     const record = this.get(args.id);
-    return this.deps.guard.run(context, { operation: "process.stop", capability: "process.manage", paths: [record.cwd] }, async () => {
+    return this.deps.guard.run(context, {
+        operation: "process.stop",
+        capability: "process.manage",
+        paths: [record.cwd],
+        details: { id: record.id, force: args.force },
+      }, async () => {
       if (!record.endedAt) {
         const exited = new Promise<void>((resolve) => record.child.once("exit", () => resolve()));
         if (args.force) killTree(record.child, true);
@@ -196,7 +212,12 @@ export class ProcessService {
   async remove(context: AuthContext, input: ProcessIdInput): Promise<{ id: string; removed: boolean }> {
     const args = parseInput(ProcessIdInputSchema, input);
     const record = this.get(args.id);
-    return this.deps.guard.run(context, { operation: "process.remove", capability: "process.manage", paths: [record.cwd] }, async () => {
+    return this.deps.guard.run(context, {
+        operation: "process.remove",
+        capability: "process.manage",
+        paths: [record.cwd],
+        details: { id: record.id },
+      }, async () => {
       if (!record.endedAt) throw new CrotError("INVALID_INPUT", `Process ${record.id} is still running; stop it first.`);
       this.processes.delete(record.id);
       return { id: record.id, removed: true };
@@ -286,6 +307,11 @@ export class ProcessService {
     const exited = [...this.processes.values()].filter((p) => p.endedAt);
     for (const p of exited.slice(0, Math.max(0, exited.length - MAX_EXITED_RECORDS))) this.processes.delete(p.id);
   }
+}
+
+/** Audit-safe summary: environment variable names only, never values or stdin contents. */
+function commonDetails(args: { env?: Record<string, string> | undefined; stdin?: string | undefined }, timeoutMs: number) {
+  return { envKeys: Object.keys(args.env ?? {}), stdin: args.stdin !== undefined, timeoutMs };
 }
 
 function toInfo(p: BackgroundProcess): ProcessInfo {

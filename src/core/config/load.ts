@@ -13,7 +13,7 @@ export function parseConfig(input: unknown): CrotConfig {
   return result.data;
 }
 
-/** Read a JSON configuration file. A relative workspace root is resolved against the file's directory. */
+/** Read a JSON configuration file. Relative paths (workspace root, audit path) are resolved against the file's directory. */
 export async function loadConfigFile(file: string): Promise<CrotConfigInput> {
   const absolute = path.resolve(file);
   let raw: string;
@@ -28,9 +28,15 @@ export async function loadConfigFile(file: string): Promise<CrotConfigInput> {
   } catch (error) {
     throw new CrotError("CONFIG_ERROR", `Configuration file ${absolute} is not valid JSON: ${(error as Error).message}`);
   }
-  const config = data as CrotConfigInput;
-  if (config && typeof config === "object" && config.workspace && typeof config.workspace.root === "string") {
-    return { ...config, workspace: { ...config.workspace, root: path.resolve(path.dirname(absolute), config.workspace.root) } };
+  let config = data as CrotConfigInput;
+  const base = path.dirname(absolute);
+  if (config && typeof config === "object") {
+    if (config.workspace && typeof config.workspace.root === "string") {
+      config = { ...config, workspace: { ...config.workspace, root: path.resolve(base, config.workspace.root) } };
+    }
+    if (config.audit && typeof config.audit.path === "string") {
+      config = { ...config, audit: { ...config.audit, path: path.resolve(base, config.audit.path) } };
+    }
   }
   return config;
 }

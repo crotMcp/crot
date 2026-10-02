@@ -78,7 +78,12 @@ export class FileSystemService {
   async writeFile(context: AuthContext, input: WriteFileInput): Promise<WriteFileResult> {
     const args = parseInput(WriteFileInputSchema, input);
     const target = await this.deps.workspace.resolve(args.path);
-    return this.deps.guard.run(context, { operation: "filesystem.write_file", capability: "filesystem.write", paths: [target] }, async () => {
+    return this.deps.guard.run(context, {
+        operation: "filesystem.write_file",
+        capability: "filesystem.write",
+        paths: [target],
+        details: { mode: args.mode, encoding: args.encoding },
+      }, async () => {
       const data = Buffer.from(args.content, args.encoding);
       const existed = await exists(target.absolute);
       try {
@@ -165,7 +170,7 @@ export class FileSystemService {
   async delete(context: AuthContext, input: DeleteInput): Promise<{ path: string; deleted: boolean }> {
     const args = parseInput(DeleteInputSchema, input);
     const target = await this.deps.workspace.resolve(args.path, { followFinalSymlink: false });
-    return this.deps.guard.run(context, { operation: "filesystem.delete", capability: "filesystem.write", paths: [target] }, async () => {
+    return this.deps.guard.run(context, { operation: "filesystem.delete", capability: "filesystem.write", paths: [target], details: { recursive: args.recursive } }, async () => {
       if (this.deps.workspace.isRoot(target)) throw new CrotError("INVALID_INPUT", "Refusing to delete the workspace root.");
       if (target.absolute === path.parse(target.absolute).root) throw new CrotError("INVALID_INPUT", "Refusing to delete a filesystem root.");
       try {
@@ -186,7 +191,7 @@ export class FileSystemService {
     const args = parseInput(MoveInputSchema, input);
     const from = await this.deps.workspace.resolve(args.from, { followFinalSymlink: false });
     const to = await this.deps.workspace.resolve(args.to, { followFinalSymlink: false });
-    return this.deps.guard.run(context, { operation: "filesystem.move", capability: "filesystem.write", paths: [from, to] }, async () => {
+    return this.deps.guard.run(context, { operation: "filesystem.move", capability: "filesystem.write", paths: [from, to], details: { overwrite: args.overwrite } }, async () => {
       if (this.deps.workspace.isRoot(from)) throw new CrotError("INVALID_INPUT", "Refusing to move the workspace root.");
       if (!args.overwrite && (await exists(to.absolute))) {
         throw new CrotError("ALREADY_EXISTS", `Destination exists (set overwrite to replace it): ${display(to)}`);

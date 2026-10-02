@@ -2,8 +2,8 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { OutputBuffer } from "../../src/core/capabilities/process/output-buffer.js";
-import { CrotCore } from "../../src/core/crot-core.js";
-import { makeTempDirs, testContext as ctx, type TempDirs } from "../helpers.js";
+import type { CrotCore } from "../../src/core/crot-core.js";
+import { createTestCore, makeTempDirs, testContext as ctx, type TempDirs } from "../helpers.js";
 
 const node = process.execPath;
 let dirs: TempDirs;
@@ -11,7 +11,7 @@ let core: CrotCore;
 
 beforeEach(async () => {
   dirs = await makeTempDirs();
-  core = await CrotCore.create({ workspace: { root: dirs.workspace }, limits: { maxOutputBytes: 1024, maxCommandTimeoutMs: 30_000 } });
+  core = await createTestCore({ workspace: { root: dirs.workspace }, limits: { maxOutputBytes: 1024, maxCommandTimeoutMs: 30_000 } });
 });
 afterEach(async () => {
   await core.shutdown();
@@ -86,13 +86,13 @@ describe("process: exec", () => {
   });
 
   it("allows outside working directories in full_control mode", async () => {
-    const full = await CrotCore.create({ workspace: { root: dirs.workspace }, permissions: { mode: "full_control" } });
+    const full = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { mode: "full_control" } });
     const r = await full.processes.exec(ctx, { command: node, args: ["-e", "console.log(process.cwd())"], cwd: dirs.outside });
     expect(r.stdout.trim()).toBe(dirs.outside);
   });
 
   it("denies execution when shell.execute is not granted", async () => {
-    const ro = await CrotCore.create({ workspace: { root: dirs.workspace }, permissions: { capabilities: ["filesystem.read"] } });
+    const ro = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { capabilities: ["filesystem.read"] } });
     await expect(ro.processes.exec(ctx, { command: node, args: ["-v"] })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
   });
 });
@@ -137,7 +137,7 @@ describe("process: background", () => {
   });
 
   it("enforces the background process limit", async () => {
-    const limited = await CrotCore.create({ workspace: { root: dirs.workspace }, limits: { maxBackgroundProcesses: 1 } });
+    const limited = await createTestCore({ workspace: { root: dirs.workspace }, limits: { maxBackgroundProcesses: 1 } });
     try {
       await limited.processes.start(ctx, { command: node, args: ["-e", "setInterval(()=>{},1000)"] });
       await expect(limited.processes.start(ctx, { command: node, args: ["-e", "1"] })).rejects.toMatchObject({ code: "LIMIT_EXCEEDED" });
@@ -147,7 +147,7 @@ describe("process: background", () => {
   });
 
   it("requires process.manage", async () => {
-    const noManage = await CrotCore.create({ workspace: { root: dirs.workspace }, permissions: { capabilities: ["shell.execute"] } });
+    const noManage = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { capabilities: ["shell.execute"] } });
     await expect(noManage.processes.start(ctx, { command: node, args: ["-v"] })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     await expect(noManage.processes.list(ctx)).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
   });

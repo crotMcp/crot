@@ -1,15 +1,15 @@
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CrotCore } from "../../src/core/crot-core.js";
-import { makeTempDirs, testContext as ctx, type TempDirs } from "../helpers.js";
+import type { CrotCore } from "../../src/core/crot-core.js";
+import { createTestCore, makeTempDirs, testContext as ctx, type TempDirs } from "../helpers.js";
 
 let dirs: TempDirs;
 let core: CrotCore;
 
 beforeEach(async () => {
   dirs = await makeTempDirs();
-  core = await CrotCore.create({ workspace: { root: dirs.workspace }, limits: { maxReadBytes: 64 } });
+  core = await createTestCore({ workspace: { root: dirs.workspace }, limits: { maxReadBytes: 64 } });
 });
 afterEach(() => dirs.cleanup());
 
@@ -77,12 +77,12 @@ describe("filesystem: sandbox enforcement", () => {
   });
 
   it("denies writes when filesystem.write is not granted", async () => {
-    const readOnly = await CrotCore.create({ workspace: { root: dirs.workspace }, permissions: { capabilities: ["filesystem.read"] } });
+    const readOnly = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { capabilities: ["filesystem.read"] } });
     await expect(readOnly.filesystem.writeFile(ctx, { path: "a.txt", content: "x" })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
   });
 
   it("allows outside paths in full_control mode", async () => {
-    const full = await CrotCore.create({ workspace: { root: dirs.workspace }, permissions: { mode: "full_control" } });
+    const full = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { mode: "full_control" } });
     const w = await full.filesystem.writeFile(ctx, { path: path.join(dirs.outside, "ok.txt"), content: "ok" });
     expect(w.path).toBe(path.join(dirs.outside, "ok.txt"));
   });

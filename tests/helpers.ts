@@ -1,7 +1,9 @@
 import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { NullAuditSink, type AuditSink } from "../src/core/audit/audit.js";
 import { localPrincipal, type AuthContext } from "../src/core/auth/principal.js";
+import { CrotCore } from "../src/core/crot-core.js";
 
 export const testContext: AuthContext = { principal: localPrincipal("test") };
 
@@ -21,4 +23,9 @@ export async function makeTempDirs(): Promise<TempDirs> {
   await mkdir(workspace);
   await mkdir(outside);
   return { workspace, outside, cleanup: () => rm(base, { recursive: true, force: true }) };
+}
+
+/** Create a CrotCore with auditing silenced unless a sink is supplied. */
+export function createTestCore(config: unknown, auditSink: AuditSink = new NullAuditSink()): Promise<CrotCore> {
+  return CrotCore.create(config, { auditSink });
 }
