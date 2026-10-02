@@ -40,7 +40,7 @@ function defaultResponse(command: BrowserCommand, p: Record<string, unknown>): u
     case "page.read":
       return { tabId, url: PAGE_URL, title: "Example", format: p.format, content: "hello", truncated: false };
     case "page.screenshot":
-      return { tabId, url: PAGE_URL, mimeType: `image/${String(p.format)}`, data: Buffer.from("image-bytes").toString("base64") };
+      return { tabId, url: PAGE_URL, mimeType: "image/" + String(p.format), data: Buffer.from("image-bytes").toString("base64") };
   }
 }
 
@@ -190,7 +190,7 @@ describe("BrowserService input validation", () => {
     "ftp://example.com/",
     "example.com",
     "",
-    `https://example.com/${"a".repeat(8192)}`,
+    "https://example.com/" + "a".repeat(8192),
   ];
 
   it.each(rejectedUrls)("rejects disallowed URL #%# before authorization and auditing", async (url) => {
@@ -203,19 +203,19 @@ describe("BrowserService input validation", () => {
 
   it("rejects invalid selectors, oversized text, bad tab ids and unknown fields", async () => {
     const { service, fake } = setup({ mode: "full_control" });
-    const invalid = [
-      service.click(ctx, { selector: "" }),
-      service.click(ctx, { selector: "a\0b" }),
-      service.click(ctx, { selector: "a".repeat(1001) }),
-      service.type(ctx, { selector: "#q", text: "x".repeat(100_001) }),
-      service.closeTab(ctx, { tabId: -1 }),
-      service.activateTab(ctx, { tabId: 1.5 }),
-      service.readPage(ctx, { maxBytes: 0 }),
-      service.listTabs(ctx, { extra: true } as never),
-      service.screenshot(ctx, { format: "png", quality: 50 }),
+    const invalid: readonly (() => Promise<unknown>)[] = [
+      () => service.click(ctx, { selector: "" }),
+      () => service.click(ctx, { selector: "a\0b" }),
+      () => service.click(ctx, { selector: "a".repeat(1001) }),
+      () => service.type(ctx, { selector: "#q", text: "x".repeat(100_001) }),
+      () => service.closeTab(ctx, { tabId: -1 }),
+      () => service.activateTab(ctx, { tabId: 1.5 }),
+      () => service.readPage(ctx, { maxBytes: 0 }),
+      () => service.listTabs(ctx, { extra: true } as never),
+      () => service.screenshot(ctx, { format: "png", quality: 50 }),
     ];
-    for (const [index, pending] of invalid.entries()) {
-      await expect(pending, `case ${index}`).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    for (const [index, run] of invalid.entries()) {
+      await expect(run(), "case " + String(index)).rejects.toMatchObject({ code: "INVALID_INPUT" });
     }
     expect(fake.calls).toEqual([]);
   });
@@ -249,7 +249,7 @@ describe("BrowserService auditing", () => {
     expect(audit.events.map((e) => e.details)).toEqual([
       { tabId: 3, origin: "https://example.com" },
       { tabId: 3, selector: "#password", textLength: 15, clear: false },
-      { tabId: "active", selector: `${"x".repeat(200)}…` },
+      { tabId: "active", selector: "x".repeat(200) + "\u2026" },
       { tabId: 1, format: "text", maxBytes: DEFAULT_MAX_READ },
     ]);
     expect(audit.events.every((e) => e.paths.length === 0 && e.outcome === "success")).toBe(true);
@@ -263,7 +263,7 @@ describe("BrowserService response validation", () => {
     await expect(service.listTabs(ctx)).rejects.toMatchObject({ code: "OPERATION_FAILED", message: expect.stringContaining("invalid response") });
     fake.handlers.set("tabs.close", (p) => ({ tabId: p.tabId, closed: false }));
     await expect(service.closeTab(ctx, { tabId: 1 })).rejects.toMatchObject({ code: "OPERATION_FAILED" });
-    fake.handlers.set("page.screenshot", (p) => ({ tabId: 1, url: PAGE_URL, mimeType: `image/${String(p.format)}`, data: "not base64!" }));
+    fake.handlers.set("page.screenshot", (p) => ({ tabId: 1, url: PAGE_URL, mimeType: "image/" + String(p.format), data: "not base64!" }));
     await expect(service.screenshot(ctx, {})).rejects.toMatchObject({ code: "OPERATION_FAILED" });
   });
 
@@ -327,7 +327,7 @@ describe("BrowserService error mapping", () => {
   it("bounds browser messages and strips control characters", async () => {
     const { service, fake } = setup({ mode: "full_control" });
     fake.handlers.set("tabs.close", () => {
-      throw new CrotError("NOT_FOUND", `line1\nline2\u0007${"x".repeat(5000)}`);
+      throw new CrotError("NOT_FOUND", "line1\nline2\u0007" + "x".repeat(5000));
     });
     const error = (await service.closeTab(ctx, { tabId: 1 }).catch((e: unknown) => e)) as CrotError;
     expect(error.code).toBe("NOT_FOUND");
@@ -356,8 +356,8 @@ describe("BrowserService error mapping", () => {
 describe("BrowserService page reading", () => {
   it("caps maxBytes at limits.maxReadBytes and truncates on UTF-8 boundaries", async () => {
     const { service, fake } = setup({ mode: "full_control", maxReadBytes: 5 });
-    fake.handlers.set("page.read", (p) => ({ tabId: 1, url: PAGE_URL, title: "t", format: p.format, content: "aéééé", truncated: false }));
-    await expect(service.readPage(ctx, { maxBytes: 1000 })).resolves.toMatchObject({ content: "aéé", truncated: true });
+    fake.handlers.set("page.read", (p) => ({ tabId: 1, url: PAGE_URL, title: "t", format: p.format, content: "a\u00e9\u00e9\u00e9\u00e9", truncated: false }));
+    await expect(service.readPage(ctx, { maxBytes: 1000 })).resolves.toMatchObject({ content: "a\u00e9\u00e9", truncated: true });
     expect(fake.calls[0]?.params).toMatchObject({ maxBytes: 5 });
     await expect(service.readPage(ctx, { maxBytes: 2 })).resolves.toMatchObject({ content: "a", truncated: true });
   });
