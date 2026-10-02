@@ -1,0 +1,52 @@
+# TEMPORARY: Windows cmd output-encoding diagnostic (see diagnostics/windows-cmd-encoding/README.md).
+# Separate from CI; it does not run or affect the regular test suite. Delete once category B is resolved.
+name: Windows encoding diagnostic (temporary)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: cmd encoding diagnostic (windows-latest, Node ${{ matrix.node }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Runner code pages (outside CROT, for comparison)
+        shell: cmd
+        run: |
+          echo [runner step] active code page before:
+          chcp
+          reg query HKLM\SYSTEM\CurrentControlSet\Control\Nls\CodePage
+          echo [runner step] chcp 65001 (stderr visible):
+          chcp 65001
+          echo [runner step] chcp 65001 exit code: %ERRORLEVEL%
+          chcp
+      - name: Run diagnostic
+        run: npx vitest run --config diagnostics/windows-cmd-encoding/vitest.config.ts --reporter=verbose
+      - name: Print report
+        if: always()
+        shell: pwsh
+        run: |
+          if (Test-Path diagnostics-output) {
+            Get-ChildItem diagnostics-output -Filter *.json | ForEach-Object { Write-Output "===== $($_.Name) ====="; Get-Content $_.FullName -Raw -Encoding utf8 }
+          } else { Write-Output "No report was written." }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-cmd-encoding-node${{ matrix.node }}
+          path: diagnostics-output/
+          if-no-files-found: warn
