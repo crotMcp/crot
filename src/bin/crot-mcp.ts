@@ -2,9 +2,11 @@
 /**
  * CROT MCP entry point.
  *
- * Wires configuration -> Native Host -> CrotCore -> MCP adapter -> transport.
+ * Wires configuration -> Native Host -> browser bridge (optional) -> CrotCore -> MCP adapter -> transport.
  * The transport is stdio (default, local user) or Streamable HTTP (--http,
  * loopback, authenticated remote principal); both use the same Core.
+ * The browser bridge is only a transport for the CROT Browser Extension: every
+ * browser tool call is authorized by Core's PermissionEngine.
  * In stdio mode stdout is reserved for the MCP protocol; all diagnostics go to stderr.
  */
 import path from "node:path";
@@ -13,6 +15,8 @@ import { DEFAULT_HTTP_TOKEN_FILE_NAME, LocalTokenVerifier, loadOrCreateLocalToke
 import { CrotHttpServer } from "../adapters/http/server.js";
 import { localContextResolver } from "../adapters/mcp/context.js";
 import { createCrotMcpServer } from "../adapters/mcp/server.js";
+import type { BrowserBridge } from "../browser-bridge/server.js";
+import { browserProtectedPaths, startBrowserBridge } from "../cli/browser.js";
 import { flushStream, installLifecycle } from "../cli/lifecycle.js";
 import { parseCli, USAGE } from "../cli/options.js";
 import { parseConfig } from "../core/config/load.js";
@@ -43,19 +47,29 @@ async function main(): Promise<void> {
 
   const parsed = parseConfig(command.config);
   const http = parsed.http;
+  const stateDir = hostDirectories(process.env).state;
   const tokenFile = http.enabled
-    ? path.resolve(expandHome(http.auth.tokenFile ?? path.join(hostDirectories(process.env).state, DEFAULT_HTTP_TOKEN_FILE_NAME)))
+    ? path.resolve(expandHome(http.auth.tokenFile ?? path.join(stateDir, DEFAULT_HTTP_TOKEN_FILE_NAME)))
     : undefined;
-  // The configuration and the HTTP token file can never be modified through CROT tools.
-  const protectedPaths = [command.configFile, tokenFile].filter((p): p is string => p !== undefined);
+  // The configuration, the HTTP token file and the browser bridge token file can never be modified through CROT tools.
+  const protectedPaths = [command.configFile, tokenFile, ...browserProtectedPaths(parsed.browser.enabled, stateDir)].filter(
+    (p): p is string => p !== undefined,
+  );
 
   // Native resources first; Core is built on the Native Host platform (same startup PATH policy as Core's own platform).
   const native = await NativeHost.start({ startupPath: parsed.environment.path });
   for (const note of native.status().notes) log(`note: native host: ${note}`);
+  // The browser bridge never stops CROT: when it cannot start, CROT runs without it (warning on stderr).
+  const bridge = await startBrowserBridge({ enabled: parsed.browser.enabled, stateDir, privateFiles: native.platform.privateFiles, log });
   let core: CrotCore;
   try {
-    core = await CrotCore.create(command.config, { ...(protectedPaths.length > 0 ? { protectedPaths } : {}), platform: native.platform });
+    core = await CrotCore.create(command.config, {
+      ...(protectedPaths.length > 0 ? { protectedPaths } : {}),
+      platform: native.platform,
+      ...(bridge ? { browser: bridge } : {}),
+    });
   } catch (error) {
+    await bridge?.close();
     await native.close();
     throw error;
   }
@@ -76,9 +90,10 @@ async function main(): Promise<void> {
   const protection = status.audit.protection;
   if (protection && protection.ownerOnly === false) log(`warning: audit log ${protection.detail}`);
   if (protection && protection.ownerOnly === null) log(`note: audit log ${protection.detail}`);
+  log(`browser: ${status.browser.state}`);
 
   if (tokenFile !== undefined) {
-    await serveHttp(core, native, http, tokenFile);
+    await serveHttp(core, native, bridge, http, tokenFile);
     return;
   }
 
@@ -90,7 +105,7 @@ async function main(): Promise<void> {
     signals: status.platform.shutdownSignals,
     timeoutMs: SHUTDOWN_TIMEOUT_MS,
     log,
-    // One shutdown path: transport -> Core (terminates process trees) -> Native Host (releases native resources) -> flush.
+    // One shutdown path: transport -> Core (terminates process trees, aborts browser requests) -> browser bridge -> Native Host -> flush.
     shutdown: async (reason) => {
       log(`shutting down (${reason})`);
       try {
@@ -99,6 +114,7 @@ async function main(): Promise<void> {
         // Transport may already be closed.
       }
       await core.shutdown();
+      await bridge?.close();
       await native.close();
       await Promise.all([flushStream(process.stdout), flushStream(process.stderr)]);
     },
@@ -116,7 +132,13 @@ async function main(): Promise<void> {
   await server.connect(transport);
 }
 
-async function serveHttp(core: CrotCore, native: NativeHost, http: ReturnType<typeof parseConfig>["http"], tokenFile: string): Promise<void> {
+async function serveHttp(
+  core: CrotCore,
+  native: NativeHost,
+  bridge: BrowserBridge | undefined,
+  http: ReturnType<typeof parseConfig>["http"],
+  tokenFile: string,
+): Promise<void> {
   let server: CrotHttpServer;
   try {
     const { token, created } = await loadOrCreateLocalToken(tokenFile, core.platform.privateFiles);
@@ -128,6 +150,7 @@ async function serveHttp(core: CrotCore, native: NativeHost, http: ReturnType<ty
     server = await CrotHttpServer.start(core, { config: http, verifier, log });
   } catch (error) {
     await core.shutdown();
+    await bridge?.close();
     await native.close();
     throw error;
   }
@@ -137,11 +160,12 @@ async function serveHttp(core: CrotCore, native: NativeHost, http: ReturnType<ty
     signals: core.platform.info.shutdownSignals,
     timeoutMs: SHUTDOWN_TIMEOUT_MS,
     log,
-    // One shutdown path: stop HTTP (no new requests, sessions closed) -> Core -> Native Host -> flush.
+    // One shutdown path: stop HTTP (no new requests, sessions closed) -> Core -> browser bridge -> Native Host -> flush.
     shutdown: async (reason) => {
       log(`shutting down (${reason})`);
       await server.close();
       await core.shutdown();
+      await bridge?.close();
       await native.close();
       await Promise.all([flushStream(process.stdout), flushStream(process.stderr)]);
     },

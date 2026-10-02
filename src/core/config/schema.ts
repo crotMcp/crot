@@ -90,6 +90,19 @@ export const HttpConfigSchema = z
   })
   .strict();
 
+/**
+ * Browser bridge for the CROT Browser Extension (Chromium). Read only by the
+ * CROT host, which starts the bridge and hands it to Core; Core does not act
+ * on it. Disabled by default. Enabling the bridge grants nothing: browser
+ * tools still require browser.read / browser.control from the
+ * PermissionEngine (off in sandbox mode unless listed explicitly).
+ */
+export const BrowserConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+  })
+  .strict();
+
 export const CrotConfigSchema = z
   .object({
     version: z.literal(1).default(1),
@@ -112,6 +125,7 @@ export const CrotConfigSchema = z
     audit: AuditConfigSchema.default({ sink: "stderr" }),
     environment: EnvironmentConfigSchema.default({ path: "auto" }),
     http: HttpConfigSchema.default(HttpConfigSchema.parse({})),
+    browser: BrowserConfigSchema.default({ enabled: false }),
   })
   .strict();
 
@@ -121,3 +135,5 @@ export type Limits = z.output<typeof LimitsSchema>;
 export type AuditConfig = z.output<typeof AuditConfigSchema>;
 export type HttpConfig = z.output<typeof HttpConfigSchema>;
 export type HttpConfigInput = z.input<typeof HttpConfigSchema>;
+export type BrowserConfig = z.output<typeof BrowserConfigSchema>;
+export type BrowserConfigInput = z.input<typeof BrowserConfigSchema>;
