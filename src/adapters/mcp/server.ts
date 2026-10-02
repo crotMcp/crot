@@ -64,6 +64,7 @@ function instructions(core: CrotCore): string {
       ? "Paths and working directories outside the workspace are denied."
       : "Full control: paths outside the workspace are allowed.",
     `Granted capabilities: ${granted.join(", ") || "none"}.`,
+    "CROT's audit log and configuration cannot be modified through CROT tools.",
     "Call crot_status for details. Every operation is audited locally.",
   ].join(" ");
 }

@@ -46,7 +46,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "crot_status",
     title: "CROT status",
     description:
-      "Show the operating system and available shells, permission mode, workspace, granted capabilities and limits of this CROT installation.",
+      "Show the operating system and available shells, permission mode, workspace, granted capabilities, protected paths and limits of this CROT installation.",
     inputSchema: EmptyInputSchema,
     annotations: { ...local, readOnlyHint: true },
     call: async (core) => core.status(),

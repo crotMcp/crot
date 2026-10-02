@@ -22,6 +22,8 @@ export interface CrotStatus {
   readonly limits: Limits;
   readonly audit: { readonly sink: AuditConfig["sink"]; readonly path?: string };
   readonly platform: PlatformInfo;
+  /** Paths CROT tools may never modify (audit log, configuration). */
+  readonly protectedPaths: readonly string[];
 }
 
 export const CORE_VERSION = "0.1.0";
@@ -33,6 +35,8 @@ export interface CrotCoreOptions {
   readonly onAuditError?: (error: unknown) => void;
   /** Platform implementation (defaults to the Node.js platform for the host OS). */
   readonly platform?: Platform;
+  /** Additional files CROT tools must never modify, e.g. the configuration file in use. */
+  readonly protectedPaths?: readonly string[];
 }
 
 /**
@@ -72,8 +76,14 @@ export class CrotCore {
         ? { mode: config.permissions.mode, capabilities: config.permissions.capabilities }
         : { mode: config.permissions.mode },
     );
-    const permissions = new PermissionEngine(policy);
     const audit = options.auditSink ?? createAuditSink(config.audit);
+    const guarded = [
+      ...(options.protectedPaths ?? []),
+      ...(config.audit.sink === "file" && config.audit.path ? [config.audit.path] : []),
+      ...(audit instanceof JsonlFileAuditSink ? [audit.file] : []),
+    ];
+    const protectedPaths = [...new Set(await Promise.all(guarded.map(async (p) => (await workspace.resolve(path.resolve(p))).absolute)))];
+    const permissions = new PermissionEngine(policy, { protectedPaths, contains: (a, c) => workspace.contains(a, c) });
     const guard = new ExecutionGuard(permissions, audit, {
       onAuditError: options.onAuditError ?? ((e) => process.stderr.write(`crot: audit write failed: ${(e as Error).message}\n`)),
     });
@@ -101,6 +111,7 @@ export class CrotCore {
       limits: this.config.limits,
       audit: { sink: this.config.audit.sink, ...(this.config.audit.path ? { path: this.config.audit.path } : {}) },
       platform: this.platform.info,
+      protectedPaths: this.permissions.protected,
     };
   }
 }

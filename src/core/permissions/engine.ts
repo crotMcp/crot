@@ -17,6 +17,19 @@ export type AuthorizationDecision =
   | { readonly allowed: true }
   | { readonly allowed: false; readonly reason: string; readonly missing: readonly Capability[] };
 
+export interface PermissionEngineOptions {
+  /**
+   * Paths CROT itself depends on (audit log, configuration). Write operations
+   * on them, or on any ancestor (delete/move of a parent), are always denied.
+   */
+  readonly protectedPaths?: readonly string[];
+  /** Path containment using the workspace's platform semantics. */
+  readonly contains?: (ancestor: string, candidate: string) => boolean;
+}
+
+/** Capabilities whose operations modify the filesystem. */
+const WRITE_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>(["filesystem.write"]);
+
 /**
  * The single authorization mechanism of CROT. Every Core operation is
  * authorized here; no other component makes permission decisions.
@@ -25,9 +38,24 @@ export type AuthorizationDecision =
  * 1. The requested capability must be granted by the policy.
  * 2. Any path outside the workspace additionally requires `filesystem.full`
  *    (never grantable in sandbox mode).
+ * 3. Write operations never touch CROT's protected paths (audit log,
+ *    configuration), in any mode.
  */
 export class PermissionEngine {
-  constructor(private readonly policy: PermissionPolicy) {}
+  private readonly protectedPaths: readonly string[];
+  private readonly contains: (ancestor: string, candidate: string) => boolean;
+
+  constructor(
+    private readonly policy: PermissionPolicy,
+    options: PermissionEngineOptions = {},
+  ) {
+    this.protectedPaths = options.protectedPaths ?? [];
+    this.contains = options.contains ?? ((a, c) => a === c || c.startsWith(a.endsWith("/") ? a : `${a}/`));
+  }
+
+  get protected(): readonly string[] {
+    return this.protectedPaths;
+  }
 
   get mode() {
     return this.policy.mode;
@@ -58,6 +86,18 @@ export class PermissionEngine {
           outside.map((p) => p.absolute).join(", "),
         missing: ["filesystem.full"],
       };
+    }
+    if (WRITE_CAPABILITIES.has(request.capability) && this.protectedPaths.length > 0) {
+      for (const p of request.paths ?? []) {
+        const hit = this.protectedPaths.find((guarded) => this.contains(p.absolute, guarded));
+        if (hit) {
+          return {
+            allowed: false,
+            reason: `Path is protected by CROT and cannot be modified through CROT tools: ${hit}`,
+            missing: [],
+          };
+        }
+      }
     }
     return { allowed: true };
   }
