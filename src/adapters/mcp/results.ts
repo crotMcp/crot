@@ -6,6 +6,16 @@ export function toToolResult(value: unknown): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
 }
 
+/** Encode an image result: MCP image content (base64 data) followed by its metadata as JSON text. */
+export function toImageToolResult(data: string, mimeType: string, metadata: Record<string, unknown>): CallToolResult {
+  return {
+    content: [
+      { type: "image", data, mimeType },
+      { type: "text", text: JSON.stringify(metadata, null, 2) },
+    ],
+  };
+}
+
 /** Encode a Core error as an MCP tool error (tool-level, so the agent can react to it). */
 export function toToolError(error: unknown): CallToolResult {
   const e =
