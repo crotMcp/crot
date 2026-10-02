@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * The single capability vocabulary of CROT (ARCHITECTURE.md §6).
  *
- * Every component (filesystem, process, and later browser, git, docker, network)
+ * Every component (filesystem, process, browser, and later git, docker, network)
  * is authorized through these capabilities by the one PermissionEngine.
  */
 export const CAPABILITIES = [
@@ -33,8 +33,8 @@ export const CAPABILITY_DESCRIPTIONS: Readonly<Record<Capability, string>> = {
   "git.read": "Reserved: dedicated Git read operations.",
   "git.write": "Reserved: dedicated Git write operations.",
   "docker.use": "Reserved: dedicated Docker operations.",
-  "browser.read": "Reserved: read browser state through the CROT Browser Extension.",
-  "browser.control": "Reserved: control the browser through the CROT Browser Extension.",
+  "browser.read": "Read browser state through the CROT Browser Extension: bridge status, open tabs, page content and screenshots.",
+  "browser.control": "Control the browser through the CROT Browser Extension: open, navigate, activate and close tabs; click and type on pages.",
   "network.access": "Reserved: dedicated network operations.",
 };
 
@@ -49,4 +49,6 @@ export const ENFORCED_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   "filesystem.full",
   "shell.execute",
   "process.manage",
+  "browser.read",
+  "browser.control",
 ]);
