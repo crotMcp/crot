@@ -1,3 +1,4 @@
+import { FileSystemService } from "./capabilities/filesystem/service.js";
 import { parseConfig } from "./config/load.js";
 import type { CrotConfig, Limits } from "./config/schema.js";
 import { ExecutionGuard } from "./execution/guard.js";
@@ -29,6 +30,7 @@ export class CrotCore {
     readonly workspace: Workspace,
     readonly permissions: PermissionEngine,
     readonly guard: ExecutionGuard,
+    readonly filesystem: FileSystemService,
   ) {}
 
   static async create(configInput: unknown): Promise<CrotCore> {
@@ -41,7 +43,8 @@ export class CrotCore {
     );
     const permissions = new PermissionEngine(policy);
     const guard = new ExecutionGuard(permissions);
-    return new CrotCore(config, workspace, permissions, guard);
+    const filesystem = new FileSystemService({ workspace, guard, limits: config.limits });
+    return new CrotCore(config, workspace, permissions, guard, filesystem);
   }
 
   status(): CrotStatus {

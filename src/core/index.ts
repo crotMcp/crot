@@ -8,3 +8,5 @@ export * from "./config/schema.js";
 export * from "./config/load.js";
 export * from "./execution/guard.js";
 export * from "./crot-core.js";
+export * from "./capabilities/filesystem/schemas.js";
+export * from "./capabilities/filesystem/service.js";
