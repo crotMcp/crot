@@ -80,13 +80,14 @@ class NodeManagedProcess implements ManagedProcess {
   }
 }
 
-function startChild(spec: CommandSpec, options: LaunchOptions, detached: boolean): Promise<ChildProcess> {
+/** `env` is the complete child environment, including the invocation's own variables (CommandSpec.env). */
+function startChild(spec: CommandSpec, options: LaunchOptions, env: Readonly<Record<string, string>>, detached: boolean): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
     let child: ChildProcess;
     try {
       child = spawn(spec.file, [...spec.args], {
         cwd: options.cwd,
-        env: { ...options.env },
+        env: { ...env },
         stdio: [options.stdin ? "pipe" : "ignore", "pipe", "pipe"],
         shell: false,
         detached,
@@ -138,7 +139,8 @@ export function createPosixLauncher(): ProcessLauncher {
       return { file, args, display: [command, ...args].join(" ") };
     },
     async launch(spec, options) {
-      return new NodeManagedProcess(await startChild(spec, options, true), killTree, killTreeSync);
+      const env = spec.env ? { ...options.env, ...spec.env } : options.env;
+      return new NodeManagedProcess(await startChild(spec, options, env, true), killTree, killTreeSync);
     },
   };
 }
@@ -194,7 +196,9 @@ export function createWindowsLauncher(environment: EnvironmentPolicy, hostEnv: R
       return { file, args, display: [command, ...args].join(" ") };
     },
     async launch(spec, options) {
-      return new NodeManagedProcess(await startChild(spec, options, false), killTree, killTreeSync);
+      // Case-insensitive merge: the invocation's variables replace differently-cased names.
+      const env = spec.env ? environment.merge(options.env, spec.env) : options.env;
+      return new NodeManagedProcess(await startChild(spec, options, env, false), killTree, killTreeSync);
     },
   };
 }

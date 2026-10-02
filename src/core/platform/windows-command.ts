@@ -75,16 +75,50 @@ export function batchFileCommand(comspec: string, file: string, args: readonly s
   };
 }
 
+/** Environment variable carrying a cmd script from the outer to the inner cmd.exe (see cmdScriptCommand). */
+export const CMD_SCRIPT_VARIABLE = "CROT_CMD_SCRIPT";
+/** Characters a cmd.exe path cannot contain to appear in the outer, delayed-expansion command line. */
+const OUTER_LINE_UNSAFE = /[!%^"]/;
+
 /**
- * Invocation running a cmd.exe script verbatim (same form Node uses for `shell: true`).
- * The script runs with the UTF-8 console code page (chcp 65001, in the child's own
- * hidden console), so cmd and console-aware programs write UTF-8 instead of the
- * OEM code page, which cannot represent most characters.
+ * Invocation running a cmd.exe script verbatim with UTF-8 output.
+ *
+ * cmd.exe converts the text written by its built-in commands (echo, dir, set,
+ * type, ...) to bytes itself. With redirected output (a pipe, as for every CROT
+ * command), a `chcp 65001` run by that same cmd process switches the console code
+ * page (chcp, and programs started afterwards, report 65001) but not the code page
+ * the running cmd uses for its built-ins: they keep writing the OEM code page and
+ * every character outside it becomes "?". (Windows CI diagnostic: after a
+ * successful chcp 65001, `echo grüße €✓ 日本` wrote 67 72 81 e1 65 20 3f fb 20 3f 3f.)
+ *
+ * The script therefore runs in a cmd.exe started after the switch. An outer cmd
+ * runs chcp 65001 in the child's own hidden console, then starts the inner cmd,
+ * which runs the script exactly like `cmd /d /s /c "<script>"` (Node's
+ * `shell: true`). The script travels in an environment variable that the outer cmd
+ * expands with delayed expansion, after it has parsed its own line, so the outer cmd
+ * never interprets the script's quotes, operators, % or !. The inner cmd removes the
+ * variable before the script runs and keeps cmd's defaults (delayed expansion off).
+ *
+ * Output stays bytes decoded by EncodingSupport; nothing here claims an encoding.
+ * If the switch fails, built-ins write the OEM code page, which "auto" detects as
+ * invalid UTF-8 and reports. A cmd.exe path containing ! % ^ or " cannot appear in
+ * the outer line; then a single cmd runs the script and built-in output stays in the
+ * OEM code page (detected and reported the same way).
  */
 export function cmdScriptCommand(comspec: string, script: string): CommandSpec {
   const chcp = w.join(w.dirname(comspec), "chcp.com");
-  const line = `"${chcp}" 65001 >nul 2>nul & ${script}`;
-  return { file: comspec, args: ["/d", "/s", "/c", `"${line}"`], windowsVerbatimArguments: true, display: script };
+  const switchConsole = `"${chcp}" 65001 >nul 2>nul`;
+  if (OUTER_LINE_UNSAFE.test(comspec)) {
+    return { file: comspec, args: ["/d", "/s", "/c", `"${switchConsole} & ${script}"`], windowsVerbatimArguments: true, display: script };
+  }
+  const outer = `${switchConsole} & "${comspec}" /d /s /c "!${CMD_SCRIPT_VARIABLE}!"`;
+  return {
+    file: comspec,
+    args: ["/d", "/v:on", "/s", "/c", `"${outer}"`],
+    env: { [CMD_SCRIPT_VARIABLE]: `set "${CMD_SCRIPT_VARIABLE}=" & ${script}` },
+    windowsVerbatimArguments: true,
+    display: script,
+  };
 }
 
 /** Default cmd.exe location derived from the environment. */

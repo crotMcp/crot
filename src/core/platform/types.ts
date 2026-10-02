@@ -137,6 +137,12 @@ export interface CommandSpec {
   readonly args: readonly string[];
   /** Pass `args` to the OS untouched (Windows only; required for cmd.exe). */
   readonly windowsVerbatimArguments?: boolean;
+  /**
+   * Variables the invocation itself needs (for example a cmd.exe script passed
+   * without command-line parsing). The launcher applies them over the launch
+   * environment with the platform's name semantics.
+   */
+  readonly env?: Readonly<Record<string, string>>;
   /** Human-readable form for audit/status. */
   readonly display: string;
 }

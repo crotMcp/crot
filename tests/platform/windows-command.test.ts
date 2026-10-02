@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { POWERSHELL_PRELUDE, powershellCommand, shellCommand } from "../../src/core/platform/shells.js";
-import { batchFileCommand, cmdScriptCommand, comspecFrom, escapeCmdArgument, findWindowsExecutable, isBatchFile } from "../../src/core/platform/windows-command.js";
+import {
+  batchFileCommand,
+  CMD_SCRIPT_VARIABLE,
+  cmdScriptCommand,
+  comspecFrom,
+  escapeCmdArgument,
+  findWindowsExecutable,
+  isBatchFile,
+} from "../../src/core/platform/windows-command.js";
 
 const files = (list: string[]) => {
   const set = new Set(list.map((f) => f.toLowerCase()));
@@ -63,12 +71,27 @@ describe("cmd.exe quoting (pure)", () => {
     expect(spec.args[3]).toBe('"C:\\Program^ Files\\nodejs\\npm.cmd ^"install^" ^"left-pad^""');
   });
 
-  it("wraps cmd scripts like Node's shell option, switching the console to UTF-8 first", () => {
-    expect(cmdScriptCommand("C:\\Windows\\System32\\cmd.exe", 'echo "a b"')).toMatchObject({
-      args: ["/d", "/s", "/c", '""C:\\Windows\\System32\\chcp.com" 65001 >nul 2>nul & echo "a b""'],
+  it("runs cmd scripts in a cmd.exe started after the console is switched to UTF-8", () => {
+    const script = 'echo "a b" & echo 100%! ^^ "x&y"';
+    expect(CMD_SCRIPT_VARIABLE).toBe("CROT_CMD_SCRIPT");
+    expect(cmdScriptCommand("C:\\Windows\\System32\\cmd.exe", script)).toEqual({
+      file: "C:\\Windows\\System32\\cmd.exe",
+      // Outer cmd: switch the console, then start the inner cmd; the script is not on this line.
+      args: ["/d", "/v:on", "/s", "/c", '""C:\\Windows\\System32\\chcp.com" 65001 >nul 2>nul & "C:\\Windows\\System32\\cmd.exe" /d /s /c "!CROT_CMD_SCRIPT!""'],
+      // Inner cmd: removes the variable, then runs the script unchanged.
+      env: { CROT_CMD_SCRIPT: `set "CROT_CMD_SCRIPT=" & ${script}` },
       windowsVerbatimArguments: true,
-      display: 'echo "a b"',
+      display: script,
     });
+  });
+
+  it("falls back to a single cmd.exe when its path cannot appear in a delayed-expansion line", () => {
+    for (const comspec of ["C:\\Odd!Dir\\cmd.exe", "C:\\100%\\cmd.exe", "C:\\a^b\\cmd.exe"]) {
+      const spec = cmdScriptCommand(comspec, "echo x");
+      const chcp = comspec.replace(/cmd\.exe$/, "chcp.com");
+      expect(spec.args).toEqual(["/d", "/s", "/c", `""${chcp}" 65001 >nul 2>nul & echo x"`]);
+      expect(spec.env).toBeUndefined();
+    }
   });
 
   it("derives ComSpec", () => {

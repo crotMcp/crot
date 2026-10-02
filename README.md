@@ -153,7 +153,7 @@ Platform code performs no authorization.
 | `ProcessLauncher` | command resolution, start, tree termination | PATH lookup; every child leads its own process group, so the whole tree is terminated, including descendants that outlive the command | PATH + PATHEXT lookup; `.cmd`/`.bat` files (`npm`, `npx`, …) run through `cmd.exe` with escaped arguments; tree termination with `taskkill /T` |
 | `ShellProvider` | shell scripts | `sh` (default), `bash`, `zsh`, `pwsh` when installed | `cmd` (default), `powershell`, `pwsh`, `bash` when installed; PowerShell scripts are passed as `-EncodedCommand` |
 | `EnvironmentPolicy` | child environment | case-sensitive names | case-insensitive names (`PATH` overrides `Path` instead of duplicating it) |
-| `EncodingSupport` | decoding of command output | UTF-8 | UTF-8; output that is not valid UTF-8 is decoded with the console (OEM) code page, detected from the registry; `cmd` scripts run with the UTF-8 console code page (`chcp 65001`) and PowerShell writes UTF-8 |
+| `EncodingSupport` | decoding of command output | UTF-8 | UTF-8; output that is not valid UTF-8 is decoded with the console (OEM) code page, detected from the registry; `cmd` scripts run in a `cmd.exe` started after the console is switched to UTF-8 (`chcp 65001`), so built-ins such as `echo` and `dir` write UTF-8 (see [Output encoding](#output-encoding)); PowerShell writes UTF-8 |
 | startup `PATH` | `PATH` for commands and shell detection | login shell `PATH` for desktop-launched clients, plus standard directories (see below) | inherited |
 | `PlatformDirectories` | default config/state/log locations | XDG (Linux), `~/Library` (macOS) | `%APPDATA%`, `%LOCALAPPDATA%` |
 | `PrivateFileProtection` | audit log (and future state) files | created `0600` in `0700` directories; existing files checked | inherited ACLs, reported as not restricted by Core |
@@ -177,6 +177,16 @@ at the end of a background process's output is held back until it is complete.
 (default), `utf-8`, `utf-16le`, `oem` / `ansi` (Windows code pages), `cpNNN`
 or a WHATWG label such as `windows-1252` or `shift_jis`. Standard input is
 always sent as UTF-8.
+
+Windows `cmd` scripts: cmd.exe converts the output of its built-in commands
+(`echo`, `dir`, `set`, `type`, …) to bytes itself. When output is redirected, a
+`chcp 65001` run by the same cmd.exe switches the console code page for
+programs started afterwards but not for that cmd.exe's own built-ins, which keep
+writing the OEM code page (`€` and `日本` become `?`). CROT's `cmd` shell therefore
+switches the console in an outer `cmd.exe` and runs the script in a second
+`cmd.exe` started afterwards. The script is passed through an environment
+variable, so the outer `cmd.exe` never parses it, and it is parsed exactly like
+`cmd /d /s /c "<script>"`.
 
 ### Startup PATH
 
@@ -223,6 +233,16 @@ exit hook force-kills any process tree that is still running.
   `cmd` scripts run with the UTF-8 console code page; a batch file that relies
   on legacy-encoded non-ASCII text should be run with `process_exec`, which
   keeps the default console code page.
+- Built-in output of batch files run with `process_exec` stays in the OEM code
+  page, as does `cmd` script output when the `cmd.exe` path contains `!`, `%`,
+  `^` or `"` (CROT then uses a single `cmd.exe`). It is decoded as OEM and
+  reported as such.
+- One encoding per stream: `auto` decodes each stream as a whole. A `cmd`
+  script whose built-ins write UTF-8 but which also runs a program that writes
+  the OEM or ANSI code page produces output that is not valid UTF-8; it is
+  decoded with the OEM code page and reported as such (never as UTF-8), so the
+  UTF-8 parts are misdecoded. Choose `encoding` explicitly (`utf-8` flags the
+  foreign bytes with `lossy: true`) or make the program write UTF-8.
 - `auto` decoding falls back to the OEM code page on Windows. Programs that
   write the ANSI code page instead (for example some Python versions when
   output is redirected) need `encoding: "ansi"`; non-UTF-8 output that happens
