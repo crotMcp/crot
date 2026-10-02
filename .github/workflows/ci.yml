@@ -25,6 +25,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      # Build before testing so the stdio end-to-end test runs against dist/.
+      # Verify the production build; tests build their own copy for the stdio end-to-end test.
       - run: npm run build
       - run: npm test

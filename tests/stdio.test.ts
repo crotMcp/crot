@@ -1,13 +1,11 @@
-import { existsSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, inject, it } from "vitest";
 import { makeTempDirs, type TempDirs } from "./helpers.js";
 
-const bin = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "dist", "bin", "crot-mcp.js");
+// Built from the current sources by tests/global-setup.ts.
+const bin = inject("crotMcpBin");
 
 let dirs: TempDirs;
 beforeEach(async () => {
@@ -15,8 +13,8 @@ beforeEach(async () => {
 });
 afterEach(() => dirs.cleanup());
 
-// End-to-end check of the built stdio server; run `npm run build` first (CI does).
-describe.skipIf(!existsSync(bin))("crot-mcp stdio server (built)", () => {
+// End-to-end check of the built stdio server.
+describe("crot-mcp stdio server (built)", () => {
   it("serves tools over stdio", async () => {
     const transport = new StdioClientTransport({
       command: process.execPath,

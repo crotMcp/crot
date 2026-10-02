@@ -173,8 +173,8 @@ and Core remain unchanged.
 ```sh
 npm install
 npm run typecheck
-npm run build      # needed for the stdio end-to-end test
-npm test
+npm run build
+npm test           # also builds the sources into a temporary directory for the stdio end-to-end test
 npm run check      # typecheck + test + build
 ```
 
