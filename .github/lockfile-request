@@ -1,2 +1,0 @@
-koffi@3.3.2 optional dependency for the Native Host (Windows Job Objects).
-This marker triggers .github/workflows/lockfile-koffi.yml once and is removed by it.
