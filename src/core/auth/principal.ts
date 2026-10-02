@@ -1,10 +1,11 @@
 /**
  * Identity of the caller on whose behalf an operation runs.
  *
- * Every Core operation receives an AuthContext. Today the only principal is the
- * local user connected over a local transport (stdio). Remote transports and
- * the MCP authorization model will produce authenticated principals through the
- * same interface, without changes to Core services.
+ * Every Core operation receives an AuthContext. Local transports (stdio)
+ * produce the local user; authenticated transports (HTTP) produce a remote
+ * principal derived from a verified credential. Both go through the same
+ * interface, and Core services and the PermissionEngine do not change with the
+ * transport or the authentication method.
  */
 export type PrincipalKind = "local" | "remote";
 
@@ -17,8 +18,14 @@ export interface Principal {
   /** Stable identifier of the principal (e.g. "local-user", or a subject from a token). */
   readonly id: string;
   readonly kind: PrincipalKind;
-  /** Transport the request arrived on (e.g. "stdio"). */
+  /** Transport the request arrived on (e.g. "stdio", "http"). */
   readonly transport: string;
+  /**
+   * How a remote principal was authenticated (e.g. "local-token"). Recorded in
+   * audit events; informational only, never used for authorization. Never
+   * contains credential material.
+   */
+  readonly authMethod?: string;
   /** Self-reported client application (e.g. an MCP client's name). Informational only, never trusted for authorization. */
   readonly client?: ClientInfo;
 }

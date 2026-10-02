@@ -47,6 +47,49 @@ export const EnvironmentConfigSchema = z
   })
   .strict();
 
+/**
+ * Authentication modes of the HTTP transport.
+ *
+ * local-token: provisional bearer token stored in a private file in the CROT
+ * state directory (loopback only). Future verifiers (e.g. an OAuth/OIDC
+ * resource-server verifier) are added as new modes behind the same verifier
+ * interface; authorization always stays with the PermissionEngine.
+ */
+export const HTTP_AUTH_MODES = ["local-token"] as const;
+export type HttpAuthMode = (typeof HTTP_AUTH_MODES)[number];
+
+export const HttpAuthConfigSchema = z
+  .object({
+    mode: z.enum(HTTP_AUTH_MODES).default("local-token"),
+    /** Token file for local-token; defaults to http-token in the platform state directory. */
+    tokenFile: z.string().min(1).optional(),
+  })
+  .strict();
+
+/**
+ * Streamable HTTP MCP transport. Read only by the HTTP adapter; Core does not
+ * act on it. Disabled by default; when enabled it binds to loopback and every
+ * request must be authenticated.
+ */
+export const HttpConfigSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    /** Bind address. Only loopback addresses are accepted in this version. */
+    host: z.string().min(1).default("127.0.0.1"),
+    /** TCP port (0 picks a free port). */
+    port: z.number().int().min(0).max(65535).default(7337),
+    auth: HttpAuthConfigSchema.default({ mode: "local-token" }),
+    /** Browser origins allowed to call the endpoint. Empty: requests carrying an Origin header are rejected. */
+    allowedOrigins: z.array(z.string().min(1)).default([]),
+    /** Maximum size of a request body. */
+    maxRequestBytes: z.number().int().positive().default(4 * 1024 * 1024),
+    /** Maximum number of concurrent MCP sessions. */
+    maxSessions: z.number().int().positive().default(16),
+    /** Sessions without requests for this long are closed. */
+    sessionIdleTimeoutMs: z.number().int().positive().default(30 * 60 * 1000),
+  })
+  .strict();
+
 export const CrotConfigSchema = z
   .object({
     version: z.literal(1).default(1),
@@ -68,6 +111,7 @@ export const CrotConfigSchema = z
     limits: LimitsSchema.default(LimitsSchema.parse({})),
     audit: AuditConfigSchema.default({ sink: "stderr" }),
     environment: EnvironmentConfigSchema.default({ path: "auto" }),
+    http: HttpConfigSchema.default(HttpConfigSchema.parse({})),
   })
   .strict();
 
@@ -75,3 +119,5 @@ export type CrotConfig = z.output<typeof CrotConfigSchema>;
 export type CrotConfigInput = z.input<typeof CrotConfigSchema>;
 export type Limits = z.output<typeof LimitsSchema>;
 export type AuditConfig = z.output<typeof AuditConfigSchema>;
+export type HttpConfig = z.output<typeof HttpConfigSchema>;
+export type HttpConfigInput = z.input<typeof HttpConfigSchema>;

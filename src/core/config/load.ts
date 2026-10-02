@@ -16,7 +16,8 @@ export function parseConfig(input: unknown): CrotConfig {
 
 /**
  * Read a JSON configuration file (UTF-8, optional BOM). "~" is expanded and
- * relative paths (workspace root, audit path) are resolved against the file's directory.
+ * relative paths (workspace root, audit path, HTTP token file) are resolved
+ * against the file's directory.
  */
 export async function loadConfigFile(file: string): Promise<CrotConfigInput> {
   const absolute = path.resolve(expandHome(file));
@@ -40,6 +41,13 @@ export async function loadConfigFile(file: string): Promise<CrotConfigInput> {
     }
     if (config.audit && typeof config.audit.path === "string") {
       config = { ...config, audit: { ...config.audit, path: path.resolve(base, expandHome(config.audit.path)) } };
+    }
+    const http = config.http;
+    if (http && typeof http === "object" && http.auth && typeof http.auth === "object" && typeof http.auth.tokenFile === "string") {
+      config = {
+        ...config,
+        http: { ...http, auth: { ...http.auth, tokenFile: path.resolve(base, expandHome(http.auth.tokenFile)) } },
+      };
     }
   }
   return config;
