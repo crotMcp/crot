@@ -73,3 +73,109 @@ export class CrotCore {
     readonly platform: Platform,
     private readonly audit: AuditSink,
     private readonly auditProtection: PrivateFileStatus | undefined,
+  ) {}
+
+  private shuttingDown: Promise<void> | undefined;
+
+  static async create(configInput: unknown, options: CrotCoreOptions = {}): Promise<CrotCore> {
+    const parsed = parseConfig(configInput);
+    let config: CrotConfig = {
+      ...parsed,
+      workspace: { ...parsed.workspace, root: expandHome(parsed.workspace.root) },
+      audit: parsed.audit.path ? { ...parsed.audit, path: path.resolve(expandHome(parsed.audit.path)) } : parsed.audit,
+    };
+    const platform = options.platform ?? (await createNodePlatform({ startupPath: config.environment.path }));
+    if (config.audit.sink === "file" && !config.audit.path) {
+      // Default audit file in the OS-conventional logs directory.
+      config = { ...config, audit: { ...config.audit, path: path.join(platform.info.directories.logs, DEFAULT_AUDIT_FILE_NAME) } };
+    }
+    const workspace = await Workspace.open(config.workspace.root, {
+      ...(config.workspace.name ? { name: config.workspace.name } : {}),
+      rules: platform.paths,
+      probeCaseSensitivity: (d) => platform.probeCaseSensitivity(d),
+    });
+    const policy = createPermissionPolicy(
+      config.permissions.capabilities
+        ? { mode: config.permissions.mode, capabilities: config.permissions.capabilities }
+        : { mode: config.permissions.mode },
+    );
+    const audit = options.auditSink ?? createAuditSink(config.audit, platform.privateFiles);
+    const auditFile = audit instanceof JsonlFileAuditSink ? audit.file : config.audit.sink === "file" ? config.audit.path : undefined;
+    const auditProtection = auditFile ? await platform.privateFiles.inspect(auditFile) : undefined;
+    const guarded = [
+      ...(options.protectedPaths ?? []),
+      ...(config.audit.sink === "file" && config.audit.path ? [config.audit.path] : []),
+      ...(audit instanceof JsonlFileAuditSink ? [audit.file] : []),
+    ];
+    const protectedPaths = [...new Set(await Promise.all(guarded.map(async (p) => (await workspace.resolve(path.resolve(p))).absolute)))];
+    const permissions = new PermissionEngine(policy, { protectedPaths, contains: (a, c) => workspace.contains(a, c) });
+    const guard = new ExecutionGuard(permissions, audit, {
+      onAuditError: options.onAuditError ?? ((e) => process.stderr.write(`crot: audit write failed: ${(e as Error).message}\n`)),
+    });
+    const filesystem = new FileSystemService({ workspace, guard, limits: config.limits });
+    const processes = new ProcessService({ workspace, guard, platform, limits: config.limits });
+    const browser = new BrowserService({ guard, limits: config.limits, ...(options.browser ? { connection: options.browser } : {}) });
+    return new CrotCore(config, workspace, permissions, guard, filesystem, processes, browser, platform, audit, auditProtection);
+  }
+
+  /**
+   * Release resources, in order: stop accepting browser operations and cancel
+   * those waiting for the browser; stop accepting commands and terminate every
+   * process tree CROT started; wait for operations in flight to write their
+   * audit records; flush and close the audit sink. Idempotent.
+   *
+   * The browser bridge itself is closed by the host after this returns.
+   */
+  shutdown(): Promise<void> {
+    this.shuttingDown ??= (async () => {
+      this.browser.shutdown();
+      await this.processes.shutdown();
+      await this.guard.drain(SHUTDOWN_DRAIN_MS);
+      await this.audit.close?.();
+    })();
+    return this.shuttingDown;
+  }
+
+  /**
+   * Last-resort cleanup when the host process exits without a completed
+   * shutdown (fatal error, second signal, timeout): forced, synchronous
+   * termination of every process tree CROT started. Safe to call repeatedly.
+   */
+  terminateProcessesSync(): void {
+    this.processes.terminateAllSync();
+  }
+
+  status(): CrotStatus {
+    return {
+      version: CORE_VERSION,
+      mode: this.permissions.mode,
+      workspace: this.workspace.info(),
+      capabilities: CAPABILITIES.map((capability) => ({
+        capability,
+        granted: this.permissions.isGranted(capability),
+        enforced: ENFORCED_CAPABILITIES.has(capability),
+      })),
+      limits: this.config.limits,
+      audit: {
+        sink: this.config.audit.sink,
+        ...(this.config.audit.path ? { path: this.config.audit.path } : {}),
+        ...(this.auditProtection ? { protection: this.auditProtection } : {}),
+      },
+      platform: this.platform.info,
+      protectedPaths: this.permissions.protected,
+      browser: { state: this.browser.state() },
+    };
+  }
+}
+
+function createAuditSink(config: AuditConfig, protection: PrivateFileProtection): AuditSink {
+  switch (config.sink) {
+    case "none":
+      return new NullAuditSink();
+    case "stderr":
+      return new StreamAuditSink(process.stderr);
+    case "file":
+      if (!config.path) throw new CrotError("CONFIG_ERROR", "audit.path is required for the file sink."); // resolved by create()
+      return new JsonlFileAuditSink(config.path, protection);
+  }
+}
