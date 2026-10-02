@@ -5,7 +5,7 @@
  * - POSIX: the Unix domain socket <state>/browser.sock. The state directory is
  *   created owner-only (0700) and the socket is restricted to the owner (0600).
  * - Windows: a named pipe whose name is derived from the bridge token
- *   (\\\\.\\pipe\\crot-browser-<digest>), so other users cannot predict it.
+ *   (\\.\pipe\crot-browser-<digest>), so other users cannot predict it.
  *   Named pipes created by Node.js grant write access only to the creating
  *   user, LocalSystem and Administrators.
  *
