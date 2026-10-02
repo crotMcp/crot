@@ -22,7 +22,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run test && npm run build",
-    "start": "node dist/bin/crot-mcp.js"
+    "start": "node dist/bin/crot-mcp.js",
+    "build:extension": "tsc -p extension/tsconfig.json",
+    "typecheck:extension": "tsc -p extension/tsconfig.test.json",
+    "test:extension": "vitest run --config extension/vitest.config.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",
