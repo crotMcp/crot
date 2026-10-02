@@ -1,0 +1,52 @@
+import { z } from "zod";
+
+/**
+ * The single capability vocabulary of CROT (ARCHITECTURE.md §6).
+ *
+ * Every component (filesystem, process, and later browser, git, docker, network)
+ * is authorized through these capabilities by the one PermissionEngine.
+ */
+export const CAPABILITIES = [
+  "filesystem.read",
+  "filesystem.write",
+  "filesystem.full",
+  "shell.execute",
+  "process.manage",
+  "git.read",
+  "git.write",
+  "docker.use",
+  "browser.read",
+  "browser.control",
+  "network.access",
+] as const;
+
+export type Capability = (typeof CAPABILITIES)[number];
+
+export const CapabilitySchema = z.enum(CAPABILITIES);
+
+export const CAPABILITY_DESCRIPTIONS: Readonly<Record<Capability, string>> = {
+  "filesystem.read": "Read files and directory listings.",
+  "filesystem.write": "Create, modify, move and delete files and directories.",
+  "filesystem.full": "Access paths outside the configured workspace (filesystem and process working directories).",
+  "shell.execute": "Run commands and shell scripts.",
+  "process.manage": "Start, inspect and stop long-running background processes.",
+  "git.read": "Reserved: dedicated Git read operations.",
+  "git.write": "Reserved: dedicated Git write operations.",
+  "docker.use": "Reserved: dedicated Docker operations.",
+  "browser.read": "Reserved: read browser state through the CROT Browser Extension.",
+  "browser.control": "Reserved: control the browser through the CROT Browser Extension.",
+  "network.access": "Reserved: dedicated network operations.",
+};
+
+/**
+ * Capabilities that currently gate implemented operations. The rest are part of
+ * the model so that policies and clients can already reason about them, but no
+ * operation uses them yet.
+ */
+export const ENFORCED_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
+  "filesystem.read",
+  "filesystem.write",
+  "filesystem.full",
+  "shell.execute",
+  "process.manage",
+]);
