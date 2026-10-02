@@ -347,7 +347,7 @@ CROT again.
 
 - Brave on Windows is registered through the Chrome registry key; this follows
   public documentation and has not been verified on a real Brave installation.
-- Snap and Flatpak browsers packages, and Chrome Beta/Dev/Canary or Chromium
+- Snap and Flatpak browser packages, and Chrome Beta/Dev/Canary or Chromium
   profile directories, are not registered and not tested.
 - The relay's stderr is not shown in the browser UI; use the extension's
   service worker console and CROT's own log.
