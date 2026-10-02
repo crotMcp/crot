@@ -44,6 +44,21 @@ const WHATWG_CODE_PAGES: Readonly<Record<number, string>> = {
   54936: "gb18030",
 };
 
+/**
+ * Upper half (0x80-0xFF) of WHATWG windows-1252, which is also the target of
+ * the latin1 / iso-8859-1 / ascii labels.
+ *
+ * Decoded with a table instead of TextDecoder: some Node 20/22 releases
+ * decode windows-1252 through an ISO-8859-1 fast path, turning 0x80-0x9F into
+ * C1 controls (0x80 becomes U+0080 instead of U+20AC) while still reporting
+ * success, so the result would depend on the Node version.
+ */
+const WINDOWS_1252_HIGH =
+  String.fromCharCode(
+    0x20ac, 0x0081, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008d, 0x017d, 0x008f,
+    0x0090, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x009d, 0x017e, 0x0178,
+  ) + Array.from({ length: 0x60 }, (_, i) => String.fromCharCode(0xa0 + i)).join("");
+
 /** Canonical encoding name for a Windows code page, or null when CROT cannot decode it. */
 export function codePageEncodingName(codePage: number): string | null {
   if (OEM_CODE_PAGE_TABLES[codePage] !== undefined) return `cp${codePage}`;
@@ -72,9 +87,10 @@ export function canonicalEncodingName(label: string): string | null {
   return whatwgName(l);
 }
 
-function tableDecoding(codePage: number, high: string): TextDecoding {
+/** Single-byte decoder: ASCII below 0x80, `high` for 0x80-0xFF (U+FFFD marks undefined bytes). */
+function tableDecoding(name: string, high: string): TextDecoding {
   return {
-    name: `cp${codePage}`,
+    name,
     decode(bytes, fatal) {
       let out = "";
       for (const b of bytes) {
@@ -92,7 +108,8 @@ export function decodingFor(label: string): TextDecoding | null {
   const canonical = canonicalEncodingName(label);
   if (!canonical) return null;
   const cp = /^cp(\d+)$/.exec(canonical);
-  if (cp) return tableDecoding(Number(cp[1]), OEM_CODE_PAGE_TABLES[Number(cp[1])]!);
+  if (cp) return tableDecoding(canonical, OEM_CODE_PAGE_TABLES[Number(cp[1])]!);
+  if (canonical === "windows-1252") return tableDecoding(canonical, WINDOWS_1252_HIGH);
   return {
     name: canonical,
     decode(bytes, fatal) {

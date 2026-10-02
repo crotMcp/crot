@@ -23,6 +23,19 @@ describe("code pages", () => {
     expect(decodingFor("cp857")!.decode(Uint8Array.from([0xd5]), true)).toBeNull();
   });
 
+  it("decodes windows-1252 per WHATWG on every Node version (0x80-0x9F are not C1 controls)", () => {
+    const c1 = Array.from({ length: 0x20 }, (_, i) => 0x80 + i);
+    const expected =
+      "\u20ac\u0081\u201a\u0192\u201e\u2026\u2020\u2021\u02c6\u2030\u0160\u2039\u0152\u008d\u017d\u008f" +
+      "\u0090\u2018\u2019\u201c\u201d\u2022\u2013\u2014\u02dc\u2122\u0161\u203a\u0153\u009d\u017e\u0178";
+    for (const label of ["windows-1252", "cp1252", "1252", "latin1", "iso-8859-1", "ascii"]) {
+      const d = decodingFor(label)!;
+      expect(d.name).toBe("windows-1252");
+      expect(d.decode(Uint8Array.from(c1), true)).toBe(expected);
+      expect(d.decode(Uint8Array.from([0x41, 0xa0, 0xe9, 0xff]), true)).toBe("A\u00a0éÿ");
+    }
+  });
+
   it("canonicalizes encoding labels", () => {
     expect(canonicalEncodingName("UTF8")).toBe("utf-8");
     expect(canonicalEncodingName("850")).toBe("cp850");
