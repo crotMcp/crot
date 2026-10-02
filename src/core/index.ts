@@ -15,3 +15,6 @@ export * from "./capabilities/filesystem/schemas.js";
 export * from "./capabilities/filesystem/service.js";
 export * from "./capabilities/process/schemas.js";
 export * from "./capabilities/process/service.js";
+export * from "./capabilities/browser/schemas.js";
+export * from "./capabilities/browser/connection.js";
+export * from "./capabilities/browser/service.js";

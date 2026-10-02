@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "CROT Browser Extension",
+  "version": "0.1.0",
+  "description": "Connects Chrome, Edge or Brave to the local CROT Host. CROT's permission engine authorizes every browser operation.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAnKnvGWPqkcil025MHHypKWRmMNt+35+9iqHeB6RuSGndxrZPFtyQ7K30FcWdagT74N20T0klFAWw/BJslf0SuzhfXRv8UXo7YIH7FTqtYa5IR9ueRbSonUktXspUO9c7KKs3nAVRlsVfoEppTbu8rzZmZUQVzeRWsJFzkJU9N8d6ji49S1fEC7qOT7pPIrdPcwsZ2ipXB7x/i46ZhZqGcHq6hm8Gbry3p1hhGWXByYcrvdMJnWcpyHUE5B4rySwtMxEHGnolPYQ9a6vpmX/beZFMXkbv5ep2LEZs3SnSfgt5zPBmXrrqdCdsGMtzdzTjrF4rw6gWRv37ex8IegZLewIDAQAB",
+  "minimum_chrome_version": "120",
+  "incognito": "not_allowed",
+  "background": {
+    "service_worker": "dist/extension/src/background.js",
+    "type": "module"
+  },
+  "permissions": ["nativeMessaging", "tabs", "scripting", "alarms"],
+  "host_permissions": ["<all_urls>"]
+}

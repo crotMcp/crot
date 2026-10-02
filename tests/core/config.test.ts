@@ -18,6 +18,14 @@ describe("configuration", () => {
     expect(config.version).toBe(1);
     expect(config.permissions.mode).toBe("sandbox");
     expect(config.limits.maxReadBytes).toBeGreaterThan(0);
+    expect(config.browser).toEqual({ enabled: false });
+  });
+
+  it("accepts browser.enabled and rejects unknown browser keys", () => {
+    expect(parseConfig({ workspace: { root: "/tmp" }, browser: { enabled: true } }).browser).toEqual({ enabled: true });
+    expect(parseConfig({ workspace: { root: "/tmp" }, browser: {} }).browser).toEqual({ enabled: false });
+    expect(() => parseConfig({ workspace: { root: "/tmp" }, browser: { enabled: "yes" } })).toThrow(CrotError);
+    expect(() => parseConfig({ workspace: { root: "/tmp" }, browser: { enabled: true, socket: "/tmp/x" } })).toThrow(CrotError);
   });
 
   it("requires a workspace root", () => {

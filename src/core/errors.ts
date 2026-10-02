@@ -15,7 +15,13 @@ export type CrotErrorCode =
   | "RESOURCE_BUSY"
   | "TIMEOUT"
   | "CONFIG_ERROR"
-  | "OPERATION_FAILED";
+  | "OPERATION_FAILED"
+  /** Browser support is disabled, or the CROT Browser Extension is not connected. */
+  | "BROWSER_NOT_CONNECTED"
+  /** Another CROT instance owns the browser bridge. Only browser operations are unavailable. */
+  | "BROWSER_BRIDGE_IN_USE"
+  /** The browser does not allow the operation on this page (e.g. browser-internal or store pages). */
+  | "BROWSER_PAGE_RESTRICTED";
 
 export class CrotError extends Error {
   readonly code: CrotErrorCode;

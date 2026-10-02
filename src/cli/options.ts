@@ -10,6 +10,7 @@ import type { PlatformDirectories } from "../core/platform/types.js";
 import { CrotError } from "../core/errors.js";
 
 export const USAGE = `Usage: crot-mcp [options]
+       crot-mcp browser install
 
 Starts the CROT MCP server on stdio (default) or, with --http, on loopback HTTP.
 
@@ -26,6 +27,12 @@ Options:
       --http-port <port>   HTTP port (default 7337; 0 picks a free port)
   -h, --help               Show this help
   -v, --version            Show the version
+
+Commands:
+  browser install          Register the CROT Host with Chrome, Edge and Brave (current
+                           user) so the CROT Browser Extension can connect to it.
+                           Grants no permissions; enable the bridge with
+                           "browser": { "enabled": true } in the configuration.
 
 Without a config file, --workspace is required. The default mode is sandbox.
 Default locations: Linux ~/.config/crot, macOS ~/Library/Application Support/CROT,
@@ -44,7 +51,7 @@ export interface ServeCommand {
   readonly warnings: readonly string[];
 }
 
-export type CliCommand = { kind: "help" } | { kind: "version" } | ServeCommand;
+export type CliCommand = { kind: "help" } | { kind: "version" } | { kind: "browser-install" } | ServeCommand;
 
 /** Parse command-line arguments into a configuration input. CLI flags override the config file. */
 export interface ParseCliOptions {
@@ -53,6 +60,7 @@ export interface ParseCliOptions {
 }
 
 export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv = process.env, options: ParseCliOptions = {}): Promise<CliCommand> {
+  if (argv[0] === "browser") return parseBrowserCommand(argv.slice(1));
   let parsed;
   try {
     parsed = parseArgs({
@@ -123,6 +131,22 @@ export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv =
     config.http = http;
   }
   return { kind: "serve", config: config as CrotConfigInput, ...(configFile ? { configFile, configSource } : {}), warnings };
+}
+
+/** `crot-mcp browser <command>`: only `install`, which takes no options besides --help. */
+function parseBrowserCommand(argv: readonly string[]): CliCommand {
+  let parsed;
+  try {
+    parsed = parseArgs({ args: [...argv], allowPositionals: true, strict: true, options: { help: { type: "boolean", short: "h" } } });
+  } catch (error) {
+    throw new CrotError("CONFIG_ERROR", `${(error as Error).message}\n\n${USAGE}`);
+  }
+  if (parsed.values.help) return { kind: "help" };
+  if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "install") {
+    const given = parsed.positionals.length > 0 ? `'browser ${parsed.positionals.join(" ")}'` : "'browser' without a command";
+    throw new CrotError("CONFIG_ERROR", `Unknown command ${given}. Use 'crot-mcp browser install'.\n\n${USAGE}`);
+  }
+  return { kind: "browser-install" };
 }
 
 function parsePort(value: string): number {

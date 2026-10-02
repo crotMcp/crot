@@ -1,5 +1,8 @@
 import path from "node:path";
 import { JsonlFileAuditSink, NullAuditSink, StreamAuditSink, type AuditSink } from "./audit/audit.js";
+import type { BrowserConnection } from "./capabilities/browser/connection.js";
+import type { BrowserBridgeState } from "./capabilities/browser/schemas.js";
+import { BrowserService } from "./capabilities/browser/service.js";
 import { FileSystemService } from "./capabilities/filesystem/service.js";
 import { ProcessService } from "./capabilities/process/service.js";
 import { parseConfig } from "./config/load.js";
@@ -25,6 +28,8 @@ export interface CrotStatus {
   readonly platform: PlatformInfo;
   /** Paths CROT tools may never modify (audit log, configuration). */
   readonly protectedPaths: readonly string[];
+  /** Browser bridge state (no browser data). */
+  readonly browser: { readonly state: BrowserBridgeState };
 }
 
 export const CORE_VERSION = "0.1.0";
@@ -41,6 +46,12 @@ export interface CrotCoreOptions {
   readonly platform?: Platform;
   /** Additional files CROT tools must never modify, e.g. the configuration file in use. */
   readonly protectedPaths?: readonly string[];
+  /**
+   * Connection to the CROT Browser Extension (the browser bridge). Omitted
+   * when browser support is disabled. Core only sends authorized requests
+   * through it; the bridge cannot call into Core.
+   */
+  readonly browser?: BrowserConnection;
 }
 
 /**
@@ -58,6 +69,7 @@ export class CrotCore {
     readonly guard: ExecutionGuard,
     readonly filesystem: FileSystemService,
     readonly processes: ProcessService,
+    readonly browser: BrowserService,
     readonly platform: Platform,
     private readonly audit: AuditSink,
     private readonly auditProtection: PrivateFileStatus | undefined,
@@ -102,16 +114,21 @@ export class CrotCore {
     });
     const filesystem = new FileSystemService({ workspace, guard, limits: config.limits });
     const processes = new ProcessService({ workspace, guard, platform, limits: config.limits });
-    return new CrotCore(config, workspace, permissions, guard, filesystem, processes, platform, audit, auditProtection);
+    const browser = new BrowserService({ guard, limits: config.limits, ...(options.browser ? { connection: options.browser } : {}) });
+    return new CrotCore(config, workspace, permissions, guard, filesystem, processes, browser, platform, audit, auditProtection);
   }
 
   /**
-   * Release resources, in order: stop accepting commands and terminate every
+   * Release resources, in order: stop accepting browser operations and cancel
+   * those waiting for the browser; stop accepting commands and terminate every
    * process tree CROT started; wait for operations in flight to write their
    * audit records; flush and close the audit sink. Idempotent.
+   *
+   * The browser bridge itself is closed by the host after this returns.
    */
   shutdown(): Promise<void> {
     this.shuttingDown ??= (async () => {
+      this.browser.shutdown();
       await this.processes.shutdown();
       await this.guard.drain(SHUTDOWN_DRAIN_MS);
       await this.audit.close?.();
@@ -146,6 +163,7 @@ export class CrotCore {
       },
       platform: this.platform.info,
       protectedPaths: this.permissions.protected,
+      browser: { state: this.browser.state() },
     };
   }
 }
