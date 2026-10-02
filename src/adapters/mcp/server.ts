@@ -64,6 +64,11 @@ function instructions(core: CrotCore): string {
       ? "Paths and working directories outside the workspace are denied."
       : "Full control: paths outside the workspace are allowed.",
     `Granted capabilities: ${granted.join(", ") || "none"}.`,
+    "Command output is decoded as UTF-8 by default and the encoding used is reported with it; pass 'encoding' for programs that write another encoding" +
+      (p.encoding.fallback ? ` (non-UTF-8 output is decoded with the console code page ${p.encoding.fallback}).` : "."),
+    p.processControl.orphanedDescendants
+      ? "Stopping a command or background process also stops every process it started."
+      : "On this platform, processes left behind by a command whose parent already exited cannot be stopped by CROT; use process_start for long-running processes and stop them with process_stop.",
     "CROT's audit log and configuration cannot be modified through CROT tools.",
     "Call crot_status for details. Every operation is audited locally.",
   ].join(" ");

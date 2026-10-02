@@ -17,5 +17,8 @@
   "audit": {
     "sink": "file",
     "path": "./crot-audit.jsonl"
+  },
+  "environment": {
+    "path": "auto"
   }
 }

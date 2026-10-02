@@ -60,6 +60,10 @@ describe("CROT MCP adapter", () => {
     expect(client.getInstructions()).toContain(dirs.workspace);
     expect(client.getInstructions()).toContain(`Operating system: ${core.platform.info.os}`);
     expect(client.getInstructions()).toContain(`default shell for shell_run: ${core.platform.info.defaultShell}`);
+    expect(client.getInstructions()).toContain("encoding used is reported");
+    expect(client.getInstructions()).toContain(
+      core.platform.info.processControl.orphanedDescendants ? "also stops every process it started" : "cannot be stopped by CROT",
+    );
   });
 
   it("reports status", async () => {
@@ -68,6 +72,19 @@ describe("CROT MCP adapter", () => {
     expect(body.mode).toBe("sandbox");
     expect(body.workspace.root).toBe(dirs.workspace);
     expect(body.platform.shells.length).toBeGreaterThan(0);
+    expect(body.platform).toMatchObject({
+      encoding: core.platform.info.encoding,
+      processControl: core.platform.info.processControl,
+      privateFiles: core.platform.info.privateFiles,
+      directories: core.platform.info.directories,
+      startupPath: { source: expect.stringMatching(/^(inherited|login-shell)$/) },
+    });
+  });
+
+  it("process tools report the output encoding", async () => {
+    const { isError, body } = await call("process_exec", { command: process.execPath, args: ["-e", "console.log('ü')"] });
+    expect(isError).toBe(false);
+    expect(body).toMatchObject({ stdout: expect.stringContaining("ü"), encoding: { stdout: { name: "utf-8", lossy: false } } });
   });
 
   it("delegates filesystem tools to Core", async () => {

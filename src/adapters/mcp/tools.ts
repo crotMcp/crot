@@ -46,7 +46,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "crot_status",
     title: "CROT status",
     description:
-      "Show the operating system and available shells, permission mode, workspace, granted capabilities, protected paths and limits of this CROT installation.",
+      "Show the operating system, available shells, output encodings, process-control guarantees and PATH source, permission mode, workspace, granted capabilities, protected paths and limits of this CROT installation.",
     inputSchema: EmptyInputSchema,
     annotations: { ...local, readOnlyHint: true },
     call: async (core) => core.status(),
@@ -115,7 +115,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "process_exec",
     title: "Execute command",
     description:
-      "Run an executable with arguments (no shell interpretation) and wait for it to finish. Resolves PATH (and PATHEXT/.cmd on Windows, e.g. npm). Returns exit code and the tail of stdout/stderr.",
+      "Run an executable with arguments (no shell interpretation) and wait for it to finish. Resolves PATH (and PATHEXT/.cmd on Windows, e.g. npm). Returns exit code, the tail of stdout/stderr and the encoding used to decode them.",
     inputSchema: ExecInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     call: (core, ctx, input) => core.processes.exec(ctx, input),
