@@ -18,7 +18,17 @@ import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { CrotError } from "../core/errors.js";
 import type { PrivateFileProtection, PrivateFileStatus } from "../core/platform/types.js";
-import { isOwnerOnly, MAX_TOOL_OUTPUT_BYTES, parseAclReport, parseWhoamiSid, validateSid, validateWindowsPath, type AclReport } from "./validation.js";
+import {
+  fromWin32NamespacedPath,
+  isOwnerOnly,
+  isSameOrAncestorWindowsPath,
+  MAX_TOOL_OUTPUT_BYTES,
+  parseAclReport,
+  parseWhoamiSid,
+  validateSid,
+  validateWindowsPath,
+  type AclReport,
+} from "./validation.js";
 
 const TOOL_TIMEOUT_MS = 30_000;
 
@@ -160,9 +170,16 @@ export function createWindowsAclProtection(options: { readonly tools: WindowsToo
     fileMode: undefined,
     userSid: sid,
     ensureDirectory: async (dir) => {
-      const created = await mkdir(dir, { recursive: true });
+      const target = validateWindowsPath(dir);
+      const created = await mkdir(target, { recursive: true });
+      if (created === undefined) return;
+      // mkdir reports the first created directory in namespaced form (\\?\C:\...) on Windows.
+      const first = validateWindowsPath(fromWin32NamespacedPath(created));
+      if (!isSameOrAncestorWindowsPath(first, target)) {
+        throw new CrotError("OPERATION_FAILED", `Unexpected directory reported as created for ${target}.`);
+      }
       // Only directories CROT creates are restricted (the topmost new one; children inherit).
-      if (created !== undefined) await restrict(created);
+      await restrict(first);
     },
     protectFile: async (file) => {
       const p = validateWindowsPath(file);

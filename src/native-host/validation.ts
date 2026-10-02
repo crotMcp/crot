@@ -39,6 +39,27 @@ export function validateWindowsPath(input: unknown): string {
   return path.win32.normalize(input);
 }
 
+/**
+ * Node reports some paths in the Win32 file namespace form: on Windows,
+ * fs.promises.mkdir(dir, { recursive: true }) returns the first created
+ * directory as \\?\C:\... (it calls the binding with toNamespacedPath(dir)).
+ * Convert exactly the drive (\\?\X:\) and UNC (\\?\UNC\server\share) forms
+ * back to ordinary absolute paths. Anything else is returned unchanged and is
+ * left to validateWindowsPath, which still rejects it.
+ */
+export function fromWin32NamespacedPath(input: string): string {
+  if (/^\\\\\?\\UNC\\[^\\/]+\\[^\\/]+/i.test(input)) return `\\\\${input.slice("\\\\?\\UNC\\".length)}`;
+  if (/^\\\\\?\\[A-Za-z]:\\/.test(input)) return input.slice("\\\\?\\".length);
+  return input;
+}
+
+/** Whether `candidate` is `target` or one of its ancestors (Windows: case-insensitive). Both must be validated paths. */
+export function isSameOrAncestorWindowsPath(candidate: string, target: string): boolean {
+  const a = path.win32.normalize(candidate).replace(/\\+$/, "").toLowerCase();
+  const t = path.win32.normalize(target).replace(/\\+$/, "").toLowerCase();
+  return t === a || t.startsWith(`${a}\\`);
+}
+
 /** The user SID from `whoami /user /fo csv /nh` (one line: "domain\user","S-1-..."). */
 export function parseWhoamiSid(output: unknown): string {
   if (typeof output !== "string" || output.length === 0 || output.length > 4096) throw invalid("Unexpected whoami output.");
