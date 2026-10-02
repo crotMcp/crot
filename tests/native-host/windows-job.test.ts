@@ -11,7 +11,7 @@ const node = process.execPath;
 const GC = "require('fs').writeFileSync('gc.pid', String(process.pid)); setInterval(() => {}, 1000);";
 /** Starts gc.js and exits as soon as it is running, leaving an orphaned grandchild. */
 const ORPHANING_PARENT =
-  "require('child_process').spawn(process.execPath, ['gc.js'], { stdio: 'ignore' }).unref();" +
+  "require('child_process').spawn(process.execPath, ['gc.js'], { stdio: 'ignore', detached: true }).unref();" +
   "const fs = require('fs'); const t = setInterval(() => { if (fs.existsSync('gc.pid') && fs.readFileSync('gc.pid', 'utf8')) { clearInterval(t); process.exit(0); } }, 20);";
 
 describe.runIf(isWindows)("native host: Windows Job Objects", () => {
@@ -91,7 +91,7 @@ describe.runIf(isWindows)("native host: Windows Job Objects", () => {
   });
 
   it("stopping a background process terminates its descendants", async () => {
-    await writeFile(path.join(dirs.workspace, "stay.js"), "require('child_process').spawn(process.execPath, ['gc.js'], { stdio: 'ignore' }); setInterval(() => {}, 1000);");
+    await writeFile(path.join(dirs.workspace, "stay.js"), "require('child_process').spawn(process.execPath, ['gc.js'], { stdio: 'ignore', detached: true }); setInterval(() => {}, 1000);");
     const info = await core.processes.start(ctx, { command: node, args: ["stay.js"] });
     const gc = await grandchild();
     expect(isAlive(gc)).toBe(true);
