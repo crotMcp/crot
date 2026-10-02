@@ -42,6 +42,26 @@ close, the launcher rejects new processes; `close`/`closeSync` are idempotent.
 If koffi or the ACL tools are unavailable, the Native Host falls back to the
 Core mechanism and reports a note at startup (`native host: ...`).
 
+## Windows owner-only ACLs
+
+- The CROT user's SID is read once at startup with `whoami.exe /user` and
+  validated.
+- Restriction and inspection run one fixed, module-free Windows PowerShell 5.1
+  script that uses only .NET security classes (`FileSecurity`,
+  `DirectorySecurity`). It is passed with `-EncodedCommand`; the target path,
+  mode and SID are passed through environment variables, never interpolated
+  into the script. `PSModulePath` is removed from its environment.
+- Restrict: the DACL is replaced by a protected DACL (inheritance removed)
+  whose only rule is full control for the CROT user; for directories the rule
+  is inherited by files and subdirectories created inside. The ACL is then
+  read back and must be protected and owner-only, otherwise the operation
+  fails.
+- Tools are run by absolute path from `%SystemRoot%\System32`, without a
+  shell, with bounded output and a timeout. All paths are strictly validated
+  (absolute drive or UNC paths only, no control or reserved characters).
+- No file mode is reported on Windows: chmod/0600 is not equivalent and is not
+  pretended.
+
 ## Limitations
 
 - Assignment race: Node.js cannot spawn a process suspended, so a command is
@@ -50,9 +70,14 @@ Core mechanism and reports a note at startup (`native host: ...`).
   to Core taskkill tree termination and is counted as `uncontainedLaunches`.
 - No graceful Ctrl-Break: graceful termination requests escalate to forced
   termination (`gracefulTermination: false`).
+- Node.js (libuv) on Windows places every non-detached child process in its
+  own kill-on-close job held by the parent, so such a child already dies with
+  its Node.js parent, independently of CROT. Children started with
+  `detached: true` survive their parent but remain in CROT's Job Object and
+  are terminated with the tree.
 - Administrators and the file owner can still change ACLs; protection is
   against other non-admin local users.
-- Depends on `whoami.exe`, `icacls.exe` and Windows PowerShell 5.1 in
+- Depends on `whoami.exe` and Windows PowerShell 5.1 in
   `%SystemRoot%\System32`.
 - Only directories CROT creates are restricted; an existing parent directory
   is left as it is (files inside are restricted individually).

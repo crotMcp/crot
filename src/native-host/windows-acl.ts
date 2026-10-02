@@ -74,7 +74,6 @@ export const runTool: ToolRunner = (file, args, env) =>
 
 export interface WindowsTools {
   readonly whoami: string;
-  readonly icacls: string;
   readonly powershell: string;
 }
 
@@ -82,7 +81,6 @@ export function windowsTools(systemRoot: string): WindowsTools {
   const system32 = path.win32.join(validateWindowsPath(systemRoot), "System32");
   return {
     whoami: path.win32.join(system32, "whoami.exe"),
-    icacls: path.win32.join(system32, "icacls.exe"),
     powershell: path.win32.join(system32, "WindowsPowerShell", "v1.0", "powershell.exe"),
   };
 }
