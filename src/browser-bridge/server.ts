@@ -20,12 +20,15 @@
  *    refused while one is active.
  * 3. On disconnect every pending request fails with BROWSER_NOT_CONNECTED.
  *
- * Ownership is exclusive (one CROT instance per user owns the endpoint). When
- * another live instance owns it, this bridge reports in_use: browser
- * operations fail with BROWSER_BRIDGE_IN_USE while the instance keeps running
- * normally, and the bridge retries periodically so it takes over when the
- * owner exits. A socket file left behind by a crashed instance is removed
- * (POSIX) once a connection attempt has shown that nobody listens on it.
+ * Ownership is exclusive (one CROT instance per user owns the endpoint) and is
+ * decided once, in start(). When another live instance owns it, this bridge
+ * stays in_use for its whole lifetime: browser operations fail with
+ * BROWSER_BRIDGE_IN_USE while the instance keeps running normally. There is
+ * no multi-instance arbitration: an in_use bridge never retries, never takes
+ * over and never contacts the owner; it gets the bridge only if it is
+ * restarted after the owner has exited. A socket file left behind by a
+ * crashed instance is removed at start (POSIX) once a connection attempt has
+ * shown that nobody listens on it.
  */
 import { randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, rmdir, stat, unlink } from "node:fs/promises";
@@ -54,7 +57,6 @@ import {
 } from "./protocol.js";
 
 export const BRIDGE_HANDSHAKE_TIMEOUT_MS = 5_000;
-export const BRIDGE_OWNERSHIP_RETRY_MS = 5_000;
 export const BRIDGE_MAX_PENDING_REQUESTS = 16;
 /** Connections still in the handshake at the same time. */
 const MAX_HANDSHAKES = 4;
@@ -86,8 +88,6 @@ export interface BrowserBridgeOptions {
   /** Diagnostics (never receives the token or page data). */
   readonly log?: (message: string) => void;
   readonly handshakeTimeoutMs?: number;
-  /** How often an in_use bridge tries to take over the endpoint. */
-  readonly ownershipRetryMs?: number;
   readonly maxPendingRequests?: number;
 }
 
@@ -119,13 +119,9 @@ export class BrowserBridge implements BrowserConnection {
   private readonly handshakes = new Set<net.Socket>();
   private readonly pending = new Map<string, PendingRequest>();
   private readonly abandoned = new Set<string>();
-  private retryTimer: ReturnType<typeof setInterval> | undefined;
-  private acquiring = false;
-  private lastRetryError: string | undefined;
   private closed = false;
   private readonly log: (message: string) => void;
   private readonly handshakeTimeoutMs: number;
-  private readonly ownershipRetryMs: number;
   private readonly maxPending: number;
 
   private constructor(
@@ -136,14 +132,14 @@ export class BrowserBridge implements BrowserConnection {
   ) {
     this.log = options.log ?? (() => undefined);
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? BRIDGE_HANDSHAKE_TIMEOUT_MS;
-    this.ownershipRetryMs = options.ownershipRetryMs ?? BRIDGE_OWNERSHIP_RETRY_MS;
     this.maxPending = options.maxPendingRequests ?? BRIDGE_MAX_PENDING_REQUESTS;
   }
 
   /**
-   * Create the token (if needed) and try to own the endpoint. Resolves in the
-   * waiting state when this instance owns it, in the in_use state when another
-   * live instance does; never fails because of another instance.
+   * Create the token (if needed) and try once to own the endpoint. Resolves in
+   * the waiting state when this instance owns it, in the in_use state (for the
+   * bridge's lifetime) when another live instance does; never fails because of
+   * another instance.
    */
   static async start(options: BrowserBridgeOptions): Promise<BrowserBridge> {
     await options.privateFiles.ensureDirectory(options.stateDir);
@@ -151,7 +147,12 @@ export class BrowserBridge implements BrowserConnection {
     const { token } = await loadOrCreateBridgeToken(tokenFile, options.privateFiles);
     const bridge = new BrowserBridge(bridgeEndpoint(options.stateDir, token), tokenFile, token, options);
     if (bridge.endpoint.kind === "unix-socket") await bridge.checkDirectory(options.stateDir);
-    if (!(await bridge.acquire())) bridge.startRetrying();
+    if (!(await bridge.acquire())) {
+      bridge.log(
+        "browser bridge: another CROT instance owns " + bridge.endpoint.path +
+          "; browser operations are unavailable in this instance (restart it after the other instance exits to use the browser here)",
+      );
+    }
     return bridge;
   }
 
@@ -207,8 +208,6 @@ export class BrowserBridge implements BrowserConnection {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    if (this.retryTimer) clearInterval(this.retryTimer);
-    this.retryTimer = undefined;
     this.failPending(new CrotError("BROWSER_NOT_CONNECTED", "The browser bridge is closed."));
     for (const socket of this.handshakes) socket.destroy();
     this.handshakes.clear();
@@ -287,32 +286,6 @@ export class BrowserBridge implements BrowserConnection {
     server.on("error", (error) => this.log("browser bridge: server error: " + error.message));
     this.server = server;
     return true;
-  }
-
-  private startRetrying(): void {
-    this.log("browser bridge: another CROT instance owns " + this.endpoint.path + "; browser operations are unavailable in this instance until it exits");
-    this.retryTimer = setInterval(() => {
-      if (this.acquiring || this.closed) return;
-      this.acquiring = true;
-      this.acquire()
-        .then(
-          (owned) => {
-            if (!owned) return;
-            if (this.retryTimer) clearInterval(this.retryTimer);
-            this.retryTimer = undefined;
-            this.log("browser bridge: now listening on " + this.endpoint.path);
-          },
-          (error: unknown) => {
-            const message = error instanceof Error ? error.message : String(error);
-            if (message !== this.lastRetryError) this.log("browser bridge: " + message);
-            this.lastRetryError = message;
-          },
-        )
-        .finally(() => {
-          this.acquiring = false;
-        });
-    }, this.ownershipRetryMs);
-    this.retryTimer.unref?.();
   }
 
   // ---------------------------------------------------------------- connections

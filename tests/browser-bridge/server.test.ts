@@ -42,7 +42,6 @@ async function startBridge(stateDir?: string, options: Partial<BrowserBridgeOpti
     privateFiles,
     log: (message) => logs.push(message),
     handshakeTimeoutMs: 2_000,
-    ownershipRetryMs: 50,
     ...options,
   });
   cleanups.push(() => bridge.close());
@@ -372,7 +371,7 @@ describe("BrowserBridge", () => {
     expect(await pending).toEqual({ tabId: 1, url: "https://example.com/" });
   });
 
-  it("reports in_use in a second instance without failing, and takes over when the owner exits", async () => {
+  it("reports in_use in a second instance without failing, and never takes over", async () => {
     const owner = await startBridge();
     const other = await startBridge(owner.dir);
     expect(other.bridge.state()).toEqual({ kind: "in_use" });
@@ -380,14 +379,20 @@ describe("BrowserBridge", () => {
     expect((await rejection(other.bridge.request("tabs.list", {}, options()))).code).toBe("BROWSER_BRIDGE_IN_USE");
     expect(other.logs.some((line) => line.includes("another CROT instance owns"))).toBe(true);
     // Ownership stays with the first instance, which keeps working.
-    await sleep(200);
-    expect(other.bridge.state()).toEqual({ kind: "in_use" });
     const client = await connectExtension(owner.bridge, owner.token);
     await roundTrip(owner.bridge, client);
 
+    // No arbitration: when the owner exits, the second instance stays in_use.
     await owner.bridge.close();
-    await waitFor(() => other.bridge.state().kind === "waiting");
-    await roundTrip(other.bridge, await connectExtension(other.bridge, other.token));
+    await sleep(300);
+    expect(other.bridge.state()).toEqual({ kind: "in_use" });
+    expect((await rejection(other.bridge.request("tabs.list", {}, options()))).code).toBe("BROWSER_BRIDGE_IN_USE");
+    expect(other.logs.length).toBe(1);
+    // The endpoint is free: an instance started now owns it.
+    const next = await startBridge(owner.dir);
+    expect(next.bridge.state()).toEqual({ kind: "waiting" });
+    await roundTrip(next.bridge, await connectExtension(next.bridge, next.token));
+    expect(other.bridge.state()).toEqual({ kind: "in_use" });
   });
 
   it("close fails pending requests, disconnects and is idempotent", async () => {
