@@ -27,9 +27,9 @@ import {
 export interface ProcessServiceDeps {
   readonly workspace: Workspace;
   readonly guard: ExecutionGuard;
-  readonly platform: Pick<Platform, "launcher" | "shells" | "environment" | "encodings">;
+  readonly platform: Pick<Platform, "launcher" | "shells" | "environment" | "encodings" | "baseEnvironment">;
   readonly limits: Pick<Limits, "defaultCommandTimeoutMs" | "maxCommandTimeoutMs" | "maxOutputBytes" | "maxBackgroundProcesses">;
-  /** Base environment for children (defaults to the CROT process environment). */
+  /** Base environment for children (defaults to the platform base environment). */
   readonly baseEnv?: Readonly<Record<string, string | undefined>>;
 }
 
@@ -251,7 +251,7 @@ export class ProcessService {
   }
 
   private env(overrides: EnvOverrides): Record<string, string> {
-    return this.deps.platform.environment.merge(this.deps.baseEnv ?? process.env, overrides ?? {});
+    return this.deps.platform.environment.merge(this.deps.baseEnv ?? this.deps.platform.baseEnvironment, overrides ?? {});
   }
 
   private async runForeground(

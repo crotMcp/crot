@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CapabilitySchema } from "../permissions/capabilities.js";
 import { PERMISSION_MODES } from "../permissions/policy.js";
+import { STARTUP_PATH_MODES } from "../platform/types.js";
 
 /**
  * CROT configuration (version 1).
@@ -35,6 +36,17 @@ export const AuditConfigSchema = z
   .strict()
   .refine((a) => a.sink !== "file" || a.path !== undefined, { message: "audit.path is required when audit.sink is 'file'." });
 
+export const EnvironmentConfigSchema = z
+  .object({
+    /**
+     * PATH for commands. auto: on macOS/Linux, read the login shell's PATH when
+     * CROT was not started from a shell (desktop-launched MCP clients);
+     * login-shell: always; inherited: use the PATH CROT was started with.
+     */
+    path: z.enum(STARTUP_PATH_MODES).default("auto"),
+  })
+  .strict();
+
 export const CrotConfigSchema = z
   .object({
     version: z.literal(1).default(1),
@@ -55,6 +67,7 @@ export const CrotConfigSchema = z
       .default({ mode: "sandbox" }),
     limits: LimitsSchema.default(LimitsSchema.parse({})),
     audit: AuditConfigSchema.default({ sink: "stderr" }),
+    environment: EnvironmentConfigSchema.default({ path: "auto" }),
   })
   .strict();
 

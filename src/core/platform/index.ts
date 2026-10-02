@@ -3,6 +3,7 @@ export * from "./path-rules.js";
 export * from "./environment.js";
 export * from "./encoding.js";
 export * from "./shells.js";
+export * from "./startup-path.js";
 export * from "./windows-command.js";
 export * from "./node-launcher.js";
 export * from "./node-platform.js";

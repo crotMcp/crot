@@ -7,7 +7,8 @@ import { createEnvironmentPolicy } from "./environment.js";
 import { createPosixLauncher, createWindowsLauncher, findPosixExecutable } from "./node-launcher.js";
 import { pathRulesFor } from "./path-rules.js";
 import { createShellProvider } from "./shells.js";
-import type { CodePages, OsFamily, Platform, ShellId, ShellInfo } from "./types.js";
+import { resolveStartupPath, type LoginShellRunner } from "./startup-path.js";
+import type { CodePages, OsFamily, Platform, ShellId, ShellInfo, StartupPathMode } from "./types.js";
 import { comspecFrom, findWindowsExecutable } from "./windows-command.js";
 
 export interface NodePlatformOptions {
@@ -15,6 +16,13 @@ export interface NodePlatformOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Windows code pages (detected with reg.exe when omitted; ignored elsewhere). */
   readonly codePages?: CodePages | null;
+  /** Startup PATH resolution (default "auto"). */
+  readonly startupPath?: StartupPathMode;
+  /** Login shell for PATH resolution (defaults to $SHELL). */
+  readonly loginShell?: string;
+  readonly loginShellTimeoutMs?: number;
+  /** Replace the login shell runner (tests). */
+  readonly runLoginShell?: LoginShellRunner;
 }
 
 function osFamily(platform: NodeJS.Platform): OsFamily {
@@ -26,11 +34,24 @@ function osFamily(platform: NodeJS.Platform): OsFamily {
 
 /** Default platform implementation built on portable Node.js APIs. */
 export async function createNodePlatform(options: NodePlatformOptions = {}): Promise<Platform> {
-  const env = options.env ?? process.env;
+  const hostEnv = options.env ?? process.env;
   const windows = process.platform === "win32";
+  const family = osFamily(process.platform);
   const environment = createEnvironmentPolicy(windows);
   const paths = pathRulesFor(windows ? "win32" : "posix");
-  const launcher = windows ? createWindowsLauncher(environment, env) : createPosixLauncher();
+  const launcher = windows ? createWindowsLauncher(environment, hostEnv) : createPosixLauncher();
+  const startup = await resolveStartupPath({
+    os: family,
+    env: hostEnv,
+    environment,
+    mode: options.startupPath ?? "auto",
+    shell: options.loginShell,
+    ...(options.loginShellTimeoutMs !== undefined ? { timeoutMs: options.loginShellTimeoutMs } : {}),
+    ...(options.runLoginShell ? { run: options.runLoginShell } : {}),
+    isDirectory: async (d) => (await stat(d).catch(() => undefined))?.isDirectory() ?? false,
+  });
+  // Shells and commands are looked up with the startup PATH.
+  const env = startup.env;
 
   const shells: ShellInfo[] = [];
   const pathValue = environment.get(env, "PATH");
@@ -72,7 +93,7 @@ export async function createNodePlatform(options: NodePlatformOptions = {}): Pro
 
   return {
     info: {
-      os: osFamily(process.platform),
+      os: family,
       platform: process.platform,
       arch: process.arch,
       release: os.release(),
@@ -82,10 +103,12 @@ export async function createNodePlatform(options: NodePlatformOptions = {}): Pro
       caseInsensitiveEnvironment: environment.caseInsensitive,
       defaultShell,
       shells,
+      startupPath: startup.info,
       encoding: { codePages: encodings.codePages, fallback: encodings.fallback },
     },
     paths,
     environment,
+    baseEnvironment: env,
     shells: createShellProvider(defaultShell, shells),
     launcher,
     encodings,

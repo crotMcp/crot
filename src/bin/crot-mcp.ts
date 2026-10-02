@@ -30,6 +30,11 @@ async function main(): Promise<void> {
   const status = core.status();
   log(`CROT ${status.version} — mode: ${status.mode}, workspace: ${status.workspace.root}`);
   log(`platform: ${status.platform.os} ${status.platform.arch}, shells: ${status.platform.shells.map((s) => s.id).join(", ")}`);
+  const startupPath = status.platform.startupPath;
+  if (startupPath.source === "login-shell" || startupPath.added.length > 0) {
+    log(`PATH: ${startupPath.source === "login-shell" ? `from login shell ${startupPath.shell}` : "inherited"}, ${startupPath.added.length} entries added`);
+  }
+  if (startupPath.note) log(`warning: PATH: ${startupPath.note}; using the inherited PATH`);
   if (status.mode === "full_control") {
     log("WARNING: FULL CONTROL mode — the connected agent can access everything this process can.");
   }

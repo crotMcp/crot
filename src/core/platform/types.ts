@@ -38,8 +38,28 @@ export interface PlatformInfo {
   readonly caseInsensitiveEnvironment: boolean;
   readonly defaultShell: ShellId;
   readonly shells: readonly ShellInfo[];
+  /** Where the PATH of child processes came from. */
+  readonly startupPath: StartupPathInfo;
   /** How command output is decoded (see EncodingSupport). */
   readonly encoding: { readonly codePages: CodePages | null; readonly fallback: string | null };
+}
+
+/**
+ * auto: on macOS/Linux, use the login shell's PATH when CROT was not started
+ * from a shell (desktop-launched clients); login-shell: always; inherited: never.
+ */
+export const STARTUP_PATH_MODES = ["auto", "login-shell", "inherited"] as const;
+export type StartupPathMode = (typeof STARTUP_PATH_MODES)[number];
+
+export interface StartupPathInfo {
+  readonly mode: StartupPathMode;
+  readonly source: "inherited" | "login-shell";
+  /** Entries added to the inherited PATH (login shell, standard directories). */
+  readonly added: readonly string[];
+  /** Login shell that supplied PATH. */
+  readonly shell?: string;
+  /** Why the login shell PATH could not be used. */
+  readonly note?: string;
 }
 
 /** Platform path syntax rules and comparisons. Pure: no filesystem access. */
@@ -171,6 +191,8 @@ export interface Platform {
   readonly info: PlatformInfo;
   readonly paths: PathRules;
   readonly environment: EnvironmentPolicy;
+  /** Base environment for child processes: the CROT environment with the startup PATH applied. */
+  readonly baseEnvironment: Readonly<Record<string, string>>;
   readonly shells: ShellProvider;
   readonly launcher: ProcessLauncher;
   readonly encodings: EncodingSupport;

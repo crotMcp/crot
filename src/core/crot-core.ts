@@ -65,7 +65,7 @@ export class CrotCore {
       workspace: { ...parsed.workspace, root: expandHome(parsed.workspace.root) },
       audit: parsed.audit.path ? { ...parsed.audit, path: path.resolve(expandHome(parsed.audit.path)) } : parsed.audit,
     };
-    const platform = options.platform ?? (await createNodePlatform());
+    const platform = options.platform ?? (await createNodePlatform({ startupPath: config.environment.path }));
     const workspace = await Workspace.open(config.workspace.root, {
       ...(config.workspace.name ? { name: config.workspace.name } : {}),
       rules: platform.paths,
