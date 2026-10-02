@@ -38,10 +38,19 @@ export interface PlatformInfo {
   readonly caseInsensitiveEnvironment: boolean;
   readonly defaultShell: ShellId;
   readonly shells: readonly ShellInfo[];
+  /** OS-conventional default locations (see platformDirectories). */
+  readonly directories: PlatformDirectories;
   /** Where the PATH of child processes came from. */
   readonly startupPath: StartupPathInfo;
   /** How command output is decoded (see EncodingSupport). */
   readonly encoding: { readonly codePages: CodePages | null; readonly fallback: string | null };
+}
+
+/** Default directories for CROT's configuration, state and logs. */
+export interface PlatformDirectories {
+  readonly config: string;
+  readonly state: string;
+  readonly logs: string;
 }
 
 /**

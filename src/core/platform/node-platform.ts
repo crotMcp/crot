@@ -2,13 +2,14 @@ import { execFile } from "node:child_process";
 import { lstat, readdir, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { platformDirectories } from "./directories.js";
 import { createEncodingSupport, parseWindowsCodePages } from "./encoding.js";
 import { createEnvironmentPolicy } from "./environment.js";
 import { createPosixLauncher, createWindowsLauncher, findPosixExecutable } from "./node-launcher.js";
 import { pathRulesFor } from "./path-rules.js";
 import { createShellProvider } from "./shells.js";
 import { resolveStartupPath, type LoginShellRunner } from "./startup-path.js";
-import type { CodePages, OsFamily, Platform, ShellId, ShellInfo, StartupPathMode } from "./types.js";
+import type { CodePages, OsFamily, Platform, PlatformDirectories, ShellId, ShellInfo, StartupPathMode } from "./types.js";
 import { comspecFrom, findWindowsExecutable } from "./windows-command.js";
 
 export interface NodePlatformOptions {
@@ -16,6 +17,8 @@ export interface NodePlatformOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Windows code pages (detected with reg.exe when omitted; ignored elsewhere). */
   readonly codePages?: CodePages | null;
+  /** Override the default directories (tests, embedding). */
+  readonly directories?: PlatformDirectories;
   /** Startup PATH resolution (default "auto"). */
   readonly startupPath?: StartupPathMode;
   /** Login shell for PATH resolution (defaults to $SHELL). */
@@ -25,11 +28,17 @@ export interface NodePlatformOptions {
   readonly runLoginShell?: LoginShellRunner;
 }
 
-function osFamily(platform: NodeJS.Platform): OsFamily {
+export function osFamily(platform: NodeJS.Platform): OsFamily {
   if (platform === "win32") return "windows";
   if (platform === "darwin") return "macos";
   if (platform === "linux") return "linux";
   return "posix";
+}
+
+/** Default directories of the host OS for the given environment. */
+export function hostDirectories(env: Readonly<Record<string, string | undefined>> = process.env): PlatformDirectories {
+  const environment = createEnvironmentPolicy(process.platform === "win32");
+  return platformDirectories(osFamily(process.platform), (n) => environment.get(env, n), os.homedir());
 }
 
 /** Default platform implementation built on portable Node.js APIs. */
@@ -103,6 +112,7 @@ export async function createNodePlatform(options: NodePlatformOptions = {}): Pro
       caseInsensitiveEnvironment: environment.caseInsensitive,
       defaultShell,
       shells,
+      directories: options.directories ?? hostDirectories(hostEnv),
       startupPath: startup.info,
       encoding: { codePages: encodings.codePages, fallback: encodings.fallback },
     },

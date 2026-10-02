@@ -1,5 +1,6 @@
 export * from "./types.js";
 export * from "./path-rules.js";
+export * from "./directories.js";
 export * from "./environment.js";
 export * from "./encoding.js";
 export * from "./shells.js";

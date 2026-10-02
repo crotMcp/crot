@@ -10,6 +10,7 @@ import { ExecutionGuard } from "./execution/guard.js";
 import { CAPABILITIES, ENFORCED_CAPABILITIES, type Capability } from "./permissions/capabilities.js";
 import { PermissionEngine } from "./permissions/engine.js";
 import { createPermissionPolicy, type PermissionMode } from "./permissions/policy.js";
+import { DEFAULT_AUDIT_FILE_NAME } from "./platform/directories.js";
 import { createNodePlatform } from "./platform/node-platform.js";
 import type { Platform, PlatformInfo } from "./platform/types.js";
 import { Workspace, type WorkspaceInfo } from "./workspace/workspace.js";
@@ -60,12 +61,16 @@ export class CrotCore {
 
   static async create(configInput: unknown, options: CrotCoreOptions = {}): Promise<CrotCore> {
     const parsed = parseConfig(configInput);
-    const config: CrotConfig = {
+    let config: CrotConfig = {
       ...parsed,
       workspace: { ...parsed.workspace, root: expandHome(parsed.workspace.root) },
       audit: parsed.audit.path ? { ...parsed.audit, path: path.resolve(expandHome(parsed.audit.path)) } : parsed.audit,
     };
     const platform = options.platform ?? (await createNodePlatform({ startupPath: config.environment.path }));
+    if (config.audit.sink === "file" && !config.audit.path) {
+      // Default audit file in the OS-conventional logs directory.
+      config = { ...config, audit: { ...config.audit, path: path.join(platform.info.directories.logs, DEFAULT_AUDIT_FILE_NAME) } };
+    }
     const workspace = await Workspace.open(config.workspace.root, {
       ...(config.workspace.name ? { name: config.workspace.name } : {}),
       rules: platform.paths,
@@ -123,7 +128,7 @@ function createAuditSink(config: AuditConfig): AuditSink {
     case "stderr":
       return new StreamAuditSink(process.stderr);
     case "file":
-      if (!config.path) throw new CrotError("CONFIG_ERROR", "audit.path is required for the file sink.");
+      if (!config.path) throw new CrotError("CONFIG_ERROR", "audit.path is required for the file sink."); // resolved by create()
       return new JsonlFileAuditSink(config.path);
   }
 }

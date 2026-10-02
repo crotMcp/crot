@@ -26,6 +26,7 @@ async function main(): Promise<void> {
   }
 
   for (const warning of command.warnings) log(`warning: ${warning}`);
+  if (command.configSource === "default") log(`config: ${command.configFile} (default location)`);
   const core = await CrotCore.create(command.config, command.configFile ? { protectedPaths: [command.configFile] } : {});
   const status = core.status();
   log(`CROT ${status.version} — mode: ${status.mode}, workspace: ${status.workspace.root}`);

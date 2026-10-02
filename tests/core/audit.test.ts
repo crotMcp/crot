@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { JsonlFileAuditSink, MemoryAuditSink, type AuditEvent } from "../../src/core/audit/audit.js";
+import { createNodePlatform } from "../../src/core/platform/node-platform.js";
 import { CrotCore } from "../../src/core/crot-core.js";
 import { createTestCore, makeTempDirs, testContext as ctx, type TempDirs } from "../helpers.js";
 
@@ -66,9 +67,19 @@ describe("audit", () => {
     expect(errors.length).toBe(1);
   });
 
-  it("requires a path for the file sink", async () => {
-    await expect(CrotCore.create({ workspace: { root: dirs.workspace }, audit: { sink: "file" } })).rejects.toMatchObject({
-      code: "CONFIG_ERROR",
-    });
+  it("defaults the file sink to audit.jsonl in the platform logs directory", async () => {
+    const logs = path.join(dirs.outside, "logs");
+    const platform = await createNodePlatform({ directories: { config: path.join(dirs.outside, "config"), state: dirs.outside, logs }, startupPath: "inherited" });
+    const core = await CrotCore.create({ workspace: { root: dirs.workspace }, audit: { sink: "file" } }, { platform });
+    try {
+      const expected = path.join(logs, "audit.jsonl");
+      expect(core.status().audit).toMatchObject({ sink: "file", path: expected });
+      expect(core.status().protectedPaths).toContain(expected);
+      await core.filesystem.writeFile(ctx, { path: "a.txt", content: "x" });
+      await core.shutdown();
+      expect((await readFile(expected, "utf8")).trim().split("\n")).toHaveLength(1);
+    } finally {
+      await core.shutdown();
+    }
   });
 });

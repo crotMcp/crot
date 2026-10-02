@@ -1,8 +1,12 @@
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { loadConfigFile } from "../core/config/load.js";
 import { expandHome } from "../core/config/paths.js";
 import type { CrotConfigInput } from "../core/config/schema.js";
+import { DEFAULT_CONFIG_FILE_NAME } from "../core/platform/directories.js";
+import { hostDirectories } from "../core/platform/node-platform.js";
+import type { PlatformDirectories } from "../core/platform/types.js";
 import { CrotError } from "../core/errors.js";
 
 export const USAGE = `Usage: crot-mcp [options]
@@ -10,7 +14,8 @@ export const USAGE = `Usage: crot-mcp [options]
 Starts the CROT MCP server on stdio.
 
 Options:
-  -c, --config <file>      JSON configuration file (or set CROT_CONFIG)
+  -c, --config <file>      JSON configuration file (or set CROT_CONFIG; default:
+                           config.json in the CROT configuration directory, if present)
   -w, --workspace <dir>    Workspace root (overrides the config file)
   -m, --mode <mode>        Permission mode: sandbox | full-control (overrides the config file)
       --audit-log <file>   Append audit events to this file (JSON lines)
@@ -19,6 +24,8 @@ Options:
   -v, --version            Show the version
 
 Without a config file, --workspace is required. The default mode is sandbox.
+Default locations: Linux ~/.config/crot, macOS ~/Library/Application Support/CROT,
+Windows %APPDATA%\\CROT (see the README).
 "~" is expanded. Prefer absolute paths: MCP clients may start CROT in any directory.
 `;
 
@@ -27,6 +34,8 @@ export interface ServeCommand {
   readonly config: CrotConfigInput;
   /** Absolute path of the configuration file in use, if any (protected from modification). */
   readonly configFile?: string;
+  /** How the configuration file was chosen. */
+  readonly configSource?: "flag" | "env" | "default";
   /** Non-fatal notices for the operator (written to stderr). */
   readonly warnings: readonly string[];
 }
@@ -34,7 +43,12 @@ export interface ServeCommand {
 export type CliCommand = { kind: "help" } | { kind: "version" } | ServeCommand;
 
 /** Parse command-line arguments into a configuration input. CLI flags override the config file. */
-export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv = process.env): Promise<CliCommand> {
+export interface ParseCliOptions {
+  /** Default directories (defaults to the host OS conventions). */
+  readonly directories?: PlatformDirectories;
+}
+
+export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv = process.env, options: ParseCliOptions = {}): Promise<CliCommand> {
   let parsed;
   try {
     parsed = parseArgs({
@@ -66,8 +80,17 @@ export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv =
     return absolute;
   };
 
-  const configSource = v.config ?? env.CROT_CONFIG;
-  const configFile = configSource !== undefined ? toAbsolute(v.config !== undefined ? "--config" : "CROT_CONFIG", configSource) : undefined;
+  const explicit = v.config ?? env.CROT_CONFIG;
+  let configFile = explicit !== undefined ? toAbsolute(v.config !== undefined ? "--config" : "CROT_CONFIG", explicit) : undefined;
+  let configSource: ServeCommand["configSource"] = explicit === undefined ? undefined : v.config !== undefined ? "flag" : "env";
+  if (configFile === undefined) {
+    // Optional per-user configuration in the OS-conventional location.
+    const candidate = path.join((options.directories ?? hostDirectories(env)).config, DEFAULT_CONFIG_FILE_NAME);
+    if ((await stat(candidate).catch(() => undefined))?.isFile()) {
+      configFile = candidate;
+      configSource = "default";
+    }
+  }
   const base: Partial<CrotConfigInput> = configFile ? await loadConfigFile(configFile) : {};
   const config: Record<string, unknown> = { ...base };
 
@@ -85,7 +108,7 @@ export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv =
   }
   if (v["audit-log"] !== undefined) config.audit = { sink: "file", path: toAbsolute("--audit-log", v["audit-log"]) };
   if (v["no-audit"]) config.audit = { sink: "none" };
-  return { kind: "serve", config: config as CrotConfigInput, ...(configFile ? { configFile } : {}), warnings };
+  return { kind: "serve", config: config as CrotConfigInput, ...(configFile ? { configFile, configSource } : {}), warnings };
 }
 
 function parseMode(value: string): "sandbox" | "full_control" {

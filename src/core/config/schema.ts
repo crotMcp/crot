@@ -31,10 +31,10 @@ export const AuditConfigSchema = z
      * none: disable auditing. Audit data never leaves the machine.
      */
     sink: z.enum(["file", "stderr", "none"]).default("stderr"),
+    /** Audit file for the file sink; defaults to audit.jsonl in the platform logs directory. */
     path: z.string().min(1).optional(),
   })
-  .strict()
-  .refine((a) => a.sink !== "file" || a.path !== undefined, { message: "audit.path is required when audit.sink is 'file'." });
+  .strict();
 
 export const EnvironmentConfigSchema = z
   .object({
