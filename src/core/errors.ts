@@ -12,6 +12,7 @@ export type CrotErrorCode =
   | "NOT_FOUND"
   | "ALREADY_EXISTS"
   | "LIMIT_EXCEEDED"
+  | "RESOURCE_BUSY"
   | "TIMEOUT"
   | "CONFIG_ERROR"
   | "OPERATION_FAILED";
@@ -44,20 +45,47 @@ export function parseInput<S extends z.ZodType>(schema: S, input: unknown): z.ou
   return result.data;
 }
 
-/** Map Node.js system errors (ENOENT, EEXIST, ...) to CrotError. */
+/**
+ * Map Node.js system errors to CrotError, consistently across Linux, macOS and
+ * Windows (where e.g. locked files surface as EBUSY or EPERM).
+ */
 export function fromNodeError(error: unknown, context: string): CrotError {
   if (error instanceof CrotError) return error;
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   const message = error instanceof Error ? error.message : String(error);
+  const make = (c: CrotErrorCode, text: string) => new CrotError(c, `${context}: ${text}`, code ? { errno: code } : undefined, { cause: error });
   switch (code) {
     case "ENOENT":
-      return new CrotError("NOT_FOUND", `${context}: not found`, undefined, { cause: error });
+      return make("NOT_FOUND", "not found");
     case "EEXIST":
-      return new CrotError("ALREADY_EXISTS", `${context}: already exists`, undefined, { cause: error });
+      return make("ALREADY_EXISTS", "already exists");
+    case "ENOTEMPTY":
+      return make("INVALID_INPUT", "directory is not empty");
+    case "EISDIR":
+      return make("INVALID_INPUT", "is a directory");
+    case "ENOTDIR":
+      return make("INVALID_INPUT", "a path component is not a directory");
+    case "ENAMETOOLONG":
+      return make("INVALID_INPUT", "path is too long for this platform");
+    case "EINVAL":
+      return make("INVALID_INPUT", "invalid path or argument for this platform");
+    case "EBUSY":
+    case "ETXTBSY":
+      return make("RESOURCE_BUSY", "in use by another process");
     case "EACCES":
+      return make("OPERATION_FAILED", "operating system denied access");
     case "EPERM":
-      return new CrotError("OPERATION_FAILED", `${context}: operating system denied access`, { errno: code }, { cause: error });
+      return make("OPERATION_FAILED", "operation not permitted by the operating system (on Windows the file may be read-only or in use)");
+    case "EMFILE":
+    case "ENFILE":
+      return make("LIMIT_EXCEEDED", "too many open files");
+    case "ENOSPC":
+      return make("OPERATION_FAILED", "no space left on device");
+    case "EROFS":
+      return make("OPERATION_FAILED", "read-only filesystem");
+    case "EXDEV":
+      return make("OPERATION_FAILED", "cross-device operation not supported");
     default:
-      return new CrotError("OPERATION_FAILED", `${context}: ${message}`, code ? { errno: code } : undefined, { cause: error });
+      return make("OPERATION_FAILED", message);
   }
 }

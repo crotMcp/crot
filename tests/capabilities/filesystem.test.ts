@@ -1,8 +1,9 @@
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CrotCore } from "../../src/core/crot-core.js";
-import { canSymlinkFiles, createTestCore, linkDirectory, makeTempDirs, testContext as ctx, type TempDirs } from "../helpers.js";
+import { canSymlinkFiles, createTestCore, isWindows, linkDirectory, makeTempDirs, testContext as ctx, type TempDirs } from "../helpers.js";
 
 let dirs: TempDirs;
 let core: CrotCore;
@@ -160,3 +161,40 @@ describe("filesystem: directories", () => {
   });
 });
 
+describe("filesystem: special files", () => {
+  it("refuses to read or write directories as files", async () => {
+    await mkdir(path.join(dirs.workspace, "d"));
+    await expect(core.filesystem.readFile(ctx, { path: "d" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(core.filesystem.writeFile(ctx, { path: "d", content: "x" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  });
+
+  it.skipIf(isWindows)("refuses FIFOs without blocking", async () => {
+    const fifo = path.join(dirs.workspace, "pipe");
+    execFileSync("mkfifo", [fifo]);
+    const started = Date.now();
+    await expect(core.filesystem.readFile(ctx, { path: "pipe" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(core.filesystem.writeFile(ctx, { path: "pipe", content: "x" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(core.filesystem.writeFile(ctx, { path: "pipe", content: "x", mode: "append" })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+    });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect((await stat(fifo)).isFIFO()).toBe(true);
+  });
+
+  it.runIf(isWindows)("rejects Windows device names instead of opening devices", async () => {
+    for (const name of ["CON", "nul", "COM1.txt", "sub\\AUX"]) {
+      await expect(core.filesystem.readFile(ctx, { path: name })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+      await expect(core.filesystem.writeFile(ctx, { path: name, content: "x" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    }
+  });
+
+  it.runIf(isWindows)("rejects alternate data streams", async () => {
+    await writeFile(path.join(dirs.workspace, "a.txt"), "a");
+    await expect(core.filesystem.writeFile(ctx, { path: "a.txt:hidden", content: "x" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  });
+
+  it.runIf(isWindows)("accepts forward slashes and mixed case on Windows", async () => {
+    await core.filesystem.writeFile(ctx, { path: "Dir/Sub/File.txt", content: "x" });
+    expect((await core.filesystem.readFile(ctx, { path: "dir\\sub\\FILE.TXT" })).content).toBe("x");
+  });
+});

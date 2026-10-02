@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { appendFile, cp, lstat, mkdir, open, readdir, readlink, rename, rm, rmdir, writeFile } from "node:fs/promises";
+import { appendFile, cp, lstat, mkdir, open, readdir, readlink, rename, rm, rmdir, stat, writeFile } from "node:fs/promises";
 import type { Stats } from "node:fs";
 import path from "node:path";
 import type { AuthContext } from "../../auth/principal.js";
@@ -50,7 +50,10 @@ export class FileSystemService {
     const target = await this.deps.workspace.resolve(args.path);
     return this.deps.guard.run(context, { operation: "filesystem.read_file", capability: "filesystem.read", paths: [target] }, async () => {
       const limit = Math.min(args.length ?? this.deps.limits.maxReadBytes, this.deps.limits.maxReadBytes);
-      const handle = await open(target.absolute, constants.O_RDONLY).catch((e) => {
+      // Refuse FIFOs, sockets and devices before opening: opening a FIFO blocks until a writer appears.
+      await assertRegularFileOrMissing(target.absolute, display(target), true);
+      // O_NONBLOCK (POSIX) guards against the path being swapped for a FIFO after the check.
+      const handle = await open(target.absolute, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0)).catch((e) => {
         throw fromNodeError(e, `Cannot open ${display(target)}`);
       });
       try {
@@ -85,6 +88,8 @@ export class FileSystemService {
         details: { mode: args.mode, encoding: args.encoding },
       }, async () => {
       const data = Buffer.from(args.content, args.encoding);
+      // Writing to a FIFO or device would block or have side effects; only regular files are written.
+      await assertRegularFileOrMissing(target.absolute, display(target), false);
       const existed = await exists(target.absolute);
       try {
         if (args.createParents) await mkdir(path.dirname(target.absolute), { recursive: true });
@@ -176,7 +181,8 @@ export class FileSystemService {
       try {
         const info = await lstat(target.absolute);
         if (info.isDirectory() && !args.recursive) await rmdir(target.absolute);
-        else await rm(target.absolute, { recursive: args.recursive, force: false });
+        // Retries cover transient EBUSY/EPERM on Windows (e.g. antivirus or indexer holding a file).
+        else await rm(target.absolute, { recursive: args.recursive, force: false, maxRetries: args.recursive ? 3 : 0, retryDelay: 100 });
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code === "ENOTEMPTY") {
           throw new CrotError("INVALID_INPUT", `Directory is not empty (set recursive to delete it): ${display(target)}`);
@@ -219,6 +225,20 @@ function entryType(info: Stats): EntryType {
   if (info.isDirectory()) return "directory";
   if (info.isFile()) return "file";
   return "other";
+}
+
+/** Throw INVALID_INPUT unless `p` is a regular file (or, when `mustExist` is false, does not exist). */
+async function assertRegularFileOrMissing(p: string, shown: string, mustExist: boolean): Promise<void> {
+  let info: Stats;
+  try {
+    info = await stat(p);
+  } catch (e) {
+    if (!mustExist && (e as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw fromNodeError(e, `Cannot access ${shown}`);
+  }
+  if (info.isFile()) return;
+  if (info.isDirectory()) throw new CrotError("INVALID_INPUT", `Is a directory: ${shown}`);
+  throw new CrotError("INVALID_INPUT", `Not a regular file (FIFO, socket or device): ${shown}`);
 }
 
 async function exists(p: string): Promise<boolean> {
