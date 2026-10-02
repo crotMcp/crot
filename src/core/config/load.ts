@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { CrotError } from "../errors.js";
+import { expandHome, stripBom } from "./paths.js";
 import { CrotConfigSchema, type CrotConfig, type CrotConfigInput } from "./schema.js";
 
 /** Validate a configuration object. */
@@ -13,9 +14,12 @@ export function parseConfig(input: unknown): CrotConfig {
   return result.data;
 }
 
-/** Read a JSON configuration file. Relative paths (workspace root, audit path) are resolved against the file's directory. */
+/**
+ * Read a JSON configuration file (UTF-8, optional BOM). "~" is expanded and
+ * relative paths (workspace root, audit path) are resolved against the file's directory.
+ */
 export async function loadConfigFile(file: string): Promise<CrotConfigInput> {
-  const absolute = path.resolve(file);
+  const absolute = path.resolve(expandHome(file));
   let raw: string;
   try {
     raw = await readFile(absolute, "utf8");
@@ -24,7 +28,7 @@ export async function loadConfigFile(file: string): Promise<CrotConfigInput> {
   }
   let data: unknown;
   try {
-    data = JSON.parse(raw);
+    data = JSON.parse(stripBom(raw));
   } catch (error) {
     throw new CrotError("CONFIG_ERROR", `Configuration file ${absolute} is not valid JSON: ${(error as Error).message}`);
   }
@@ -32,10 +36,10 @@ export async function loadConfigFile(file: string): Promise<CrotConfigInput> {
   const base = path.dirname(absolute);
   if (config && typeof config === "object") {
     if (config.workspace && typeof config.workspace.root === "string") {
-      config = { ...config, workspace: { ...config.workspace, root: path.resolve(base, config.workspace.root) } };
+      config = { ...config, workspace: { ...config.workspace, root: path.resolve(base, expandHome(config.workspace.root)) } };
     }
     if (config.audit && typeof config.audit.path === "string") {
-      config = { ...config, audit: { ...config.audit, path: path.resolve(base, config.audit.path) } };
+      config = { ...config, audit: { ...config.audit, path: path.resolve(base, expandHome(config.audit.path)) } };
     }
   }
   return config;

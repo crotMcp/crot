@@ -1,6 +1,7 @@
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { loadConfigFile } from "../core/config/load.js";
+import { expandHome } from "../core/config/paths.js";
 import type { CrotConfigInput } from "../core/config/schema.js";
 import { CrotError } from "../core/errors.js";
 
@@ -18,9 +19,19 @@ Options:
   -v, --version            Show the version
 
 Without a config file, --workspace is required. The default mode is sandbox.
+"~" is expanded. Prefer absolute paths: MCP clients may start CROT in any directory.
 `;
 
-export type CliCommand = { kind: "help" } | { kind: "version" } | { kind: "serve"; config: CrotConfigInput };
+export interface ServeCommand {
+  readonly kind: "serve";
+  readonly config: CrotConfigInput;
+  /** Absolute path of the configuration file in use, if any (protected from modification). */
+  readonly configFile?: string;
+  /** Non-fatal notices for the operator (written to stderr). */
+  readonly warnings: readonly string[];
+}
+
+export type CliCommand = { kind: "help" } | { kind: "version" } | ServeCommand;
 
 /** Parse command-line arguments into a configuration input. CLI flags override the config file. */
 export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv = process.env): Promise<CliCommand> {
@@ -47,12 +58,21 @@ export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv =
   if (v.help) return { kind: "help" };
   if (v.version) return { kind: "version" };
 
-  const configFile = v.config ?? env.CROT_CONFIG;
+  const warnings: string[] = [];
+  const toAbsolute = (flag: string, value: string): string => {
+    const expanded = expandHome(value);
+    const absolute = path.resolve(expanded);
+    if (!path.isAbsolute(expanded)) warnings.push(`${flag} '${value}' is relative; resolved against the current directory to ${absolute}.`);
+    return absolute;
+  };
+
+  const configSource = v.config ?? env.CROT_CONFIG;
+  const configFile = configSource !== undefined ? toAbsolute(v.config !== undefined ? "--config" : "CROT_CONFIG", configSource) : undefined;
   const base: Partial<CrotConfigInput> = configFile ? await loadConfigFile(configFile) : {};
   const config: Record<string, unknown> = { ...base };
 
   if (v.workspace !== undefined) {
-    config.workspace = { ...(base.workspace ?? {}), root: path.resolve(v.workspace) };
+    config.workspace = { ...(base.workspace ?? {}), root: toAbsolute("--workspace", v.workspace) };
   }
   if (!config.workspace) {
     throw new CrotError("CONFIG_ERROR", `A workspace is required: pass --workspace <dir> or --config <file>.\n\n${USAGE}`);
@@ -63,9 +83,9 @@ export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv =
   if (v["audit-log"] !== undefined && v["no-audit"]) {
     throw new CrotError("CONFIG_ERROR", "--audit-log and --no-audit cannot be combined.");
   }
-  if (v["audit-log"] !== undefined) config.audit = { sink: "file", path: path.resolve(v["audit-log"]) };
+  if (v["audit-log"] !== undefined) config.audit = { sink: "file", path: toAbsolute("--audit-log", v["audit-log"]) };
   if (v["no-audit"]) config.audit = { sink: "none" };
-  return { kind: "serve", config: config as CrotConfigInput };
+  return { kind: "serve", config: config as CrotConfigInput, ...(configFile ? { configFile } : {}), warnings };
 }
 
 function parseMode(value: string): "sandbox" | "full_control" {

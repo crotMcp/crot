@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseCli } from "../src/cli/options.js";
@@ -24,6 +25,7 @@ describe("parseCli", () => {
         permissions: { mode: "full_control" },
         audit: { sink: "file", path: path.resolve("audit.jsonl") },
       },
+      warnings: [expect.stringContaining("--audit-log 'audit.jsonl' is relative")],
     });
   });
 
@@ -34,12 +36,22 @@ describe("parseCli", () => {
     expect(cmd).toEqual({
       kind: "serve",
       config: { workspace: { root: dirs.workspace, name: "proj" }, permissions: { mode: "sandbox" }, audit: { sink: "none" } },
+      configFile: file,
+      warnings: [],
     });
   });
 
   it("rejects unknown modes and flags", async () => {
     await expect(parseCli(["-w", dirs.workspace, "-m", "root"], {})).rejects.toMatchObject({ code: "CONFIG_ERROR" });
     await expect(parseCli(["--bogus"], {})).rejects.toMatchObject({ code: "CONFIG_ERROR" });
+  });
+
+  it("expands ~ in path flags", async () => {
+    const cmd = await parseCli(["-w", "~", "--audit-log", path.join("~", "crot.jsonl")], {});
+    expect(cmd).toMatchObject({
+      config: { workspace: { root: os.homedir() }, audit: { path: path.join(os.homedir(), "crot.jsonl") } },
+      warnings: [],
+    });
   });
 
   it("handles help and version", async () => {

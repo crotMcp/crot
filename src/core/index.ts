@@ -6,6 +6,7 @@ export * from "./permissions/engine.js";
 export * from "./workspace/workspace.js";
 export * from "./config/schema.js";
 export * from "./config/load.js";
+export * from "./config/paths.js";
 export * from "./platform/index.js";
 export * from "./audit/audit.js";
 export * from "./execution/guard.js";

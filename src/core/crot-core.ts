@@ -1,7 +1,9 @@
+import path from "node:path";
 import { JsonlFileAuditSink, NullAuditSink, StreamAuditSink, type AuditSink } from "./audit/audit.js";
 import { FileSystemService } from "./capabilities/filesystem/service.js";
 import { ProcessService } from "./capabilities/process/service.js";
 import { parseConfig } from "./config/load.js";
+import { expandHome } from "./config/paths.js";
 import type { AuditConfig, CrotConfig, Limits } from "./config/schema.js";
 import { CrotError } from "./errors.js";
 import { ExecutionGuard } from "./execution/guard.js";
@@ -53,7 +55,12 @@ export class CrotCore {
   ) {}
 
   static async create(configInput: unknown, options: CrotCoreOptions = {}): Promise<CrotCore> {
-    const config = parseConfig(configInput);
+    const parsed = parseConfig(configInput);
+    const config: CrotConfig = {
+      ...parsed,
+      workspace: { ...parsed.workspace, root: expandHome(parsed.workspace.root) },
+      audit: parsed.audit.path ? { ...parsed.audit, path: path.resolve(expandHome(parsed.audit.path)) } : parsed.audit,
+    };
     const platform = options.platform ?? (await createNodePlatform());
     const workspace = await Workspace.open(config.workspace.root, {
       ...(config.workspace.name ? { name: config.workspace.name } : {}),

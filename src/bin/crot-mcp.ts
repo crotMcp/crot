@@ -25,6 +25,7 @@ async function main(): Promise<void> {
     return;
   }
 
+  for (const warning of command.warnings) log(`warning: ${warning}`);
   const core = await CrotCore.create(command.config);
   const status = core.status();
   log(`CROT ${status.version} — mode: ${status.mode}, workspace: ${status.workspace.root}`);
