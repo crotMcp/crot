@@ -9,7 +9,8 @@ README describes the current implementation and how to run it.
 
 ## Status
 
-Implemented (ARCHITECTURE.md §16, steps 1–6, and the first part of step 7):
+Implemented (ARCHITECTURE.md §16, steps 1–6, the first part of step 7, and
+steps 10–11):
 
 - CROT Core: configuration, workspace, central permission engine, execution guard
 - Filesystem capability
@@ -19,9 +20,14 @@ Implemented (ARCHITECTURE.md §16, steps 1–6, and the first part of step 7):
 - CROT MCP: thin adapter over Core, stdio transport
 - CROT MCP over Streamable HTTP: **loopback only**, bearer-token authentication
   behind a replaceable verifier (see [HTTP transport](#http-transport))
+- Native Host: native OS platform layer behind the same Core interfaces (see
+  [`docs/NATIVE_HOST.md`](docs/NATIVE_HOST.md))
+- CROT Browser Extension for Chromium browsers (Chrome, Edge, Brave): browser
+  tools gated by `browser.read` / `browser.control` (see
+  [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md))
 
 Not yet implemented: remote (non-loopback) exposure and MCP authorization
-(OAuth/OIDC), Native Host, Browser Extension, installer, account/licensing layer.
+(OAuth/OIDC), installer, account/licensing layer. Firefox is not supported.
 
 ## Requirements
 
@@ -42,6 +48,9 @@ node dist/bin/crot-mcp.js --workspace /path/to/project --mode full-control
 
 # Streamable HTTP on loopback (bearer token required).
 node dist/bin/crot-mcp.js --workspace /path/to/project --http
+
+# Register the browser native-messaging host (grants no permissions).
+node dist/bin/crot-mcp.js browser install
 ```
 
 Register it in any MCP client that supports stdio servers, for example:
@@ -61,6 +70,11 @@ Clients that speak Streamable HTTP can connect to the loopback endpoint (see
 [HTTP transport](#http-transport)). Clients that only reach servers on the
 internet need remote exposure, which is not part of this version.
 
+**Browser.** To let the agent use Chrome, Edge or Brave, register the host with
+`crot-mcp browser install`, set `"browser": { "enabled": true }`, grant
+`browser.read` and/or `browser.control`, and load the extension; see
+[`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md).
+
 ### Command-line options
 
 | Option | Description |
@@ -73,6 +87,10 @@ internet need remote exposure, which is not part of this version.
 | `--http` | Serve MCP over Streamable HTTP instead of stdio |
 | `--http-host <host>` | HTTP bind address; loopback only (default `127.0.0.1`) |
 | `--http-port <port>` | HTTP port (default `7337`; `0` picks a free port) |
+
+Command: `crot-mcp browser install` registers the browser native-messaging host
+for the current user (see [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)).
+It grants no permissions.
 
 ### Configuration
 
@@ -107,6 +125,7 @@ directory (CROT warns when a relative path is resolved).
 | `http.maxRequestBytes` | 4 MiB | Maximum request body |
 | `http.maxSessions` | 16 | Concurrent MCP sessions |
 | `http.sessionIdleTimeoutMs` | 1 800 000 | Idle sessions are closed after this time |
+| `browser.enabled` | `false` | Start the browser bridge for the CROT Browser Extension; grants nothing |
 
 ### Default locations
 
@@ -219,9 +238,17 @@ Rules:
 The rules are the same for every transport and principal.
 
 Enforced capabilities today: `filesystem.read`, `filesystem.write`,
-`filesystem.full`, `shell.execute`, `process.manage`. The others (`git.*`,
-`docker.use`, `browser.*`, `network.access`) are part of the model and reported
-by `crot_status`, and will gate dedicated operations when those are added.
+`filesystem.full`, `shell.execute`, `process.manage`, `browser.read`,
+`browser.control`. The others (`git.*`, `docker.use`, `network.access`) are
+part of the model and reported by `crot_status`, and will gate dedicated
+operations when those are added.
+
+**Browser capabilities.** The sandbox defaults do not include `browser.*`;
+`full_control` grants them. An explicit `capabilities` list replaces the mode
+defaults, so to add browser access in sandbox mode list the sandbox defaults
+plus `browser.read` (and `browser.control` if the agent may act in the
+browser). The extension and its bridge never authorize anything themselves
+(see [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)).
 
 **Sandbox limits.** Sandbox confines CROT's own file operations and the
 working directory of commands. It is not OS-level isolation: a command the agent
@@ -372,8 +399,8 @@ The Native Host will implement the same platform interfaces with native code:
   recursive listing never follows symlinks; entry operations (stat, delete, move)
   act on links, not their targets; the workspace root cannot be deleted or moved;
   FIFOs, sockets and devices are never opened as files.
-- Protected paths: the audit log, the configuration file in use and the HTTP
-  token file cannot be
+- Protected paths: the audit log, the configuration file in use, the HTTP
+  token file and (when `browser.enabled`) the browser bridge token file cannot be
   modified, deleted or moved through CROT tools in any mode (enforced by the
   PermissionEngine; listed in `crot_status`). A command run with `shell.execute`
   is not restricted by this rule. Protection from other local users is
@@ -387,9 +414,14 @@ The Native Host will implement the same platform interfaces with native code:
   principal (including transport and authentication method), capabilities,
   paths, outcome and duration. Audit events never
   contain file contents, command output, stdin, environment values or credentials.
+  Browser operations record only URL origins, tab ids, truncated selectors and
+  typed text length — never page content, screenshots, typed text or full URLs.
 - No telemetry and no network communication: CROT itself makes no outbound
   connections. The stdio server communicates only with the client that launched
   it; the HTTP server listens on loopback only and requires authentication.
+  The browser bridge uses local IPC only (Unix socket or named pipe,
+  token-authenticated); browser tools do make the browser load the pages the
+  agent asks for.
 
 ## MCP tools
 
@@ -401,9 +433,12 @@ The Native Host will implement the same platform interfaces with native code:
 | `process_exec`, `shell_run` (optional `shell`) | `shell.execute` |
 | `process_start` | `process.manage` + `shell.execute` |
 | `process_list`, `process_read_output`, `process_stop`, `process_remove` | `process.manage` |
+| `browser_status`, `browser_tabs_list`, `browser_page_read`, `browser_screenshot` | `browser.read` |
+| `browser_tab_open`, `browser_navigate`, `browser_tab_activate`, `browser_tab_close`, `browser_click`, `browser_type` | `browser.control` |
 
 Paths outside the workspace additionally require `filesystem.full`. The tool
-set is identical on stdio and HTTP.
+set is identical on stdio and HTTP. Browser tools need a connected extension
+(see [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)).
 
 ## Code layout
 
@@ -421,13 +456,20 @@ src/
     capabilities/
       filesystem/          FileSystemService + input schemas
       process/             ProcessService + input schemas
+      browser/             BrowserService, input/result schemas, BrowserConnection
     crot-core.ts           composition root
   adapters/mcp/            CROT MCP: tool catalogue, server, request → AuthContext
   adapters/http/           Streamable HTTP transport: request pipeline, sessions,
                            AccessTokenVerifier seam, local token, AuthInfo → Principal
-  cli/                     command-line option parsing, host shutdown lifecycle
+  browser-bridge/          browser bridge: protocol, endpoint, server, relay
+  native-host/             Native Host platform layer (see docs/NATIVE_HOST.md)
+  cli/                     command-line option parsing, host shutdown lifecycle,
+                           browser*.ts (`crot-mcp browser install`)
   bin/crot-mcp.ts          entry point (stdio or --http)
-tests/                     vitest suites (core, capabilities, MCP and HTTP adapters, CLI, stdio e2e)
+  bin/crot-browser-relay.ts  native-messaging relay started by the browser
+extension/                 CROT Browser Extension (MV3 sources and tests)
+tests/                     vitest suites (core, capabilities, MCP and HTTP adapters, CLI, stdio e2e,
+                           browser-bridge)
 ```
 
 Dependency direction: `bin` → `adapters` → `core`. Core never imports the MCP
@@ -442,7 +484,14 @@ npm run typecheck
 npm run build
 npm test           # also builds the sources into a temporary directory for the stdio end-to-end test
 npm run check      # typecheck + test + build
+
+npm run typecheck:extension
+npm run build:extension   # compiles the extension into extension/dist
+npm run test:extension
 ```
+
+CI runs `typecheck`, `typecheck:extension`, `build`, `build:extension`, `test`
+and `test:extension`.
 
 CI runs on Ubuntu, macOS and Windows with Node 20 and 22. Windows-specific
 behaviour (cmd quoting, PATHEXT lookup, path rules, environment casing) is also
