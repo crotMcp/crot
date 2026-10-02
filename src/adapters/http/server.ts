@@ -149,7 +149,7 @@ export class CrotHttpServer {
   /** Endpoint URL, e.g. http://127.0.0.1:7337/mcp. */
   get url(): string {
     const host = isIP(this.config.host) === 6 ? `[${this.config.host}]` : this.config.host;
-    return `http://${host}:${this.boundPort}${MCP_HTTP_PATH}`;
+    return "http://" + host + ":" + String(this.boundPort) + MCP_HTTP_PATH;
   }
 
   get listening(): boolean {

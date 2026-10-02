@@ -11,7 +11,7 @@ import { CrotError } from "../core/errors.js";
 
 export const USAGE = `Usage: crot-mcp [options]
 
-Starts the CROT MCP server on stdio.
+Starts the CROT MCP server on stdio (default) or, with --http, on loopback HTTP.
 
 Options:
   -c, --config <file>      JSON configuration file (or set CROT_CONFIG; default:
@@ -20,6 +20,10 @@ Options:
   -m, --mode <mode>        Permission mode: sandbox | full-control (overrides the config file)
       --audit-log <file>   Append audit events to this file (JSON lines)
       --no-audit           Disable audit logging
+      --http               Serve MCP over Streamable HTTP instead of stdio
+                           (loopback only, bearer token required)
+      --http-host <host>   HTTP bind address (loopback; default 127.0.0.1)
+      --http-port <port>   HTTP port (default 7337; 0 picks a free port)
   -h, --help               Show this help
   -v, --version            Show the version
 
@@ -61,6 +65,9 @@ export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv =
         mode: { type: "string", short: "m" },
         "audit-log": { type: "string" },
         "no-audit": { type: "boolean" },
+        http: { type: "boolean" },
+        "http-host": { type: "string" },
+        "http-port": { type: "string" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean", short: "v" },
       },
@@ -108,7 +115,22 @@ export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv =
   }
   if (v["audit-log"] !== undefined) config.audit = { sink: "file", path: toAbsolute("--audit-log", v["audit-log"]) };
   if (v["no-audit"]) config.audit = { sink: "none" };
+  if (v.http || v["http-host"] !== undefined || v["http-port"] !== undefined) {
+    const http: Record<string, unknown> = { ...(base.http ?? {}) };
+    if (v.http) http.enabled = true;
+    if (v["http-host"] !== undefined) http.host = v["http-host"];
+    if (v["http-port"] !== undefined) http.port = parsePort(v["http-port"]);
+    config.http = http;
+  }
   return { kind: "serve", config: config as CrotConfigInput, ...(configFile ? { configFile, configSource } : {}), warnings };
+}
+
+function parsePort(value: string): number {
+  const port = /^\d+$/.test(value) ? Number(value) : NaN;
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new CrotError("CONFIG_ERROR", `Invalid --http-port '${value}': expected an integer from 0 to 65535.`);
+  }
+  return port;
 }
 
 function parseMode(value: string): "sandbox" | "full_control" {
