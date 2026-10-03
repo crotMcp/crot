@@ -1,16 +1,22 @@
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CrotCore } from "../../src/core/crot-core.js";
 import { createTestCore, isWindows, makeTempDirs, testContext as ctx, type TempDirs } from "../helpers.js";
+
+/** Empty global configuration for test-side Git (os.devNull is \\.\nul on Windows, which Git cannot access). */
+const EMPTY_CONFIG_DIR = mkdtempSync(path.join(os.tmpdir(), "crot-git-test-"));
+const EMPTY_CONFIG = path.join(EMPTY_CONFIG_DIR, "empty.gitconfig");
+writeFileSync(EMPTY_CONFIG, "");
+afterAll(() => rmSync(EMPTY_CONFIG_DIR, { recursive: true, force: true }));
 
 /** Environment for test-side Git: no system/global configuration, fixed identity. */
 const GIT_ENV = {
   ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^GIT_/i.test(k))),
-  GIT_CONFIG_GLOBAL: os.devNull,
+  GIT_CONFIG_GLOBAL: EMPTY_CONFIG,
   GIT_CONFIG_NOSYSTEM: "1",
   GIT_AUTHOR_NAME: "Test",
   GIT_AUTHOR_EMAIL: "test@example.com",

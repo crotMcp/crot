@@ -1,4 +1,7 @@
+import { rmSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
+import path from "node:path";
 import type { AuthContext } from "../../auth/principal.js";
 import type { Limits } from "../../config/schema.js";
 import { CrotError, parseInput } from "../../errors.js";
@@ -62,6 +65,13 @@ interface Repository extends DiscoveredRepository {
   readonly forwarded: readonly string[];
 }
 
+interface GitEnvironments {
+  readonly listing: Record<string, string>;
+  readonly command: Record<string, string>;
+  /** Private directory holding the empty file used as GIT_CONFIG_GLOBAL. */
+  readonly dir: string;
+}
+
 interface GitRun {
   readonly stdout: string;
   readonly truncated: boolean;
@@ -95,7 +105,8 @@ export class GitService {
   private readonly running = new Set<ManagedProcess>();
   private closing = false;
   private versionChecked = false;
-  private environments: { listing: Record<string, string>; command: Record<string, string> } | undefined;
+  private environments: Promise<GitEnvironments> | undefined;
+  private environmentDir: string | undefined;
 
   constructor(private readonly deps: GitServiceDeps) {}
 
@@ -248,12 +259,21 @@ export class GitService {
   async shutdown(): Promise<void> {
     this.closing = true;
     await Promise.all([...this.running].map((p) => p.terminate("force")));
+    const environments = await this.environments?.catch(() => undefined);
+    if (environments) await rm(environments.dir, { recursive: true, force: true });
   }
 
   /** Forced, synchronous termination of running Git commands (host process exit). */
   terminateAllSync(): void {
     this.closing = true;
     for (const p of this.running) p.terminateSync();
+    if (this.environmentDir) {
+      try {
+        rmSync(this.environmentDir, { recursive: true, force: true });
+      } catch {
+        // Best effort while the host process exits.
+      }
+    }
   }
 
   private async operation<T>(
@@ -340,14 +360,28 @@ export class GitService {
     return run.exitCode === 0;
   }
 
-  private env(): { listing: Record<string, string>; command: Record<string, string> } {
-    if (this.environments) return this.environments;
+  private env(): Promise<GitEnvironments> {
+    this.environments ??= this.createEnvironments().catch((error: unknown) => {
+      this.environments = undefined;
+      throw new CrotError("OPERATION_FAILED", `Failed to prepare the Git environment: ${(error as Error).message}`);
+    });
+    return this.environments;
+  }
+
+  private async createEnvironments(): Promise<GitEnvironments> {
+    // GIT_CONFIG_GLOBAL points at an empty file CROT creates itself: os.devNull is \\.\nul on Windows,
+    // which Git for Windows cannot access ("Invalid argument"), and "/dev/null" there depends on Git's
+    // own path translation. The directory is private to the CROT user and removed on shutdown.
+    const dir = await mkdtemp(path.join(os.tmpdir(), "crot-git-"));
+    this.environmentDir = dir;
+    const emptyConfig = path.join(dir, "empty.gitconfig");
+    await writeFile(emptyConfig, "", { flag: "wx", mode: 0o600 });
     const { environment } = this.deps.platform;
     const base = this.deps.baseEnv ?? this.deps.platform.baseEnvironment;
     const removed: Record<string, null> = {};
     for (const name of Object.keys(base)) if (/^GIT_/i.test(name)) removed[name] = null;
     const common = { ...removed, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", GIT_NO_LAZY_FETCH: "1" };
-    this.environments = {
+    return {
       // The listing reads system and global configuration to find forwardable settings; it starts no programs.
       listing: environment.merge(base, common),
       command: environment.merge(base, {
@@ -355,10 +389,10 @@ export class GitService {
         GIT_LITERAL_PATHSPECS: "1",
         GIT_ATTR_NOSYSTEM: "1",
         GIT_CONFIG_NOSYSTEM: "1",
-        GIT_CONFIG_GLOBAL: os.devNull,
+        GIT_CONFIG_GLOBAL: emptyConfig,
       }),
+      dir,
     };
-    return this.environments;
   }
 
   private async runGit(
@@ -371,7 +405,8 @@ export class GitService {
     const hardened = options.hardened ?? true;
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new CrotError("TIMEOUT", "Git operation timed out.");
-    const env = hardened ? this.env().command : this.env().listing;
+    const environments = await this.env();
+    const env = hardened ? environments.command : environments.listing;
     const args = ["--no-pager", `--git-dir=${repo.gitDir.absolute}`, `--work-tree=${repo.worktree.absolute}`];
     if (hardened) for (const c of [...repo.forwarded, ...FIXED_CONFIG]) args.push("-c", c);
     args.push(...gitArgs);
