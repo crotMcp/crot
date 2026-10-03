@@ -21,7 +21,12 @@ export type CrotErrorCode =
   /** Another CROT instance owns the browser bridge. Only browser operations are unavailable. */
   | "BROWSER_BRIDGE_IN_USE"
   /** The browser does not allow the operation on this page (e.g. browser-internal or store pages). */
-  | "BROWSER_PAGE_RESTRICTED";
+  | "BROWSER_PAGE_RESTRICTED"
+  /**
+   * The repository's own Git configuration contains settings that could make a
+   * git.read operation run programs; the operation is refused (ARCHITECTURE.md §27, AD-1).
+   */
+  | "UNSAFE_REPOSITORY";
 
 export class CrotError extends Error {
   readonly code: CrotErrorCode;
