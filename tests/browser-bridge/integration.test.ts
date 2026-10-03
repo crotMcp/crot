@@ -58,6 +58,7 @@ const SANDBOX_DEFAULTS = [
 ];
 
 /** JSON body of a tool result. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped tool result bodies in a test helper
 type Json = any;
 
 type Reply = { ok: true; result: unknown } | { ok: false; error: { code: string; message: string } };

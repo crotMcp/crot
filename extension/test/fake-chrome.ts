@@ -158,6 +158,7 @@ export class FakeChrome {
   }
 
   get api(): ChromeApi {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- the methods of the returned object literal need this FakeChrome
     const self = this;
     return {
       runtime: this.runtime,

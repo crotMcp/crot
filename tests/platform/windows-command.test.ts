@@ -116,7 +116,7 @@ describe("shell invocations (pure)", () => {
     const spec = powershellCommand("pwsh", "Write-Output 'é \"q\"'");
     expect(spec.args.slice(0, 4)).toEqual(["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand"]);
     const decoded = Buffer.from(spec.args[4]!, "base64").toString("utf16le");
-    expect(decoded).toBe(`${POWERSHELL_PRELUDE}Write-Output 'é \"q\"'`);
+    expect(decoded).toBe(`${POWERSHELL_PRELUDE}Write-Output 'é "q"'`);
     expect(POWERSHELL_PRELUDE).toContain("[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)");
   });
 
