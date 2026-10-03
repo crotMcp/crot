@@ -36,6 +36,47 @@ describe("crot-mcp stdio server (built)", () => {
       await client.close();
     }
   });
+
+  it("returns invalid tool arguments as a CROT INVALID_INPUT tool error", async () => {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [bin, "--workspace", dirs.workspace, "--mode", "full-control", "--no-audit"],
+      stderr: "pipe",
+    });
+    const client = new Client({ name: "stdio-invalid-input-test", version: "0.0.0" });
+    await client.connect(transport);
+    const errorOf = async (name: string, args: Record<string, unknown>) => {
+      const result = (await client.callTool({ name, arguments: args })) as CallToolResult;
+      expect(result.isError, name).toBe(true);
+      const first = result.content[0];
+      expect(first?.type, name).toBe("text");
+      // CROT's error format: JSON text, not the SDK's plain "MCP error -32602 ..." text.
+      const body = JSON.parse(first?.type === "text" ? first.text : "") as { error: { code: string; message: string } };
+      return body.error;
+    };
+    try {
+      // The published schema is still the Core schema.
+      const { tools } = await client.listTools();
+      expect(tools.find((t) => t.name === "fs_read_file")?.inputSchema.required).toEqual(["path"]);
+
+      for (const [name, args] of [
+        ["fs_read_file", { path: 42 }],
+        ["fs_read_file", { path: "a", bogus: true }],
+        ["fs_read_file", {}],
+        ["browser_navigate", { url: "file:///etc/hostname" }],
+        ["browser_tab_open", { url: "javascript:alert(1)" }],
+      ] as const) {
+        const error = await errorOf(name, args);
+        expect(error.code, `${name} ${JSON.stringify(args)}`).toBe("INVALID_INPUT");
+        expect(error.message).toMatch(/^Invalid input: /);
+      }
+      // Nothing was created by the rejected calls; valid calls still work.
+      await expect(stat(path.join(dirs.workspace, "a"))).rejects.toThrow();
+      expect((await client.callTool({ name: "crot_status", arguments: {} })).isError).toBeFalsy();
+    } finally {
+      await client.close();
+    }
+  });
 });
 
 describe("crot-mcp shutdown (built)", () => {
