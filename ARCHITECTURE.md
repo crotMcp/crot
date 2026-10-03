@@ -824,7 +824,7 @@ On Windows, command lookup searched the working directory before `PATH`, so a
    `--work-tree`, and inherited `GIT_*` environment variables are removed. Bare
    repositories are not supported.
 4. **Configuration.** System and global configuration are not loaded
-   (`GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL` set to the null device); a fixed
+   (`GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL` points to an empty file created by CROT); a fixed
    list of line-ending and display settings that cannot start programs is
    carried over from them. Repository configuration (local and worktree scope)
    is checked against an allowlist of keys that cannot start programs. Any other

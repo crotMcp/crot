@@ -1,5 +1,5 @@
 import { rmSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AuthContext } from "../../auth/principal.js";
@@ -68,6 +68,8 @@ interface Repository extends DiscoveredRepository {
 interface GitEnvironments {
   readonly listing: Record<string, string>;
   readonly command: Record<string, string>;
+  /** Like `command`, for Git run outside any repository (repository discovery stops at `dir`). */
+  readonly standalone: Record<string, string>;
   /** Private directory holding the empty file used as GIT_CONFIG_GLOBAL. */
   readonly dir: string;
 }
@@ -83,6 +85,8 @@ interface RunOptions {
   readonly okExitCodes?: readonly number[];
   /** Apply the AD-1 command configuration (false only for the configuration listing itself). */
   readonly hardened?: boolean;
+  /** Run outside the repository: cwd is CROT's private directory, no --git-dir/--work-tree, no -c settings. */
+  readonly standalone?: boolean;
 }
 
 type GitOperation = "git.status" | "git.diff" | "git.log" | "git.branch" | "git.show";
@@ -323,19 +327,25 @@ export class GitService {
 
   /** Run `git config --list` and refuse the operation when repository configuration is not allowed (AD-1, point 4). */
   private async reviewRepositoryConfig(repo: Repository, deadline: number): Promise<readonly string[]> {
+    // Inside a repository Git loads its configuration with include/includeIf followed before any command
+    // runs, so an included file is read (and may fail to parse) before the listing below can refuse it.
+    // The repository's own configuration files are therefore listed first outside any repository with
+    // --file, where Git does not follow includes: include keys are refused before Git loads included files.
+    for (const file of repositoryConfigFiles(repo)) {
+      if (!(await isFile(file))) continue;
+      const own = await this.runGit(repo, ["config", `--file=${file}`, "--list", "--null", "--show-scope"], deadline, {
+        standalone: true,
+      });
+      if (own.truncated) throw new CrotError("UNSAFE_REPOSITORY", "Repository configuration is too large to review.");
+      refuseUnsafeKeys(reviewConfig(parseConfigList(own.stdout)).unsafeKeys);
+    }
     const run = await this.runGit(repo, ["config", "--list", "--null", "--show-scope"], deadline, {
       hardened: false,
       okExitCodes: [0, 1],
     });
     if (run.truncated) throw new CrotError("UNSAFE_REPOSITORY", "Repository configuration is too large to review.");
     const review = reviewConfig(parseConfigList(run.stdout));
-    if (review.unsafeKeys.length > 0) {
-      throw new CrotError(
-        "UNSAFE_REPOSITORY",
-        `Repository configuration contains settings that git.read does not allow (they could run programs): ${review.unsafeKeys.join(", ")}`,
-        { keys: review.unsafeKeys },
-      );
-    }
+    refuseUnsafeKeys(review.unsafeKeys);
     return review.forwarded;
   }
 
@@ -391,6 +401,12 @@ export class GitService {
         GIT_CONFIG_NOSYSTEM: "1",
         GIT_CONFIG_GLOBAL: emptyConfig,
       }),
+      standalone: environment.merge(base, {
+        ...common,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_CONFIG_GLOBAL: emptyConfig,
+        GIT_CEILING_DIRECTORIES: path.dirname(dir),
+      }),
       dir,
     };
   }
@@ -405,12 +421,16 @@ export class GitService {
     const hardened = options.hardened ?? true;
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw new CrotError("TIMEOUT", "Git operation timed out.");
+    const standalone = options.standalone ?? false;
     const environments = await this.env();
-    const env = hardened ? environments.command : environments.listing;
-    const args = ["--no-pager", `--git-dir=${repo.gitDir.absolute}`, `--work-tree=${repo.worktree.absolute}`];
-    if (hardened) for (const c of [...repo.forwarded, ...FIXED_CONFIG]) args.push("-c", c);
+    const env = standalone ? environments.standalone : hardened ? environments.command : environments.listing;
+    const args = ["--no-pager"];
+    if (!standalone) {
+      args.push(`--git-dir=${repo.gitDir.absolute}`, `--work-tree=${repo.worktree.absolute}`);
+      if (hardened) for (const c of [...repo.forwarded, ...FIXED_CONFIG]) args.push("-c", c);
+    }
     args.push(...gitArgs);
-    const cwd = repo.worktree.absolute;
+    const cwd = standalone ? environments.dir : repo.worktree.absolute;
     const { launcher } = this.deps.platform;
     // AD-1, point 2: never take git from the repository or the working directory.
     const spec = await launcher.resolveCommand("git", args, { cwd, env, searchCurrentDirectory: false });
@@ -496,6 +516,31 @@ function info(repo: DiscoveredRepository): GitRepositoryInfo {
 function dedupe(paths: readonly ResolvedPath[]): ResolvedPath[] {
   const seen = new Set<string>();
   return paths.filter((p) => (seen.has(p.absolute) ? false : (seen.add(p.absolute), true)));
+}
+
+/** Configuration files of the repository itself: `config` of the common directory, `config.worktree` of the Git directory. */
+function repositoryConfigFiles(repo: DiscoveredRepository): string[] {
+  const files = [path.join(repo.commonDir.absolute, "config"), path.join(repo.gitDir.absolute, "config.worktree")];
+  return files.filter((f, i) => files.indexOf(f) === i);
+}
+
+async function isFile(file: string): Promise<boolean> {
+  try {
+    return (await stat(file)).isFile();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
+  }
+}
+
+function refuseUnsafeKeys(keys: readonly string[]): void {
+  if (keys.length === 0) return;
+  throw new CrotError(
+    "UNSAFE_REPOSITORY",
+    `Repository configuration contains settings that git.read does not allow (they could run programs): ${keys.join(", ")}`,
+    { keys },
+  );
 }
 
 function shuttingDown(): CrotError {
