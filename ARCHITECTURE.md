@@ -28,7 +28,7 @@ The product has three parts:
 
 | Part | What the agent gets | Status |
 | --- | --- | --- |
-| Local computer | files, processes, shell, Git, Docker and further local capabilities | **[Implemented]** files, processes, shell; **[Partial]** Git/Docker (see §5) |
+| Local computer | files, processes, shell, Git, Docker and further local capabilities | **[Implemented]** files, processes, shell, Git read (`git.read`); **[Partial]** Git write/Docker (see §5) |
 | User's browser | the user's real browser session through the browser bridge and extension | **[Implemented]** Chromium browsers |
 | External MCP services | tools of external MCP-compatible servers, reached through CROT | **[Target]** (§18) |
 
@@ -81,7 +81,7 @@ external service, identity provider or commercial backend.
 +---------|---------------------------------------------------|---------------------+
           v                                                   | local IPC (Unix socket /
    OS: files, processes, shells                               | named pipe, token-auth)
-   (git, docker, ... today via shell.execute)                 v
+   (docker, ... today via shell.execute)                      v
                                                      crot-browser-relay
                                                      (native-messaging host, started by browser)
                                                               | Native Messaging (stdin/stdout)
@@ -91,6 +91,11 @@ external service, identity provider or commercial backend.
                                                               v
                                                      User's browser profile
 ```
+
+The `GitService` (`git.read`, §27 AD-1) is a Core capability next to
+`ProcessService`: it runs through the same ExecutionGuard and starts Git through
+the `ProcessLauncher` in PATH-only mode. Git write operations are still used
+through `shell.execute`.
 
 ### 2.2 Target architecture
 
@@ -133,8 +138,8 @@ All paths end in the same Core pipeline; no path bypasses it.
 
 1. **Local operation** [Implemented]: agent -> MCP client -> CROT MCP (stdio or
    loopback HTTP) -> Principal -> ExecutionGuard -> PermissionEngine ->
-   FileSystemService / ProcessService -> Platform (Native Host) -> OS -> audit ->
-   result.
+   FileSystemService / ProcessService / GitService -> Platform (Native Host) ->
+   OS -> audit -> result.
 2. **Browser operation** [Implemented]: agent -> CROT MCP -> BrowserService ->
    ExecutionGuard / PermissionEngine (`browser.read` / `browser.control`) ->
    BrowserBridge -> local IPC -> `crot-browser-relay` -> Native Messaging ->
@@ -177,7 +182,7 @@ CROT Core is the central product layer. It owns:
 - permissions and capabilities;
 - workspace configuration;
 - execution policy;
-- filesystem and process access;
+- filesystem, process and Git read access;
 - the browser capability (`BrowserService`); the bridge transport is outside
   Core behind the `BrowserConnection` interface;
 - the principal model and authorization (the PermissionEngine);
@@ -219,7 +224,7 @@ When the user grants them, CROT can provide:
 - Filesystem — **[Implemented]**
 - Shell — **[Implemented]**
 - Processes — **[Implemented]**
-- Git — **[Partial]**: usable through `shell.execute`; dedicated operations gated by `git.read` / `git.write` are not implemented
+- Git — **[Partial]**: read operations (`status`, `diff`, `log`, `branch`, `show`) are a dedicated capability gated by `git.read` (§27 AD-1); write operations gated by `git.write` are not implemented and remain usable through `shell.execute`
 - Docker — **[Partial]**: usable through `shell.execute`; dedicated operations gated by `docker.use` are not implemented
 - Python, Node.js, FFmpeg, project tools — **[Partial]**: usable through `shell.execute` / `process.manage`
 
@@ -279,10 +284,10 @@ browser.control
 network.access
 ```
 
-Enforced today: `filesystem.*`, `shell.execute`, `process.manage`,
-`browser.read`, `browser.control`. `git.*`, `docker.use` and `network.access`
-are part of the model and reported by `crot_status`, and will gate dedicated
-operations when those are added.
+Enforced today: `filesystem.*`, `shell.execute`, `process.manage`, `git.read`,
+`browser.read`, `browser.control`. `git.write`, `docker.use` and
+`network.access` are part of the model and reported by `crot_status`, and will
+gate dedicated operations when those are added.
 
 **[Target]** extensions of the same model (not a second permission system):
 capabilities for external MCP servers (§18), user confirmation as a possible
@@ -529,7 +534,7 @@ Further target work, order to be set by the work packages:
 18. Remote mode and CROT Cloud Relay              [Target, §22]
 19. External MCP gateway (CROT as MCP client)     [Target, §18]
 20. Tray app and supervised local service         [Target, §24]
-21. Dedicated Git/Docker capabilities             [Target, §5]
+21. Dedicated Git/Docker capabilities             [Partial: git.read implemented (WP-10, §27 AD-1); git.write, Docker Target, §5]
 ```
 
 The order may change when technically justified, but architectural boundaries must remain intact.
@@ -593,6 +598,7 @@ Boundaries:
 | --- | --- | --- | --- | --- |
 | Agent -> CROT | Core | agent requests | schemas, ExecutionGuard, PermissionEngine, audit | **[Implemented]** |
 | Local operations | Core + Platform | commands and their effects | workspace boundary, protected paths, timeouts, process-tree control; not OS sandboxing | **[Implemented]** |
+| Repository contents (`git.read`) | Core + Git on `PATH` | repository files and repository Git configuration | §27 AD-1: PATH-only lookup, configuration allowlist, hardened invocation, metadata lock | **[Implemented]** |
 | Local transports | Core | other local programs | stdio parent only; loopback HTTP with bearer token, Host/Origin checks | **[Implemented]** |
 | Browser | Core | bridge, relay, extension, browser, web pages | token-authenticated IPC, browser cannot initiate, fixed commands, result validation; page content untrusted | **[Implemented]** |
 | External MCP | Core | external servers, their tools and data | §18 | **[Target]** |
@@ -733,7 +739,8 @@ The tray app is a UI; control logic stays in Core/service.
 | --- | --- |
 | Core, PermissionEngine, ExecutionGuard, audit | **[Implemented]** |
 | Filesystem, shell, processes | **[Implemented]** |
-| Git, Docker as dedicated capabilities | **[Target]** (usable via shell) |
+| Git read operations (`git.read`: status, diff, log, branch, show) | **[Implemented]** (WP-10, §27 AD-1) |
+| Git write operations, Docker as dedicated capabilities | **[Target]** (usable via shell) |
 | Local MCP tools over stdio | **[Implemented]** |
 | Streamable HTTP, loopback, local token | **[Implemented]** |
 | Native Host (OS platform layer) | **[Implemented]** |
