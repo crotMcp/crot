@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CROT E2E Fixture</title>
+  </head>
+  <body>
+    <!--
+      Controlled page of the real-browser E2E (docs/BROWSER_E2E.md).
+      - #static-text: fixed text checked by browser_page_read.
+      - #js-rendered: computed IN THE BROWSER from the ?nonce= query parameter
+        (reversed). The served HTML only contains "pending", so finding the
+        reversed nonce proves the content was read from the live DOM of a real
+        browser that executed this script.
+      - #action-button / #status: the action target and the state it changes.
+        Each click also reports itself to the local test server (/event), an
+        independent witness that the action really ran in the page.
+    -->
+    <h1>CROT E2E fixture page</h1>
+    <p id="static-text">CROT-E2E-STATIC-TEXT: the mole reads this page</p>
+    <p id="js-rendered">JS-RENDERED: pending</p>
+    <button id="action-button" type="button">Press me</button>
+    <p id="status">STATUS: idle; clicks=0</p>
+    <script>
+      (function () {
+        var nonce = new URLSearchParams(location.search).get("nonce") || "none";
+        var reversed = nonce.split("").reverse().join("");
+        document.getElementById("js-rendered").textContent = "JS-RENDERED: " + reversed;
+        document.title = "CROT E2E Fixture " + nonce;
+        var clicks = 0;
+        document.getElementById("action-button").addEventListener("click", function () {
+          clicks += 1;
+          document.getElementById("status").textContent = "STATUS: clicked; clicks=" + clicks + "; nonce=" + nonce;
+          fetch("/event?type=click&clicks=" + clicks + "&nonce=" + encodeURIComponent(nonce), { cache: "no-store" }).catch(function () {});
+        });
+      })();
+    </script>
+  </body>
+</html>
