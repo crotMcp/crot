@@ -33,7 +33,8 @@ async function isExecutableFile(candidate: string): Promise<boolean> {
 }
 
 /**
- * Find an executable on POSIX: explicit paths relative to cwd, otherwise PATH entries.
+ * Find an executable on POSIX: explicit paths relative to cwd, otherwise PATH entries
+ * (relative PATH entries are resolved against cwd, the child's working directory).
  * With `searchCurrentDirectory: false`, explicit paths must be absolute and
  * relative PATH entries (which name directories below cwd) are skipped
  * (ARCHITECTURE.md §27, AD-1).
@@ -52,7 +53,7 @@ export async function findPosixExecutable(
   for (const dir of (pathValue ?? "").split(":")) {
     if (!dir) continue;
     if (!searchCurrentDirectory && !path.posix.isAbsolute(dir)) continue;
-    const candidate = path.posix.join(dir, command);
+    const candidate = path.posix.resolve(cwd, dir, command);
     if (await isExecutableFile(candidate)) return candidate;
   }
   return null;
