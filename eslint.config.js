@@ -18,6 +18,9 @@ export default defineConfig([
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
       ],
+      // CROT deliberately matches control characters (\x00-\x1f) to validate and sanitize
+      // paths, selectors, protocol strings and log output.
+      "no-control-regex": "off",
     },
   },
   prettier,

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Temporary (WP-04). Read-only job: resolves the dev dependencies with npm,
-# formats with Prettier and exports the resulting commits as patches.
+# applies queued edits, formats with Prettier and exports the resulting commits as patches.
 set -uo pipefail
 OUT="$RUNNER_TEMP/wp04"
 mkdir -p "$OUT/patches"
@@ -46,6 +46,22 @@ if ! npm ci --no-audit --no-fund > "$OUT/npm-ci.log" 2>&1; then
   note "- **npm ci failed**"
   block "$OUT/npm-ci.log"
   finish 1
+fi
+
+# Queued source edits written in the authoring environment (unified diff).
+PATCH=.github/wp04/edits.patch
+if [ -f "$PATCH" ]; then
+  if git apply --check -R "$PATCH" 2>/dev/null; then
+    note "- edits.patch: already applied"
+  elif git apply --index "$PATCH" > "$OUT/apply.log" 2>&1 \
+    || { patch -p1 --no-backup-if-mismatch < "$PATCH" >> "$OUT/apply.log" 2>&1 && git add -u; }; then
+    git commit -q -F .github/wp04/edits.msg
+    note "- edits.patch applied: $(git show --shortstat --format= HEAD | xargs)"
+  else
+    note "- **edits.patch failed to apply**"
+    block "$OUT/apply.log"
+    finish 1
+  fi
 fi
 
 if ! npx --no-install prettier --write . > "$OUT/prettier.log" 2>&1; then

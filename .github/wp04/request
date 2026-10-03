@@ -1,1 +1,1 @@
-run 2: resolve dev dependencies, format, verify (lock root compared by content)
+run 3: apply lint fixes, format, verify
