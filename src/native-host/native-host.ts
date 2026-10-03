@@ -1,5 +1,11 @@
 import { createNodePlatform } from "../core/platform/node-platform.js";
-import type { OsFamily, Platform, PrivateFileProtection, ProcessControlInfo, ProcessLauncher } from "../core/platform/types.js";
+import type {
+  OsFamily,
+  Platform,
+  PrivateFileProtection,
+  ProcessControlInfo,
+  ProcessLauncher,
+} from "../core/platform/types.js";
 import { createJobObjectLauncher, guardLauncher, JobTracker } from "./job-launcher.js";
 import { createWindowsAclProtection, currentUserSid, windowsTools } from "./windows-acl.js";
 import { loadJobObjectApi, type FfiLoader } from "./windows-job.js";
@@ -24,12 +30,17 @@ export interface NativeHostStatus {
     readonly openJobs: number;
     readonly uncontainedLaunches: number;
   };
-  readonly privateFiles: { readonly provider: "native-host" | "core"; readonly mechanism: PrivateFileProtection["mechanism"]; readonly enforced: boolean };
+  readonly privateFiles: {
+    readonly provider: "native-host" | "core";
+    readonly mechanism: PrivateFileProtection["mechanism"];
+    readonly enforced: boolean;
+  };
   /** Why a native mechanism is not used (fallbacks). Never contains secrets. */
   readonly notes: readonly string[];
 }
 
-const describe = (error: unknown) => (error instanceof Error ? error.message : String(error)).split(/\r?\n/)[0]!.slice(0, 200);
+const describe = (error: unknown) =>
+  (error instanceof Error ? error.message : String(error)).split(/\r?\n/)[0]!.slice(0, 200);
 
 /**
  * CROT Native Host: OS-specific implementations of the Core platform

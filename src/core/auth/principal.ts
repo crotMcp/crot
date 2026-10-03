@@ -37,5 +37,7 @@ export interface AuthContext {
 }
 
 export function localPrincipal(transport: string, client?: ClientInfo): Principal {
-  return client ? { id: "local-user", kind: "local", transport, client } : { id: "local-user", kind: "local", transport };
+  return client
+    ? { id: "local-user", kind: "local", transport, client }
+    : { id: "local-user", kind: "local", transport };
 }

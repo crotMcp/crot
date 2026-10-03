@@ -12,13 +12,25 @@ import { STARTUP_PATH_MODES } from "../platform/types.js";
 export const LimitsSchema = z
   .object({
     /** Maximum bytes returned by a single file read. */
-    maxReadBytes: z.number().int().positive().default(10 * 1024 * 1024),
+    maxReadBytes: z
+      .number()
+      .int()
+      .positive()
+      .default(10 * 1024 * 1024),
     /** Default timeout for foreground commands. */
     defaultCommandTimeoutMs: z.number().int().positive().default(120_000),
     /** Upper bound a caller may request for a foreground command timeout. */
-    maxCommandTimeoutMs: z.number().int().positive().default(60 * 60 * 1000),
+    maxCommandTimeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .default(60 * 60 * 1000),
     /** Maximum captured bytes per output stream (stdout / stderr) of a command. */
-    maxOutputBytes: z.number().int().positive().default(1024 * 1024),
+    maxOutputBytes: z
+      .number()
+      .int()
+      .positive()
+      .default(1024 * 1024),
     /** Maximum number of concurrently running background processes. */
     maxBackgroundProcesses: z.number().int().positive().default(16),
   })
@@ -82,11 +94,19 @@ export const HttpConfigSchema = z
     /** Browser origins allowed to call the endpoint. Empty: requests carrying an Origin header are rejected. */
     allowedOrigins: z.array(z.string().min(1)).default([]),
     /** Maximum size of a request body. */
-    maxRequestBytes: z.number().int().positive().default(4 * 1024 * 1024),
+    maxRequestBytes: z
+      .number()
+      .int()
+      .positive()
+      .default(4 * 1024 * 1024),
     /** Maximum number of concurrent MCP sessions. */
     maxSessions: z.number().int().positive().default(16),
     /** Sessions without requests for this long are closed. */
-    sessionIdleTimeoutMs: z.number().int().positive().default(30 * 60 * 1000),
+    sessionIdleTimeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .default(30 * 60 * 1000),
   })
   .strict();
 

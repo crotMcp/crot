@@ -81,13 +81,26 @@ export function hostRegistrations(
   if (os === "windows") {
     const manifestFile = path.win32.join(stateDir, NATIVE_MESSAGING_DIR_NAME, MANIFEST_FILE_NAME);
     return [
-      { browsers: ["Google Chrome", "Brave"], manifestFile, registryKey: `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${CROT_NATIVE_HOST_NAME}` },
-      { browsers: ["Microsoft Edge"], manifestFile, registryKey: `HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\${CROT_NATIVE_HOST_NAME}` },
+      {
+        browsers: ["Google Chrome", "Brave"],
+        manifestFile,
+        registryKey: `HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\${CROT_NATIVE_HOST_NAME}`,
+      },
+      {
+        browsers: ["Microsoft Edge"],
+        manifestFile,
+        registryKey: `HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\${CROT_NATIVE_HOST_NAME}`,
+      },
     ];
   }
   const p = path.posix;
   const xdg = env.XDG_CONFIG_HOME;
-  const base = os === "macos" ? p.join(home, "Library", "Application Support") : xdg && p.isAbsolute(xdg) ? xdg : p.join(home, ".config");
+  const base =
+    os === "macos"
+      ? p.join(home, "Library", "Application Support")
+      : xdg && p.isAbsolute(xdg)
+        ? xdg
+        : p.join(home, ".config");
   const dirs: [BrowserName, string][] =
     os === "macos"
       ? [
@@ -100,7 +113,10 @@ export function hostRegistrations(
           ["Microsoft Edge", "microsoft-edge"],
           ["Brave", "BraveSoftware/Brave-Browser"],
         ];
-  return dirs.map(([browser, dir]) => ({ browsers: [browser], manifestFile: p.join(base, dir, "NativeMessagingHosts", MANIFEST_FILE_NAME) }));
+  return dirs.map(([browser, dir]) => ({
+    browsers: [browser],
+    manifestFile: p.join(base, dir, "NativeMessagingHosts", MANIFEST_FILE_NAME),
+  }));
 }
 
 export interface LauncherTarget {
@@ -136,7 +152,10 @@ export function posixLauncher(target: LauncherTarget): string {
 export function windowsLauncher(target: LauncherTarget): string {
   const quote = (value: string, argument: boolean) => {
     if (value.includes('"') || CONTROL.test(value)) {
-      throw new CrotError("INVALID_INPUT", `Cannot write a launcher for a path containing '"' or control characters: ${value}`);
+      throw new CrotError(
+        "INVALID_INPUT",
+        `Cannot write a launcher for a path containing '"' or control characters: ${value}`,
+      );
     }
     const escaped = value.replace(/%/g, "%%");
     return `"${argument ? escaped.replace(/(\\+)$/, "$1$1") : escaped}"`;
@@ -157,11 +176,20 @@ export function regExeWriter(systemRoot: string): RegistryWriter {
   const reg = path.win32.join(systemRoot, "System32", "reg.exe");
   return (key, value) =>
     new Promise((resolve, reject) => {
-      execFile(reg, ["add", key, "/ve", "/t", "REG_SZ", "/d", value, "/f"], { windowsHide: true, timeout: 10_000 }, (error, _stdout, stderr) => {
-        if (!error) return resolve();
-        const detail = String(stderr).trim() || error.message;
-        reject(new CrotError("OPERATION_FAILED", `Could not write registry key ${key}: ${detail}`, undefined, { cause: error }));
-      });
+      execFile(
+        reg,
+        ["add", key, "/ve", "/t", "REG_SZ", "/d", value, "/f"],
+        { windowsHide: true, timeout: 10_000 },
+        (error, _stdout, stderr) => {
+          if (!error) return resolve();
+          const detail = String(stderr).trim() || error.message;
+          reject(
+            new CrotError("OPERATION_FAILED", `Could not write registry key ${key}: ${detail}`, undefined, {
+              cause: error,
+            }),
+          );
+        },
+      );
     });
 }
 
@@ -189,14 +217,22 @@ export async function installBrowserHost(options: BrowserInstallOptions): Promis
     ["state directory", options.stateDir],
     ["home directory", options.home],
   ] as const) {
-    if (!paths.isAbsolute(value)) throw new CrotError("INVALID_INPUT", `The ${name} must be an absolute path: ${value}`);
+    if (!paths.isAbsolute(value))
+      throw new CrotError("INVALID_INPUT", `The ${name} must be an absolute path: ${value}`);
   }
   if (!(await stat(options.relayScript).catch(() => undefined))?.isFile()) {
-    throw new CrotError("NOT_FOUND", `crot-browser-relay not found at ${options.relayScript}. Build CROT first (npm run build).`);
+    throw new CrotError(
+      "NOT_FOUND",
+      `crot-browser-relay not found at ${options.relayScript}. Build CROT first (npm run build).`,
+    );
   }
   if (windows && !options.registry) throw new CrotError("INVALID_INPUT", "A registry writer is required on Windows.");
 
-  const target: LauncherTarget = { nodePath: options.nodePath, relayScript: options.relayScript, stateDir: options.stateDir };
+  const target: LauncherTarget = {
+    nodePath: options.nodePath,
+    relayScript: options.relayScript,
+    stateDir: options.stateDir,
+  };
   const script = windows ? windowsLauncher(target) : posixLauncher(target);
   const hostDir = paths.join(options.stateDir, NATIVE_MESSAGING_DIR_NAME);
   await options.privateFiles.ensureDirectory(options.stateDir);
@@ -213,7 +249,8 @@ export async function installBrowserHost(options: BrowserInstallOptions): Promis
       await writeAtomically(registration.manifestFile, manifest, windows ? undefined : 0o644);
       written.add(registration.manifestFile);
     }
-    if (registration.registryKey !== undefined) await options.registry?.(registration.registryKey, registration.manifestFile);
+    if (registration.registryKey !== undefined)
+      await options.registry?.(registration.registryKey, registration.manifestFile);
   }
   return { launcher, registrations };
 }
@@ -228,15 +265,22 @@ async function writeAtomically(file: string, content: string, mode: number | und
     await rename(temporary, file);
   } catch (error) {
     await rm(temporary, { force: true }).catch(() => undefined);
-    throw new CrotError("OPERATION_FAILED", `Could not write ${file}: ${(error as Error).message}`, undefined, { cause: error });
+    throw new CrotError("OPERATION_FAILED", `Could not write ${file}: ${(error as Error).message}`, undefined, {
+      cause: error,
+    });
   }
 }
 
 /** Human-readable summary printed by `crot-mcp browser install`. */
 export function formatInstallResult(result: BrowserInstallResult): string {
-  const lines = [`CROT Host registered as native-messaging host ${CROT_NATIVE_HOST_NAME} (current user).`, `Launcher: ${result.launcher}`];
+  const lines = [
+    `CROT Host registered as native-messaging host ${CROT_NATIVE_HOST_NAME} (current user).`,
+    `Launcher: ${result.launcher}`,
+  ];
   for (const r of result.registrations) {
-    lines.push(`${r.browsers.join(", ")}: ${r.registryKey !== undefined ? `${r.registryKey} -> ${r.manifestFile}` : r.manifestFile}`);
+    lines.push(
+      `${r.browsers.join(", ")}: ${r.registryKey !== undefined ? `${r.registryKey} -> ${r.manifestFile}` : r.manifestFile}`,
+    );
   }
   lines.push(
     `Allowed extension: ${CROT_EXTENSION_ORIGIN}`,

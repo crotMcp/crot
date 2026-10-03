@@ -111,7 +111,9 @@ export class JsonlFileAuditSink implements AuditSink {
   record(event: AuditEvent): Promise<void> {
     this.ready ??= this.prepare();
     const options = this.protection.fileMode !== undefined ? { mode: this.protection.fileMode } : {};
-    const write = this.queue.then(() => this.ready).then(() => appendFile(this.file, `${JSON.stringify(event)}\n`, options));
+    const write = this.queue
+      .then(() => this.ready)
+      .then(() => appendFile(this.file, `${JSON.stringify(event)}\n`, options));
     this.queue = write.catch(() => undefined);
     return write;
   }

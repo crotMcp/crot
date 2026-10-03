@@ -76,7 +76,8 @@ const PROCESS_TERMINATE = 0x0001;
 const PROCESS_SET_QUOTA = 0x0100;
 const MAX_COUNTER = 0xffff_ffff;
 
-const describe = (error: unknown) => (error instanceof Error ? error.message : String(error)).split(/\r?\n/)[0]!.slice(0, 200);
+const describe = (error: unknown) =>
+  (error instanceof Error ? error.message : String(error)).split(/\r?\n/)[0]!.slice(0, 200);
 const isNullHandle = (h: unknown) => h === null || h === undefined || h === 0 || h === 0n;
 const succeeded = (r: unknown) => r !== 0 && r !== 0n && r !== false && r !== null && r !== undefined;
 
@@ -114,7 +115,12 @@ class KernelJob implements JobObject {
     if (this.isClosed) return null;
     // Output struct: koffi fills this object after the call (a Buffer passed as void* is not written back).
     const out: Record<string, unknown> = {};
-    if (!succeeded(this.k32.QueryAccounting(this.handle, JobObjectBasicAccountingInformation, out, BASIC_ACCOUNTING_SIZE, null))) return null;
+    if (
+      !succeeded(
+        this.k32.QueryAccounting(this.handle, JobObjectBasicAccountingInformation, out, BASIC_ACCOUNTING_SIZE, null),
+      )
+    )
+      return null;
     const active = counter(out.ActiveProcesses);
     const total = counter(out.TotalProcesses);
     if (active === null || total === null || active > total) return null;
@@ -168,7 +174,9 @@ function bind(ffi: FfiModule): Kernel32 {
   const lib = ffi.load("kernel32.dll");
   const k32: Kernel32 = {
     CreateJobObjectW: lib.func("void * __stdcall CreateJobObjectW(void *attributes, void *name)"),
-    SetInformationJobObject: lib.func("int __stdcall SetInformationJobObject(void *job, int infoClass, void *info, uint32_t length)"),
+    SetInformationJobObject: lib.func(
+      "int __stdcall SetInformationJobObject(void *job, int infoClass, void *info, uint32_t length)",
+    ),
     QueryAccounting: lib.func(
       `int __stdcall QueryInformationJobObject(void *job, int infoClass, _Out_ ${ACCOUNTING_STRUCT} *info, uint32_t length, void *returnLength)`,
     ),
@@ -187,7 +195,8 @@ function bind(ffi: FfiModule): Kernel32 {
  * not Windows, not 64-bit, koffi missing or unusable.
  */
 export async function loadJobObjectApi(load: FfiLoader = defaultLoader): Promise<JobObjectApi> {
-  if (process.platform !== "win32") throw new CrotError("OPERATION_FAILED", "Job Objects are only available on Windows.");
+  if (process.platform !== "win32")
+    throw new CrotError("OPERATION_FAILED", "Job Objects are only available on Windows.");
   if (process.arch !== "x64" && process.arch !== "arm64") {
     throw new CrotError("OPERATION_FAILED", `Job Object support requires 64-bit Windows (arch ${process.arch}).`);
   }
@@ -197,7 +206,8 @@ export async function loadJobObjectApi(load: FfiLoader = defaultLoader): Promise
   } catch (error) {
     throw new CrotError("OPERATION_FAILED", `the koffi FFI module is not available: ${describe(error)}`);
   }
-  const candidate = ((loaded as { default?: unknown } | null | undefined)?.default ?? loaded) as { load?: unknown; struct?: unknown } | null | undefined;
+  const candidate = ((loaded as { default?: unknown } | null | undefined)?.default ?? loaded) as
+    { load?: unknown; struct?: unknown } | null | undefined;
   if (!candidate || typeof candidate.load !== "function" || typeof candidate.struct !== "function") {
     throw new CrotError("OPERATION_FAILED", "the koffi FFI module has an unexpected shape.");
   }
@@ -208,7 +218,8 @@ export async function loadJobObjectApi(load: FfiLoader = defaultLoader): Promise
     const probe = api.createKillOnCloseJob();
     try {
       const counters = probe.accounting();
-      if (!counters || counters.active !== 0 || counters.total !== 0) throw new Error("job accounting could not be read");
+      if (!counters || counters.active !== 0 || counters.total !== 0)
+        throw new Error("job accounting could not be read");
     } finally {
       probe.close();
     }

@@ -33,7 +33,8 @@ for (const [name, range] of Object.entries(devBefore)) {
 const added = Object.keys(devAfter)
   .filter((n) => !(n in devBefore))
   .sort();
-if (JSON.stringify(added) !== JSON.stringify(expected)) problems.push(`unexpected devDependencies: ${added.join(", ")}`);
+if (JSON.stringify(added) !== JSON.stringify(expected))
+  problems.push(`unexpected devDependencies: ${added.join(", ")}`);
 
 // package-lock.json root: runtime dependencies must match package.json (before and after).
 const rootBefore = lockBefore.packages[""] ?? {};

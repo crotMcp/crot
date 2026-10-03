@@ -36,10 +36,19 @@ describe.runIf(isWindows)("cmd.exe output encoding (Windows)", () => {
   });
 
   /** A single cmd.exe running `line`, as Node's `shell: true` would. */
-  const cmdLine = (line: string): CommandSpec => ({ file: comspec, args: ["/d", "/s", "/c", `"${line}"`], windowsVerbatimArguments: true, display: line });
+  const cmdLine = (line: string): CommandSpec => ({
+    file: comspec,
+    args: ["/d", "/s", "/c", `"${line}"`],
+    windowsVerbatimArguments: true,
+    display: line,
+  });
 
   async function runRaw(spec: CommandSpec) {
-    const child = await platform.launcher.launch(spec, { cwd: dirs.workspace, env: platform.baseEnvironment, stdin: false });
+    const child = await platform.launcher.launch(spec, {
+      cwd: dirs.workspace,
+      env: platform.baseEnvironment,
+      stdin: false,
+    });
     const out: Buffer[] = [];
     const err: Buffer[] = [];
     child.stdout.on("data", (c: Buffer) => out.push(c));

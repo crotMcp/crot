@@ -50,7 +50,9 @@ export async function startBrowserBridge(options: BrowserWiringOptions): Promise
   }
   const status = bridge.status();
   if (status.state === "in_use") {
-    options.log("browser bridge: in use by another CROT instance; browser operations fail with BROWSER_BRIDGE_IN_USE in this instance");
+    options.log(
+      "browser bridge: in use by another CROT instance; browser operations fail with BROWSER_BRIDGE_IN_USE in this instance",
+    );
   } else {
     options.log(`browser bridge: ${status.state} for the CROT Browser Extension on ${status.endpoint.path}`);
   }

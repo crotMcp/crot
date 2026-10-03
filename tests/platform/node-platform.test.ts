@@ -11,6 +11,14 @@ describe("Node platform", () => {
     expect(p.info.defaultShell).toBe(isWindows ? "cmd" : "sh");
     expect(p.info.shells.map((s) => s.id)).toContain(p.info.defaultShell);
     expect(p.launcher.canTerminateOrphanedDescendants).toBe(!isWindows);
-    expect(p.info.os).toBe(isWindows ? "windows" : process.platform === "darwin" ? "macos" : process.platform === "linux" ? "linux" : "posix");
+    expect(p.info.os).toBe(
+      isWindows
+        ? "windows"
+        : process.platform === "darwin"
+          ? "macos"
+          : process.platform === "linux"
+            ? "linux"
+            : "posix",
+    );
   });
 });

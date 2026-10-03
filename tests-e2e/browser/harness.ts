@@ -41,7 +41,9 @@ export async function assertBuilt(): Promise<void> {
     try {
       await access(file);
     } catch {
-      throw new Error(`Missing ${path.relative(REPO_ROOT, file)}: run '${hint}' first ('npm run test:e2e:browser' builds both).`);
+      throw new Error(
+        `Missing ${path.relative(REPO_ROOT, file)}: run '${hint}' first ('npm run test:e2e:browser' builds both).`,
+      );
     }
   }
 }
@@ -78,11 +80,18 @@ export async function createSandbox(): Promise<Sandbox> {
   const cacheHome = path.join(home, ".cache");
   const profileDir = path.join(base, "profile");
   const workspace = path.join(base, "ws");
-  for (const dir of [home, configHome, stateHome, dataHome, cacheHome, profileDir, workspace]) await mkdir(dir, { recursive: true });
+  for (const dir of [home, configHome, stateHome, dataHome, cacheHome, profileDir, workspace])
+    await mkdir(dir, { recursive: true });
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
   delete env.CROT_CONFIG;
-  Object.assign(env, { HOME: home, XDG_CONFIG_HOME: configHome, XDG_STATE_HOME: stateHome, XDG_DATA_HOME: dataHome, XDG_CACHE_HOME: cacheHome });
+  Object.assign(env, {
+    HOME: home,
+    XDG_CONFIG_HOME: configHome,
+    XDG_STATE_HOME: stateHome,
+    XDG_DATA_HOME: dataHome,
+    XDG_CACHE_HOME: cacheHome,
+  });
   return { base, home, configHome, stateHome, profileDir, workspace, env };
 }
 
@@ -111,7 +120,10 @@ export interface InstalledHost {
  * so the very same manifest is copied there. Nothing in it is changed.
  */
 export async function installNativeHost(sb: Sandbox): Promise<InstalledHost> {
-  const { stdout, stderr } = await execFileAsync(process.execPath, [CROT_MCP_BIN, "browser", "install"], { env: sb.env, cwd: REPO_ROOT });
+  const { stdout, stderr } = await execFileAsync(process.execPath, [CROT_MCP_BIN, "browser", "install"], {
+    env: sb.env,
+    cwd: REPO_ROOT,
+  });
   const fileName = `${NATIVE_HOST_NAME}.json`;
   const source = path.join(sb.configHome, "google-chrome", "NativeMessagingHosts", fileName);
   const manifest = JSON.parse(await readFile(source, "utf8")) as NativeHostManifest;
@@ -261,7 +273,10 @@ async function hasAncestor(pid: number, ancestor: number): Promise<boolean> {
 }
 
 /** crot-browser-relay processes (for this state dir) that descend from the browser process: proof that the browser started them through native messaging. Linux /proc only. */
-export async function relayProcessesUnder(browserPid: number, stateDir: string): Promise<Array<{ pid: number; cmdline: string }>> {
+export async function relayProcessesUnder(
+  browserPid: number,
+  stateDir: string,
+): Promise<Array<{ pid: number; cmdline: string }>> {
   const found: Array<{ pid: number; cmdline: string }> = [];
   for (const entry of await readdir("/proc")) {
     if (!/^\d+$/.test(entry)) continue;
@@ -323,7 +338,11 @@ export async function ok<T>(client: Client, name: string, args: Record<string, u
 }
 
 /** Call a tool that must fail; returns the CROT error. */
-export async function fails(client: Client, name: string, args: Record<string, unknown> = {}): Promise<{ code: string; message: string }> {
+export async function fails(
+  client: Client,
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<{ code: string; message: string }> {
   const outcome = await callTool(client, name, args);
   if (!outcome.isError) throw new Error(`${name} unexpectedly succeeded: ${JSON.stringify(outcome.body)}`);
   return (outcome.body as { error: { code: string; message: string } }).error;

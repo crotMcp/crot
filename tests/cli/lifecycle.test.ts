@@ -25,13 +25,16 @@ function harness(shutdown: (reason: string) => Promise<void> = async () => {}, t
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 
 describe("host lifecycle", () => {
-  it.each(["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"])("%s starts one graceful shutdown and exits 0", async (signal) => {
-    const h = harness();
-    h.host.emit(signal);
-    await tick();
-    expect(h.calls).toEqual([`shutdown:${signal}`]);
-    expect(h.exits).toEqual([0]);
-  });
+  it.each(["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"])(
+    "%s starts one graceful shutdown and exits 0",
+    async (signal) => {
+      const h = harness();
+      h.host.emit(signal);
+      await tick();
+      expect(h.calls).toEqual([`shutdown:${signal}`]);
+      expect(h.exits).toEqual([0]);
+    },
+  );
 
   it("is idempotent for repeated stop requests (stdin end, transport close)", async () => {
     const h = harness();
@@ -87,7 +90,9 @@ describe("host lifecycle", () => {
 describe("platform shutdown signals", () => {
   it("include SIGHUP everywhere and SIGBREAK on Windows", async () => {
     const p = await createNodePlatform({ startupPath: "inherited" });
-    expect(p.info.shutdownSignals).toEqual(isWindows ? ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"] : ["SIGINT", "SIGTERM", "SIGHUP"]);
+    expect(p.info.shutdownSignals).toEqual(
+      isWindows ? ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"] : ["SIGINT", "SIGTERM", "SIGHUP"],
+    );
   });
 
   it("report the process-control guarantees of the launcher", async () => {

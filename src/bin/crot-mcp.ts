@@ -61,15 +61,22 @@ async function main(): Promise<void> {
     ? path.resolve(expandHome(http.auth.tokenFile ?? path.join(stateDir, DEFAULT_HTTP_TOKEN_FILE_NAME)))
     : undefined;
   // The configuration, the HTTP token file and the browser bridge token file can never be modified through CROT tools.
-  const protectedPaths = [command.configFile, tokenFile, ...browserProtectedPaths(parsed.browser.enabled, stateDir)].filter(
-    (p): p is string => p !== undefined,
-  );
+  const protectedPaths = [
+    command.configFile,
+    tokenFile,
+    ...browserProtectedPaths(parsed.browser.enabled, stateDir),
+  ].filter((p): p is string => p !== undefined);
 
   // Native resources first; Core is built on the Native Host platform (same startup PATH policy as Core's own platform).
   const native = await NativeHost.start({ startupPath: parsed.environment.path });
   for (const note of native.status().notes) log(`note: native host: ${note}`);
   // The browser bridge never stops CROT: when it cannot start, CROT runs without it (warning on stderr).
-  const bridge = await startBrowserBridge({ enabled: parsed.browser.enabled, stateDir, privateFiles: native.platform.privateFiles, log });
+  const bridge = await startBrowserBridge({
+    enabled: parsed.browser.enabled,
+    stateDir,
+    privateFiles: native.platform.privateFiles,
+    log,
+  });
   let core: CrotCore;
   try {
     core = await CrotCore.create(command.config, {
@@ -84,12 +91,18 @@ async function main(): Promise<void> {
   }
   const status = core.status();
   log(`CROT ${status.version} — mode: ${status.mode}, workspace: ${status.workspace.root}`);
-  log(`platform: ${status.platform.os} ${status.platform.arch}, shells: ${status.platform.shells.map((s) => s.id).join(", ")}`);
+  log(
+    `platform: ${status.platform.os} ${status.platform.arch}, shells: ${status.platform.shells.map((s) => s.id).join(", ")}`,
+  );
   const control = core.platform.info.processControl;
-  log(`native host: process trees ${control.treeTermination}, private files ${core.platform.info.privateFiles.mechanism}`);
+  log(
+    `native host: process trees ${control.treeTermination}, private files ${core.platform.info.privateFiles.mechanism}`,
+  );
   const startupPath = status.platform.startupPath;
   if (startupPath.source === "login-shell" || startupPath.added.length > 0) {
-    log(`PATH: ${startupPath.source === "login-shell" ? `from login shell ${startupPath.shell}` : "inherited"}, ${startupPath.added.length} entries added`);
+    log(
+      `PATH: ${startupPath.source === "login-shell" ? `from login shell ${startupPath.shell}` : "inherited"}, ${startupPath.added.length} entries added`,
+    );
   }
   if (startupPath.note) log(`warning: PATH: ${startupPath.note}; using the inherited PATH`);
   if (status.mode === "full_control") {
@@ -169,7 +182,9 @@ async function serveHttp(
   try {
     const { token, created } = await loadOrCreateLocalToken(tokenFile, core.platform.privateFiles);
     const verifier = new LocalTokenVerifier(token);
-    log(`http: access token ${created ? "created in" : "read from"} ${tokenFile} (fingerprint ${verifier.fingerprint})`);
+    log(
+      `http: access token ${created ? "created in" : "read from"} ${tokenFile} (fingerprint ${verifier.fingerprint})`,
+    );
     const tokenProtection = await core.platform.privateFiles.inspect(tokenFile);
     if (tokenProtection.ownerOnly === false) log(`warning: HTTP token file ${tokenProtection.detail}`);
     if (tokenProtection.ownerOnly === null) log(`note: HTTP token file ${tokenProtection.detail}`);
@@ -205,6 +220,10 @@ async function serveHttp(
 }
 
 main().catch((error: unknown) => {
-  log(error instanceof CrotError ? error.message : `fatal: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+  log(
+    error instanceof CrotError
+      ? error.message
+      : `fatal: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+  );
   process.exit(1);
 });

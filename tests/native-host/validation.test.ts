@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { isOwnerOnly, parseAclReport, parseWhoamiSid, validatePid, validateSid, validateWindowsPath } from "../../src/native-host/validation.js";
+import {
+  isOwnerOnly,
+  parseAclReport,
+  parseWhoamiSid,
+  validatePid,
+  validateSid,
+  validateWindowsPath,
+} from "../../src/native-host/validation.js";
 
 function expectInvalid(fn: () => unknown): void {
   let thrown: unknown;
@@ -20,7 +27,8 @@ describe("native-host validation: process ids", () => {
     expect(validatePid(0xffff_ffff)).toBe(0xffff_ffff);
   });
   it("rejects everything else", () => {
-    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 32, "12", null, undefined, 12n]) expectInvalid(() => validatePid(bad));
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 32, "12", null, undefined, 12n])
+      expectInvalid(() => validatePid(bad));
   });
 });
 
@@ -30,7 +38,18 @@ describe("native-host validation: SIDs", () => {
     expect(validateSid("S-1-5-18")).toBe("S-1-5-18");
   });
   it("rejects malformed SIDs", () => {
-    for (const bad of ["", "S-1", "S-1-5", "s-1-5-18", "S-1-5-18;x", "*S-1-5-18", "S-1-5-18\n", '"S-1-5-18"', `S-1-5-${"1-".repeat(150)}1`, 42]) {
+    for (const bad of [
+      "",
+      "S-1",
+      "S-1-5",
+      "s-1-5-18",
+      "S-1-5-18;x",
+      "*S-1-5-18",
+      "S-1-5-18\n",
+      '"S-1-5-18"',
+      `S-1-5-${"1-".repeat(150)}1`,
+      42,
+    ]) {
       expectInvalid(() => validateSid(bad));
     }
   });
@@ -42,7 +61,19 @@ describe("native-host validation: Windows paths", () => {
     expect(validateWindowsPath("\\\\server\\share\\f")).toBe("\\\\server\\share\\f");
   });
   it("rejects relative, ambiguous and unsafe paths", () => {
-    const bad = ["", "relative\\x", "\\rooted", "C:relative", 'C:\\a"b', "C:\\a\nb", "C:\\a\u0000b", "C:\\a|b", `C:\\${"a".repeat(33_000)}`, 123, "\\\\?\\C:\\x"];
+    const bad = [
+      "",
+      "relative\\x",
+      "\\rooted",
+      "C:relative",
+      'C:\\a"b',
+      "C:\\a\nb",
+      "C:\\a\u0000b",
+      "C:\\a|b",
+      `C:\\${"a".repeat(33_000)}`,
+      123,
+      "\\\\?\\C:\\x",
+    ];
     for (const p of bad) expectInvalid(() => validateWindowsPath(p));
   });
 });
@@ -52,7 +83,15 @@ describe("native-host validation: whoami output", () => {
     expect(parseWhoamiSid(`"host\\runner","${USER}"\r\n`)).toBe(USER);
   });
   it("rejects unexpected output", () => {
-    for (const bad of ["", "garbage", `"a","${USER}"\n"b","${USER}"`, '"a","S-1-5"', `"a","${USER};rm"`, "x".repeat(5000)]) expectInvalid(() => parseWhoamiSid(bad));
+    for (const bad of [
+      "",
+      "garbage",
+      `"a","${USER}"\n"b","${USER}"`,
+      '"a","S-1-5"',
+      `"a","${USER};rm"`,
+      "x".repeat(5000),
+    ])
+      expectInvalid(() => parseWhoamiSid(bad));
   });
 });
 
@@ -63,8 +102,12 @@ describe("native-host validation: ACL reports", () => {
     const parsed = parseAclReport(report(`rule=${USER}|Allow|False`));
     expect(parsed).toEqual({ protected: true, owner: USER, rules: [{ sid: USER, type: "Allow", inherited: false }] });
     expect(isOwnerOnly(parsed, USER)).toBe(true);
-    expect(isOwnerOnly(parseAclReport(report(`rule=${USER}|Allow|False`, `rule=${OTHER}|Allow|True`)), USER)).toBe(false);
-    expect(isOwnerOnly(parseAclReport(report(`rule=${USER}|Allow|False`, `rule=${OTHER}|Deny|False`)), USER)).toBe(true);
+    expect(isOwnerOnly(parseAclReport(report(`rule=${USER}|Allow|False`, `rule=${OTHER}|Allow|True`)), USER)).toBe(
+      false,
+    );
+    expect(isOwnerOnly(parseAclReport(report(`rule=${USER}|Allow|False`, `rule=${OTHER}|Deny|False`)), USER)).toBe(
+      true,
+    );
     expect(isOwnerOnly(parseAclReport(report()), USER)).toBe(false);
   });
 

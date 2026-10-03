@@ -12,7 +12,12 @@ export const ReadFileInputSchema = z
     path: PathField,
     encoding: Encoding.default("utf8").describe("Content encoding of the returned data."),
     offset: z.number().int().nonnegative().default(0).describe("Byte offset to start reading from."),
-    length: z.number().int().positive().optional().describe("Maximum number of bytes to read (bounded by the configured limit)."),
+    length: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Maximum number of bytes to read (bounded by the configured limit)."),
   })
   .strict();
 

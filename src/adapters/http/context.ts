@@ -13,7 +13,9 @@ export function principalFromAuthInfo(transport: string, authInfo: AuthInfo, cli
   const extra = authInfo.extra ?? {};
   const subject = typeof extra.subject === "string" && extra.subject.length > 0 ? extra.subject : authInfo.clientId;
   const authMethod = typeof extra.authMethod === "string" && extra.authMethod.length > 0 ? extra.authMethod : "bearer";
-  return client ? { id: subject, kind: "remote", transport, authMethod, client } : { id: subject, kind: "remote", transport, authMethod };
+  return client
+    ? { id: subject, kind: "remote", transport, authMethod, client }
+    : { id: subject, kind: "remote", transport, authMethod };
 }
 
 /**

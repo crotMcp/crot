@@ -23,7 +23,11 @@ describe("Workspace", () => {
 
   it("resolves relative paths against the root", async () => {
     const p = await ws.resolve("src/index.ts");
-    expect(p).toEqual({ absolute: path.join(dirs.workspace, "src", "index.ts"), relative: "src/index.ts", insideWorkspace: true });
+    expect(p).toEqual({
+      absolute: path.join(dirs.workspace, "src", "index.ts"),
+      relative: "src/index.ts",
+      insideWorkspace: true,
+    });
   });
 
   it("treats the root itself as inside", async () => {
@@ -82,7 +86,12 @@ describe("Workspace", () => {
     const swapped = path.join(dirs.outside, "caseroot");
     const p = await cased.resolve(swapped);
     // Ground truth from the filesystem itself.
-    const fsInsensitive = await import("node:fs/promises").then((fs) => fs.stat(swapped).then(() => true, () => false));
+    const fsInsensitive = await import("node:fs/promises").then((fs) =>
+      fs.stat(swapped).then(
+        () => true,
+        () => false,
+      ),
+    );
     expect(cased.caseSensitive).toBe(!fsInsensitive);
     expect(p.insideWorkspace).toBe(fsInsensitive);
     expect(cased.isRoot(p)).toBe(fsInsensitive);

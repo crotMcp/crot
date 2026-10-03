@@ -33,24 +33,38 @@ class TwoUserVerifier implements AccessTokenVerifier {
   };
   async verifyAccessToken(candidate: string): Promise<AuthInfo | undefined> {
     const subject = TwoUserVerifier.tokens[candidate];
-    return subject ? { token: candidate, clientId: subject, scopes: [], extra: { subject, authMethod: this.method } } : undefined;
+    return subject
+      ? { token: candidate, clientId: subject, scopes: [], extra: { subject, authMethod: this.method } }
+      : undefined;
   }
 }
 const TOKEN_A = "token-for-user-a-0123456789abcdef";
 const TOKEN_B = "token-for-user-b-0123456789abcdef";
 
-async function start(http: HttpConfigInput = {}, coreConfig: Record<string, unknown> = {}, custom?: AccessTokenVerifier): Promise<void> {
+async function start(
+  http: HttpConfigInput = {},
+  coreConfig: Record<string, unknown> = {},
+  custom?: AccessTokenVerifier,
+): Promise<void> {
   audit = new MemoryAuditSink();
   core = await createTestCore({ workspace: { root: dirs.workspace }, ...coreConfig }, audit);
   const tokenFile = path.join(dirs.outside, "state", "http-token");
   token = (await loadOrCreateLocalToken(tokenFile, core.platform.privateFiles)).token;
   verifier = custom ?? new LocalTokenVerifier(token);
-  server = await CrotHttpServer.start(core, { config: HttpConfigSchema.parse({ enabled: true, port: 0, ...http }), verifier });
+  server = await CrotHttpServer.start(core, {
+    config: HttpConfigSchema.parse({ enabled: true, port: 0, ...http }),
+    verifier,
+  });
 }
 
-async function connect(bearer: string = token, name = "http-test-client"): Promise<{ client: Client; transport: StreamableHTTPClientTransport }> {
+async function connect(
+  bearer: string = token,
+  name = "http-test-client",
+): Promise<{ client: Client; transport: StreamableHTTPClientTransport }> {
   const client = new Client({ name, version: "0.0.1" });
-  const transport = new StreamableHTTPClientTransport(new URL(server!.url), { requestInit: { headers: { Authorization: `Bearer ${bearer}` } } });
+  const transport = new StreamableHTTPClientTransport(new URL(server!.url), {
+    requestInit: { headers: { Authorization: `Bearer ${bearer}` } },
+  });
   await client.connect(transport);
   clients.push(client);
   return { client, transport };
@@ -70,7 +84,9 @@ interface RawResponse {
 }
 
 /** Low-level request (allows setting Host/Origin, which fetch forbids). */
-function raw(options: { method?: string; path?: string; headers?: Record<string, string>; body?: string } = {}): Promise<RawResponse> {
+function raw(
+  options: { method?: string; path?: string; headers?: Record<string, string>; body?: string } = {},
+): Promise<RawResponse> {
   return new Promise((resolve, reject) => {
     const req = request(
       {
@@ -78,12 +94,18 @@ function raw(options: { method?: string; path?: string; headers?: Record<string,
         port: server!.port,
         method: options.method ?? "POST",
         path: options.path ?? "/mcp",
-        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", ...(options.headers ?? {}) },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          ...(options.headers ?? {}),
+        },
       },
       (res) => {
         const chunks: Buffer[] = [];
         res.on("data", (chunk: Buffer) => chunks.push(chunk));
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString("utf8") }));
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, headers: res.headers, body: Buffer.concat(chunks).toString("utf8") }),
+        );
         res.on("error", reject);
       },
     );
@@ -116,10 +138,17 @@ afterEach(async () => {
 describe("HTTP transport: safe defaults", () => {
   it("is disabled by default, binds loopback and requires local-token auth", () => {
     const http = parseConfig({ workspace: { root: dirs.workspace } }).http;
-    expect(http).toMatchObject({ enabled: false, host: "127.0.0.1", auth: { mode: "local-token" }, allowedOrigins: [] });
+    expect(http).toMatchObject({
+      enabled: false,
+      host: "127.0.0.1",
+      auth: { mode: "local-token" },
+      allowedOrigins: [],
+    });
     expect(http.maxRequestBytes).toBeGreaterThan(0);
     expect(http.maxSessions).toBeGreaterThan(0);
-    expect(() => parseConfig({ workspace: { root: dirs.workspace }, http: { auth: { mode: "none" } } })).toThrow(CrotError);
+    expect(() => parseConfig({ workspace: { root: dirs.workspace }, http: { auth: { mode: "none" } } })).toThrow(
+      CrotError,
+    );
   });
 
   it("recognizes loopback hosts only", () => {
@@ -130,7 +159,10 @@ describe("HTTP transport: safe defaults", () => {
   it("refuses to bind a non-loopback address", async () => {
     core = await createTestCore({ workspace: { root: dirs.workspace } });
     await expect(
-      CrotHttpServer.start(core, { config: HttpConfigSchema.parse({ host: "0.0.0.0", port: 0 }), verifier: new TwoUserVerifier() }),
+      CrotHttpServer.start(core, {
+        config: HttpConfigSchema.parse({ host: "0.0.0.0", port: 0 }),
+        verifier: new TwoUserVerifier(),
+      }),
     ).rejects.toThrow(CrotError);
   });
 
@@ -237,7 +269,11 @@ describe("HTTP transport: MCP over HTTP", () => {
     const missing = await raw({ body: INITIALIZE });
     expect(missing.status).toBe(401);
     expect(missing.headers["www-authenticate"]).toContain("Bearer");
-    expect(JSON.parse(missing.body)).toEqual({ jsonrpc: "2.0", error: { code: -32001, message: "Unauthorized" }, id: null });
+    expect(JSON.parse(missing.body)).toEqual({
+      jsonrpc: "2.0",
+      error: { code: -32001, message: "Unauthorized" },
+      id: null,
+    });
     expect((await raw({ body: INITIALIZE, headers: auth("x".repeat(43)) })).status).toBe(401);
     expect((await raw({ body: INITIALIZE, headers: { Authorization: `Basic ${token}` } })).status).toBe(401);
     expect((await raw({ method: "GET" })).status).toBe(401);
@@ -258,12 +294,16 @@ describe("HTTP transport: MCP over HTTP", () => {
     expect(put.status).toBe(405);
     expect(put.headers.allow).toBe("GET, POST, DELETE");
     expect((await raw({ body: LIST_TOOLS, headers: auth() })).status).toBe(400);
-    expect((await raw({ body: LIST_TOOLS, headers: { ...auth(), "mcp-session-id": "no-such-session" } })).status).toBe(404);
+    expect((await raw({ body: LIST_TOOLS, headers: { ...auth(), "mcp-session-id": "no-such-session" } })).status).toBe(
+      404,
+    );
     for (const r of [badJson, put]) expect(r.body).not.toMatch(/\bat .+:\d+:\d+/);
   });
 
   it("enforces Host and Origin checks", async () => {
-    expect((await raw({ body: INITIALIZE, headers: { ...auth(), Host: `evil.example:${server!.port}` } })).status).toBe(403);
+    expect((await raw({ body: INITIALIZE, headers: { ...auth(), Host: `evil.example:${server!.port}` } })).status).toBe(
+      403,
+    );
     expect((await raw({ body: INITIALIZE, headers: { ...auth(), Origin: "https://evil.example" } })).status).toBe(403);
     expect(server!.sessionCount).toBe(0);
   });
@@ -296,7 +336,10 @@ describe("HTTP transport: limits and identity", () => {
       client: { name: "client-b", version: "0.0.1" },
     });
     // user-b cannot use user-a's session.
-    const hijack = await raw({ body: LIST_TOOLS, headers: { ...auth(TOKEN_B), "mcp-session-id": a.transport.sessionId! } });
+    const hijack = await raw({
+      body: LIST_TOOLS,
+      headers: { ...auth(TOKEN_B), "mcp-session-id": a.transport.sessionId! },
+    });
     expect(hijack.status).toBe(404);
     expect((await a.client.listTools()).tools.length).toBe(TOOLS.length);
   });

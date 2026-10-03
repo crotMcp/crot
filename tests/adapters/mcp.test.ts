@@ -62,7 +62,9 @@ describe("CROT MCP adapter", () => {
     expect(client.getInstructions()).toContain(`default shell for shell_run: ${core.platform.info.defaultShell}`);
     expect(client.getInstructions()).toContain("encoding used is reported");
     expect(client.getInstructions()).toContain(
-      core.platform.info.processControl.orphanedDescendants ? "also stops every process it started" : "cannot be stopped by CROT",
+      core.platform.info.processControl.orphanedDescendants
+        ? "also stops every process it started"
+        : "cannot be stopped by CROT",
     );
   });
 
@@ -82,9 +84,15 @@ describe("CROT MCP adapter", () => {
   });
 
   it("process tools report the output encoding", async () => {
-    const { isError, body } = await call("process_exec", { command: process.execPath, args: ["-e", "console.log('ü')"] });
+    const { isError, body } = await call("process_exec", {
+      command: process.execPath,
+      args: ["-e", "console.log('ü')"],
+    });
     expect(isError).toBe(false);
-    expect(body).toMatchObject({ stdout: expect.stringContaining("ü"), encoding: { stdout: { name: "utf-8", lossy: false } } });
+    expect(body).toMatchObject({
+      stdout: expect.stringContaining("ü"),
+      encoding: { stdout: { name: "utf-8", lossy: false } },
+    });
   });
 
   it("delegates filesystem tools to Core", async () => {
@@ -110,13 +118,21 @@ describe("CROT MCP adapter", () => {
     expect(body.error.code).toBe("PERMISSION_DENIED");
     const event = audit.events.at(-1)!;
     expect(event.outcome).toBe("denied");
-    expect(event.principal).toEqual({ id: "local-user", kind: "local", transport: "in-memory", client: { name: "test-client", version: "1.2.3" } });
+    expect(event.principal).toEqual({
+      id: "local-user",
+      kind: "local",
+      transport: "in-memory",
+      client: { name: "test-client", version: "1.2.3" },
+    });
   });
 
   it("rejects invalid input", async () => {
     const result = (await client.callTool({ name: "fs_read_file", arguments: { path: 42 } })) as CallToolResult;
     expect(result.isError).toBe(true);
-    const unknown = (await client.callTool({ name: "fs_read_file", arguments: { path: "a", bogus: true } })) as CallToolResult;
+    const unknown = (await client.callTool({
+      name: "fs_read_file",
+      arguments: { path: "a", bogus: true },
+    })) as CallToolResult;
     expect(unknown.isError).toBe(true);
   });
 

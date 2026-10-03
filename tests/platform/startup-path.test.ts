@@ -15,12 +15,17 @@ import { createTestCore, isWindows, makeTempDirs, testContext as ctx, type TempD
 
 const posixEnv = createEnvironmentPolicy(false);
 const minimalMacPath = "/usr/bin:/bin:/usr/sbin:/sbin";
-const fakeLogin = (pathValue: string): LoginShellRunner => async (_shell, args) => {
-  expect(args.slice(0, 3)).toEqual(["-l", "-i", "-c"]);
-  // Startup files may print noise around the marked value.
-  return `Welcome!\n${args[3]!.replace(/^printf '%s' '([^']+)'"\$PATH"'[^']+'$/, `$1${pathValue}$1`)}\nbye`;
-};
-const dirsThatExist = (...dirs: string[]) => async (d: string) => dirs.includes(d);
+const fakeLogin =
+  (pathValue: string): LoginShellRunner =>
+  async (_shell, args) => {
+    expect(args.slice(0, 3)).toEqual(["-l", "-i", "-c"]);
+    // Startup files may print noise around the marked value.
+    return `Welcome!\n${args[3]!.replace(/^printf '%s' '([^']+)'"\$PATH"'[^']+'$/, `$1${pathValue}$1`)}\nbye`;
+  };
+const dirsThatExist =
+  (...dirs: string[]) =>
+  async (d: string) =>
+    dirs.includes(d);
 
 describe("startup PATH (pure)", () => {
   it("builds login shell commands for POSIX shells and fish only", () => {
@@ -108,8 +113,15 @@ describe("startup PATH (pure)", () => {
   });
 
   it("reports unsupported or missing login shells", async () => {
-    const base = { os: "linux" as const, environment: posixEnv, mode: "login-shell" as const, isDirectory: dirsThatExist() };
-    expect((await resolveStartupPath({ ...base, env: { PATH: "/usr/bin", SHELL: "/bin/tcsh" } })).info.note).toContain("not supported");
+    const base = {
+      os: "linux" as const,
+      environment: posixEnv,
+      mode: "login-shell" as const,
+      isDirectory: dirsThatExist(),
+    };
+    expect((await resolveStartupPath({ ...base, env: { PATH: "/usr/bin", SHELL: "/bin/tcsh" } })).info.note).toContain(
+      "not supported",
+    );
     expect((await resolveStartupPath({ ...base, env: { PATH: "/usr/bin" } })).info.note).toContain("$SHELL is not set");
   });
 
@@ -152,7 +164,11 @@ describe.runIf(!isWindows)("startup PATH with a real login shell (POSIX)", () =>
 
   it("finds executables that only the login shell PATH contains", async () => {
     const { shell, tools } = await fakeShell('echo "profile noise"\nexec /bin/sh -c "$4"');
-    const platform = await createNodePlatform({ env: { PATH: "/usr/bin:/bin", HOME: dirs.outside }, startupPath: "auto", loginShell: shell });
+    const platform = await createNodePlatform({
+      env: { PATH: "/usr/bin:/bin", HOME: dirs.outside },
+      startupPath: "auto",
+      loginShell: shell,
+    });
     expect(platform.info.startupPath).toMatchObject({ source: "login-shell", shell });
     expect(platform.baseEnvironment.PATH!.split(":")[0]).toBe(tools);
     const core = await createTestCore({ workspace: { root: dirs.workspace } }, undefined, { platform });
@@ -168,9 +184,17 @@ describe.runIf(!isWindows)("startup PATH with a real login shell (POSIX)", () =>
   it("does not hang on a login shell that never finishes", async () => {
     const { shell } = await fakeShell("sleep 30");
     const started = Date.now();
-    const platform = await createNodePlatform({ env: { PATH: "/usr/bin:/bin" }, startupPath: "login-shell", loginShell: shell, loginShellTimeoutMs: 500 });
+    const platform = await createNodePlatform({
+      env: { PATH: "/usr/bin:/bin" },
+      startupPath: "login-shell",
+      loginShell: shell,
+      loginShellTimeoutMs: 500,
+    });
     expect(Date.now() - started).toBeLessThan(5_000);
-    expect(platform.info.startupPath).toMatchObject({ source: "inherited", note: expect.stringContaining("did not finish") });
+    expect(platform.info.startupPath).toMatchObject({
+      source: "inherited",
+      note: expect.stringContaining("did not finish"),
+    });
     expect(platform.baseEnvironment.PATH!.startsWith("/usr/bin:/bin")).toBe(true);
   });
 });
@@ -179,6 +203,8 @@ describe.runIf(isWindows)("startup PATH (Windows)", () => {
   it("keeps the inherited environment", async () => {
     const platform = await createNodePlatform({ startupPath: "login-shell" });
     expect(platform.info.startupPath).toEqual({ mode: "login-shell", source: "inherited", added: [] });
-    expect(platform.environment.get(platform.baseEnvironment, "PATH")).toBe(platform.environment.get(process.env, "PATH"));
+    expect(platform.environment.get(platform.baseEnvironment, "PATH")).toBe(
+      platform.environment.get(process.env, "PATH"),
+    );
   });
 });

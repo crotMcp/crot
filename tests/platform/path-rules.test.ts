@@ -31,10 +31,20 @@ describe("win32 path rules (pure, run on every OS)", () => {
     ["a\0b"],
   ])("rejects %j", (input) => invalid(() => win.validate(input)));
 
-  it.each([["C:\\Users\\dev\\proj"], ["C:/Users/dev/proj"], ["src\\index.ts"], ["src/index.ts"], ["..\\x"], ["\\\\server\\share\\dir"], ["console.log"], ["con-fig"], ["COM10"], ["."], [".."], [".gitignore"]])(
-    "accepts %j",
-    (input) => expect(() => win.validate(input)).not.toThrow(),
-  );
+  it.each([
+    ["C:\\Users\\dev\\proj"],
+    ["C:/Users/dev/proj"],
+    ["src\\index.ts"],
+    ["src/index.ts"],
+    ["..\\x"],
+    ["\\\\server\\share\\dir"],
+    ["console.log"],
+    ["con-fig"],
+    ["COM10"],
+    ["."],
+    [".."],
+    [".gitignore"],
+  ])("accepts %j", (input) => expect(() => win.validate(input)).not.toThrow());
 
   it("compares case-insensitively regardless of the flag", () => {
     expect(win.relativeSegments("C:\\Work\\Proj", "c:\\work\\PROJ\\Src\\a.ts", true)).toEqual(["Src", "a.ts"]);

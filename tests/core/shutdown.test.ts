@@ -24,7 +24,10 @@ afterEach(async () => {
 
 /** Start a background parent that spawns a long-running grandchild; resolve with both pids. */
 async function startTree(): Promise<{ id: string; pid: number; grandchild: number }> {
-  await writeFile(path.join(dirs.workspace, "gc.js"), "require('fs').writeFileSync('gc.pid', String(process.pid)); setInterval(() => {}, 1000);");
+  await writeFile(
+    path.join(dirs.workspace, "gc.js"),
+    "require('fs').writeFileSync('gc.pid', String(process.pid)); setInterval(() => {}, 1000);",
+  );
   await writeFile(
     path.join(dirs.workspace, "parent.js"),
     "require('child_process').spawn(process.execPath, ['gc.js'], { stdio: 'ignore' }); setInterval(() => {}, 1000);",
@@ -37,7 +40,11 @@ async function startTree(): Promise<{ id: string; pid: number; grandchild: numbe
 
 describe("Core shutdown", () => {
   it("terminates running foreground commands and records them before closing the audit log", async () => {
-    const running = core.processes.exec(ctx, { command: node, args: ["-e", "setInterval(()=>{},1000)"], timeoutMs: 30_000 });
+    const running = core.processes.exec(ctx, {
+      command: node,
+      args: ["-e", "setInterval(()=>{},1000)"],
+      timeoutMs: 30_000,
+    });
     await new Promise((r) => setTimeout(r, 300));
     const started = Date.now();
     await core.shutdown();
@@ -64,7 +71,9 @@ describe("Core shutdown", () => {
       code: "OPERATION_FAILED",
       message: expect.stringContaining("shutting down"),
     });
-    await expect(core.processes.start(ctx, { command: node, args: ["-v"] })).rejects.toMatchObject({ code: "OPERATION_FAILED" });
+    await expect(core.processes.start(ctx, { command: node, args: ["-v"] })).rejects.toMatchObject({
+      code: "OPERATION_FAILED",
+    });
   });
 
   it("terminateProcessesSync force-kills every tree synchronously (host exit path)", async () => {

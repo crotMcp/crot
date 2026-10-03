@@ -41,9 +41,16 @@ export function bridgeTokenFile(stateDir: string): string {
 }
 
 /** Endpoint of the bridge for a state directory and token. */
-export function bridgeEndpoint(stateDir: string, token: string, windows: boolean = process.platform === "win32"): BridgeEndpoint {
+export function bridgeEndpoint(
+  stateDir: string,
+  token: string,
+  windows: boolean = process.platform === "win32",
+): BridgeEndpoint {
   if (windows) {
-    const digest = createHash("sha256").update("crot-browser-pipe\u0000" + token, "utf8").digest("hex").slice(0, 32);
+    const digest = createHash("sha256")
+      .update("crot-browser-pipe\u0000" + token, "utf8")
+      .digest("hex")
+      .slice(0, 32);
     return { kind: "named-pipe", path: PIPE_PREFIX + digest };
   }
   const socket = path.join(stateDir, BROWSER_SOCKET_FILE_NAME);
@@ -51,7 +58,12 @@ export function bridgeEndpoint(stateDir: string, token: string, windows: boolean
   if (bytes > MAX_SOCKET_PATH_BYTES) {
     throw new CrotError(
       "CONFIG_ERROR",
-      "The browser bridge socket path is too long (" + bytes + " bytes, at most " + MAX_SOCKET_PATH_BYTES + "): " + socket,
+      "The browser bridge socket path is too long (" +
+        bytes +
+        " bytes, at most " +
+        MAX_SOCKET_PATH_BYTES +
+        "): " +
+        socket,
     );
   }
   return { kind: "unix-socket", path: socket };
@@ -79,10 +91,14 @@ export async function readBridgeToken(file: string): Promise<string | undefined>
     text = await readFile(file, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw new CrotError("CONFIG_ERROR", "Cannot read the browser bridge token file " + file + ": " + (error as Error).message);
+    throw new CrotError(
+      "CONFIG_ERROR",
+      "Cannot read the browser bridge token file " + file + ": " + (error as Error).message,
+    );
   }
   const token = text.trim();
-  if (!isBridgeToken(token)) throw new CrotError("CONFIG_ERROR", "The browser bridge token file " + file + " does not contain a valid token.");
+  if (!isBridgeToken(token))
+    throw new CrotError("CONFIG_ERROR", "The browser bridge token file " + file + " does not contain a valid token.");
   return token;
 }
 
@@ -93,14 +109,20 @@ export async function readBridgeToken(file: string): Promise<string | undefined>
  * only then receives the token, and an existing file is restricted before
  * use. Failure to restrict is an error, never a silent downgrade.
  */
-export async function loadOrCreateBridgeToken(file: string, privateFiles: PrivateFileProtection): Promise<{ token: string; created: boolean }> {
+export async function loadOrCreateBridgeToken(
+  file: string,
+  privateFiles: PrivateFileProtection,
+): Promise<{ token: string; created: boolean }> {
   const existing = await readBridgeToken(file);
   if (existing !== undefined) {
     if (privateFiles.protectFile) {
       try {
         await privateFiles.protectFile(file);
       } catch (error) {
-        throw new CrotError("CONFIG_ERROR", "Cannot restrict access to the browser bridge token file " + file + ": " + (error as Error).message);
+        throw new CrotError(
+          "CONFIG_ERROR",
+          "Cannot restrict access to the browser bridge token file " + file + ": " + (error as Error).message,
+        );
       }
     }
     return { token: existing, created: false };
@@ -126,7 +148,10 @@ export async function loadOrCreateBridgeToken(file: string, privateFiles: Privat
       const raced = await readBridgeToken(file).catch(() => undefined);
       if (raced) return { token: raced, created: false };
     }
-    throw new CrotError("CONFIG_ERROR", "Cannot create the browser bridge token file " + file + ": " + (error as Error).message);
+    throw new CrotError(
+      "CONFIG_ERROR",
+      "Cannot create the browser bridge token file " + file + ": " + (error as Error).message,
+    );
   }
   return { token, created: true };
 }

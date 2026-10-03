@@ -54,7 +54,8 @@ function tabIdParam(params: CommandParams): number {
   return value as number;
 }
 
-const optionalTabIdParam = (params: CommandParams): number | undefined => (params.tabId === undefined ? undefined : tabIdParam(params));
+const optionalTabIdParam = (params: CommandParams): number | undefined =>
+  params.tabId === undefined ? undefined : tabIdParam(params);
 
 export function isHttpUrl(value: unknown): value is string {
   if (typeof value !== "string" || value.length === 0 || value.length > URL_MAX_LENGTH) return false;
@@ -93,7 +94,8 @@ function selectorParam(params: CommandParams): string {
 
 function enumParam<T extends string>(params: CommandParams, key: string, values: readonly T[]): T {
   const value = params[key];
-  if (typeof value !== "string" || !values.includes(value as T)) throw invalid("'" + key + "' must be one of " + values.join(", ") + ".");
+  if (typeof value !== "string" || !values.includes(value as T))
+    throw invalid("'" + key + "' must be one of " + values.join(", ") + ".");
   return value as T;
 }
 
@@ -114,7 +116,8 @@ function tabInfo(tab: ChromeTab & { readonly id: number }) {
   };
 }
 
-const hasId = (tab: ChromeTab): tab is ChromeTab & { readonly id: number } => Number.isSafeInteger(tab.id) && (tab.id as number) >= 0;
+const hasId = (tab: ChromeTab): tab is ChromeTab & { readonly id: number } =>
+  Number.isSafeInteger(tab.id) && (tab.id as number) >= 0;
 
 // ---------------------------------------------------------------- browser errors
 
@@ -127,8 +130,10 @@ function browserError(error: unknown, action: string): ExtensionError {
   if (error instanceof ExtensionError) return error;
   const message = messageOf(error);
   if (/no tab with id/i.test(message)) return new ExtensionError("NOT_FOUND", "The tab does not exist.");
-  if (/MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND/.test(message)) return new ExtensionError("RESOURCE_BUSY", "Too many screenshots; retry shortly.");
-  if (RESTRICTED.test(message)) return new ExtensionError("BROWSER_PAGE_RESTRICTED", "The browser does not allow extensions to access this page.");
+  if (/MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND/.test(message))
+    return new ExtensionError("RESOURCE_BUSY", "Too many screenshots; retry shortly.");
+  if (RESTRICTED.test(message))
+    return new ExtensionError("BROWSER_PAGE_RESTRICTED", "The browser does not allow extensions to access this page.");
   return new ExtensionError("OPERATION_FAILED", action + " failed: " + message);
 }
 
@@ -166,18 +171,30 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     return tab;
   }
 
-  async function runInPage<A extends unknown[], T>(tabId: number, func: (...args: A) => PageOutcome<T>, args: A): Promise<T> {
+  async function runInPage<A extends unknown[], T>(
+    tabId: number,
+    func: (...args: A) => PageOutcome<T>,
+    args: A,
+  ): Promise<T> {
     let results;
     try {
       results = await api.scripting.executeScript({ target: { tabId }, func, args, world: "ISOLATED" });
     } catch (error) {
       throw browserError(error, "Accessing the page");
     }
-    const outcome = results[0]?.result as Partial<{ ok: boolean; value: T; code: unknown; message: unknown }> | null | undefined;
-    if (typeof outcome !== "object" || outcome === null) throw new ExtensionError("OPERATION_FAILED", "The page did not return a result.");
+    const outcome = results[0]?.result as
+      Partial<{ ok: boolean; value: T; code: unknown; message: unknown }> | null | undefined;
+    if (typeof outcome !== "object" || outcome === null)
+      throw new ExtensionError("OPERATION_FAILED", "The page did not return a result.");
     if (outcome.ok === true) return outcome.value as T;
-    const code = typeof outcome.code === "string" && PAGE_ERROR_CODES.has(outcome.code) && isExtensionErrorCode(outcome.code) ? outcome.code : "OPERATION_FAILED";
-    throw new ExtensionError(code, typeof outcome.message === "string" ? outcome.message : "The page operation failed.");
+    const code =
+      typeof outcome.code === "string" && PAGE_ERROR_CODES.has(outcome.code) && isExtensionErrorCode(outcome.code)
+        ? outcome.code
+        : "OPERATION_FAILED";
+    throw new ExtensionError(
+      code,
+      typeof outcome.message === "string" ? outcome.message : "The page operation failed.",
+    );
   }
 
   /** Resolve when the tab has finished loading, has been closed, or after loadWaitMs. Never rejects. */
@@ -201,12 +218,9 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       const timer = setTimeout(finish, loadWaitMs);
       api.tabs.onUpdated.addListener(onUpdated);
       api.tabs.onRemoved.addListener(onRemoved);
-      api.tabs.get(tabId).then(
-        (tab) => {
-          if (tab.status === "complete" && !tab.pendingUrl) finish();
-        },
-        finish,
-      );
+      api.tabs.get(tabId).then((tab) => {
+        if (tab.status === "complete" && !tab.pendingUrl) finish();
+      }, finish);
     });
   }
 
@@ -285,7 +299,8 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       const tabId = optionalTabIdParam(params);
       const format = enumParam(params, "format", ["text", "html"] as const);
       const maxBytes = params.maxBytes;
-      if (!Number.isSafeInteger(maxBytes) || (maxBytes as number) < 1) throw invalid("'maxBytes' must be a positive integer.");
+      if (!Number.isSafeInteger(maxBytes) || (maxBytes as number) < 1)
+        throw invalid("'maxBytes' must be a positive integer.");
       const tab = await resolvePageTab(tabId);
       const page = await runInPage(tab.id, readPageContent, [format, maxBytes as number]);
       if (typeof page?.content !== "string" || typeof page.truncated !== "boolean") {
@@ -308,25 +323,33 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       const quality = params.quality;
       if (quality !== undefined) {
         if (format !== "jpeg") throw invalid("'quality' is only valid with format 'jpeg'.");
-        if (!Number.isInteger(quality) || (quality as number) < 0 || (quality as number) > 100) throw invalid("'quality' must be an integer from 0 to 100.");
+        if (!Number.isInteger(quality) || (quality as number) < 0 || (quality as number) > 100)
+          throw invalid("'quality' must be an integer from 0 to 100.");
       }
       const tab = await resolvePageTab(tabId);
       // A screenshot is a read: CROT never activates a tab to take one.
       if (!tab.active) {
-        throw invalid("Tab " + tab.id + " is not the visible tab of its window. Activate it with browser_tab_activate first.");
+        throw invalid(
+          "Tab " + tab.id + " is not the visible tab of its window. Activate it with browser_tab_activate first.",
+        );
       }
       let dataUrl: string;
       try {
-        dataUrl = await api.tabs.captureVisibleTab(tab.windowId, quality === undefined ? { format } : { format, quality: quality as number });
+        dataUrl = await api.tabs.captureVisibleTab(
+          tab.windowId,
+          quality === undefined ? { format } : { format, quality: quality as number },
+        );
       } catch (error) {
         throw browserError(error, "Taking the screenshot");
       }
       // captureVisibleTab captures whatever the window shows: make sure it was still this tab and page.
       const [visible] = await api.tabs.query({ active: true, windowId: tab.windowId });
-      if (!visible || visible.id !== tab.id) throw new ExtensionError("OPERATION_FAILED", "The visible tab changed while taking the screenshot.");
+      if (!visible || visible.id !== tab.id)
+        throw new ExtensionError("OPERATION_FAILED", "The visible tab changed while taking the screenshot.");
       if (!isHttpUrl(visible.url)) throw restricted();
       const prefix = "data:image/" + format + ";base64,";
-      if (typeof dataUrl !== "string" || !dataUrl.startsWith(prefix)) throw new ExtensionError("OPERATION_FAILED", "The browser returned an unexpected image.");
+      if (typeof dataUrl !== "string" || !dataUrl.startsWith(prefix))
+        throw new ExtensionError("OPERATION_FAILED", "The browser returned an unexpected image.");
       const data = dataUrl.slice(prefix.length);
       const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
       if ((data.length / 4) * 3 - padding > SCREENSHOT_MAX_BYTES) {

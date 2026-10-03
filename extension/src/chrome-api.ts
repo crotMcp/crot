@@ -70,7 +70,10 @@ export interface ChromeApi {
     query(query: ChromeTabQuery): Promise<ChromeTab[]>;
     get(tabId: number): Promise<ChromeTab>;
     create(properties: { readonly url: string; readonly active: boolean }): Promise<ChromeTab>;
-    update(tabId: number, properties: { readonly url?: string; readonly active?: boolean }): Promise<ChromeTab | undefined>;
+    update(
+      tabId: number,
+      properties: { readonly url?: string; readonly active?: boolean },
+    ): Promise<ChromeTab | undefined>;
     remove(tabId: number): Promise<void>;
     captureVisibleTab(windowId: number, options: ChromeCaptureOptions): Promise<string>;
     readonly onUpdated: ChromeEvent<(tabId: number, changeInfo: ChromeTabChangeInfo, tab: ChromeTab) => void>;

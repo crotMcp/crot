@@ -75,8 +75,14 @@ function runLauncher(launcher: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const done = (error: Error | null, stdout: string | Buffer) => (error ? reject(error) : resolve(String(stdout)));
     if (windows) {
-      const comspec = process.env.ComSpec ?? path.win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "cmd.exe");
-      execFile(comspec, ["/d", "/s", "/c", `""${launcher}" ${browserArgs.join(" ")}"`], { windowsVerbatimArguments: true }, done);
+      const comspec =
+        process.env.ComSpec ?? path.win32.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "cmd.exe");
+      execFile(
+        comspec,
+        ["/d", "/s", "/c", `""${launcher}" ${browserArgs.join(" ")}"`],
+        { windowsVerbatimArguments: true },
+        done,
+      );
     } else {
       execFile(launcher, browserArgs, done);
     }
@@ -106,11 +112,22 @@ describe("host manifest", () => {
 describe("hostRegistrations", () => {
   it("Linux: per-browser NativeMessagingHosts directories below XDG_CONFIG_HOME (default ~/.config)", () => {
     expect(hostRegistrations("linux", "/home/u", "/home/u/.local/state/crot")).toEqual([
-      { browsers: ["Google Chrome"], manifestFile: "/home/u/.config/google-chrome/NativeMessagingHosts/com.crot.host.json" },
-      { browsers: ["Microsoft Edge"], manifestFile: "/home/u/.config/microsoft-edge/NativeMessagingHosts/com.crot.host.json" },
-      { browsers: ["Brave"], manifestFile: "/home/u/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts/com.crot.host.json" },
+      {
+        browsers: ["Google Chrome"],
+        manifestFile: "/home/u/.config/google-chrome/NativeMessagingHosts/com.crot.host.json",
+      },
+      {
+        browsers: ["Microsoft Edge"],
+        manifestFile: "/home/u/.config/microsoft-edge/NativeMessagingHosts/com.crot.host.json",
+      },
+      {
+        browsers: ["Brave"],
+        manifestFile: "/home/u/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts/com.crot.host.json",
+      },
     ]);
-    expect(hostRegistrations("linux", "/home/u", "/s", { XDG_CONFIG_HOME: "/xdg" })[0]?.manifestFile).toBe("/xdg/google-chrome/NativeMessagingHosts/com.crot.host.json");
+    expect(hostRegistrations("linux", "/home/u", "/s", { XDG_CONFIG_HOME: "/xdg" })[0]?.manifestFile).toBe(
+      "/xdg/google-chrome/NativeMessagingHosts/com.crot.host.json",
+    );
     // A relative XDG_CONFIG_HOME is invalid and ignored.
     expect(hostRegistrations("linux", "/home/u", "/s", { XDG_CONFIG_HOME: "xdg" })[0]?.manifestFile).toBe(
       "/home/u/.config/google-chrome/NativeMessagingHosts/com.crot.host.json",
@@ -128,27 +145,49 @@ describe("hostRegistrations", () => {
   it("Windows: one manifest in the state directory, registered for Chrome (also read by Brave) and Edge in HKCU", () => {
     const manifestFile = "C:\\Users\\u\\AppData\\Local\\CROT\\native-messaging\\com.crot.host.json";
     expect(hostRegistrations("windows", "C:\\Users\\u", "C:\\Users\\u\\AppData\\Local\\CROT")).toEqual([
-      { browsers: ["Google Chrome", "Brave"], manifestFile, registryKey: "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.crot.host" },
-      { browsers: ["Microsoft Edge"], manifestFile, registryKey: "HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\com.crot.host" },
+      {
+        browsers: ["Google Chrome", "Brave"],
+        manifestFile,
+        registryKey: "HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\com.crot.host",
+      },
+      {
+        browsers: ["Microsoft Edge"],
+        manifestFile,
+        registryKey: "HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts\\com.crot.host",
+      },
     ]);
   });
 });
 
 describe("launchers", () => {
   it("POSIX: single-quotes every path and forwards the browser's arguments", () => {
-    expect(posixLauncher({ nodePath: "/usr/bin/node", relayScript: "/opt/it's/relay.js", stateDir: "/home/u/state $x" })).toBe(
+    expect(
+      posixLauncher({ nodePath: "/usr/bin/node", relayScript: "/opt/it's/relay.js", stateDir: "/home/u/state $x" }),
+    ).toBe(
       "#!/bin/sh\n# CROT browser host launcher, written by `crot-mcp browser install`.\n" +
         `exec '/usr/bin/node' '/opt/it'\\''s/relay.js' --state-dir '/home/u/state $x' "$@"\n`,
     );
   });
 
   it("Windows: double-quotes paths, doubles % and protects a trailing backslash", () => {
-    expect(windowsLauncher({ nodePath: "C:\\Program Files\\nodejs\\node.exe", relayScript: "C:\\crot\\relay.js", stateDir: "C:\\Users\\a%b%\\CROT" })).toBe(
+    expect(
+      windowsLauncher({
+        nodePath: "C:\\Program Files\\nodejs\\node.exe",
+        relayScript: "C:\\crot\\relay.js",
+        stateDir: "C:\\Users\\a%b%\\CROT",
+      }),
+    ).toBe(
       "@echo off\r\nrem CROT browser host launcher, written by `crot-mcp browser install`.\r\n" +
         '"C:\\Program Files\\nodejs\\node.exe" "C:\\crot\\relay.js" --state-dir "C:\\Users\\a%%b%%\\CROT" %*\r\n',
     );
-    expect(windowsLauncher({ nodePath: "C:\\node.exe", relayScript: "C:\\relay.js", stateDir: "D:\\" }).includes('--state-dir "D:\\\\" %*')).toBe(true);
-    expect(() => windowsLauncher({ nodePath: "C:\\node.exe", relayScript: "C:\\relay.js", stateDir: 'C:\\a"b' })).toThrow();
+    expect(
+      windowsLauncher({ nodePath: "C:\\node.exe", relayScript: "C:\\relay.js", stateDir: "D:\\" }).includes(
+        '--state-dir "D:\\\\" %*',
+      ),
+    ).toBe(true);
+    expect(() =>
+      windowsLauncher({ nodePath: "C:\\node.exe", relayScript: "C:\\relay.js", stateDir: 'C:\\a"b' }),
+    ).toThrow();
   });
 });
 
@@ -173,7 +212,12 @@ describe("installBrowserHost", () => {
     }
 
     // The browser passes the extension origin (and on Windows --parent-window); the relay ignores them.
-    expect(JSON.parse(await runLauncher(launcher))).toEqual(["--state-dir", stateDir, CROT_EXTENSION_ORIGIN, "--parent-window=0"]);
+    expect(JSON.parse(await runLauncher(launcher))).toEqual([
+      "--state-dir",
+      stateDir,
+      CROT_EXTENSION_ORIGIN,
+      "--parent-window=0",
+    ]);
   });
 
   it("is idempotent and replaces earlier files", async () => {
@@ -189,15 +233,21 @@ describe("installBrowserHost", () => {
 
   it("refuses relative paths, a missing relay script and Windows without a registry writer", async () => {
     const { options, root } = await setup();
-    expect(await rejection(installBrowserHost({ ...options, stateDir: "state" }))).toMatchObject({ code: "INVALID_INPUT" });
-    expect(await rejection(installBrowserHost({ ...options, relayScript: path.join(root, "missing.js") }))).toMatchObject({ code: "NOT_FOUND" });
+    expect(await rejection(installBrowserHost({ ...options, stateDir: "state" }))).toMatchObject({
+      code: "INVALID_INPUT",
+    });
+    expect(
+      await rejection(installBrowserHost({ ...options, relayScript: path.join(root, "missing.js") })),
+    ).toMatchObject({ code: "NOT_FOUND" });
     const noRegistry: BrowserInstallOptions = { ...options, os: "windows", registry: undefined };
     expect(await rejection(installBrowserHost(noRegistry))).toMatchObject({ code: "INVALID_INPUT" });
   });
 
   it("reports a registry failure as OPERATION_FAILED", async () => {
     const root = await tempDir();
-    expect(await rejection(regExeWriter(path.join(root, "no-windows"))("HKCU\\Software\\CROT-test", "x"))).toMatchObject({ code: "OPERATION_FAILED" });
+    expect(
+      await rejection(regExeWriter(path.join(root, "no-windows"))("HKCU\\Software\\CROT-test", "x")),
+    ).toMatchObject({ code: "OPERATION_FAILED" });
   });
 });
 
@@ -208,7 +258,12 @@ describe("crot-mcp browser install (command line)", () => {
   });
 
   it("rejects unknown browser commands and options", async () => {
-    for (const argv of [["browser"], ["browser", "uninstall"], ["browser", "install", "extra"], ["browser", "install", "--workspace", "/w"]]) {
+    for (const argv of [
+      ["browser"],
+      ["browser", "uninstall"],
+      ["browser", "install", "extra"],
+      ["browser", "install", "--workspace", "/w"],
+    ]) {
       expect(await rejection(parseCli(argv, {}))).toMatchObject({ code: "CONFIG_ERROR" });
     }
   });

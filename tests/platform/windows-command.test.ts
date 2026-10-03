@@ -16,14 +16,16 @@ const files = (list: string[]) => {
 };
 
 describe("Windows executable lookup (pure)", () => {
-  const PATH = "C:\\Program Files\\nodejs;\"C:\\Quoted Dir\";C:\\Windows\\System32";
+  const PATH = 'C:\\Program Files\\nodejs;"C:\\Quoted Dir";C:\\Windows\\System32';
 
   it("finds .cmd shims via PATHEXT (npm)", async () => {
     const isFile = files(["C:\\Program Files\\nodejs\\npm.cmd", "C:\\Program Files\\nodejs\\node.exe"]);
-    expect(await findWindowsExecutable("npm", { cwd: "C:\\proj", path: PATH, pathExt: undefined, isFile })).toBe("C:\\Program Files\\nodejs\\npm.cmd");
-    expect(await findWindowsExecutable("node", { cwd: "C:\\proj", path: PATH, pathExt: ".COM;.EXE;.BAT;.CMD", isFile })).toBe(
-      "C:\\Program Files\\nodejs\\node.exe",
+    expect(await findWindowsExecutable("npm", { cwd: "C:\\proj", path: PATH, pathExt: undefined, isFile })).toBe(
+      "C:\\Program Files\\nodejs\\npm.cmd",
     );
+    expect(
+      await findWindowsExecutable("node", { cwd: "C:\\proj", path: PATH, pathExt: ".COM;.EXE;.BAT;.CMD", isFile }),
+    ).toBe("C:\\Program Files\\nodejs\\node.exe");
   });
 
   it("follows PATHEXT order and honours explicit extensions", async () => {
@@ -64,7 +66,10 @@ describe("cmd.exe quoting (pure)", () => {
   });
 
   it("runs batch files through cmd.exe verbatim", () => {
-    const spec = batchFileCommand("C:\\Windows\\System32\\cmd.exe", "C:\\Program Files\\nodejs\\npm.cmd", ["install", "left-pad"]);
+    const spec = batchFileCommand("C:\\Windows\\System32\\cmd.exe", "C:\\Program Files\\nodejs\\npm.cmd", [
+      "install",
+      "left-pad",
+    ]);
     expect(spec.file).toBe("C:\\Windows\\System32\\cmd.exe");
     expect(spec.windowsVerbatimArguments).toBe(true);
     expect(spec.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
@@ -77,7 +82,13 @@ describe("cmd.exe quoting (pure)", () => {
     expect(cmdScriptCommand("C:\\Windows\\System32\\cmd.exe", script)).toEqual({
       file: "C:\\Windows\\System32\\cmd.exe",
       // Outer cmd: switch the console, then start the inner cmd; the script is not on this line.
-      args: ["/d", "/v:on", "/s", "/c", '""C:\\Windows\\System32\\chcp.com" 65001 >nul 2>nul & "C:\\Windows\\System32\\cmd.exe" /d /s /c "!CROT_CMD_SCRIPT!""'],
+      args: [
+        "/d",
+        "/v:on",
+        "/s",
+        "/c",
+        '""C:\\Windows\\System32\\chcp.com" 65001 >nul 2>nul & "C:\\Windows\\System32\\cmd.exe" /d /s /c "!CROT_CMD_SCRIPT!""',
+      ],
       // Inner cmd: removes the variable, then runs the script unchanged.
       env: { CROT_CMD_SCRIPT: `set "CROT_CMD_SCRIPT=" & ${script}` },
       windowsVerbatimArguments: true,
@@ -110,6 +121,9 @@ describe("shell invocations (pure)", () => {
   });
 
   it("uses -c for POSIX shells", () => {
-    expect(shellCommand({ id: "bash", path: "/usr/bin/bash" }, "echo hi")).toMatchObject({ file: "/usr/bin/bash", args: ["-c", "echo hi"] });
+    expect(shellCommand({ id: "bash", path: "/usr/bin/bash" }, "echo hi")).toMatchObject({
+      file: "/usr/bin/bash",
+      args: ["-c", "echo hi"],
+    });
   });
 });

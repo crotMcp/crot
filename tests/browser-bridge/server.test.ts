@@ -149,7 +149,10 @@ describe("browser bridge endpoint", () => {
   });
 
   it("places the POSIX socket in the state directory and rejects paths that are too long", () => {
-    expect(bridgeEndpoint("/s", "a".repeat(43), false)).toEqual({ kind: "unix-socket", path: path.join("/s", "browser.sock") });
+    expect(bridgeEndpoint("/s", "a".repeat(43), false)).toEqual({
+      kind: "unix-socket",
+      path: path.join("/s", "browser.sock"),
+    });
     expect(() => bridgeEndpoint("/" + "x".repeat(100), "a".repeat(43), false)).toThrow(CrotError);
   });
 });
@@ -159,7 +162,10 @@ describe("BrowserBridge", () => {
     const { bridge, token, logs } = await startBridge();
     expect(/^[A-Za-z0-9_-]{43}$/.test(token)).toBe(true);
     expect(bridge.state()).toEqual({ kind: "waiting" });
-    expect(bridge.status()).toMatchObject({ state: "waiting", endpoint: { kind: windows ? "named-pipe" : "unix-socket" } });
+    expect(bridge.status()).toMatchObject({
+      state: "waiting",
+      endpoint: { kind: windows ? "named-pipe" : "unix-socket" },
+    });
     if (!windows) {
       expect((await stat(bridge.tokenFile)).mode & 0o777).toBe(0o600);
       expect((await stat(bridge.endpoint.path)).mode & 0o777).toBe(0o600);
@@ -245,8 +251,14 @@ describe("BrowserBridge", () => {
       [{ type: "auth", protocol: 1, token: "x".repeat(43) }, hello],
       [hello],
       [{ type: "auth", protocol: 2, token }, hello],
-      [{ type: "auth", protocol: 1, token }, { ...hello, protocol: 2 }],
-      [{ type: "auth", protocol: 1, token }, { type: "response", id: "a", ok: true, result: 1 }],
+      [
+        { type: "auth", protocol: 1, token },
+        { ...hello, protocol: 2 },
+      ],
+      [
+        { type: "auth", protocol: 1, token },
+        { type: "response", id: "a", ok: true, result: 1 },
+      ],
       [{ type: "auth", protocol: 1, token }],
       [],
     ];
@@ -319,7 +331,9 @@ describe("BrowserBridge", () => {
     // An already aborted signal never reaches the browser.
     const done = new AbortController();
     done.abort();
-    expect((await rejection(bridge.request("tabs.list", {}, options(5_000, done.signal)))).code).toBe("OPERATION_FAILED");
+    expect((await rejection(bridge.request("tabs.list", {}, options(5_000, done.signal)))).code).toBe(
+      "OPERATION_FAILED",
+    );
     await roundTrip(bridge, client);
   });
 

@@ -28,7 +28,10 @@ export interface ProcessServiceDeps {
   readonly workspace: Workspace;
   readonly guard: ExecutionGuard;
   readonly platform: Pick<Platform, "launcher" | "shells" | "environment" | "encodings" | "baseEnvironment">;
-  readonly limits: Pick<Limits, "defaultCommandTimeoutMs" | "maxCommandTimeoutMs" | "maxOutputBytes" | "maxBackgroundProcesses">;
+  readonly limits: Pick<
+    Limits,
+    "defaultCommandTimeoutMs" | "maxCommandTimeoutMs" | "maxOutputBytes" | "maxBackgroundProcesses"
+  >;
   /** Base environment for children (defaults to the platform base environment). */
   readonly baseEnv?: Readonly<Record<string, string | undefined>>;
 }
@@ -99,7 +102,10 @@ export class ProcessService {
       this.assertOpen();
       await assertDirectory(cwd);
       const env = this.env(args.env);
-      const spec = await this.deps.platform.launcher.resolveCommand(args.command, args.args, { cwd: cwd.absolute, env });
+      const spec = await this.deps.platform.launcher.resolveCommand(args.command, args.args, {
+        cwd: cwd.absolute,
+        env,
+      });
       return this.runForeground(spec, cwd, env, args.stdin, timeoutMs, encoding);
     });
   }
@@ -141,12 +147,20 @@ export class ProcessService {
       encoding: args.encoding,
     };
     // Starting a process both executes a command and creates a managed process.
-    const op = { operation: "process.start", capability: ["process.manage", "shell.execute"] as const, paths: [cwd], details };
+    const op = {
+      operation: "process.start",
+      capability: ["process.manage", "shell.execute"] as const,
+      paths: [cwd],
+      details,
+    };
     return this.deps.guard.run(context, op, async () => {
       this.assertOpen();
       await assertDirectory(cwd);
       if (this.runningCount() >= this.deps.limits.maxBackgroundProcesses) {
-        throw new CrotError("LIMIT_EXCEEDED", `Too many running background processes (limit ${this.deps.limits.maxBackgroundProcesses}).`);
+        throw new CrotError(
+          "LIMIT_EXCEEDED",
+          `Too many running background processes (limit ${this.deps.limits.maxBackgroundProcesses}).`,
+        );
       }
       const env = this.env(args.env);
       const spec =
@@ -247,9 +261,15 @@ export class ProcessService {
   async remove(context: AuthContext, input: ProcessIdInput): Promise<{ id: string; removed: boolean }> {
     const args = parseInput(ProcessIdInputSchema, input);
     const record = this.get(args.id);
-    const op = { operation: "process.remove", capability: "process.manage", paths: [record.cwd], details: { id: record.id } } as const;
+    const op = {
+      operation: "process.remove",
+      capability: "process.manage",
+      paths: [record.cwd],
+      details: { id: record.id },
+    } as const;
     return this.deps.guard.run(context, op, async () => {
-      if (!record.endedAt) throw new CrotError("INVALID_INPUT", `Process ${record.id} is still running; stop it first.`);
+      if (!record.endedAt)
+        throw new CrotError("INVALID_INPUT", `Process ${record.id} is still running; stop it first.`);
       this.processes.delete(record.id);
       return { id: record.id, removed: true };
     });
@@ -292,7 +312,10 @@ export class ProcessService {
   }
 
   private env(overrides: EnvOverrides): Record<string, string> {
-    return this.deps.platform.environment.merge(this.deps.baseEnv ?? this.deps.platform.baseEnvironment, overrides ?? {});
+    return this.deps.platform.environment.merge(
+      this.deps.baseEnv ?? this.deps.platform.baseEnvironment,
+      overrides ?? {},
+    );
   }
 
   private async runForeground(
@@ -361,7 +384,10 @@ export class ProcessService {
   private timeout(requested: number | undefined): number {
     const max = this.deps.limits.maxCommandTimeoutMs;
     if (requested !== undefined && requested > max) {
-      throw new CrotError("LIMIT_EXCEEDED", `Requested timeout ${requested}ms exceeds the configured maximum of ${max}ms.`);
+      throw new CrotError(
+        "LIMIT_EXCEEDED",
+        `Requested timeout ${requested}ms exceeds the configured maximum of ${max}ms.`,
+      );
     }
     return requested ?? Math.min(this.deps.limits.defaultCommandTimeoutMs, max);
   }
@@ -405,7 +431,10 @@ function capture(stream: NodeJS.ReadableStream, buffer: OutputBuffer): void {
 }
 
 /** Audit-safe summary: environment variable names only, never values or stdin contents. */
-function commonDetails(args: { env?: Record<string, string | null> | undefined; stdin?: string | undefined; encoding: string }, timeoutMs: number) {
+function commonDetails(
+  args: { env?: Record<string, string | null> | undefined; stdin?: string | undefined; encoding: string },
+  timeoutMs: number,
+) {
   return { envKeys: Object.keys(args.env ?? {}), stdin: args.stdin !== undefined, timeoutMs, encoding: args.encoding };
 }
 
@@ -427,7 +456,8 @@ function toInfo(p: BackgroundProcess): ProcessInfo {
 async function assertDirectory(cwd: ResolvedPath): Promise<void> {
   const info = await stat(cwd.absolute).catch(() => undefined);
   if (!info) throw new CrotError("NOT_FOUND", `Working directory does not exist: ${display(cwd)}`);
-  if (!info.isDirectory()) throw new CrotError("INVALID_INPUT", `Working directory is not a directory: ${display(cwd)}`);
+  if (!info.isDirectory())
+    throw new CrotError("INVALID_INPUT", `Working directory is not a directory: ${display(cwd)}`);
 }
 
 function ended(stream: NodeJS.ReadableStream): Promise<void> {

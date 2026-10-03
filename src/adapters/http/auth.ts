@@ -51,7 +51,10 @@ export class LocalTokenVerifier implements AccessTokenVerifier {
 
   constructor(token: string) {
     if (token.length < MIN_TOKEN_LENGTH) {
-      throw new CrotError("CONFIG_ERROR", `The HTTP access token must be at least ${MIN_TOKEN_LENGTH} characters long.`);
+      throw new CrotError(
+        "CONFIG_ERROR",
+        `The HTTP access token must be at least ${MIN_TOKEN_LENGTH} characters long.`,
+      );
     }
     this.digest = sha256(token);
     this.fingerprint = this.digest.toString("hex").slice(0, 12);
@@ -87,7 +90,10 @@ async function readToken(file: string): Promise<string | undefined> {
  * only then receives the token; an existing file is restricted before use.
  * Failure to restrict is an error, never a silent downgrade.
  */
-export async function loadOrCreateLocalToken(file: string, privateFiles: PrivateFileProtection): Promise<{ token: string; created: boolean }> {
+export async function loadOrCreateLocalToken(
+  file: string,
+  privateFiles: PrivateFileProtection,
+): Promise<{ token: string; created: boolean }> {
   const existing = await readToken(file);
   if (existing !== undefined) {
     if (existing.length === 0) throw new CrotError("CONFIG_ERROR", `The HTTP token file ${file} is empty.`);
@@ -95,7 +101,10 @@ export async function loadOrCreateLocalToken(file: string, privateFiles: Private
       try {
         await privateFiles.protectFile(file);
       } catch (error) {
-        throw new CrotError("CONFIG_ERROR", `Cannot restrict access to the HTTP token file ${file}: ${(error as Error).message}`);
+        throw new CrotError(
+          "CONFIG_ERROR",
+          `Cannot restrict access to the HTTP token file ${file}: ${(error as Error).message}`,
+        );
       }
     }
     return { token: existing, created: false };

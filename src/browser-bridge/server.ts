@@ -43,7 +43,13 @@ import type {
 import type { BrowserInfo } from "../core/capabilities/browser/schemas.js";
 import { CrotError, type CrotErrorCode } from "../core/errors.js";
 import type { PrivateFileProtection } from "../core/platform/types.js";
-import { bridgeEndpoint, bridgeTokenFile, loadOrCreateBridgeToken, tokensEqual, type BridgeEndpoint } from "./endpoint.js";
+import {
+  bridgeEndpoint,
+  bridgeTokenFile,
+  loadOrCreateBridgeToken,
+  tokensEqual,
+  type BridgeEndpoint,
+} from "./endpoint.js";
 import {
   BRIDGE_PROTOCOL_VERSION,
   BrowserProtocolError,
@@ -111,7 +117,10 @@ interface ConnectedExtension {
 
 const notConnected = () => new CrotError("BROWSER_NOT_CONNECTED", "The CROT Browser Extension is not connected.");
 const inUse = () =>
-  new CrotError("BROWSER_BRIDGE_IN_USE", "Another CROT instance owns the browser bridge; browser operations are unavailable in this instance.");
+  new CrotError(
+    "BROWSER_BRIDGE_IN_USE",
+    "Another CROT instance owns the browser bridge; browser operations are unavailable in this instance.",
+  );
 
 export class BrowserBridge implements BrowserConnection {
   private server: net.Server | undefined;
@@ -149,7 +158,8 @@ export class BrowserBridge implements BrowserConnection {
     if (bridge.endpoint.kind === "unix-socket") await bridge.checkDirectory(options.stateDir);
     if (!(await bridge.acquire())) {
       bridge.log(
-        "browser bridge: another CROT instance owns " + bridge.endpoint.path +
+        "browser bridge: another CROT instance owns " +
+          bridge.endpoint.path +
           "; browser operations are unavailable in this instance (restart it after the other instance exits to use the browser here)",
       );
     }
@@ -171,25 +181,37 @@ export class BrowserBridge implements BrowserConnection {
     };
   }
 
-  request<C extends BrowserCommand>(command: C, params: BrowserCommandParams[C], options: BrowserRequestOptions): Promise<unknown> {
+  request<C extends BrowserCommand>(
+    command: C,
+    params: BrowserCommandParams[C],
+    options: BrowserRequestOptions,
+  ): Promise<unknown> {
     if (this.closed) return Promise.reject(new CrotError("BROWSER_NOT_CONNECTED", "The browser bridge is closed."));
     const extension = this.extension;
     if (!extension || extension.socket.destroyed) return Promise.reject(this.server ? notConnected() : inUse());
     if (options.signal.aborted) return Promise.reject(cancelled());
     if (this.pending.size >= this.maxPending) {
-      return Promise.reject(new CrotError("RESOURCE_BUSY", "Too many browser requests in flight (at most " + this.maxPending + ")."));
+      return Promise.reject(
+        new CrotError("RESOURCE_BUSY", "Too many browser requests in flight (at most " + this.maxPending + ")."),
+      );
     }
     const id = randomUUID();
     let frames: Uint8Array[];
     try {
       frames = encodeHostMessage(createRequest(id, command, params));
     } catch (error) {
-      return Promise.reject(new CrotError("LIMIT_EXCEEDED", "The browser request cannot be sent: " + (error as Error).message));
+      return Promise.reject(
+        new CrotError("LIMIT_EXCEEDED", "The browser request cannot be sent: " + (error as Error).message),
+      );
     }
     return new Promise<unknown>((resolve, reject) => {
       const onAbort = () => this.abandon(id, cancelled());
       const timer = setTimeout(
-        () => this.abandon(id, new CrotError("TIMEOUT", "The browser did not answer " + command + " within " + options.timeoutMs + " ms.")),
+        () =>
+          this.abandon(
+            id,
+            new CrotError("TIMEOUT", "The browser did not answer " + command + " within " + options.timeoutMs + " ms."),
+          ),
         options.timeoutMs,
       );
       timer.unref?.();
@@ -225,7 +247,10 @@ export class BrowserBridge implements BrowserConnection {
     if (info && (info.mode & 0o077) !== 0) {
       const mode = (info.mode & 0o777).toString(8).padStart(4, "0");
       this.log(
-        "warning: browser bridge: state directory " + dir + " has mode " + mode +
+        "warning: browser bridge: state directory " +
+          dir +
+          " has mode " +
+          mode +
           "; the socket is restricted to the owner (0600) and connections must present the bridge token",
       );
     }
@@ -259,8 +284,15 @@ export class BrowserBridge implements BrowserConnection {
       const server = net.createServer((socket) => this.accept(socket));
       const onError = (error: NodeJS.ErrnoException) => {
         // A pipe created by another user can also surface as EACCES.
-        if (error.code === "EADDRINUSE" || (endpoint.kind === "named-pipe" && error.code === "EACCES")) resolve("in_use");
-        else reject(new CrotError("OPERATION_FAILED", "Cannot listen on the browser bridge endpoint " + endpoint.path + ": " + error.message));
+        if (error.code === "EADDRINUSE" || (endpoint.kind === "named-pipe" && error.code === "EACCES"))
+          resolve("in_use");
+        else
+          reject(
+            new CrotError(
+              "OPERATION_FAILED",
+              "Cannot listen on the browser bridge endpoint " + endpoint.path + ": " + error.message,
+            ),
+          );
       };
       server.once("error", onError);
       server.listen(endpoint.path, () => {
@@ -276,7 +308,10 @@ export class BrowserBridge implements BrowserConnection {
         await chmod(this.endpoint.path, 0o600);
       } catch (error) {
         server.close();
-        throw new CrotError("OPERATION_FAILED", "Cannot restrict the browser bridge socket " + this.endpoint.path + ": " + (error as Error).message);
+        throw new CrotError(
+          "OPERATION_FAILED",
+          "Cannot restrict the browser bridge socket " + this.endpoint.path + ": " + (error as Error).message,
+        );
       }
     }
     if (this.closed) {
@@ -327,7 +362,8 @@ export class BrowserBridge implements BrowserConnection {
         try {
           if (phase === "auth") {
             const auth = parseRelayAuth(message);
-            if (auth.protocol !== BRIDGE_PROTOCOL_VERSION) throw new BrowserProtocolError("Unsupported relay protocol version " + auth.protocol + ".");
+            if (auth.protocol !== BRIDGE_PROTOCOL_VERSION)
+              throw new BrowserProtocolError("Unsupported relay protocol version " + auth.protocol + ".");
             if (!tokensEqual(auth.token, this.token)) {
               refuse("invalid bridge token");
               return;
@@ -336,7 +372,8 @@ export class BrowserBridge implements BrowserConnection {
           } else if (phase === "hello") {
             const hello = parseBrowserMessage(message);
             if (hello.type !== "hello") throw new BrowserProtocolError("Expected hello.");
-            if (hello.protocol !== BRIDGE_PROTOCOL_VERSION) throw new BrowserProtocolError("Unsupported extension protocol version " + hello.protocol + ".");
+            if (hello.protocol !== BRIDGE_PROTOCOL_VERSION)
+              throw new BrowserProtocolError("Unsupported extension protocol version " + hello.protocol + ".");
             if (this.extension) {
               refuse("a browser extension is already connected");
               return;
@@ -346,9 +383,18 @@ export class BrowserBridge implements BrowserConnection {
             this.extension = { socket, browser: hello.browser };
             phase = "ready";
             reader.maxFrameBytes = MAX_BROWSER_TO_HOST_FRAME_BYTES;
-            for (const frame of encodeHostMessage({ type: "welcome", protocol: BRIDGE_PROTOCOL_VERSION })) socket.write(frame);
+            for (const frame of encodeHostMessage({ type: "welcome", protocol: BRIDGE_PROTOCOL_VERSION }))
+              socket.write(frame);
             const b = hello.browser;
-            this.log("browser bridge: connected to " + clean(b.name) + " " + clean(b.version) + " (CROT Browser Extension " + clean(b.extensionVersion) + ")");
+            this.log(
+              "browser bridge: connected to " +
+                clean(b.name) +
+                " " +
+                clean(b.version) +
+                " (CROT Browser Extension " +
+                clean(b.extensionVersion) +
+                ")",
+            );
           } else {
             this.receive(message);
           }
@@ -363,7 +409,8 @@ export class BrowserBridge implements BrowserConnection {
   /** A message on the connected extension's socket: only answers to requests this bridge sent are accepted. */
   private receive(message: unknown): void {
     const response = parseBrowserMessage(message);
-    if (response.type !== "response") throw new BrowserProtocolError("Unexpected " + response.type + " after the handshake.");
+    if (response.type !== "response")
+      throw new BrowserProtocolError("Unexpected " + response.type + " after the handshake.");
     const pending = this.pending.get(response.id);
     if (!pending) {
       // Late answer to a request Core already gave up on.
@@ -410,7 +457,10 @@ const cancelled = () => new CrotError("OPERATION_FAILED", "Browser request cance
 
 /** Single-line text without control characters, bounded. */
 function clean(text: string, max = MAX_ERROR_MESSAGE): string {
-  return text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").trim().slice(0, max);
+  return text
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ")
+    .trim()
+    .slice(0, max);
 }
 
 const describe = (error: unknown): string => clean(error instanceof Error ? error.message : String(error), 200);
@@ -460,7 +510,10 @@ async function removeStaleSocket(socketPath: string): Promise<void> {
   const info = await lstat(socketPath).catch(() => undefined);
   if (!info) return;
   if (!info.isSocket()) {
-    throw new CrotError("CONFIG_ERROR", socketPath + " exists and is not a socket; CROT does not remove it. Remove it to enable the browser bridge.");
+    throw new CrotError(
+      "CONFIG_ERROR",
+      socketPath + " exists and is not a socket; CROT does not remove it. Remove it to enable the browser bridge.",
+    );
   }
   await unlink(socketPath).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error;

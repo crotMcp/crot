@@ -29,7 +29,10 @@ describe("crot-mcp stdio server (built)", () => {
       const { tools } = await client.listTools();
       expect(tools.some((t) => t.name === "fs_write_file")).toBe(true);
       await client.callTool({ name: "fs_write_file", arguments: { path: "e2e.txt", content: "ok" } });
-      const result = (await client.callTool({ name: "fs_read_file", arguments: { path: "e2e.txt" } })) as CallToolResult;
+      const result = (await client.callTool({
+        name: "fs_read_file",
+        arguments: { path: "e2e.txt" },
+      })) as CallToolResult;
       const first = result.content[0];
       expect(first?.type === "text" && JSON.parse(first.text).content).toBe("ok");
     } finally {
@@ -146,8 +149,13 @@ describe.runIf(process.platform === "linux")("crot-mcp browser bridge (built)", 
   async function serve(browser: { enabled: boolean } | undefined, mode = "sandbox") {
     const stateHome = path.join(dirs.outside, "xdg");
     const configFile = path.join(dirs.outside, "crot.json");
-    await writeFile(configFile, JSON.stringify({ workspace: { root: dirs.workspace }, ...(browser ? { browser } : {}) }));
-    const env = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined));
+    await writeFile(
+      configFile,
+      JSON.stringify({ workspace: { root: dirs.workspace }, ...(browser ? { browser } : {}) }),
+    );
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined),
+    );
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [bin, "--config", configFile, "--mode", mode, "--no-audit"],
@@ -184,14 +192,20 @@ describe.runIf(process.platform === "linux")("crot-mcp browser bridge (built)", 
       await waitFor(() => s.stderr().includes("browser: waiting"));
       const before = await readFile(tokenFile, "utf8");
       expect(s.stderr()).not.toContain(before.trim());
-      const write = (await s.client.callTool({ name: "fs_write_file", arguments: { path: tokenFile, content: "x" } })) as CallToolResult;
+      const write = (await s.client.callTool({
+        name: "fs_write_file",
+        arguments: { path: tokenFile, content: "x" },
+      })) as CallToolResult;
       expect(write.isError).toBe(true);
       expect(await readFile(tokenFile, "utf8")).toBe(before);
     } finally {
       await s.client.close();
     }
     // Shutdown closes the bridge: the socket file is removed.
-    await waitFor(async () => (await stat(path.join(s.stateDir, "browser.sock")).catch(() => undefined)) === undefined, 5_000);
+    await waitFor(
+      async () => (await stat(path.join(s.stateDir, "browser.sock")).catch(() => undefined)) === undefined,
+      5_000,
+    );
   });
 
   it("a bridge that cannot start does not stop CROT", async () => {

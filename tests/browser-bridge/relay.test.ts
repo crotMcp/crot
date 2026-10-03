@@ -47,7 +47,8 @@ async function tempState(): Promise<string> {
   return path.join(dir, "state");
 }
 
-const frame = (body: string | Uint8Array): Buffer => Buffer.from(encodeFrame(typeof body === "string" ? Buffer.from(body, "utf8") : body));
+const frame = (body: string | Uint8Array): Buffer =>
+  Buffer.from(encodeFrame(typeof body === "string" ? Buffer.from(body, "utf8") : body));
 
 function header(length: number): Buffer {
   const bytes = Buffer.alloc(4);
@@ -107,7 +108,12 @@ class Browser {
 
 function startRelay(stateDir: string, browser = new Browser()) {
   const logs: string[] = [];
-  const exit = runRelay({ stateDir, input: browser.input, output: browser.output, log: (message) => logs.push(message) });
+  const exit = runRelay({
+    stateDir,
+    input: browser.input,
+    output: browser.output,
+    log: (message) => logs.push(message),
+  });
   cleanups.push(async () => {
     browser.input.destroy();
     await exit;
@@ -118,7 +124,12 @@ function startRelay(stateDir: string, browser = new Browser()) {
 async function startBridge() {
   const dir = await tempState();
   const logs: string[] = [];
-  const bridge = await BrowserBridge.start({ stateDir: dir, privateFiles, log: (message) => logs.push(message), handshakeTimeoutMs: 2_000 });
+  const bridge = await BrowserBridge.start({
+    stateDir: dir,
+    privateFiles,
+    log: (message) => logs.push(message),
+    handshakeTimeoutMs: 2_000,
+  });
   cleanups.push(() => bridge.close());
   const token = await readBridgeToken(bridge.tokenFile);
   if (token === undefined) throw new Error("token file missing");
@@ -151,7 +162,9 @@ async function startFakeHost() {
         server.close(() => resolve());
       }),
   );
-  const authFrame = Buffer.from(encodeMessage({ type: "auth", protocol: BRIDGE_PROTOCOL_VERSION, token }, MAX_HANDSHAKE_FRAME_BYTES));
+  const authFrame = Buffer.from(
+    encodeMessage({ type: "auth", protocol: BRIDGE_PROTOCOL_VERSION, token }, MAX_HANDSHAKE_FRAME_BYTES),
+  );
   return {
     dir,
     token,
@@ -172,11 +185,21 @@ describe("parseRelayArgs", () => {
   const dir = path.resolve(os.tmpdir(), "crot-state");
 
   it("reads --state-dir and ignores the arguments added by the browser", () => {
-    expect(parseRelayArgs(["--state-dir", dir, "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"])).toEqual({ stateDir: dir });
-    expect(parseRelayArgs(["--state-dir=" + dir, "chrome-extension://abcdefghijklmnopabcdefghijklmnop/", "--parent-window=1234"])).toEqual({
+    expect(parseRelayArgs(["--state-dir", dir, "chrome-extension://abcdefghijklmnopabcdefghijklmnop/"])).toEqual({
       stateDir: dir,
     });
-    expect(parseRelayArgs(["chrome-extension://abcdefghijklmnopabcdefghijklmnop/", "--state-dir", dir])).toEqual({ stateDir: dir });
+    expect(
+      parseRelayArgs([
+        "--state-dir=" + dir,
+        "chrome-extension://abcdefghijklmnopabcdefghijklmnop/",
+        "--parent-window=1234",
+      ]),
+    ).toEqual({
+      stateDir: dir,
+    });
+    expect(parseRelayArgs(["chrome-extension://abcdefghijklmnopabcdefghijklmnop/", "--state-dir", dir])).toEqual({
+      stateDir: dir,
+    });
   });
 
   it("requires exactly one absolute --state-dir", () => {
@@ -277,7 +300,11 @@ describe("crot-browser-relay framing", () => {
     expect(same(host.received(), host.authFrame)).toBe(true);
 
     // Browser -> host: frames split across writes and several frames per write; bodies need not be JSON.
-    const toHost = Buffer.concat([frame("not json"), frame('{"type":"hello"}'), frame(new Uint8Array([0xff, 0x00, 0x01]))]);
+    const toHost = Buffer.concat([
+      frame("not json"),
+      frame('{"type":"hello"}'),
+      frame(new Uint8Array([0xff, 0x00, 0x01])),
+    ]);
     browser.input.write(toHost.subarray(0, 3));
     browser.input.write(toHost.subarray(3, 15));
     browser.input.write(toHost.subarray(15));
@@ -285,7 +312,11 @@ describe("crot-browser-relay framing", () => {
     expect(same(host.received(), Buffer.concat([host.authFrame, toHost]))).toBe(true);
 
     // Host -> browser, including a frame of exactly the 1 MiB limit.
-    const toBrowser = Buffer.concat([frame("x"), frame("[1,2"), frame(Buffer.alloc(MAX_HOST_TO_BROWSER_FRAME_BYTES, 0x61))]);
+    const toBrowser = Buffer.concat([
+      frame("x"),
+      frame("[1,2"),
+      frame(Buffer.alloc(MAX_HOST_TO_BROWSER_FRAME_BYTES, 0x61)),
+    ]);
     socket.write(toBrowser.subarray(0, 2));
     socket.write(toBrowser.subarray(2, 11));
     socket.write(toBrowser.subarray(11));
@@ -302,7 +333,9 @@ describe("crot-browser-relay framing", () => {
     const browser = new Browser(true);
     const { exit } = startRelay(host.dir, browser);
     const socket = await host.connection();
-    const toBrowser = Buffer.concat([1, 2, 3].map((n) => frame(Buffer.alloc(MAX_HOST_TO_BROWSER_FRAME_BYTES, 0x60 + n))));
+    const toBrowser = Buffer.concat(
+      [1, 2, 3].map((n) => frame(Buffer.alloc(MAX_HOST_TO_BROWSER_FRAME_BYTES, 0x60 + n))),
+    );
     socket.write(toBrowser);
     await sleep(100);
     browser.read();

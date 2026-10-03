@@ -12,7 +12,12 @@ describe("OutputBuffer", () => {
     b.append(Buffer.from("abc"));
     b.append(Buffer.from("def"));
     b.end();
-    expect(b.readAll()).toEqual({ data: "cdef", nextOffset: 6, droppedBytes: 2, encoding: { name: "utf-8", lossy: false } });
+    expect(b.readAll()).toEqual({
+      data: "cdef",
+      nextOffset: 6,
+      droppedBytes: 2,
+      encoding: { name: "utf-8", lossy: false },
+    });
     expect(b.truncated).toBe(true);
     expect(b.totalBytes).toBe(6);
     expect(b.readFrom(5)).toMatchObject({ data: "f", nextOffset: 6, droppedBytes: 0 });

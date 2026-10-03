@@ -6,7 +6,13 @@
  * the PermissionEngine) decides what runs, when and with which timeouts.
  */
 import { CrotError } from "../core/errors.js";
-import type { ExitStatus, ManagedProcess, ProcessControlInfo, ProcessLauncher, TerminationMode } from "../core/platform/types.js";
+import type {
+  ExitStatus,
+  ManagedProcess,
+  ProcessControlInfo,
+  ProcessLauncher,
+  TerminationMode,
+} from "../core/platform/types.js";
 import type { Readable, Writable } from "node:stream";
 import type { JobObject, JobObjectApi } from "./windows-job.js";
 
@@ -78,7 +84,12 @@ export function guardLauncher(inner: ProcessLauncher, isOpen: () => boolean): Pr
   };
 }
 
-export function createJobObjectLauncher(inner: ProcessLauncher, api: JobObjectApi, tracker: JobTracker, isOpen: () => boolean): ProcessLauncher {
+export function createJobObjectLauncher(
+  inner: ProcessLauncher,
+  api: JobObjectApi,
+  tracker: JobTracker,
+  isOpen: () => boolean,
+): ProcessLauncher {
   return {
     canTerminateOrphanedDescendants: true,
     processControl: JOB_OBJECT_PROCESS_CONTROL,

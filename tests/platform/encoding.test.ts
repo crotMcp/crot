@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { canonicalEncodingName, codePageEncodingName, createEncodingSupport, decodingFor, parseWindowsCodePages } from "../../src/core/platform/encoding.js";
+import {
+  canonicalEncodingName,
+  codePageEncodingName,
+  createEncodingSupport,
+  decodingFor,
+  parseWindowsCodePages,
+} from "../../src/core/platform/encoding.js";
 
 const decode = (name: string, ...b: number[]) => decodingFor(name)!.decode(Uint8Array.from(b), false);
 

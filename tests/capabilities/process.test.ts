@@ -3,7 +3,15 @@ import { codePageEncodingName, decodingFor } from "../../src/core/platform/encod
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CrotCore } from "../../src/core/crot-core.js";
-import { createTestCore, isAlive, isWindows, makeTempDirs, testContext as ctx, waitFor, type TempDirs } from "../helpers.js";
+import {
+  createTestCore,
+  isAlive,
+  isWindows,
+  makeTempDirs,
+  testContext as ctx,
+  waitFor,
+  type TempDirs,
+} from "../helpers.js";
 
 const node = process.execPath;
 let dirs: TempDirs;
@@ -11,19 +19,28 @@ let core: CrotCore;
 
 beforeEach(async () => {
   dirs = await makeTempDirs();
-  core = await createTestCore({ workspace: { root: dirs.workspace }, limits: { maxOutputBytes: 1024, maxCommandTimeoutMs: 30_000 } });
+  core = await createTestCore({
+    workspace: { root: dirs.workspace },
+    limits: { maxOutputBytes: 1024, maxCommandTimeoutMs: 30_000 },
+  });
 });
 afterEach(async () => {
   await core.shutdown();
   await dirs.cleanup();
 });
 
-
 describe("process: exec", () => {
   it("runs a command with arguments, cwd, env and stdin", async () => {
     await mkdir(path.join(dirs.workspace, "sub"));
-    const script = "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{console.log(process.cwd(), process.env.CROT_T, d.trim());console.error('err');process.exit(3)})";
-    const r = await core.processes.exec(ctx, { command: node, args: ["-e", script], cwd: "sub", env: { CROT_T: "v" }, stdin: "in" });
+    const script =
+      "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{console.log(process.cwd(), process.env.CROT_T, d.trim());console.error('err');process.exit(3)})";
+    const r = await core.processes.exec(ctx, {
+      command: node,
+      args: ["-e", script],
+      cwd: "sub",
+      env: { CROT_T: "v" },
+      stdin: "in",
+    });
     expect(r.exitCode).toBe(3);
     expect(r.timedOut).toBe(false);
     expect(r.stdout.trim()).toBe(`${path.join(dirs.workspace, "sub")} v in`);
@@ -31,47 +48,72 @@ describe("process: exec", () => {
   });
 
   it("does not interpret arguments through a shell", async () => {
-    const r = await core.processes.exec(ctx, { command: node, args: ["-e", "console.log(process.argv[1])", "$(echo hi); rm -rf x"] });
+    const r = await core.processes.exec(ctx, {
+      command: node,
+      args: ["-e", "console.log(process.argv[1])", "$(echo hi); rm -rf x"],
+    });
     expect(r.stdout.trim()).toBe("$(echo hi); rm -rf x");
   });
 
   it("enforces timeouts", async () => {
-    const r = await core.processes.exec(ctx, { command: node, args: ["-e", "setInterval(()=>{},1000)"], timeoutMs: 300 });
+    const r = await core.processes.exec(ctx, {
+      command: node,
+      args: ["-e", "setInterval(()=>{},1000)"],
+      timeoutMs: 300,
+    });
     expect(r.timedOut).toBe(true);
     expect(r.exitCode === null || r.exitCode !== 0).toBe(true);
   });
 
   it("rejects timeouts above the configured maximum", async () => {
-    await expect(core.processes.exec(ctx, { command: node, args: ["-v"], timeoutMs: 60_000 })).rejects.toMatchObject({ code: "LIMIT_EXCEEDED" });
+    await expect(core.processes.exec(ctx, { command: node, args: ["-v"], timeoutMs: 60_000 })).rejects.toMatchObject({
+      code: "LIMIT_EXCEEDED",
+    });
   });
 
   it("bounds captured output", async () => {
-    const r = await core.processes.exec(ctx, { command: node, args: ["-e", "process.stdout.write('a'.repeat(5000)+'END')"] });
+    const r = await core.processes.exec(ctx, {
+      command: node,
+      args: ["-e", "process.stdout.write('a'.repeat(5000)+'END')"],
+    });
     expect(r.stdoutTruncated).toBe(true);
     expect(r.stdout.length).toBe(1024);
     expect(r.stdout.endsWith("END")).toBe(true);
   });
 
   it("reports unknown executables as NOT_FOUND", async () => {
-    await expect(core.processes.exec(ctx, { command: "crot-definitely-missing-binary" })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(core.processes.exec(ctx, { command: "crot-definitely-missing-binary" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 
   it("denies working directories outside the workspace in sandbox mode", async () => {
     await expect(core.processes.exec(ctx, { command: node, args: ["-v"], cwd: dirs.outside })).rejects.toMatchObject({
       code: "PERMISSION_DENIED",
     });
-    await expect(core.processes.shell(ctx, { script: "pwd", cwd: ".." })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    await expect(core.processes.shell(ctx, { script: "pwd", cwd: ".." })).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+    });
   });
 
   it("allows outside working directories in full_control mode", async () => {
     const full = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { mode: "full_control" } });
-    const r = await full.processes.exec(ctx, { command: node, args: ["-e", "console.log(process.cwd())"], cwd: dirs.outside });
+    const r = await full.processes.exec(ctx, {
+      command: node,
+      args: ["-e", "console.log(process.cwd())"],
+      cwd: dirs.outside,
+    });
     expect(r.stdout.trim()).toBe(dirs.outside);
   });
 
   it("denies execution when shell.execute is not granted", async () => {
-    const ro = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { capabilities: ["filesystem.read"] } });
-    await expect(ro.processes.exec(ctx, { command: node, args: ["-v"] })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    const ro = await createTestCore({
+      workspace: { root: dirs.workspace },
+      permissions: { capabilities: ["filesystem.read"] },
+    });
+    await expect(ro.processes.exec(ctx, { command: node, args: ["-v"] })).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+    });
   });
 });
 
@@ -97,7 +139,10 @@ describe.skipIf(isWindows)("process: shell (POSIX)", () => {
 
   it("kills the whole process tree on timeout", async () => {
     const started = Date.now();
-    const r = await core.processes.shell(ctx, { script: `"${node}" -e "setInterval(()=>{},1000)" & wait`, timeoutMs: 300 });
+    const r = await core.processes.shell(ctx, {
+      script: `"${node}" -e "setInterval(()=>{},1000)" & wait`,
+      timeoutMs: 300,
+    });
     expect(r.timedOut).toBe(true);
     expect(Date.now() - started).toBeLessThan(5_000);
   });
@@ -118,7 +163,10 @@ describe.runIf(isWindows)("process: shell (Windows)", () => {
   it("runs .cmd shims through cmd.exe with escaped arguments", async () => {
     const bin = path.join(dirs.workspace, "node_modules", ".bin");
     await mkdir(bin, { recursive: true });
-    await writeFile(path.join(bin, "argv.cmd"), `@"${node}" -e "console.log(JSON.stringify(process.argv.slice(1)))" %*\r\n`);
+    await writeFile(
+      path.join(bin, "argv.cmd"),
+      `@"${node}" -e "console.log(JSON.stringify(process.argv.slice(1)))" %*\r\n`,
+    );
     const args = ["a b", "x&y", "(paren)", "semi;colon", "pipe|char"];
     const r = await core.processes.exec(ctx, { command: "node_modules/.bin/argv", args });
     expect(r.stderr).toBe("");
@@ -161,18 +209,31 @@ describe("process: output encoding", () => {
   });
 
   it("decodes with an explicit encoding", async () => {
-    const r16 = await core.processes.exec(ctx, { command: node, args: print("process.stdout.write(Buffer.from('ü✓','utf16le'))"), encoding: "utf-16le" });
+    const r16 = await core.processes.exec(ctx, {
+      command: node,
+      args: print("process.stdout.write(Buffer.from('ü✓','utf16le'))"),
+      encoding: "utf-16le",
+    });
     expect(r16).toMatchObject({ stdout: "ü✓", encoding: { stdout: { name: "utf-16le", lossy: false } } });
-    const r1252 = await core.processes.exec(ctx, { command: node, args: print("process.stdout.write(Buffer.from([0x80,0x20,0xe9]))"), encoding: "cp1252" });
+    const r1252 = await core.processes.exec(ctx, {
+      command: node,
+      args: print("process.stdout.write(Buffer.from([0x80,0x20,0xe9]))"),
+      encoding: "cp1252",
+    });
     expect(r1252).toMatchObject({ stdout: "€ é", encoding: { stdout: { name: "windows-1252", lossy: false } } });
   });
 
   it("rejects unknown encodings before running anything", async () => {
-    await expect(core.processes.exec(ctx, { command: node, args: ["-v"], encoding: "klingon" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(core.processes.exec(ctx, { command: node, args: ["-v"], encoding: "klingon" })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+    });
   });
 
   it("auto: never silently corrupts output that is not UTF-8", async () => {
-    const r = await core.processes.exec(ctx, { command: node, args: print("process.stdout.write(Buffer.from([0x81,0x0d,0x0a]))") });
+    const r = await core.processes.exec(ctx, {
+      command: node,
+      args: print("process.stdout.write(Buffer.from([0x81,0x0d,0x0a]))"),
+    });
     const fallback = core.platform.encodings.fallback;
     if (fallback) {
       // Windows: decoded with the console (OEM) code page and reported as such.
@@ -193,14 +254,19 @@ describe("process: output encoding", () => {
   });
 
   it("background output: holds back a character split across writes", async () => {
-    const script = "const b=Buffer.from('€');process.stdout.write(Buffer.concat([Buffer.from('a'),b.subarray(0,2)]));setTimeout(()=>process.stdout.write(b.subarray(2)),1500)";
+    const script =
+      "const b=Buffer.from('€');process.stdout.write(Buffer.concat([Buffer.from('a'),b.subarray(0,2)]));setTimeout(()=>process.stdout.write(b.subarray(2)),1500)";
     const p = await core.processes.start(ctx, { command: node, args: print(script) });
     await waitFor(async () => (await core.processes.readOutput(ctx, { id: p.id })).stdout === "a");
     const first = await core.processes.readOutput(ctx, { id: p.id });
     expect(first).toMatchObject({ stdout: "a", nextStdoutOffset: 1, encoding: { stdout: { lossy: false } } });
     await waitFor(async () => (await core.processes.list(ctx)).find((x) => x.id === p.id)?.status === "exited");
     const rest = await core.processes.readOutput(ctx, { id: p.id, stdoutOffset: first.nextStdoutOffset });
-    expect(rest).toMatchObject({ stdout: "€", nextStdoutOffset: 4, encoding: { stdout: { name: "utf-8", lossy: false } } });
+    expect(rest).toMatchObject({
+      stdout: "€",
+      nextStdoutOffset: 4,
+      encoding: { stdout: { name: "utf-8", lossy: false } },
+    });
   });
 });
 
@@ -228,9 +294,17 @@ describe.runIf(isWindows)("process: output encoding (Windows)", () => {
 
   it("oem and ansi resolve to the detected code pages", async () => {
     const { oem, ansi } = core.platform.info.encoding.codePages!;
-    const r = await core.processes.exec(ctx, { command: node, args: ["-e", "process.stdout.write('ok')"], encoding: "oem" });
+    const r = await core.processes.exec(ctx, {
+      command: node,
+      args: ["-e", "process.stdout.write('ok')"],
+      encoding: "oem",
+    });
     expect(r).toMatchObject({ stdout: "ok", encoding: { stdout: { name: codePageEncodingName(oem) } } });
-    const a = await core.processes.exec(ctx, { command: node, args: ["-e", "process.stdout.write('ok')"], encoding: "ansi" });
+    const a = await core.processes.exec(ctx, {
+      command: node,
+      args: ["-e", "process.stdout.write('ok')"],
+      encoding: "ansi",
+    });
     expect(a).toMatchObject({ stdout: "ok", encoding: { stdout: { name: codePageEncodingName(ansi) } } });
   });
 });
@@ -239,7 +313,11 @@ describe("process: shells", () => {
   it("runs PowerShell scripts when available (no command-line quoting)", async (t) => {
     const ps = core.platform.info.shells.find((s) => s.id === "pwsh" || s.id === "powershell");
     if (!ps) t.skip();
-    const r = await core.processes.shell(ctx, { script: `$x = 'a "quoted" b'; Write-Output $x; exit 3`, shell: ps!.id, timeoutMs: 30_000 });
+    const r = await core.processes.shell(ctx, {
+      script: `$x = 'a "quoted" b'; Write-Output $x; exit 3`,
+      shell: ps!.id,
+      timeoutMs: 30_000,
+    });
     expect(r.exitCode).toBe(3);
     expect(r.stdout.trim()).toBe('a "quoted" b');
   });
@@ -247,15 +325,23 @@ describe("process: shells", () => {
   it("PowerShell output is UTF-8 when available", async (t) => {
     const ps = core.platform.info.shells.find((s) => s.id === "pwsh" || s.id === "powershell");
     if (!ps) t.skip();
-    const r = await core.processes.shell(ctx, { script: "Write-Output 'grüße €✓ 日本'", shell: ps!.id, timeoutMs: 30_000 });
+    const r = await core.processes.shell(ctx, {
+      script: "Write-Output 'grüße €✓ 日本'",
+      shell: ps!.id,
+      timeoutMs: 30_000,
+    });
     expect(r.stdout.trim()).toBe("grüße €✓ 日本");
     expect(r.encoding.stdout).toEqual({ name: "utf-8", lossy: false });
   });
 
   it("reports unavailable shells", async () => {
-    const missing = (["zsh", "pwsh", "powershell", "bash"] as const).find((id) => !core.platform.info.shells.some((s) => s.id === id));
+    const missing = (["zsh", "pwsh", "powershell", "bash"] as const).find(
+      (id) => !core.platform.info.shells.some((s) => s.id === id),
+    );
     if (!missing) return;
-    await expect(core.processes.shell(ctx, { script: "echo", shell: missing })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(core.processes.shell(ctx, { script: "echo", shell: missing })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 });
 
@@ -290,7 +376,10 @@ describe("process: commands and environment", () => {
 
 describe("process: background", () => {
   it("stops the whole tree of a background process", async () => {
-    await writeFile(path.join(dirs.workspace, "gc.js"), "require('fs').writeFileSync('gc.pid', String(process.pid)); setInterval(() => {}, 1000);");
+    await writeFile(
+      path.join(dirs.workspace, "gc.js"),
+      "require('fs').writeFileSync('gc.pid', String(process.pid)); setInterval(() => {}, 1000);",
+    );
     await writeFile(
       path.join(dirs.workspace, "parent.js"),
       "require('child_process').spawn(process.execPath, ['gc.js'], { stdio: 'ignore' }); setInterval(() => {}, 1000);",
@@ -326,22 +415,34 @@ describe("process: background", () => {
 
   it("requires exactly one of command or script", async () => {
     await expect(core.processes.start(ctx, {})).rejects.toMatchObject({ code: "INVALID_INPUT" });
-    await expect(core.processes.start(ctx, { command: node, script: "echo" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(core.processes.start(ctx, { command: node, script: "echo" })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+    });
   });
 
   it("enforces the background process limit", async () => {
-    const limited = await createTestCore({ workspace: { root: dirs.workspace }, limits: { maxBackgroundProcesses: 1 } });
+    const limited = await createTestCore({
+      workspace: { root: dirs.workspace },
+      limits: { maxBackgroundProcesses: 1 },
+    });
     try {
       await limited.processes.start(ctx, { command: node, args: ["-e", "setInterval(()=>{},1000)"] });
-      await expect(limited.processes.start(ctx, { command: node, args: ["-e", "1"] })).rejects.toMatchObject({ code: "LIMIT_EXCEEDED" });
+      await expect(limited.processes.start(ctx, { command: node, args: ["-e", "1"] })).rejects.toMatchObject({
+        code: "LIMIT_EXCEEDED",
+      });
     } finally {
       await limited.shutdown();
     }
   });
 
   it("requires process.manage", async () => {
-    const noManage = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { capabilities: ["shell.execute"] } });
-    await expect(noManage.processes.start(ctx, { command: node, args: ["-v"] })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    const noManage = await createTestCore({
+      workspace: { root: dirs.workspace },
+      permissions: { capabilities: ["shell.execute"] },
+    });
+    await expect(noManage.processes.start(ctx, { command: node, args: ["-v"] })).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+    });
     await expect(noManage.processes.list(ctx)).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
   });
 

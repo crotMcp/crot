@@ -75,8 +75,16 @@ export const BrowserTabsListInputSchema = z.object({}).strict();
 export const BrowserPageReadInputSchema = z
   .object({
     tabId: OptionalTabId,
-    format: z.enum(BROWSER_PAGE_FORMATS).default("text").describe("text: visible text (default); html: the page's HTML."),
-    maxBytes: z.number().int().positive().optional().describe("Maximum UTF-8 bytes of content to return (bounded by the configured maxReadBytes)."),
+    format: z
+      .enum(BROWSER_PAGE_FORMATS)
+      .default("text")
+      .describe("text: visible text (default); html: the page's HTML."),
+    maxBytes: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Maximum UTF-8 bytes of content to return (bounded by the configured maxReadBytes)."),
   })
   .strict();
 
@@ -87,7 +95,9 @@ export const BrowserScreenshotInputSchema = z
     quality: z.number().int().min(0).max(100).optional().describe("JPEG quality (0-100). Only valid with format jpeg."),
   })
   .strict()
-  .refine((v) => v.quality === undefined || v.format === "jpeg", { message: "'quality' is only valid with format 'jpeg'." });
+  .refine((v) => v.quality === undefined || v.format === "jpeg", {
+    message: "'quality' is only valid with format 'jpeg'.",
+  });
 
 export const BrowserTabOpenInputSchema = z
   .object({

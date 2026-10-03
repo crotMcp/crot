@@ -101,7 +101,8 @@ export class FakeChrome {
   /** What executeScript returns for the main frame; defaults to running the function locally. */
   scriptResult: ((injection: ChromeScriptInjection<unknown[], unknown>) => unknown) | undefined;
   scriptError: Error | undefined;
-  captureResult: (windowId: number, options: ChromeCaptureOptions) => string = (_w, o) => "data:image/" + o.format + ";base64,iVBORw0KGgo=";
+  captureResult: (windowId: number, options: ChromeCaptureOptions) => string = (_w, o) =>
+    "data:image/" + o.format + ";base64,iVBORw0KGgo=";
   captureError: Error | undefined;
   /** Called after captureVisibleTab resolves (to simulate a tab switch). */
   afterCapture: (() => void) | undefined;
@@ -113,7 +114,14 @@ export class FakeChrome {
   readonly alarmsOnAlarm = new FakeEvent<(alarm: { name: string }) => void>();
 
   addTab(tab: Partial<MutableTab> & { id: number }): MutableTab {
-    const full: MutableTab = { windowId: 1, active: false, url: "https://example.com/", title: "Example", status: "complete", ...tab };
+    const full: MutableTab = {
+      windowId: 1,
+      active: false,
+      url: "https://example.com/",
+      title: "Example",
+      status: "complete",
+      ...tab,
+    };
     this.tabsById.set(tab.id, full);
     return full;
   }
@@ -198,7 +206,9 @@ export class FakeChrome {
         },
       },
       scripting: {
-        async executeScript<A extends unknown[], R>(injection: ChromeScriptInjection<A, R>): Promise<ChromeInjectionResult[]> {
+        async executeScript<A extends unknown[], R>(
+          injection: ChromeScriptInjection<A, R>,
+        ): Promise<ChromeInjectionResult[]> {
           const generic = injection as unknown as ChromeScriptInjection<unknown[], unknown>;
           self.injections.push(generic);
           self.tab(injection.target.tabId);
