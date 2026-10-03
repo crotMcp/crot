@@ -1,8 +1,18 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import {
+  CallToolRequestSchema,
+  ErrorCode,
+  McpError,
+  type CallToolResult,
+  type ServerNotification,
+  type ServerRequest,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { CrotCore } from "../../core/crot-core.js";
+import { parseInput } from "../../core/errors.js";
 import type { ContextResolver } from "./context.js";
 import { toToolError, toToolResult } from "./results.js";
-import { TOOLS } from "./tools.js";
+import { TOOLS, type ToolDefinition } from "./tools.js";
 
 export const MCP_SERVER_NAME = "crot";
 
@@ -10,6 +20,8 @@ export interface CrotMcpServerOptions {
   /** Builds the Core AuthContext for each request; supplied by the transport entry point. */
   readonly resolveContext: ContextResolver;
 }
+
+type CallExtra = Pick<RequestHandlerExtra<ServerRequest, ServerNotification>, "requestId" | "sessionId" | "authInfo">;
 
 /**
  * Create the CROT MCP server: a thin, transport-independent adapter that
@@ -23,7 +35,28 @@ export function createCrotMcpServer(core: CrotCore, options: CrotMcpServerOption
     { capabilities: { tools: {} }, instructions: instructions(core) },
   );
 
+  /** Validate the arguments with Core's schema, resolve the context and delegate to Core; errors use CROT's format. */
+  async function run(definition: ToolDefinition, args: unknown, extra: CallExtra): Promise<CallToolResult> {
+    try {
+      const clientInfo = server.server.getClientVersion();
+      const context = options.resolveContext({
+        requestId: String(extra.requestId),
+        ...(extra.sessionId !== undefined ? { sessionId: extra.sessionId } : {}),
+        ...(extra.authInfo !== undefined ? { authInfo: extra.authInfo } : {}),
+        ...(clientInfo ? { client: { name: clientInfo.name, version: clientInfo.version } } : {}),
+      });
+      const input = parseInput(definition.inputSchema, args);
+      const result = await definition.call(core, context, input);
+      return definition.encode ? definition.encode(result) : toToolResult(result);
+    } catch (error) {
+      return toToolError(error);
+    }
+  }
+
+  // Registration publishes each tool and its Core input schema through tools/list.
+  const definitions = new Map<string, ToolDefinition>();
   for (const definition of TOOLS) {
+    definitions.set(definition.name, definition);
     server.registerTool(
       definition.name,
       {
@@ -32,23 +65,23 @@ export function createCrotMcpServer(core: CrotCore, options: CrotMcpServerOption
         inputSchema: definition.inputSchema,
         annotations: definition.annotations,
       },
-      async (args: unknown, extra) => {
-        try {
-          const clientInfo = server.server.getClientVersion();
-          const context = options.resolveContext({
-            requestId: String(extra.requestId),
-            ...(extra.sessionId !== undefined ? { sessionId: extra.sessionId } : {}),
-            ...(extra.authInfo !== undefined ? { authInfo: extra.authInfo } : {}),
-            ...(clientInfo ? { client: { name: clientInfo.name, version: clientInfo.version } } : {}),
-          });
-          const result = await definition.call(core, context, args);
-          return definition.encode ? definition.encode(result) : toToolResult(result);
-        } catch (error) {
-          return toToolError(error);
-        }
-      },
+      (args: unknown, extra) => run(definition, args, extra),
     );
   }
+
+  // tools/call is served here rather than by McpServer: McpServer validates the
+  // arguments itself and answers with a plain-text error, so invalid input would
+  // never reach CROT's validation and error format (INVALID_INPUT). The
+  // underlying SDK Server still validates the tools/call request and result.
+  server.server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
+    const definition = definitions.get(request.params.name);
+    if (!definition) {
+      // Same response as McpServer gives for an unknown tool.
+      const message = new McpError(ErrorCode.InvalidParams, `Tool ${request.params.name} not found`).message;
+      return { isError: true, content: [{ type: "text", text: message }] };
+    }
+    return run(definition, request.params.arguments ?? {}, extra);
+  });
   return server;
 }
 

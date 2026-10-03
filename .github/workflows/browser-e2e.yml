@@ -1,0 +1,43 @@
+name: browser-e2e
+
+# Real-browser E2E of the browser bridge (docs/BROWSER_E2E.md): a real
+# Chrome for Testing with the CROT Browser Extension, driven through CROT MCP.
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main, "e2e/**"]
+
+jobs:
+  real-chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install Chrome for Testing
+        id: chrome
+        run: |
+          out=$(npx --yes @puppeteer/browsers install chrome@stable --path "$RUNNER_TEMP/browsers")
+          echo "$out"
+          echo "path=$(echo "$out" | tail -n1 | cut -d' ' -f2-)" >> "$GITHUB_OUTPUT"
+      - name: Allow the Chromium sandbox (Ubuntu 24.04 restricts unprivileged user namespaces)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - name: Install Xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Real-browser E2E
+        run: xvfb-run -a npm run test:e2e:browser
+        env:
+          CROT_E2E_CHROME: ${{ steps.chrome.outputs.path }}
+          CROT_E2E_ARTIFACTS: ${{ runner.temp }}/crot-e2e-artifacts
+      - name: Upload E2E logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crot-browser-e2e-logs
+          path: ${{ runner.temp }}/crot-e2e-artifacts
+          if-no-files-found: ignore
