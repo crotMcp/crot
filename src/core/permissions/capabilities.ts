@@ -30,8 +30,7 @@ export const CAPABILITY_DESCRIPTIONS: Readonly<Record<Capability, string>> = {
   "filesystem.full": "Access paths outside the configured workspace (filesystem and process working directories).",
   "shell.execute": "Run commands and shell scripts.",
   "process.manage": "Start, inspect and stop long-running background processes.",
-  "git.read":
-    "Run read-only Git operations (status, diff, log, branch, show) without repository-controlled programs.",
+  "git.read": "Run read-only Git operations (status, diff, log, branch, show) without repository-controlled programs.",
   "git.write": "Reserved: dedicated Git write operations.",
   "docker.use": "Reserved: dedicated Docker operations.",
   "browser.read":

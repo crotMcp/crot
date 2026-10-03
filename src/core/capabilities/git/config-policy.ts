@@ -62,7 +62,18 @@ const SAFE_REPOSITORY_KEYS: Readonly<Record<string, SectionRule>> = {
   },
   extensions: { plain: ["objectformat", "worktreeconfig", "refstorage", "preciousobjects", "noop"] },
   remote: {
-    sub: ["url", "pushurl", "fetch", "push", "tagopt", "prune", "prunetags", "mirror", "skipfetchall", "skipdefaultupdate"],
+    sub: [
+      "url",
+      "pushurl",
+      "fetch",
+      "push",
+      "tagopt",
+      "prune",
+      "prunetags",
+      "mirror",
+      "skipfetchall",
+      "skipdefaultupdate",
+    ],
   },
   branch: {
     plain: ["autosetupmerge", "autosetuprebase", "sort"],
@@ -99,7 +110,16 @@ const SAFE_REPOSITORY_KEYS: Readonly<Record<string, SectionRule>> = {
     ],
   },
   status: {
-    plain: ["showuntrackedfiles", "relativepaths", "branch", "short", "renames", "renamelimit", "aheadbehind", "showstash"],
+    plain: [
+      "showuntrackedfiles",
+      "relativepaths",
+      "branch",
+      "short",
+      "renames",
+      "renamelimit",
+      "aheadbehind",
+      "showstash",
+    ],
   },
   log: { plain: ["date", "decorate", "abbrevcommit", "follow", "mailmap", "showroot"] },
   color: { plain: "*", sub: "*" },

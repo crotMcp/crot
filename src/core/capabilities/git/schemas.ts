@@ -44,7 +44,10 @@ export const GitStatusInputSchema = z
 export const GitDiffInputSchema = z
   .object({
     cwd: Cwd,
-    staged: z.boolean().default(false).describe("Compare the index with HEAD (or with 'from') instead of the worktree."),
+    staged: z
+      .boolean()
+      .default(false)
+      .describe("Compare the index with HEAD (or with 'from') instead of the worktree."),
     from: Revision.optional().describe("Base revision. Without it, the worktree is compared with the index."),
     to: Revision.optional().describe("Target revision (requires 'from'; not allowed with 'staged')."),
     paths: Paths,

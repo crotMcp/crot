@@ -101,38 +101,67 @@ export class GitService {
 
   async status(context: AuthContext, input: GitStatusInput): Promise<GitStatusResult> {
     const args = parseInput(GitStatusInputSchema, input);
-    return this.operation(context, "git.status", args.cwd, args.paths, args.timeoutMs, { untracked: args.untracked, ignored: args.ignored }, async (repo, deadline) => {
-      const git = ["status", "--porcelain=v2", "--branch", "-z", "--ignore-submodules=all", `--untracked-files=${args.untracked}`];
-      if (args.ignored) git.push("--ignored=matching");
-      git.push("--", ...repo.pathspecs);
-      const run = await this.runGit(repo, git, deadline);
-      const parsed = parseStatus(run.stdout);
-      return {
-        repository: info(repo),
-        branch: parsed.branch,
-        entries: parsed.entries,
-        clean: !run.truncated && parsed.entries.every((e) => e.kind === "ignored"),
-        truncated: run.truncated,
-      };
-    });
+    return this.operation(
+      context,
+      "git.status",
+      args.cwd,
+      args.paths,
+      args.timeoutMs,
+      { untracked: args.untracked, ignored: args.ignored },
+      async (repo, deadline) => {
+        const git = [
+          "status",
+          "--porcelain=v2",
+          "--branch",
+          "-z",
+          "--ignore-submodules=all",
+          `--untracked-files=${args.untracked}`,
+        ];
+        if (args.ignored) git.push("--ignored=matching");
+        git.push("--", ...repo.pathspecs);
+        const run = await this.runGit(repo, git, deadline);
+        const parsed = parseStatus(run.stdout);
+        return {
+          repository: info(repo),
+          branch: parsed.branch,
+          entries: parsed.entries,
+          clean: !run.truncated && parsed.entries.every((e) => e.kind === "ignored"),
+          truncated: run.truncated,
+        };
+      },
+    );
   }
 
   async diff(context: AuthContext, input: GitDiffInput): Promise<GitTextResult> {
     const args = parseInput(GitDiffInputSchema, input);
-    const details = { staged: args.staged, from: args.from ?? null, to: args.to ?? null, stat: args.stat, nameOnly: args.nameOnly };
-    return this.operation(context, "git.diff", args.cwd, args.paths, args.timeoutMs, details, async (repo, deadline) => {
-      const git = ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--ignore-submodules=all"];
-      if (args.staged) git.push("--cached");
-      if (args.contextLines !== undefined) git.push(`--unified=${args.contextLines}`);
-      if (args.stat) git.push("--stat");
-      if (args.nameOnly) git.push("--name-status");
-      git.push("--end-of-options");
-      if (args.from !== undefined) git.push(args.from);
-      if (args.to !== undefined) git.push(args.to);
-      git.push("--", ...repo.pathspecs);
-      const run = await this.runGit(repo, git, deadline);
-      return { repository: info(repo), output: run.stdout, truncated: run.truncated };
-    });
+    const details = {
+      staged: args.staged,
+      from: args.from ?? null,
+      to: args.to ?? null,
+      stat: args.stat,
+      nameOnly: args.nameOnly,
+    };
+    return this.operation(
+      context,
+      "git.diff",
+      args.cwd,
+      args.paths,
+      args.timeoutMs,
+      details,
+      async (repo, deadline) => {
+        const git = ["diff", "--no-ext-diff", "--no-textconv", "--no-color", "--ignore-submodules=all"];
+        if (args.staged) git.push("--cached");
+        if (args.contextLines !== undefined) git.push(`--unified=${args.contextLines}`);
+        if (args.stat) git.push("--stat");
+        if (args.nameOnly) git.push("--name-status");
+        git.push("--end-of-options");
+        if (args.from !== undefined) git.push(args.from);
+        if (args.to !== undefined) git.push(args.to);
+        git.push("--", ...repo.pathspecs);
+        const run = await this.runGit(repo, git, deadline);
+        return { repository: info(repo), output: run.stdout, truncated: run.truncated };
+      },
+    );
   }
 
   async log(context: AuthContext, input: GitLogInput): Promise<GitLogResult> {
@@ -142,7 +171,14 @@ export class GitService {
       if (args.revision === undefined && !(await this.hasHeadCommit(repo, deadline))) {
         return { repository: info(repo), commits: [], truncated: false };
       }
-      const git = ["log", "-z", `--format=${LOG_FORMAT}`, "--no-color", `--max-count=${args.maxCount}`, `--skip=${args.skip}`];
+      const git = [
+        "log",
+        "-z",
+        `--format=${LOG_FORMAT}`,
+        "--no-color",
+        `--max-count=${args.maxCount}`,
+        `--skip=${args.skip}`,
+      ];
       git.push("--end-of-options", args.revision ?? "HEAD", "--", ...repo.pathspecs);
       const run = await this.runGit(repo, git, deadline);
       return { repository: info(repo), commits: parseLog(run.stdout), truncated: run.truncated };
@@ -151,34 +187,61 @@ export class GitService {
 
   async branch(context: AuthContext, input: GitBranchInput): Promise<GitBranchResult> {
     const args = parseInput(GitBranchInputSchema, input);
-    return this.operation(context, "git.branch", args.cwd, [], args.timeoutMs, { remote: args.remote }, async (repo, deadline) => {
-      const head = await this.runGit(repo, ["symbolic-ref", "-q", "HEAD"], deadline, { okExitCodes: [0, 1] });
-      const headRef = head.exitCode === 0 ? head.stdout.trim() : null;
-      const refs = ["refs/heads", ...(args.remote ? ["refs/remotes"] : [])];
-      const run = await this.runGit(repo, ["for-each-ref", `--format=${BRANCH_FORMAT}`, "--sort=refname", ...refs], deadline);
-      const current = headRef?.startsWith("refs/heads/") ? headRef.slice("refs/heads/".length) : null;
-      return {
-        repository: info(repo),
-        current,
-        detached: headRef === null,
-        branches: parseBranches(run.stdout),
-        truncated: run.truncated,
-      };
-    });
+    return this.operation(
+      context,
+      "git.branch",
+      args.cwd,
+      [],
+      args.timeoutMs,
+      { remote: args.remote },
+      async (repo, deadline) => {
+        const head = await this.runGit(repo, ["symbolic-ref", "-q", "HEAD"], deadline, { okExitCodes: [0, 1] });
+        const headRef = head.exitCode === 0 ? head.stdout.trim() : null;
+        const refs = ["refs/heads", ...(args.remote ? ["refs/remotes"] : [])];
+        const run = await this.runGit(
+          repo,
+          ["for-each-ref", `--format=${BRANCH_FORMAT}`, "--sort=refname", ...refs],
+          deadline,
+        );
+        const current = headRef?.startsWith("refs/heads/") ? headRef.slice("refs/heads/".length) : null;
+        return {
+          repository: info(repo),
+          current,
+          detached: headRef === null,
+          branches: parseBranches(run.stdout),
+          truncated: run.truncated,
+        };
+      },
+    );
   }
 
   async show(context: AuthContext, input: GitShowInput): Promise<GitTextResult> {
     const args = parseInput(GitShowInputSchema, input);
     const details = { revision: args.revision, patch: args.patch, stat: args.stat };
-    return this.operation(context, "git.show", args.cwd, args.paths, args.timeoutMs, details, async (repo, deadline) => {
-      const git = ["show", "--no-ext-diff", "--no-textconv", "--no-color", "--ignore-submodules=all", "--format=fuller"];
-      if (args.patch && args.stat) git.push("--patch-with-stat");
-      else if (args.stat) git.push("--stat");
-      else if (!args.patch) git.push("--no-patch");
-      git.push("--end-of-options", args.revision, "--", ...repo.pathspecs);
-      const run = await this.runGit(repo, git, deadline);
-      return { repository: info(repo), output: run.stdout, truncated: run.truncated };
-    });
+    return this.operation(
+      context,
+      "git.show",
+      args.cwd,
+      args.paths,
+      args.timeoutMs,
+      details,
+      async (repo, deadline) => {
+        const git = [
+          "show",
+          "--no-ext-diff",
+          "--no-textconv",
+          "--no-color",
+          "--ignore-submodules=all",
+          "--format=fuller",
+        ];
+        if (args.patch && args.stat) git.push("--patch-with-stat");
+        else if (args.stat) git.push("--stat");
+        else if (!args.patch) git.push("--no-patch");
+        git.push("--end-of-options", args.revision, "--", ...repo.pathspecs);
+        const run = await this.runGit(repo, git, deadline);
+        return { repository: info(repo), output: run.stdout, truncated: run.truncated };
+      },
+    );
   }
 
   /** Stop accepting operations and terminate running Git commands. */
@@ -228,8 +291,13 @@ export class GitService {
 
   /** Pathspec relative to the worktree; paths outside it are refused. */
   private pathspec(worktree: ResolvedPath, p: ResolvedPath): string {
-    const segments = this.deps.workspace.rules.relativeSegments(worktree.absolute, p.absolute, this.deps.workspace.caseSensitive);
-    if (segments === null) throw new CrotError("INVALID_INPUT", `Path is outside the repository worktree: ${display(p)}`);
+    const segments = this.deps.workspace.rules.relativeSegments(
+      worktree.absolute,
+      p.absolute,
+      this.deps.workspace.caseSensitive,
+    );
+    if (segments === null)
+      throw new CrotError("INVALID_INPUT", `Path is outside the repository worktree: ${display(p)}`);
     return segments.length === 0 ? "." : segments.join("/");
   }
 
@@ -266,7 +334,9 @@ export class GitService {
   }
 
   private async hasHeadCommit(repo: Repository, deadline: number): Promise<boolean> {
-    const run = await this.runGit(repo, ["rev-parse", "--verify", "-q", "HEAD^{commit}"], deadline, { okExitCodes: [0, 1, 128] });
+    const run = await this.runGit(repo, ["rev-parse", "--verify", "-q", "HEAD^{commit}"], deadline, {
+      okExitCodes: [0, 1, 128],
+    });
     return run.exitCode === 0;
   }
 
@@ -291,7 +361,12 @@ export class GitService {
     return this.environments;
   }
 
-  private async runGit(repo: Repository, gitArgs: readonly string[], deadline: number, options: RunOptions = {}): Promise<GitRun> {
+  private async runGit(
+    repo: Repository,
+    gitArgs: readonly string[],
+    deadline: number,
+    options: RunOptions = {},
+  ): Promise<GitRun> {
     this.assertOpen();
     const hardened = options.hardened ?? true;
     const remaining = deadline - Date.now();
@@ -366,7 +441,10 @@ export class GitService {
   private timeout(requested: number | undefined): number {
     const max = this.deps.limits.maxCommandTimeoutMs;
     if (requested !== undefined && requested > max) {
-      throw new CrotError("LIMIT_EXCEEDED", `Requested timeout ${requested}ms exceeds the configured maximum of ${max}ms.`);
+      throw new CrotError(
+        "LIMIT_EXCEEDED",
+        `Requested timeout ${requested}ms exceeds the configured maximum of ${max}ms.`,
+      );
     }
     return requested ?? Math.min(this.deps.limits.defaultCommandTimeoutMs, max);
   }

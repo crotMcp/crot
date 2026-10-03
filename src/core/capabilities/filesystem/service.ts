@@ -64,7 +64,12 @@ export class FileSystemService {
   /** Run a write after authorization, excluding git.read on any Git directory it touches. */
   private exclusive<T>(paths: readonly ResolvedPath[], fn: () => Promise<T>): Promise<T> {
     const lock = this.deps.gitLock;
-    return lock ? lock.withWrite(paths.map((p) => p.absolute), fn) : fn();
+    return lock
+      ? lock.withWrite(
+          paths.map((p) => p.absolute),
+          fn,
+        )
+      : fn();
   }
 
   async readFile(context: AuthContext, input: ReadFileInput): Promise<ReadFileResult> {
