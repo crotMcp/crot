@@ -204,17 +204,26 @@ export interface ManagedProcess {
   terminateSync(): void;
 }
 
+export interface ResolveCommandOptions {
+  readonly cwd: string;
+  readonly env: Readonly<Record<string, string>>;
+  /**
+   * Search the working directory (default true). When false, only absolute
+   * (fully qualified) PATH entries are searched and command names containing
+   * a path are refused, so a program can never be taken from the working
+   * directory or a relative PATH entry (ARCHITECTURE.md §27, AD-1). Every
+   * launcher (Core and Native Host) must honour it.
+   */
+  readonly searchCurrentDirectory?: boolean;
+}
+
 export interface ProcessLauncher {
   /**
    * Resolve a command name or path into an invocation, honouring platform
    * lookup rules (PATH, PATHEXT, .cmd/.bat wrappers on Windows).
    * Throws NOT_FOUND when the executable cannot be found.
    */
-  resolveCommand(
-    command: string,
-    args: readonly string[],
-    options: { cwd: string; env: Readonly<Record<string, string>> },
-  ): Promise<CommandSpec>;
+  resolveCommand(command: string, args: readonly string[], options: ResolveCommandOptions): Promise<CommandSpec>;
   /** Start a process. Throws NOT_FOUND / OPERATION_FAILED when it cannot start. */
   launch(spec: CommandSpec, options: LaunchOptions): Promise<ManagedProcess>;
   /** Whether terminate() can reach descendants after the direct child exited. */

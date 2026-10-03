@@ -4,6 +4,8 @@ import type { BrowserConnection } from "./capabilities/browser/connection.js";
 import type { BrowserBridgeState } from "./capabilities/browser/schemas.js";
 import { BrowserService } from "./capabilities/browser/service.js";
 import { FileSystemService } from "./capabilities/filesystem/service.js";
+import { GitMetadataLock } from "./capabilities/git/metadata-lock.js";
+import { GitService } from "./capabilities/git/service.js";
 import { ProcessService } from "./capabilities/process/service.js";
 import { parseConfig } from "./config/load.js";
 import { expandHome } from "./config/paths.js";
@@ -73,6 +75,7 @@ export class CrotCore {
     readonly guard: ExecutionGuard,
     readonly filesystem: FileSystemService,
     readonly processes: ProcessService,
+    readonly git: GitService,
     readonly browser: BrowserService,
     readonly platform: Platform,
     private readonly audit: AuditSink,
@@ -123,8 +126,11 @@ export class CrotCore {
       onAuditError:
         options.onAuditError ?? ((e) => process.stderr.write(`crot: audit write failed: ${(e as Error).message}\n`)),
     });
-    const filesystem = new FileSystemService({ workspace, guard, limits: config.limits });
+    // git.read and CROT writes into the Git directories it reads never run at the same time (AD-1, point 6).
+    const gitLock = new GitMetadataLock((a, c) => workspace.contains(a, c));
+    const filesystem = new FileSystemService({ workspace, guard, limits: config.limits, gitLock });
     const processes = new ProcessService({ workspace, guard, platform, limits: config.limits });
+    const git = new GitService({ workspace, guard, platform, limits: config.limits, lock: gitLock });
     const browser = new BrowserService({
       guard,
       limits: config.limits,
@@ -137,6 +143,7 @@ export class CrotCore {
       guard,
       filesystem,
       processes,
+      git,
       browser,
       platform,
       audit,
@@ -147,8 +154,9 @@ export class CrotCore {
   /**
    * Release resources, in order: stop accepting browser operations and cancel
    * those waiting for the browser; stop accepting commands and terminate every
-   * process tree CROT started; wait for operations in flight to write their
-   * audit records; flush and close the audit sink. Idempotent.
+   * process tree CROT started (including running Git commands); wait for
+   * operations in flight to write their audit records; flush and close the
+   * audit sink. Idempotent.
    *
    * The browser bridge itself is closed by the host after this returns.
    */
@@ -156,6 +164,7 @@ export class CrotCore {
     this.shuttingDown ??= (async () => {
       this.browser.shutdown();
       await this.processes.shutdown();
+      await this.git.shutdown();
       await this.guard.drain(SHUTDOWN_DRAIN_MS);
       await this.audit.close?.();
     })();
@@ -169,6 +178,7 @@ export class CrotCore {
    */
   terminateProcessesSync(): void {
     this.processes.terminateAllSync();
+    this.git.terminateAllSync();
   }
 
   status(): CrotStatus {
