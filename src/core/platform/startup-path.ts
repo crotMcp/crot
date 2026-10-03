@@ -54,7 +54,12 @@ export function mergePathLists(...lists: readonly (readonly string[])[]): string
   return out;
 }
 
-export type LoginShellRunner = (shell: string, args: readonly string[], env: Readonly<Record<string, string | undefined>>, timeoutMs: number) => Promise<string>;
+export type LoginShellRunner = (
+  shell: string,
+  args: readonly string[],
+  env: Readonly<Record<string, string | undefined>>,
+  timeoutMs: number,
+) => Promise<string>;
 
 /** Run the login shell with stdin closed and a hard timeout. */
 export const runLoginShell: LoginShellRunner = (shell, args, env, timeoutMs) =>
@@ -99,7 +104,9 @@ export interface StartupPathOptions {
  * Compute the base environment for child processes and a description of
  * where its PATH came from. Windows: the inherited environment is used as is.
  */
-export async function resolveStartupPath(options: StartupPathOptions): Promise<{ env: Record<string, string>; info: StartupPathInfo }> {
+export async function resolveStartupPath(
+  options: StartupPathOptions,
+): Promise<{ env: Record<string, string>; info: StartupPathInfo }> {
   const { env, environment } = options;
   const base = environment.merge(env, {});
   const inherited = environment.get(env, "PATH") ?? "";
@@ -110,7 +117,8 @@ export async function resolveStartupPath(options: StartupPathOptions): Promise<{
   const inheritedEntries = split(inherited);
 
   // auto: only when CROT was not started from a shell (SHLVL is set by shells).
-  const wantLogin = options.mode === "login-shell" || (options.mode === "auto" && environment.get(env, "SHLVL") === undefined);
+  const wantLogin =
+    options.mode === "login-shell" || (options.mode === "auto" && environment.get(env, "SHLVL") === undefined);
   let loginEntries: string[] = [];
   let source: StartupPathInfo["source"] = "inherited";
   let note: string | undefined;

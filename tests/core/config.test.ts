@@ -25,7 +25,9 @@ describe("configuration", () => {
     expect(parseConfig({ workspace: { root: "/tmp" }, browser: { enabled: true } }).browser).toEqual({ enabled: true });
     expect(parseConfig({ workspace: { root: "/tmp" }, browser: {} }).browser).toEqual({ enabled: false });
     expect(() => parseConfig({ workspace: { root: "/tmp" }, browser: { enabled: "yes" } })).toThrow(CrotError);
-    expect(() => parseConfig({ workspace: { root: "/tmp" }, browser: { enabled: true, socket: "/tmp/x" } })).toThrow(CrotError);
+    expect(() => parseConfig({ workspace: { root: "/tmp" }, browser: { enabled: true, socket: "/tmp/x" } })).toThrow(
+      CrotError,
+    );
   });
 
   it("requires a workspace root", () => {
@@ -34,9 +36,9 @@ describe("configuration", () => {
 
   it("rejects unknown keys and capabilities", () => {
     expect(() => parseConfig({ workspace: { root: "/tmp" }, extra: 1 })).toThrow(CrotError);
-    expect(() => parseConfig({ workspace: { root: "/tmp" }, permissions: { capabilities: ["root.everything"] } })).toThrow(
-      CrotError,
-    );
+    expect(() =>
+      parseConfig({ workspace: { root: "/tmp" }, permissions: { capabilities: ["root.everything"] } }),
+    ).toThrow(CrotError);
   });
 
   it("resolves a relative workspace root against the config file", async () => {
@@ -54,7 +56,10 @@ describe("configuration", () => {
 
   it("expands ~ in configuration paths", async () => {
     const file = path.join(dirs.outside, "home.json");
-    await writeFile(file, JSON.stringify({ workspace: { root: "~" }, audit: { sink: "file", path: "~/crot-audit.jsonl" } }));
+    await writeFile(
+      file,
+      JSON.stringify({ workspace: { root: "~" }, audit: { sink: "file", path: "~/crot-audit.jsonl" } }),
+    );
     const input = await loadConfigFile(file);
     expect(input.workspace.root).toBe(os.homedir());
     expect(input.audit?.path).toBe(path.join(os.homedir(), "crot-audit.jsonl"));
@@ -84,7 +89,10 @@ describe("CrotCore", () => {
 
   it("rejects sandbox configs that grant filesystem.full", async () => {
     await expect(
-      createTestCore({ workspace: { root: dirs.workspace }, permissions: { mode: "sandbox", capabilities: ["filesystem.full"] } }),
+      createTestCore({
+        workspace: { root: dirs.workspace },
+        permissions: { mode: "sandbox", capabilities: ["filesystem.full"] },
+      }),
     ).rejects.toThrow(CrotError);
   });
 });

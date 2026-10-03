@@ -81,13 +81,16 @@ export function parseRelayArgs(args: readonly string[]): RelayArgs {
       continue;
     }
     if (stateDir !== undefined) throw new CrotError("CONFIG_ERROR", STATE_DIR_OPTION + " was given more than once.");
-    if (value === "" || !path.isAbsolute(value)) throw new CrotError("CONFIG_ERROR", STATE_DIR_OPTION + " must be an absolute path.");
+    if (value === "" || !path.isAbsolute(value))
+      throw new CrotError("CONFIG_ERROR", STATE_DIR_OPTION + " must be an absolute path.");
     stateDir = value;
   }
   if (stateDir === undefined) {
     throw new CrotError(
       "CONFIG_ERROR",
-      "Missing " + STATE_DIR_OPTION + " <dir>. crot-browser-relay is started by the browser through the launcher installed by `crot-mcp browser install`.",
+      "Missing " +
+        STATE_DIR_OPTION +
+        " <dir>. crot-browser-relay is started by the browser through the launcher installed by `crot-mcp browser install`.",
     );
   }
   return { stateDir };
@@ -105,7 +108,11 @@ export async function runRelay(options: RelayOptions): Promise<number> {
     const tokenFile = bridgeTokenFile(stateDir);
     token = await readBridgeToken(tokenFile);
     if (token === undefined) {
-      log("The browser bridge is not set up: " + tokenFile + " does not exist. Start CROT with the browser bridge enabled.");
+      log(
+        "The browser bridge is not set up: " +
+          tokenFile +
+          " does not exist. Start CROT with the browser bridge enabled.",
+      );
       return 1;
     }
     endpoint = bridgeEndpoint(stateDir, token).path;
@@ -122,7 +129,9 @@ export async function runRelay(options: RelayOptions): Promise<number> {
     // The endpoint is not part of the message: on Windows its name is derived from the token.
     log(
       code === "ENOENT" || code === "ECONNREFUSED"
-        ? "No CROT instance is listening on the browser bridge (" + code + "). Start CROT with the browser bridge enabled."
+        ? "No CROT instance is listening on the browser bridge (" +
+            code +
+            "). Start CROT with the browser bridge enabled."
         : "Cannot connect to the browser bridge (" + (code ?? "unknown error") + ").",
     );
     return 1;
@@ -241,7 +250,8 @@ function relay(socket: net.Socket, auth: Uint8Array, { input, output, log }: Rel
     };
     const onSocketClose = () => {
       if (inputEnded) finish(0);
-      else if (fromHost.bufferedBytes > 0) finish(1, "CROT closed the browser bridge connection in the middle of a frame.");
+      else if (fromHost.bufferedBytes > 0)
+        finish(1, "CROT closed the browser bridge connection in the middle of a frame.");
       else if (framesFromHost === 0) {
         finish(
           1,

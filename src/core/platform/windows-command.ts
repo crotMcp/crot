@@ -35,7 +35,13 @@ export async function findWindowsExecutable(command: string, lookup: WindowsLook
   const explicit = /[\\/]/.test(command) || w.isAbsolute(command);
   const dirs = explicit
     ? [lookup.cwd]
-    : [lookup.cwd, ...(lookup.path ?? "").split(";").map((d) => d.trim().replace(/^"(.*)"$/, "$1")).filter(Boolean)];
+    : [
+        lookup.cwd,
+        ...(lookup.path ?? "")
+          .split(";")
+          .map((d) => d.trim().replace(/^"(.*)"$/, "$1"))
+          .filter(Boolean),
+      ];
   for (const dir of dirs) {
     for (const name of names) {
       const candidate = w.resolve(lookup.cwd, dir, name);
@@ -109,7 +115,12 @@ export function cmdScriptCommand(comspec: string, script: string): CommandSpec {
   const chcp = w.join(w.dirname(comspec), "chcp.com");
   const switchConsole = `"${chcp}" 65001 >nul 2>nul`;
   if (OUTER_LINE_UNSAFE.test(comspec)) {
-    return { file: comspec, args: ["/d", "/s", "/c", `"${switchConsole} & ${script}"`], windowsVerbatimArguments: true, display: script };
+    return {
+      file: comspec,
+      args: ["/d", "/s", "/c", `"${switchConsole} & ${script}"`],
+      windowsVerbatimArguments: true,
+      display: script,
+    };
   }
   const outer = `${switchConsole} & "${comspec}" /d /s /c "!${CMD_SCRIPT_VARIABLE}!"`;
   return {

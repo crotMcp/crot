@@ -146,7 +146,10 @@ describe("page functions", () => {
     installDom({ body: { innerText: "Visible text" } });
     const read = serialized(readPageContent);
     expect(read("text", 1000)).toEqual({ ok: true, value: { content: "Visible text", truncated: false } });
-    expect(read("html", 1000)).toEqual({ ok: true, value: { content: "<!DOCTYPE html>\n<html><body>Hi</body></html>", truncated: false } });
+    expect(read("html", 1000)).toEqual({
+      ok: true,
+      value: { content: "<!DOCTYPE html>\n<html><body>Hi</body></html>", truncated: false },
+    });
   });
 
   it("fall back to textContent without a body", () => {

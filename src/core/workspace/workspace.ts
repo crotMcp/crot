@@ -74,7 +74,8 @@ export class Workspace {
     if (!info.isDirectory()) {
       throw new CrotError("CONFIG_ERROR", `Workspace root is not a directory: ${root}`);
     }
-    const probe = options.probeCaseSensitivity ?? ((d: string) => probeCaseSensitivity(d, process.platform === "win32"));
+    const probe =
+      options.probeCaseSensitivity ?? ((d: string) => probeCaseSensitivity(d, process.platform === "win32"));
     const caseSensitive = await probe(canonical);
     return new Workspace(options.name ?? rules.basename(canonical), canonical, rules, caseSensitive);
   }
@@ -96,7 +97,10 @@ export class Workspace {
     if (follow || lexical === this.rules.root(lexical)) {
       canonical = await canonicalize(lexical, this.rules);
     } else {
-      canonical = this.rules.join(await canonicalize(this.rules.dirname(lexical), this.rules), this.rules.basename(lexical));
+      canonical = this.rules.join(
+        await canonicalize(this.rules.dirname(lexical), this.rules),
+        this.rules.basename(lexical),
+      );
     }
     return this.describe(canonical);
   }
@@ -142,7 +146,10 @@ async function canonicalize(absolute: string, rules: PathRules): Promise<string>
           throw new CrotError("INVALID_INPUT", `Invalid path (${code}): ${absolute}`);
         }
         if (code === "EACCES" || code === "EPERM") {
-          throw new CrotError("OPERATION_FAILED", `Operating system denied access while resolving ${absolute} (${code})`);
+          throw new CrotError(
+            "OPERATION_FAILED",
+            `Operating system denied access while resolving ${absolute} (${code})`,
+          );
         }
         throw error;
       }

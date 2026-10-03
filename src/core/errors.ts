@@ -59,7 +59,8 @@ export function fromNodeError(error: unknown, context: string): CrotError {
   if (error instanceof CrotError) return error;
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   const message = error instanceof Error ? error.message : String(error);
-  const make = (c: CrotErrorCode, text: string) => new CrotError(c, `${context}: ${text}`, code ? { errno: code } : undefined, { cause: error });
+  const make = (c: CrotErrorCode, text: string) =>
+    new CrotError(c, `${context}: ${text}`, code ? { errno: code } : undefined, { cause: error });
   switch (code) {
     case "ENOENT":
       return make("NOT_FOUND", "not found");
@@ -81,7 +82,10 @@ export function fromNodeError(error: unknown, context: string): CrotError {
     case "EACCES":
       return make("OPERATION_FAILED", "operating system denied access");
     case "EPERM":
-      return make("OPERATION_FAILED", "operation not permitted by the operating system (on Windows the file may be read-only or in use)");
+      return make(
+        "OPERATION_FAILED",
+        "operation not permitted by the operating system (on Windows the file may be read-only or in use)",
+      );
     case "EMFILE":
     case "ENFILE":
       return make("LIMIT_EXCEEDED", "too many open files");

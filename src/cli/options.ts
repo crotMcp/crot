@@ -59,7 +59,11 @@ export interface ParseCliOptions {
   readonly directories?: PlatformDirectories;
 }
 
-export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv = process.env, options: ParseCliOptions = {}): Promise<CliCommand> {
+export async function parseCli(
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+  options: ParseCliOptions = {},
+): Promise<CliCommand> {
   if (argv[0] === "browser") return parseBrowserCommand(argv.slice(1));
   let parsed;
   try {
@@ -91,13 +95,16 @@ export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv =
   const toAbsolute = (flag: string, value: string): string => {
     const expanded = expandHome(value);
     const absolute = path.resolve(expanded);
-    if (!path.isAbsolute(expanded)) warnings.push(`${flag} '${value}' is relative; resolved against the current directory to ${absolute}.`);
+    if (!path.isAbsolute(expanded))
+      warnings.push(`${flag} '${value}' is relative; resolved against the current directory to ${absolute}.`);
     return absolute;
   };
 
   const explicit = v.config ?? env.CROT_CONFIG;
-  let configFile = explicit !== undefined ? toAbsolute(v.config !== undefined ? "--config" : "CROT_CONFIG", explicit) : undefined;
-  let configSource: ServeCommand["configSource"] = explicit === undefined ? undefined : v.config !== undefined ? "flag" : "env";
+  let configFile =
+    explicit !== undefined ? toAbsolute(v.config !== undefined ? "--config" : "CROT_CONFIG", explicit) : undefined;
+  let configSource: ServeCommand["configSource"] =
+    explicit === undefined ? undefined : v.config !== undefined ? "flag" : "env";
   if (configFile === undefined) {
     // Optional per-user configuration in the OS-conventional location.
     const candidate = path.join((options.directories ?? hostDirectories(env)).config, DEFAULT_CONFIG_FILE_NAME);
@@ -113,7 +120,10 @@ export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv =
     config.workspace = { ...(base.workspace ?? {}), root: toAbsolute("--workspace", v.workspace) };
   }
   if (!config.workspace) {
-    throw new CrotError("CONFIG_ERROR", `A workspace is required: pass --workspace <dir> or --config <file>.\n\n${USAGE}`);
+    throw new CrotError(
+      "CONFIG_ERROR",
+      `A workspace is required: pass --workspace <dir> or --config <file>.\n\n${USAGE}`,
+    );
   }
   if (v.mode !== undefined) {
     config.permissions = { ...(base.permissions ?? {}), mode: parseMode(v.mode) };
@@ -130,20 +140,31 @@ export async function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv =
     if (v["http-port"] !== undefined) http.port = parsePort(v["http-port"]);
     config.http = http;
   }
-  return { kind: "serve", config: config as CrotConfigInput, ...(configFile ? { configFile, configSource } : {}), warnings };
+  return {
+    kind: "serve",
+    config: config as CrotConfigInput,
+    ...(configFile ? { configFile, configSource } : {}),
+    warnings,
+  };
 }
 
 /** `crot-mcp browser <command>`: only `install`, which takes no options besides --help. */
 function parseBrowserCommand(argv: readonly string[]): CliCommand {
   let parsed;
   try {
-    parsed = parseArgs({ args: [...argv], allowPositionals: true, strict: true, options: { help: { type: "boolean", short: "h" } } });
+    parsed = parseArgs({
+      args: [...argv],
+      allowPositionals: true,
+      strict: true,
+      options: { help: { type: "boolean", short: "h" } },
+    });
   } catch (error) {
     throw new CrotError("CONFIG_ERROR", `${(error as Error).message}\n\n${USAGE}`);
   }
   if (parsed.values.help) return { kind: "help" };
   if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "install") {
-    const given = parsed.positionals.length > 0 ? `'browser ${parsed.positionals.join(" ")}'` : "'browser' without a command";
+    const given =
+      parsed.positionals.length > 0 ? `'browser ${parsed.positionals.join(" ")}'` : "'browser' without a command";
     throw new CrotError("CONFIG_ERROR", `Unknown command ${given}. Use 'crot-mcp browser install'.\n\n${USAGE}`);
   }
   return { kind: "browser-install" };

@@ -26,7 +26,12 @@ import {
 const utf8 = new TextEncoder();
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 
-const request = (text: string, id = "req-1"): HostRequest => ({ type: "request", id, command: "page.type", params: { selector: "#q", text, clear: false } });
+const request = (text: string, id = "req-1"): HostRequest => ({
+  type: "request",
+  id,
+  command: "page.type",
+  params: { selector: "#q", text, clear: false },
+});
 
 function concat(...parts: Uint8Array[]): Uint8Array {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
@@ -67,14 +72,18 @@ describe("framing", () => {
     const reader = new FrameReader(16);
     expect(() => reader.push(Uint8Array.of(17, 0, 0, 0))).toThrow(BrowserProtocolError);
     expect(() => reader.push(encodeMessage({}, 16))).toThrow(BrowserProtocolError);
-    expect(() => new FrameReader(MAX_BROWSER_TO_HOST_FRAME_BYTES).push(Uint8Array.of(0xff, 0xff, 0xff, 0xff))).toThrow(BrowserProtocolError);
+    expect(() => new FrameReader(MAX_BROWSER_TO_HOST_FRAME_BYTES).push(Uint8Array.of(0xff, 0xff, 0xff, 0xff))).toThrow(
+      BrowserProtocolError,
+    );
   });
 
   it("applies a raised limit to later frames", () => {
     const reader = new MessageReader(8);
     expect(reader.push(encodeMessage({ a: 1 }, 8))).toEqual([{ a: 1 }]);
     reader.maxFrameBytes = 1024;
-    expect(reader.push(encodeMessage({ text: "longer than eight bytes" }, 1024))).toEqual([{ text: "longer than eight bytes" }]);
+    expect(reader.push(encodeMessage({ text: "longer than eight bytes" }, 1024))).toEqual([
+      { text: "longer than eight bytes" },
+    ]);
   });
 
   it("rejects empty frames, invalid UTF-8 and invalid JSON", () => {
@@ -142,7 +151,9 @@ describe("chunking (host -> browser)", () => {
   });
 
   it("refuses a request that would need more than MAX_CHUNKS frames", () => {
-    expect(() => encodeHostMessage(request("a".repeat(CHUNK_DATA_UNITS * MAX_CHUNKS + 1)))).toThrow(BrowserProtocolError);
+    expect(() => encodeHostMessage(request("a".repeat(CHUNK_DATA_UNITS * MAX_CHUNKS + 1)))).toThrow(
+      BrowserProtocolError,
+    );
   });
 
   it("rejects out-of-order, interleaved, duplicated and foreign chunks", () => {
@@ -172,11 +183,15 @@ describe("chunking (host -> browser)", () => {
     const half = Math.floor(json.length / 2);
     const reassembler = new ChunkReassembler();
     reassembler.accept({ type: "chunk", id: "other", index: 0, count: 2, data: json.slice(0, half) });
-    expect(() => reassembler.accept({ type: "chunk", id: "other", index: 1, count: 2, data: json.slice(half) })).toThrow(BrowserProtocolError);
+    expect(() =>
+      reassembler.accept({ type: "chunk", id: "other", index: 1, count: 2, data: json.slice(half) }),
+    ).toThrow(BrowserProtocolError);
 
     const garbage = new ChunkReassembler();
     garbage.accept({ type: "chunk", id: "g", index: 0, count: 2, data: "{" });
-    expect(() => garbage.accept({ type: "chunk", id: "g", index: 1, count: 2, data: "oops" })).toThrow(BrowserProtocolError);
+    expect(() => garbage.accept({ type: "chunk", id: "g", index: 1, count: 2, data: "oops" })).toThrow(
+      BrowserProtocolError,
+    );
   });
 });
 
@@ -184,16 +199,26 @@ describe("message validation", () => {
   const browser = { name: "Chrome", version: "130.0.0.0", extensionVersion: "0.1.0" };
 
   it("accepts hello and responses, dropping unknown keys", () => {
-    expect(parseBrowserMessage({ type: "hello", protocol: 1, browser: { ...browser, extra: 1 }, extra: true })).toEqual({ type: "hello", protocol: 1, browser });
+    expect(parseBrowserMessage({ type: "hello", protocol: 1, browser: { ...browser, extra: 1 }, extra: true })).toEqual(
+      { type: "hello", protocol: 1, browser },
+    );
     expect(parseBrowserMessage({ type: "response", id: "req-1", ok: true, result: { tabs: [] }, extra: 1 })).toEqual({
       type: "response",
       id: "req-1",
       ok: true,
       result: { tabs: [] },
     });
-    expect(parseBrowserMessage({ type: "response", id: "req-1", ok: true, result: null })).toMatchObject({ ok: true, result: null });
+    expect(parseBrowserMessage({ type: "response", id: "req-1", ok: true, result: null })).toMatchObject({
+      ok: true,
+      result: null,
+    });
     expect(
-      parseBrowserMessage({ type: "response", id: "req-1", ok: false, error: { code: "BROWSER_PAGE_RESTRICTED", message: "no", stack: "s" } }),
+      parseBrowserMessage({
+        type: "response",
+        id: "req-1",
+        ok: false,
+        error: { code: "BROWSER_PAGE_RESTRICTED", message: "no", stack: "s" },
+      }),
     ).toEqual({ type: "response", id: "req-1", ok: false, error: { code: "BROWSER_PAGE_RESTRICTED", message: "no" } });
   });
 
@@ -223,8 +248,18 @@ describe("message validation", () => {
 
   it("accepts host messages", () => {
     expect(parseHostMessage({ type: "welcome", protocol: 1 })).toEqual({ type: "welcome", protocol: 1 });
-    expect(parseHostMessage({ type: "request", id: "r1", command: "tabs.list", params: {} })).toEqual({ type: "request", id: "r1", command: "tabs.list", params: {} });
-    expect(createRequest("r2", "tabs.close", { tabId: 4 })).toEqual({ type: "request", id: "r2", command: "tabs.close", params: { tabId: 4 } });
+    expect(parseHostMessage({ type: "request", id: "r1", command: "tabs.list", params: {} })).toEqual({
+      type: "request",
+      id: "r1",
+      command: "tabs.list",
+      params: {},
+    });
+    expect(createRequest("r2", "tabs.close", { tabId: 4 })).toEqual({
+      type: "request",
+      id: "r2",
+      command: "tabs.close",
+      params: { tabId: 4 },
+    });
     expect(() => createRequest("bad id", "tabs.list", {})).toThrow(BrowserProtocolError);
   });
 
@@ -245,7 +280,11 @@ describe("message validation", () => {
 
   it("validates relay authentication", () => {
     const token = "A-b_" + "c".repeat(39);
-    expect(parseRelayAuth({ type: "auth", protocol: 1, token, extra: 1 })).toEqual({ type: "auth", protocol: 1, token });
+    expect(parseRelayAuth({ type: "auth", protocol: 1, token, extra: 1 })).toEqual({
+      type: "auth",
+      protocol: 1,
+      token,
+    });
     for (const bad of [
       { type: "auth", protocol: 1, token: "short" },
       { type: "auth", protocol: 1, token: "a/" + "b".repeat(40) },

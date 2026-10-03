@@ -121,51 +121,75 @@ export class BrowserService {
   async readPage(context: AuthContext, input: BrowserPageReadInput = {}): Promise<BrowserPageReadResult> {
     const args = parseInput(BrowserPageReadInputSchema, input);
     const maxBytes = Math.min(args.maxBytes ?? this.deps.limits.maxReadBytes, this.deps.limits.maxReadBytes);
-    return this.run(context, "browser.page_read", "browser.read", { tabId: tabRef(args.tabId), format: args.format, maxBytes }, async () => {
-      const raw = await this.send("page.read", { ...tab(args.tabId), format: args.format, maxBytes });
-      const result = validate(BrowserPageReadResultSchema, raw, "page.read");
-      expectTab("page.read", args.tabId, result.tabId);
-      if (result.format !== args.format) throw invalidResponse("page.read");
-      // The browser is asked to respect maxBytes; Core enforces it regardless.
-      const content = truncateUtf8(result.content, maxBytes);
-      return { ...result, content: content.text, truncated: result.truncated || content.truncated };
-    });
+    return this.run(
+      context,
+      "browser.page_read",
+      "browser.read",
+      { tabId: tabRef(args.tabId), format: args.format, maxBytes },
+      async () => {
+        const raw = await this.send("page.read", { ...tab(args.tabId), format: args.format, maxBytes });
+        const result = validate(BrowserPageReadResultSchema, raw, "page.read");
+        expectTab("page.read", args.tabId, result.tabId);
+        if (result.format !== args.format) throw invalidResponse("page.read");
+        // The browser is asked to respect maxBytes; Core enforces it regardless.
+        const content = truncateUtf8(result.content, maxBytes);
+        return { ...result, content: content.text, truncated: result.truncated || content.truncated };
+      },
+    );
   }
 
   async screenshot(context: AuthContext, input: BrowserScreenshotInput = {}): Promise<BrowserScreenshotResult> {
     const args = parseInput(BrowserScreenshotInputSchema, input);
-    return this.run(context, "browser.screenshot", "browser.read", { tabId: tabRef(args.tabId), format: args.format }, async () => {
-      const raw = await this.send("page.screenshot", {
-        ...tab(args.tabId),
-        format: args.format,
-        ...(args.quality !== undefined ? { quality: args.quality } : {}),
-      });
-      const result = validate(BrowserScreenshotResultSchema, raw, "page.screenshot");
-      expectTab("page.screenshot", args.tabId, result.tabId);
-      if (result.mimeType !== `image/${args.format}`) throw invalidResponse("page.screenshot");
-      if (Buffer.byteLength(result.data, "base64") > BROWSER_SCREENSHOT_MAX_BYTES) {
-        throw new CrotError("LIMIT_EXCEEDED", `Screenshot exceeds ${BROWSER_SCREENSHOT_MAX_BYTES} bytes.`);
-      }
-      return result;
-    });
+    return this.run(
+      context,
+      "browser.screenshot",
+      "browser.read",
+      { tabId: tabRef(args.tabId), format: args.format },
+      async () => {
+        const raw = await this.send("page.screenshot", {
+          ...tab(args.tabId),
+          format: args.format,
+          ...(args.quality !== undefined ? { quality: args.quality } : {}),
+        });
+        const result = validate(BrowserScreenshotResultSchema, raw, "page.screenshot");
+        expectTab("page.screenshot", args.tabId, result.tabId);
+        if (result.mimeType !== `image/${args.format}`) throw invalidResponse("page.screenshot");
+        if (Buffer.byteLength(result.data, "base64") > BROWSER_SCREENSHOT_MAX_BYTES) {
+          throw new CrotError("LIMIT_EXCEEDED", `Screenshot exceeds ${BROWSER_SCREENSHOT_MAX_BYTES} bytes.`);
+        }
+        return result;
+      },
+    );
   }
 
   async openTab(context: AuthContext, input: BrowserTabOpenInput): Promise<BrowserTabActionResult> {
     const args = parseInput(BrowserTabOpenInputSchema, input);
-    return this.run(context, "browser.tab_open", "browser.control", { origin: urlOrigin(args.url), active: args.active }, async () => {
-      const raw = await this.send("tabs.open", { url: args.url, active: args.active });
-      return validate(BrowserTabActionResultSchema, raw, "tabs.open");
-    });
+    return this.run(
+      context,
+      "browser.tab_open",
+      "browser.control",
+      { origin: urlOrigin(args.url), active: args.active },
+      async () => {
+        const raw = await this.send("tabs.open", { url: args.url, active: args.active });
+        return validate(BrowserTabActionResultSchema, raw, "tabs.open");
+      },
+    );
   }
 
   async navigate(context: AuthContext, input: BrowserNavigateInput): Promise<BrowserTabActionResult> {
     const args = parseInput(BrowserNavigateInputSchema, input);
-    return this.run(context, "browser.navigate", "browser.control", { tabId: tabRef(args.tabId), origin: urlOrigin(args.url) }, async () => {
-      const raw = await this.send("tabs.navigate", { ...tab(args.tabId), url: args.url });
-      const result = validate(BrowserTabActionResultSchema, raw, "tabs.navigate");
-      expectTab("tabs.navigate", args.tabId, result.tabId);
-      return result;
-    });
+    return this.run(
+      context,
+      "browser.navigate",
+      "browser.control",
+      { tabId: tabRef(args.tabId), origin: urlOrigin(args.url) },
+      async () => {
+        const raw = await this.send("tabs.navigate", { ...tab(args.tabId), url: args.url });
+        const result = validate(BrowserTabActionResultSchema, raw, "tabs.navigate");
+        expectTab("tabs.navigate", args.tabId, result.tabId);
+        return result;
+      },
+    );
   }
 
   async activateTab(context: AuthContext, input: BrowserTabActivateInput): Promise<BrowserTabActionResult> {
@@ -190,19 +214,35 @@ export class BrowserService {
 
   async click(context: AuthContext, input: BrowserClickInput): Promise<BrowserTabActionResult> {
     const args = parseInput(BrowserClickInputSchema, input);
-    return this.run(context, "browser.click", "browser.control", { tabId: tabRef(args.tabId), selector: auditSelector(args.selector) }, async () => {
-      const raw = await this.send("page.click", { ...tab(args.tabId), selector: args.selector });
-      const result = validate(BrowserTabActionResultSchema, raw, "page.click");
-      expectTab("page.click", args.tabId, result.tabId);
-      return result;
-    });
+    return this.run(
+      context,
+      "browser.click",
+      "browser.control",
+      { tabId: tabRef(args.tabId), selector: auditSelector(args.selector) },
+      async () => {
+        const raw = await this.send("page.click", { ...tab(args.tabId), selector: args.selector });
+        const result = validate(BrowserTabActionResultSchema, raw, "page.click");
+        expectTab("page.click", args.tabId, result.tabId);
+        return result;
+      },
+    );
   }
 
   async type(context: AuthContext, input: BrowserTypeInput): Promise<BrowserTabActionResult> {
     const args = parseInput(BrowserTypeInputSchema, input);
-    const details = { tabId: tabRef(args.tabId), selector: auditSelector(args.selector), textLength: args.text.length, clear: args.clear };
+    const details = {
+      tabId: tabRef(args.tabId),
+      selector: auditSelector(args.selector),
+      textLength: args.text.length,
+      clear: args.clear,
+    };
     return this.run(context, "browser.type", "browser.control", details, async () => {
-      const raw = await this.send("page.type", { ...tab(args.tabId), selector: args.selector, text: args.text, clear: args.clear });
+      const raw = await this.send("page.type", {
+        ...tab(args.tabId),
+        selector: args.selector,
+        text: args.text,
+        clear: args.clear,
+      });
       const result = validate(BrowserTabActionResultSchema, raw, "page.type");
       expectTab("page.type", args.tabId, result.tabId);
       return result;
@@ -227,7 +267,8 @@ export class BrowserService {
   }
 
   private assertOpen(): void {
-    if (this.closed) throw new CrotError("OPERATION_FAILED", "CROT is shutting down; browser operations are not accepted.");
+    if (this.closed)
+      throw new CrotError("OPERATION_FAILED", "CROT is shutting down; browser operations are not accepted.");
   }
 
   /** Called only inside an authorized operation. */
@@ -258,7 +299,10 @@ export class BrowserService {
       }, this.timeoutMs);
     });
     try {
-      return await Promise.race([connection.request(command, params, { timeoutMs: this.timeoutMs, signal: controller.signal }), interrupted]);
+      return await Promise.race([
+        connection.request(command, params, { timeoutMs: this.timeoutMs, signal: controller.signal }),
+        interrupted,
+      ]);
     } catch (error) {
       throw sanitizeBrowserError(error);
     } finally {
@@ -314,13 +358,17 @@ function truncateUtf8(text: string, maxBytes: number): { text: string; truncated
 }
 
 function cleanMessage(message: string): string {
-  const cleaned = message.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, MAX_BROWSER_ERROR_MESSAGE);
+  const cleaned = message
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .trim()
+    .slice(0, MAX_BROWSER_ERROR_MESSAGE);
   return cleaned.length > 0 ? cleaned : "unknown error";
 }
 
 /** Map an error from the browser side to an allowlisted code with a bounded message and no details. */
 function sanitizeBrowserError(error: unknown): CrotError {
-  if (error instanceof CrotError && PASS_THROUGH_CODES.has(error.code)) return new CrotError(error.code, cleanMessage(error.message));
+  if (error instanceof CrotError && PASS_THROUGH_CODES.has(error.code))
+    return new CrotError(error.code, cleanMessage(error.message));
   const message = error instanceof Error ? error.message : String(error);
   return new CrotError("OPERATION_FAILED", `Browser operation failed: ${cleanMessage(message)}`);
 }

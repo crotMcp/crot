@@ -3,7 +3,15 @@ import { mkdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CrotCore } from "../../src/core/crot-core.js";
-import { canSymlinkFiles, createTestCore, isWindows, linkDirectory, makeTempDirs, testContext as ctx, type TempDirs } from "../helpers.js";
+import {
+  canSymlinkFiles,
+  createTestCore,
+  isWindows,
+  linkDirectory,
+  makeTempDirs,
+  testContext as ctx,
+  type TempDirs,
+} from "../helpers.js";
 
 let dirs: TempDirs;
 let core: CrotCore;
@@ -23,12 +31,18 @@ describe("filesystem: read/write", () => {
   });
 
   it("supports base64, append and create modes", async () => {
-    await core.filesystem.writeFile(ctx, { path: "b.bin", content: Buffer.from([0, 1, 2]).toString("base64"), encoding: "base64" });
+    await core.filesystem.writeFile(ctx, {
+      path: "b.bin",
+      content: Buffer.from([0, 1, 2]).toString("base64"),
+      encoding: "base64",
+    });
     await core.filesystem.writeFile(ctx, { path: "b.bin", content: "Aw==", encoding: "base64", mode: "append" });
     expect([...(await readFile(path.join(dirs.workspace, "b.bin")))]).toEqual([0, 1, 2, 3]);
-    await expect(core.filesystem.writeFile(ctx, { path: "b.bin", content: "x", mode: "create" })).rejects.toMatchObject({
-      code: "ALREADY_EXISTS",
-    });
+    await expect(core.filesystem.writeFile(ctx, { path: "b.bin", content: "x", mode: "create" })).rejects.toMatchObject(
+      {
+        code: "ALREADY_EXISTS",
+      },
+    );
   });
 
   it("bounds reads by the configured limit and supports offsets", async () => {
@@ -47,7 +61,9 @@ describe("filesystem: read/write", () => {
 
   it("validates input", async () => {
     await expect(core.filesystem.readFile(ctx, { path: "" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
-    await expect(core.filesystem.writeFile(ctx, { path: "a", content: "x", mode: "bogus" } as never)).rejects.toMatchObject({
+    await expect(
+      core.filesystem.writeFile(ctx, { path: "a", content: "x", mode: "bogus" } as never),
+    ).rejects.toMatchObject({
       code: "INVALID_INPUT",
     });
   });
@@ -56,7 +72,9 @@ describe("filesystem: read/write", () => {
 describe("filesystem: sandbox enforcement", () => {
   it("denies reads and writes outside the workspace", async () => {
     await writeFile(path.join(dirs.outside, "secret.txt"), "s");
-    await expect(core.filesystem.readFile(ctx, { path: "../outside/secret.txt" })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    await expect(core.filesystem.readFile(ctx, { path: "../outside/secret.txt" })).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+    });
     await expect(core.filesystem.readFile(ctx, { path: path.join(dirs.outside, "secret.txt") })).rejects.toMatchObject({
       code: "PERMISSION_DENIED",
     });
@@ -74,12 +92,19 @@ describe("filesystem: sandbox enforcement", () => {
 
   it("denies moving files out of the workspace", async () => {
     await writeFile(path.join(dirs.workspace, "a.txt"), "a");
-    await expect(core.filesystem.move(ctx, { from: "a.txt", to: "../outside/a.txt" })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    await expect(core.filesystem.move(ctx, { from: "a.txt", to: "../outside/a.txt" })).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+    });
   });
 
   it("denies writes when filesystem.write is not granted", async () => {
-    const readOnly = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { capabilities: ["filesystem.read"] } });
-    await expect(readOnly.filesystem.writeFile(ctx, { path: "a.txt", content: "x" })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    const readOnly = await createTestCore({
+      workspace: { root: dirs.workspace },
+      permissions: { capabilities: ["filesystem.read"] },
+    });
+    await expect(readOnly.filesystem.writeFile(ctx, { path: "a.txt", content: "x" })).rejects.toMatchObject({
+      code: "PERMISSION_DENIED",
+    });
   });
 
   it("allows outside paths in full_control mode", async () => {
@@ -109,7 +134,9 @@ describe("filesystem: directories", () => {
   });
 
   it("filters hidden entries and truncates", async () => {
-    expect((await core.filesystem.listDirectory(ctx, { includeHidden: false })).entries.map((e) => e.path)).toEqual(["src"]);
+    expect((await core.filesystem.listDirectory(ctx, { includeHidden: false })).entries.map((e) => e.path)).toEqual([
+      "src",
+    ]);
     const t = await core.filesystem.listDirectory(ctx, { recursive: true, maxEntries: 2 });
     expect(t.entries).toHaveLength(2);
     expect(t.truncated).toBe(true);
@@ -125,7 +152,11 @@ describe("filesystem: directories", () => {
 
   it("stats entries", async () => {
     expect(await core.filesystem.stat(ctx, { path: "missing" })).toEqual({ path: "missing", exists: false });
-    expect(await core.filesystem.stat(ctx, { path: "src/lib/util.ts" })).toMatchObject({ exists: true, type: "file", size: 2 });
+    expect(await core.filesystem.stat(ctx, { path: "src/lib/util.ts" })).toMatchObject({
+      exists: true,
+      type: "file",
+      size: 2,
+    });
   });
 
   it("creates, moves and deletes", async () => {
@@ -157,7 +188,9 @@ describe("filesystem: directories", () => {
   });
 
   it("refuses to delete the workspace root", async () => {
-    await expect(core.filesystem.delete(ctx, { path: ".", recursive: true })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(core.filesystem.delete(ctx, { path: ".", recursive: true })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+    });
   });
 });
 
@@ -165,7 +198,9 @@ describe("filesystem: special files", () => {
   it("refuses to read or write directories as files", async () => {
     await mkdir(path.join(dirs.workspace, "d"));
     await expect(core.filesystem.readFile(ctx, { path: "d" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
-    await expect(core.filesystem.writeFile(ctx, { path: "d", content: "x" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(core.filesystem.writeFile(ctx, { path: "d", content: "x" })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+    });
   });
 
   it.skipIf(isWindows)("refuses FIFOs without blocking", async () => {
@@ -173,7 +208,9 @@ describe("filesystem: special files", () => {
     execFileSync("mkfifo", [fifo]);
     const started = Date.now();
     await expect(core.filesystem.readFile(ctx, { path: "pipe" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
-    await expect(core.filesystem.writeFile(ctx, { path: "pipe", content: "x" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(core.filesystem.writeFile(ctx, { path: "pipe", content: "x" })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+    });
     await expect(core.filesystem.writeFile(ctx, { path: "pipe", content: "x", mode: "append" })).rejects.toMatchObject({
       code: "INVALID_INPUT",
     });
@@ -184,13 +221,17 @@ describe("filesystem: special files", () => {
   it.runIf(isWindows)("rejects Windows device names instead of opening devices", async () => {
     for (const name of ["CON", "nul", "COM1.txt", "sub\\AUX"]) {
       await expect(core.filesystem.readFile(ctx, { path: name })).rejects.toMatchObject({ code: "INVALID_INPUT" });
-      await expect(core.filesystem.writeFile(ctx, { path: name, content: "x" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+      await expect(core.filesystem.writeFile(ctx, { path: name, content: "x" })).rejects.toMatchObject({
+        code: "INVALID_INPUT",
+      });
     }
   });
 
   it.runIf(isWindows)("rejects alternate data streams", async () => {
     await writeFile(path.join(dirs.workspace, "a.txt"), "a");
-    await expect(core.filesystem.writeFile(ctx, { path: "a.txt:hidden", content: "x" })).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(core.filesystem.writeFile(ctx, { path: "a.txt:hidden", content: "x" })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+    });
   });
 
   it.runIf(isWindows)("accepts forward slashes and mixed case on Windows", async () => {

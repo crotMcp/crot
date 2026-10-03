@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { detectBrowser } from "../src/browser-info.js";
 
-const read = (relative: string): Record<string, unknown> => JSON.parse(readFileSync(new URL(relative, import.meta.url), "utf8")) as Record<string, unknown>;
+const read = (relative: string): Record<string, unknown> =>
+  JSON.parse(readFileSync(new URL(relative, import.meta.url), "utf8")) as Record<string, unknown>;
 
 const manifest = read("../manifest.json");
 
@@ -39,27 +40,41 @@ describe("extension manifest", () => {
     expect(manifest.permissions).toEqual(["nativeMessaging", "tabs", "scripting", "alarms"]);
     // Scripting and captureVisibleTab need host access; the extension itself refuses non-http(s) pages.
     expect(manifest.host_permissions).toEqual(["<all_urls>"]);
-    for (const key of ["content_scripts", "content_security_policy", "externally_connectable", "web_accessible_resources", "optional_permissions"]) {
+    for (const key of [
+      "content_scripts",
+      "content_security_policy",
+      "externally_connectable",
+      "web_accessible_resources",
+      "optional_permissions",
+    ]) {
       expect(key in manifest).toBe(false);
     }
   });
 });
 
 describe("detectBrowser", () => {
-  const chromeUa = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.92 Safari/537.36";
+  const chromeUa =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.92 Safari/537.36";
 
   it("identifies Chrome, Edge, Brave and other Chromium browsers", () => {
     const brands = (...names: string[]) => ({ brands: names.map((brand) => ({ brand, version: "130" })) });
-    expect(detectBrowser({ userAgent: chromeUa, userAgentData: brands("Chromium", "Google Chrome") }, "0.1.0")).toEqual({
-      name: "Google Chrome",
-      version: "130.0.6723.92",
-      extensionVersion: "0.1.0",
-    });
-    expect(detectBrowser({ userAgent: chromeUa + " Edg/130.0.2849.68", userAgentData: brands("Chromium", "Microsoft Edge") }, "0.1.0").name).toBe(
-      "Microsoft Edge",
+    expect(detectBrowser({ userAgent: chromeUa, userAgentData: brands("Chromium", "Google Chrome") }, "0.1.0")).toEqual(
+      {
+        name: "Google Chrome",
+        version: "130.0.6723.92",
+        extensionVersion: "0.1.0",
+      },
     );
+    expect(
+      detectBrowser(
+        { userAgent: chromeUa + " Edg/130.0.2849.68", userAgentData: brands("Chromium", "Microsoft Edge") },
+        "0.1.0",
+      ).name,
+    ).toBe("Microsoft Edge");
     expect(detectBrowser({ userAgent: chromeUa + " Edg/130.0.2849.68" }, "0.1.0").version).toBe("130.0.2849.68");
-    expect(detectBrowser({ userAgent: chromeUa, userAgentData: brands("Chromium", "Brave") }, "0.1.0").name).toBe("Brave");
+    expect(detectBrowser({ userAgent: chromeUa, userAgentData: brands("Chromium", "Brave") }, "0.1.0").name).toBe(
+      "Brave",
+    );
     expect(detectBrowser({ userAgent: chromeUa, brave: {} }, "0.1.0").name).toBe("Brave");
     expect(detectBrowser({ userAgent: chromeUa, userAgentData: brands("Chromium") }, "0.1.0").name).toBe("Chromium");
   });

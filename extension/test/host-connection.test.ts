@@ -54,7 +54,12 @@ function connect(options: Partial<HostConnectionOptions> = {}) {
   return { ...ctx, port };
 }
 
-const request = (id: string, command: BrowserCommand, params: Record<string, unknown> = {}): HostRequest => ({ type: "request", id, command, params });
+const request = (id: string, command: BrowserCommand, params: Record<string, unknown> = {}): HostRequest => ({
+  type: "request",
+  id,
+  command,
+  params,
+});
 
 /** What the host would receive, validated with the host's own parser. */
 const received = (port: FakePort) => port.sent.map((message) => parseBrowserMessage(message));
@@ -68,7 +73,9 @@ describe("HostConnection", () => {
     connection.ensureConnected();
     expect(runtime.hosts).toEqual([NATIVE_HOST_NAME]);
     expect(connection.state).toBe("connecting");
-    expect(received(runtime.lastPort)).toEqual([{ type: "hello", protocol: BRIDGE_PROTOCOL_VERSION, browser: BROWSER }]);
+    expect(received(runtime.lastPort)).toEqual([
+      { type: "hello", protocol: BRIDGE_PROTOCOL_VERSION, browser: BROWSER },
+    ]);
     runtime.lastPort.deliver(WELCOME);
     expect(connection.state).toBe("connected");
     connection.ensureConnected();
@@ -104,7 +111,12 @@ describe("HostConnection", () => {
     await flush();
     expect(received(port).slice(1)).toEqual([
       { type: "response", id: "a", ok: false, error: { code: "NOT_FOUND", message: "No tab with id 9." } },
-      { type: "response", id: "b", ok: false, error: { code: "OPERATION_FAILED", message: "Browser operation failed: boom second line" } },
+      {
+        type: "response",
+        id: "b",
+        ok: false,
+        error: { code: "OPERATION_FAILED", message: "Browser operation failed: boom second line" },
+      },
     ]);
   });
 
@@ -125,7 +137,12 @@ describe("HostConnection", () => {
     for (const frame of frames) port.deliver(JSON.parse(decoder.decode(frame.subarray(4))));
     await flush();
     expect((seen as { text: string }).text).toBe(text);
-    expect(received(port)[1]).toEqual({ type: "response", id: "big", ok: true, result: { tabId: 1, url: "https://e.com/" } });
+    expect(received(port)[1]).toEqual({
+      type: "response",
+      id: "big",
+      ok: true,
+      result: { tabId: 1, url: "https://e.com/" },
+    });
   });
 
   it("closes the port on protocol violations", () => {
@@ -237,6 +254,9 @@ describe("HostConnection", () => {
     expect(fitResponse(fits)).toBe(fits);
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
-    expect(fitResponse({ type: "response", id: "r", ok: true, result: cyclic })).toMatchObject({ ok: false, error: { code: "OPERATION_FAILED" } });
+    expect(fitResponse({ type: "response", id: "r", ok: true, result: cyclic })).toMatchObject({
+      ok: false,
+      error: { code: "OPERATION_FAILED" },
+    });
   });
 });

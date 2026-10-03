@@ -14,7 +14,11 @@
  * This module has no dependencies on Node.js or zod so that the extension can
  * reuse it.
  */
-import { BROWSER_COMMANDS, type BrowserCommand, type BrowserCommandParams } from "../core/capabilities/browser/connection.js";
+import {
+  BROWSER_COMMANDS,
+  type BrowserCommand,
+  type BrowserCommandParams,
+} from "../core/capabilities/browser/connection.js";
 
 export const BRIDGE_PROTOCOL_VERSION = 1;
 
@@ -67,7 +71,12 @@ export interface BrowserHello {
 /** Extension -> host: answer to one request. `result` is untrusted and validated by Core. */
 export type BrowserResponse =
   | { readonly type: "response"; readonly id: string; readonly ok: true; readonly result: unknown }
-  | { readonly type: "response"; readonly id: string; readonly ok: false; readonly error: { readonly code: string; readonly message: string } };
+  | {
+      readonly type: "response";
+      readonly id: string;
+      readonly ok: false;
+      readonly error: { readonly code: string; readonly message: string };
+    };
 
 export type BrowserToHostMessage = BrowserHello | BrowserResponse;
 
@@ -109,7 +118,11 @@ export function isRequestId(value: unknown): value is string {
   return typeof value === "string" && REQUEST_ID.test(value);
 }
 
-export function createRequest<C extends BrowserCommand>(id: string, command: C, params: BrowserCommandParams[C]): HostRequest {
+export function createRequest<C extends BrowserCommand>(
+  id: string,
+  command: C,
+  params: BrowserCommandParams[C],
+): HostRequest {
   if (!isRequestId(id)) throw new BrowserProtocolError("Invalid request id.");
   return { type: "request", id, command, params: params as Readonly<Record<string, unknown>> };
 }
@@ -146,7 +159,9 @@ function stringify(message: unknown): string {
 export function encodeMessage(message: unknown, maxFrameBytes: number): Uint8Array {
   const body = utf8.encode(stringify(message));
   if (body.length > maxFrameBytes) {
-    throw new BrowserProtocolError("Message of " + body.length + " bytes exceeds the " + maxFrameBytes + "-byte frame limit.");
+    throw new BrowserProtocolError(
+      "Message of " + body.length + " bytes exceeds the " + maxFrameBytes + "-byte frame limit.",
+    );
   }
   return encodeFrame(body);
 }
@@ -196,7 +211,9 @@ export class FrameReader {
       if (length === 0 || length > this.maxFrameBytes) {
         this.failed = true;
         throw new BrowserProtocolError(
-          length === 0 ? "Empty frame." : "Frame of " + length + " bytes exceeds the " + this.maxFrameBytes + "-byte limit.",
+          length === 0
+            ? "Empty frame."
+            : "Frame of " + length + " bytes exceeds the " + this.maxFrameBytes + "-byte limit.",
         );
       }
       if (this.size < FRAME_HEADER_BYTES + length) break;
@@ -277,7 +294,10 @@ export function encodeHostMessage(message: HostWelcome | HostRequest): Uint8Arra
   const pieces = splitUtf16(json, CHUNK_DATA_UNITS);
   if (pieces.length > MAX_CHUNKS) throw new BrowserProtocolError("Request is too large to send to the browser.");
   return pieces.map((data, index) =>
-    encodeMessage({ type: "chunk", id: message.id, index, count: pieces.length, data } satisfies HostChunk, MAX_HOST_TO_BROWSER_FRAME_BYTES),
+    encodeMessage(
+      { type: "chunk", id: message.id, index, count: pieces.length, data } satisfies HostChunk,
+      MAX_HOST_TO_BROWSER_FRAME_BYTES,
+    ),
   );
 }
 
@@ -300,7 +320,8 @@ export class ChunkReassembler {
       this.stream = { id: message.id, count: message.count, parts: [message.data] };
     } else {
       const s = this.stream;
-      if (!s || s.id !== message.id || s.count !== message.count || s.parts.length !== message.index) throw this.fail("Out-of-order chunk.");
+      if (!s || s.id !== message.id || s.count !== message.count || s.parts.length !== message.index)
+        throw this.fail("Out-of-order chunk.");
       s.parts.push(message.data);
     }
     const s = this.stream!;
@@ -313,7 +334,8 @@ export class ChunkReassembler {
       throw new BrowserProtocolError("Chunked request is not valid JSON.");
     }
     const assembled = parseHostMessage(value);
-    if (assembled.type !== "request" || assembled.id !== s.id) throw new BrowserProtocolError("Chunked message is not the announced request.");
+    if (assembled.type !== "request" || assembled.id !== s.id)
+      throw new BrowserProtocolError("Chunked message is not the announced request.");
     return assembled;
   }
 
@@ -332,7 +354,8 @@ const isObject = (value: unknown): value is Obj => typeof value === "object" && 
 const isBoundedString = (value: unknown, min: number, max: number): value is string =>
   typeof value === "string" && value.length >= min && value.length <= max;
 
-const isProtocolNumber = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 1000;
+const isProtocolNumber = (value: unknown): value is number =>
+  Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 1000;
 
 function invalid(what: string): never {
   throw new BrowserProtocolError("Invalid " + what + ".");
@@ -366,7 +389,11 @@ export function parseBrowserMessage(value: unknown): BrowserToHostMessage {
         const error = value.error;
         if ("result" in value || !isObject(error)) invalid("response");
         const { code, message } = error;
-        if (!isBoundedString(code, 1, MAX_ERROR_CODE_LENGTH) || !ERROR_CODE.test(code) || !isBoundedString(message, 0, MAX_ERROR_MESSAGE_LENGTH)) {
+        if (
+          !isBoundedString(code, 1, MAX_ERROR_CODE_LENGTH) ||
+          !ERROR_CODE.test(code) ||
+          !isBoundedString(message, 0, MAX_ERROR_MESSAGE_LENGTH)
+        ) {
           invalid("response error");
         }
         return { type: "response", id, ok: false, error: { code, message } };
@@ -387,7 +414,8 @@ export function parseHostMessage(value: unknown): HostToBrowserMessage {
       return { type: "welcome", protocol: value.protocol };
     case "request": {
       const { id, command, params } = value;
-      if (!isRequestId(id) || typeof command !== "string" || !COMMANDS.has(command) || !isObject(params)) invalid("request");
+      if (!isRequestId(id) || typeof command !== "string" || !COMMANDS.has(command) || !isObject(params))
+        invalid("request");
       return { type: "request", id, command: command as BrowserCommand, params };
     }
     case "chunk": {
@@ -413,7 +441,13 @@ export function parseHostMessage(value: unknown): HostToBrowserMessage {
 
 /** Validate the relay's first IPC frame (host side). */
 export function parseRelayAuth(value: unknown): RelayAuth {
-  if (!isObject(value) || value.type !== "auth" || !isProtocolNumber(value.protocol) || typeof value.token !== "string" || !TOKEN.test(value.token)) {
+  if (
+    !isObject(value) ||
+    value.type !== "auth" ||
+    !isProtocolNumber(value.protocol) ||
+    typeof value.token !== "string" ||
+    !TOKEN.test(value.token)
+  ) {
     invalid("relay authentication");
   }
   return { type: "auth", protocol: value.protocol, token: value.token };

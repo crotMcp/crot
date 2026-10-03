@@ -55,8 +55,38 @@ const WHATWG_CODE_PAGES: Readonly<Record<number, string>> = {
  */
 const WINDOWS_1252_HIGH =
   String.fromCharCode(
-    0x20ac, 0x0081, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008d, 0x017d, 0x008f,
-    0x0090, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x009d, 0x017e, 0x0178,
+    0x20ac,
+    0x0081,
+    0x201a,
+    0x0192,
+    0x201e,
+    0x2026,
+    0x2020,
+    0x2021,
+    0x02c6,
+    0x2030,
+    0x0160,
+    0x2039,
+    0x0152,
+    0x008d,
+    0x017d,
+    0x008f,
+    0x0090,
+    0x2018,
+    0x2019,
+    0x201c,
+    0x201d,
+    0x2022,
+    0x2013,
+    0x2014,
+    0x02dc,
+    0x2122,
+    0x0161,
+    0x203a,
+    0x0153,
+    0x009d,
+    0x017e,
+    0x0178,
   ) + Array.from({ length: 0x60 }, (_, i) => String.fromCharCode(0xa0 + i)).join("");
 
 /** Canonical encoding name for a Windows code page, or null when CROT cannot decode it. */
@@ -151,10 +181,18 @@ export function createEncodingSupport(codePages: CodePages | null): EncodingSupp
       const r = requested.trim().toLowerCase();
       if (r === "auto") return { mode: "auto", fallback };
       if (r === "oem" || r === "ansi") {
-        if (!codePages) throw new CrotError("INVALID_INPUT", `Encoding '${requested}' is only available on Windows (this platform uses UTF-8).`);
+        if (!codePages)
+          throw new CrotError(
+            "INVALID_INPUT",
+            `Encoding '${requested}' is only available on Windows (this platform uses UTF-8).`,
+          );
         const cp = r === "oem" ? codePages.oem : codePages.ansi;
         const decoding = fromCodePage(cp);
-        if (!decoding) throw new CrotError("INVALID_INPUT", `The ${r.toUpperCase()} code page ${cp} is not supported; pass an explicit encoding.`);
+        if (!decoding)
+          throw new CrotError(
+            "INVALID_INPUT",
+            `The ${r.toUpperCase()} code page ${cp} is not supported; pass an explicit encoding.`,
+          );
         return { mode: "fixed", decoding };
       }
       const decoding = decodingFor(r);

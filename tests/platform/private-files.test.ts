@@ -28,13 +28,19 @@ const event = {
 describe("private file protection", () => {
   it("the host platform reports its mechanism honestly", async () => {
     const p = await createNodePlatform({ startupPath: "inherited" });
-    expect(p.info.privateFiles).toEqual(isWindows ? { mechanism: "inherited-acl", enforced: false } : { mechanism: "posix-mode", enforced: true });
+    expect(p.info.privateFiles).toEqual(
+      isWindows ? { mechanism: "inherited-acl", enforced: false } : { mechanism: "posix-mode", enforced: true },
+    );
   });
 
   it("Windows protection never claims owner-only access (pure)", async () => {
     const w = createPrivateFileProtection(true);
     expect(w).toMatchObject({ mechanism: "inherited-acl", enforced: false, fileMode: undefined });
-    expect(await w.inspect(path.join(dirs.outside, "x"))).toMatchObject({ mechanism: "inherited-acl", ownerOnly: null, detail: expect.stringContaining("Native Host") });
+    expect(await w.inspect(path.join(dirs.outside, "x"))).toMatchObject({
+      mechanism: "inherited-acl",
+      ownerOnly: null,
+      detail: expect.stringContaining("Native Host"),
+    });
   });
 
   it("status reports the audit file protection", async () => {
@@ -66,7 +72,11 @@ describe.runIf(!isWindows)("private file protection (POSIX)", () => {
     await writeFile(file, "");
     await chmod(file, 0o644);
     const p = createPrivateFileProtection(false);
-    expect(await p.inspect(file)).toEqual({ mechanism: "posix-mode", ownerOnly: false, detail: expect.stringContaining("mode 0644") });
+    expect(await p.inspect(file)).toEqual({
+      mechanism: "posix-mode",
+      ownerOnly: false,
+      detail: expect.stringContaining("mode 0644"),
+    });
     await chmod(file, 0o600);
     expect(await p.inspect(file)).toEqual({ mechanism: "posix-mode", ownerOnly: true, detail: "mode 0600" });
   });

@@ -17,13 +17,15 @@ const invalid = (message: string) => new CrotError("INVALID_INPUT", message);
 
 /** A Windows/POSIX process id: integer in 1..2^32-1. */
 export function validatePid(pid: unknown): number {
-  if (typeof pid !== "number" || !Number.isInteger(pid) || pid < 1 || pid > 0xffff_ffff) throw invalid("Invalid process id.");
+  if (typeof pid !== "number" || !Number.isInteger(pid) || pid < 1 || pid > 0xffff_ffff)
+    throw invalid("Invalid process id.");
   return pid;
 }
 
 /** A Windows security identifier in string form (S-1-...). */
 export function validateSid(sid: unknown): string {
-  if (typeof sid !== "string" || sid.length > MAX_SID_LENGTH || !SID_PATTERN.test(sid)) throw invalid("Invalid Windows security identifier.");
+  if (typeof sid !== "string" || sid.length > MAX_SID_LENGTH || !SID_PATTERN.test(sid))
+    throw invalid("Invalid Windows security identifier.");
   return sid;
 }
 
@@ -33,9 +35,11 @@ export function validateSid(sid: unknown): string {
  * argument and never be read as an option or pattern.
  */
 export function validateWindowsPath(input: unknown): string {
-  if (typeof input !== "string" || input.length === 0 || input.length > MAX_WINDOWS_PATH_LENGTH) throw invalid("Invalid Windows path: empty or too long.");
+  if (typeof input !== "string" || input.length === 0 || input.length > MAX_WINDOWS_PATH_LENGTH)
+    throw invalid("Invalid Windows path: empty or too long.");
   if (/[\u0000-\u001f"*?<>|]/.test(input)) throw invalid("Invalid Windows path: control or reserved characters.");
-  if (!/^(?:[A-Za-z]:\\|\\\\[^\\/]+\\[^\\/]+)/.test(input)) throw invalid("Invalid Windows path: must be absolute (drive or UNC).");
+  if (!/^(?:[A-Za-z]:\\|\\\\[^\\/]+\\[^\\/]+)/.test(input))
+    throw invalid("Invalid Windows path: must be absolute (drive or UNC).");
   return path.win32.normalize(input);
 }
 
@@ -62,7 +66,8 @@ export function isSameOrAncestorWindowsPath(candidate: string, target: string): 
 
 /** The user SID from `whoami /user /fo csv /nh` (one line: "domain\user","S-1-..."). */
 export function parseWhoamiSid(output: unknown): string {
-  if (typeof output !== "string" || output.length === 0 || output.length > 4096) throw invalid("Unexpected whoami output.");
+  if (typeof output !== "string" || output.length === 0 || output.length > 4096)
+    throw invalid("Unexpected whoami output.");
   const lines = output
     .split(/\r?\n/)
     .map((l) => l.trim())

@@ -24,7 +24,11 @@ export interface CrotStatus {
   readonly workspace: WorkspaceInfo;
   readonly capabilities: readonly { capability: Capability; granted: boolean; enforced: boolean }[];
   readonly limits: Limits;
-  readonly audit: { readonly sink: AuditConfig["sink"]; readonly path?: string; readonly protection?: PrivateFileStatus };
+  readonly audit: {
+    readonly sink: AuditConfig["sink"];
+    readonly path?: string;
+    readonly protection?: PrivateFileStatus;
+  };
   readonly platform: PlatformInfo;
   /** Paths CROT tools may never modify (audit log, configuration). */
   readonly protectedPaths: readonly string[];
@@ -87,7 +91,10 @@ export class CrotCore {
     const platform = options.platform ?? (await createNodePlatform({ startupPath: config.environment.path }));
     if (config.audit.sink === "file" && !config.audit.path) {
       // Default audit file in the OS-conventional logs directory.
-      config = { ...config, audit: { ...config.audit, path: path.join(platform.info.directories.logs, DEFAULT_AUDIT_FILE_NAME) } };
+      config = {
+        ...config,
+        audit: { ...config.audit, path: path.join(platform.info.directories.logs, DEFAULT_AUDIT_FILE_NAME) },
+      };
     }
     const workspace = await Workspace.open(config.workspace.root, {
       ...(config.workspace.name ? { name: config.workspace.name } : {}),
@@ -100,22 +107,41 @@ export class CrotCore {
         : { mode: config.permissions.mode },
     );
     const audit = options.auditSink ?? createAuditSink(config.audit, platform.privateFiles);
-    const auditFile = audit instanceof JsonlFileAuditSink ? audit.file : config.audit.sink === "file" ? config.audit.path : undefined;
+    const auditFile =
+      audit instanceof JsonlFileAuditSink ? audit.file : config.audit.sink === "file" ? config.audit.path : undefined;
     const auditProtection = auditFile ? await platform.privateFiles.inspect(auditFile) : undefined;
     const guarded = [
       ...(options.protectedPaths ?? []),
       ...(config.audit.sink === "file" && config.audit.path ? [config.audit.path] : []),
       ...(audit instanceof JsonlFileAuditSink ? [audit.file] : []),
     ];
-    const protectedPaths = [...new Set(await Promise.all(guarded.map(async (p) => (await workspace.resolve(path.resolve(p))).absolute)))];
+    const protectedPaths = [
+      ...new Set(await Promise.all(guarded.map(async (p) => (await workspace.resolve(path.resolve(p))).absolute))),
+    ];
     const permissions = new PermissionEngine(policy, { protectedPaths, contains: (a, c) => workspace.contains(a, c) });
     const guard = new ExecutionGuard(permissions, audit, {
-      onAuditError: options.onAuditError ?? ((e) => process.stderr.write(`crot: audit write failed: ${(e as Error).message}\n`)),
+      onAuditError:
+        options.onAuditError ?? ((e) => process.stderr.write(`crot: audit write failed: ${(e as Error).message}\n`)),
     });
     const filesystem = new FileSystemService({ workspace, guard, limits: config.limits });
     const processes = new ProcessService({ workspace, guard, platform, limits: config.limits });
-    const browser = new BrowserService({ guard, limits: config.limits, ...(options.browser ? { connection: options.browser } : {}) });
-    return new CrotCore(config, workspace, permissions, guard, filesystem, processes, browser, platform, audit, auditProtection);
+    const browser = new BrowserService({
+      guard,
+      limits: config.limits,
+      ...(options.browser ? { connection: options.browser } : {}),
+    });
+    return new CrotCore(
+      config,
+      workspace,
+      permissions,
+      guard,
+      filesystem,
+      processes,
+      browser,
+      platform,
+      audit,
+      auditProtection,
+    );
   }
 
   /**

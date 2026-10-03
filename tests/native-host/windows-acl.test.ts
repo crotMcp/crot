@@ -55,7 +55,9 @@ describe.runIf(isWindows)("native host: owner-only Windows ACLs", () => {
   it("rejects untrusted paths", async () => {
     await expect(files().protectFile!("relative\\file")).rejects.toMatchObject({ code: "INVALID_INPUT" });
     await expect(files().protectFile!(`${dirs.outside}\\a"b`)).rejects.toMatchObject({ code: "INVALID_INPUT" });
-    await expect(files().protectFile!(path.join(dirs.outside, "missing"))).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(files().protectFile!(path.join(dirs.outside, "missing"))).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+    });
     await expect(files().protectFile!(dirs.outside)).rejects.toMatchObject({ code: "INVALID_INPUT" });
   });
 

@@ -111,7 +111,10 @@ export class HostConnection {
     });
     const hello: BrowserHello = { type: "hello", protocol: BRIDGE_PROTOCOL_VERSION, browser: this.options.browser };
     if (!this.post(port, hello)) return;
-    this.welcomeTimer = setTimeout(() => this.drop(port, "no welcome from the CROT Host"), this.options.welcomeTimeoutMs ?? WELCOME_TIMEOUT_MS);
+    this.welcomeTimer = setTimeout(
+      () => this.drop(port, "no welcome from the CROT Host"),
+      this.options.welcomeTimeoutMs ?? WELCOME_TIMEOUT_MS,
+    );
   }
 
   private receive(port: ChromePort, raw: unknown): void {
@@ -126,7 +129,8 @@ export class HostConnection {
     if (message === undefined) return;
     if (message.type === "welcome") {
       if (this.connected) return this.drop(port, "protocol error: unexpected welcome");
-      if (message.protocol !== BRIDGE_PROTOCOL_VERSION) return this.drop(port, "unsupported protocol version " + message.protocol);
+      if (message.protocol !== BRIDGE_PROTOCOL_VERSION)
+        return this.drop(port, "unsupported protocol version " + message.protocol);
       clearTimeout(this.welcomeTimer);
       this.welcomeTimer = undefined;
       this.connected = true;
@@ -182,7 +186,10 @@ export class HostConnection {
     this.port = undefined;
     this.connected = false;
     this.inFlight.clear();
-    this.log((wasConnected ? "disconnected from the CROT Host: " : "could not connect to the CROT Host: ") + cleanMessage(reason));
+    this.log(
+      (wasConnected ? "disconnected from the CROT Host: " : "could not connect to the CROT Host: ") +
+        cleanMessage(reason),
+    );
     if (wasConnected) this.failures = 0;
     this.scheduleReconnect();
   }
@@ -217,7 +224,12 @@ export function fitResponse(response: BrowserResponse): BrowserResponse {
     json = undefined;
   }
   if (json === undefined) {
-    return { type: "response", id: response.id, ok: false, error: { code: "OPERATION_FAILED", message: "The result is not serializable." } };
+    return {
+      type: "response",
+      id: response.id,
+      ok: false,
+      error: { code: "OPERATION_FAILED", message: "The result is not serializable." },
+    };
   }
   // A UTF-16 code unit never takes more than 3 UTF-8 bytes; only encode when it may matter.
   if (json.length * 3 > MAX_BROWSER_TO_HOST_FRAME_BYTES && utf8.encode(json).length > MAX_BROWSER_TO_HOST_FRAME_BYTES) {

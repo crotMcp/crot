@@ -5,7 +5,15 @@ import type { CrotCore } from "../../src/core/crot-core.js";
 import type { ManagedProcess } from "../../src/core/platform/types.js";
 import { NativeHost } from "../../src/native-host/native-host.js";
 import { loadJobObjectApi } from "../../src/native-host/windows-job.js";
-import { createTestCore, isAlive, isWindows, makeTempDirs, testContext as ctx, waitFor, type TempDirs } from "../helpers.js";
+import {
+  createTestCore,
+  isAlive,
+  isWindows,
+  makeTempDirs,
+  testContext as ctx,
+  waitFor,
+  type TempDirs,
+} from "../helpers.js";
 
 const node = process.execPath;
 const GC = "require('fs').writeFileSync('gc.pid', String(process.pid)); setInterval(() => {}, 1000);";
@@ -23,7 +31,11 @@ describe.runIf(isWindows)("native host: Windows Job Objects", () => {
   beforeEach(async () => {
     dirs = await makeTempDirs();
     native = await NativeHost.start({ startupPath: "inherited", windowsAcl: false });
-    core = await createTestCore({ workspace: { root: dirs.workspace }, limits: { maxCommandTimeoutMs: 30_000 } }, undefined, { platform: native.platform });
+    core = await createTestCore(
+      { workspace: { root: dirs.workspace }, limits: { maxCommandTimeoutMs: 30_000 } },
+      undefined,
+      { platform: native.platform },
+    );
     await writeFile(path.join(dirs.workspace, "gc.js"), GC);
     await writeFile(path.join(dirs.workspace, "parent.js"), ORPHANING_PARENT);
   });
@@ -91,7 +103,10 @@ describe.runIf(isWindows)("native host: Windows Job Objects", () => {
   });
 
   it("stopping a background process terminates its descendants", async () => {
-    await writeFile(path.join(dirs.workspace, "stay.js"), "require('child_process').spawn(process.execPath, ['gc.js'], { stdio: 'ignore', detached: true }); setInterval(() => {}, 1000);");
+    await writeFile(
+      path.join(dirs.workspace, "stay.js"),
+      "require('child_process').spawn(process.execPath, ['gc.js'], { stdio: 'ignore', detached: true }); setInterval(() => {}, 1000);",
+    );
     const info = await core.processes.start(ctx, { command: node, args: ["stay.js"] });
     const gc = await grandchild();
     expect(isAlive(gc)).toBe(true);
@@ -102,7 +117,8 @@ describe.runIf(isWindows)("native host: Windows Job Objects", () => {
   it("validates process ids and rejects use after close", async () => {
     const api = await loadJobObjectApi();
     const job = api.createKillOnCloseJob();
-    for (const bad of [0, -1, 1.5, 2 ** 32]) expect(() => job.assign(bad)).toThrow(expect.objectContaining({ code: "INVALID_INPUT" }));
+    for (const bad of [0, -1, 1.5, 2 ** 32])
+      expect(() => job.assign(bad)).toThrow(expect.objectContaining({ code: "INVALID_INPUT" }));
     expect(job.activeProcessCount()).toBe(0);
     job.close();
     job.close();

@@ -29,7 +29,8 @@ export function createPrivateFileProtection(windows: boolean): PrivateFileProtec
       inspect: async () => ({
         mechanism: "inherited-acl",
         ownerOnly: null,
-        detail: "Windows: access follows the ACLs inherited from the parent directory; CROT does not restrict them (Native Host/installer responsibility).",
+        detail:
+          "Windows: access follows the ACLs inherited from the parent directory; CROT does not restrict them (Native Host/installer responsibility).",
       }),
     };
   }
@@ -47,7 +48,11 @@ export function createPrivateFileProtection(windows: boolean): PrivateFileProtec
       const mode = info.mode & 0o777;
       const octal = mode.toString(8).padStart(4, "0");
       return mode & 0o077
-        ? { mechanism: "posix-mode", ownerOnly: false, detail: `mode ${octal}: accessible by group/other users (restrict with chmod 600)` }
+        ? {
+            mechanism: "posix-mode",
+            ownerOnly: false,
+            detail: `mode ${octal}: accessible by group/other users (restrict with chmod 600)`,
+          }
         : { mechanism: "posix-mode", ownerOnly: true, detail: `mode ${octal}` };
     },
   };

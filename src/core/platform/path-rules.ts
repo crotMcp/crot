@@ -3,7 +3,8 @@ import { CrotError } from "../errors.js";
 import type { PathRules, PathStyle } from "./types.js";
 
 /** Windows reserved device names (with or without extension), e.g. CON, NUL, COM1.txt. */
-const WIN_RESERVED = /^(con|prn|aux|nul|conin\$|conout\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])(\..*)?$/i;
+const WIN_RESERVED =
+  /^(con|prn|aux|nul|conin\$|conout\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])(\..*)?$/i;
 const WIN_INVALID_CHARS = /[<>"|?*\u0000-\u001f]/;
 
 function invalid(message: string): never {
@@ -21,7 +22,10 @@ function makeRules(style: PathStyle): PathRules {
   const splitRest = (abs: string): { root: string; segments: string[] } => {
     const normalized = p.resolve(abs);
     const root = p.parse(normalized).root;
-    const segments = normalized.slice(root.length).split(p.sep).filter((s) => s.length > 0);
+    const segments = normalized
+      .slice(root.length)
+      .split(p.sep)
+      .filter((s) => s.length > 0);
     return { root, segments };
   };
 
@@ -36,7 +40,9 @@ function makeRules(style: PathStyle): PathRules {
         invalid(`Windows device and \\\\?\\ namespace paths are not supported: ${input}`);
       }
       if (/^[a-zA-Z]:(?![\\/])/.test(input)) {
-        invalid(`Drive-relative paths are ambiguous; use an absolute path (e.g. C:\\dir) or a workspace-relative path: ${input}`);
+        invalid(
+          `Drive-relative paths are ambiguous; use an absolute path (e.g. C:\\dir) or a workspace-relative path: ${input}`,
+        );
       }
       const body = /^[a-zA-Z]:/.test(input) ? input.slice(2) : input;
       if (body.includes(":")) invalid(`Alternate data streams and ':' are not allowed in Windows paths: ${input}`);

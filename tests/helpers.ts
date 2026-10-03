@@ -22,7 +22,11 @@ export async function makeTempDirs(): Promise<TempDirs> {
   const outside = path.join(base, "outside");
   await mkdir(workspace);
   await mkdir(outside);
-  return { workspace, outside, cleanup: () => rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }) };
+  return {
+    workspace,
+    outside,
+    cleanup: () => rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+  };
 }
 
 /** Create a directory link: a symlink on POSIX, a junction on Windows (no privileges required). */
@@ -48,7 +52,11 @@ export async function canSymlinkFiles(): Promise<boolean> {
 }
 
 /** Create a CrotCore with auditing silenced unless a sink is supplied. */
-export function createTestCore(config: unknown, auditSink: AuditSink = new NullAuditSink(), options: CrotCoreOptions = {}): Promise<CrotCore> {
+export function createTestCore(
+  config: unknown,
+  auditSink: AuditSink = new NullAuditSink(),
+  options: CrotCoreOptions = {},
+): Promise<CrotCore> {
   return CrotCore.create(config, { auditSink, ...options });
 }
 

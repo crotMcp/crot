@@ -61,5 +61,9 @@ export interface BrowserConnection {
    * Send one command and resolve with the extension's raw (unvalidated)
    * result, or reject with a CrotError reported by the extension.
    */
-  request<C extends BrowserCommand>(command: C, params: BrowserCommandParams[C], options: BrowserRequestOptions): Promise<unknown>;
+  request<C extends BrowserCommand>(
+    command: C,
+    params: BrowserCommandParams[C],
+    options: BrowserRequestOptions,
+  ): Promise<unknown>;
 }

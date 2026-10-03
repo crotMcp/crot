@@ -71,7 +71,8 @@ export const TOOLS: readonly ToolDefinition[] = [
   tool({
     name: "fs_read_file",
     title: "Read file",
-    description: "Read a file (utf8 or base64). Large files are returned in chunks: use offset/length and the 'truncated' flag.",
+    description:
+      "Read a file (utf8 or base64). Large files are returned in chunks: use offset/length and the 'truncated' flag.",
     inputSchema: ReadFileInputSchema,
     annotations: { ...local, readOnlyHint: true },
     call: (core, ctx, input) => core.filesystem.readFile(ctx, input),
@@ -79,7 +80,8 @@ export const TOOLS: readonly ToolDefinition[] = [
   tool({
     name: "fs_write_file",
     title: "Write file",
-    description: "Write a file. Modes: overwrite (default), create (fail if it exists), append. Creates parent directories by default.",
+    description:
+      "Write a file. Modes: overwrite (default), create (fail if it exists), append. Creates parent directories by default.",
     inputSchema: WriteFileInputSchema,
     annotations: { ...local, readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     call: (core, ctx, input) => core.filesystem.writeFile(ctx, input),
@@ -164,7 +166,8 @@ export const TOOLS: readonly ToolDefinition[] = [
   tool({
     name: "process_read_output",
     title: "Read background process output",
-    description: "Read stdout/stderr of a background process from the given offsets; pass back nextStdoutOffset/nextStderrOffset to poll.",
+    description:
+      "Read stdout/stderr of a background process from the given offsets; pass back nextStdoutOffset/nextStderrOffset to poll.",
     inputSchema: ReadOutputInputSchema,
     annotations: { ...local, readOnlyHint: true },
     call: (core, ctx, input) => core.processes.readOutput(ctx, input),
@@ -226,7 +229,8 @@ export const TOOLS: readonly ToolDefinition[] = [
   tool({
     name: "browser_tab_open",
     title: "Open browser tab",
-    description: "Open a new tab at an absolute http: or https: URL (active by default). Returns the new tab id. Requires browser.control.",
+    description:
+      "Open a new tab at an absolute http: or https: URL (active by default). Returns the new tab id. Requires browser.control.",
     inputSchema: BrowserTabOpenInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     call: (core, ctx, input) => core.browser.openTab(ctx, input),
@@ -234,7 +238,8 @@ export const TOOLS: readonly ToolDefinition[] = [
   tool({
     name: "browser_navigate",
     title: "Navigate browser tab",
-    description: "Navigate a tab (default: the active tab) to an absolute http: or https: URL. Requires browser.control.",
+    description:
+      "Navigate a tab (default: the active tab) to an absolute http: or https: URL. Requires browser.control.",
     inputSchema: BrowserNavigateInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     call: (core, ctx, input) => core.browser.navigate(ctx, input),
@@ -258,7 +263,8 @@ export const TOOLS: readonly ToolDefinition[] = [
   tool({
     name: "browser_click",
     title: "Click in browser page",
-    description: "Click the first element matching a CSS selector in a tab (default: the active tab). Requires browser.control.",
+    description:
+      "Click the first element matching a CSS selector in a tab (default: the active tab). Requires browser.control.",
     inputSchema: BrowserClickInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     call: (core, ctx, input) => core.browser.click(ctx, input),

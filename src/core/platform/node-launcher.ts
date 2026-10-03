@@ -3,7 +3,15 @@ import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import path from "node:path";
 import { CrotError } from "../errors.js";
-import type { EnvironmentPolicy, ExitStatus, LaunchOptions, ManagedProcess, ProcessLauncher, CommandSpec, TerminationMode } from "./types.js";
+import type {
+  EnvironmentPolicy,
+  ExitStatus,
+  LaunchOptions,
+  ManagedProcess,
+  ProcessLauncher,
+  CommandSpec,
+  TerminationMode,
+} from "./types.js";
 import { batchFileCommand, comspecFrom, findWindowsExecutable, isBatchFile } from "./windows-command.js";
 
 async function isFile(candidate: string): Promise<boolean> {
@@ -25,7 +33,11 @@ async function isExecutableFile(candidate: string): Promise<boolean> {
 }
 
 /** Find an executable on POSIX: explicit paths relative to cwd, otherwise PATH entries. */
-export async function findPosixExecutable(command: string, cwd: string, pathValue: string | undefined): Promise<string | null> {
+export async function findPosixExecutable(
+  command: string,
+  cwd: string,
+  pathValue: string | undefined,
+): Promise<string | null> {
   if (command.includes("/")) {
     const candidate = path.posix.resolve(cwd, command);
     return (await isExecutableFile(candidate)) ? candidate : null;
@@ -81,7 +93,12 @@ class NodeManagedProcess implements ManagedProcess {
 }
 
 /** `env` is the complete child environment, including the invocation's own variables (CommandSpec.env). */
-function startChild(spec: CommandSpec, options: LaunchOptions, env: Readonly<Record<string, string>>, detached: boolean): Promise<ChildProcess> {
+function startChild(
+  spec: CommandSpec,
+  options: LaunchOptions,
+  env: Readonly<Record<string, string>>,
+  detached: boolean,
+): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
     let child: ChildProcess;
     try {
@@ -127,7 +144,8 @@ export function createPosixLauncher(): ProcessLauncher {
       // ESRCH: the group no longer exists.
     }
   };
-  const killTree = async (child: ChildProcess, mode: TerminationMode): Promise<void> => signalGroup(child, mode === "force" ? "SIGKILL" : "SIGTERM");
+  const killTree = async (child: ChildProcess, mode: TerminationMode): Promise<void> =>
+    signalGroup(child, mode === "force" ? "SIGKILL" : "SIGTERM");
   // kill(2) is synchronous already.
   const killTreeSync = (child: ChildProcess): void => signalGroup(child, "SIGKILL");
   return {
@@ -159,7 +177,10 @@ export function createPosixLauncher(): ProcessLauncher {
  *   GenerateConsoleCtrlEvent (native code as well), so graceful termination
  *   escalates to forced termination after the grace period.
  */
-export function createWindowsLauncher(environment: EnvironmentPolicy, hostEnv: Readonly<Record<string, string | undefined>>): ProcessLauncher {
+export function createWindowsLauncher(
+  environment: EnvironmentPolicy,
+  hostEnv: Readonly<Record<string, string | undefined>>,
+): ProcessLauncher {
   const systemRoot = environment.get(hostEnv, "SystemRoot") ?? "C:\\Windows";
   const taskkill = path.win32.join(systemRoot, "System32", "taskkill.exe");
   const killTree = async (child: ChildProcess, mode: TerminationMode, exited: boolean): Promise<void> => {
@@ -177,7 +198,11 @@ export function createWindowsLauncher(environment: EnvironmentPolicy, hostEnv: R
   };
   const killTreeSync = (child: ChildProcess, exited: boolean): void => {
     if (child.pid === undefined || exited) return;
-    const r = spawnSync(taskkill, ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true, timeout: 5_000 });
+    const r = spawnSync(taskkill, ["/PID", String(child.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+      timeout: 5_000,
+    });
     if (r.error) child.kill();
   };
   return {
@@ -192,7 +217,12 @@ export function createWindowsLauncher(environment: EnvironmentPolicy, hostEnv: R
         isFile,
       });
       if (!file) throw new CrotError("NOT_FOUND", `Executable not found: ${command}`);
-      if (isBatchFile(file)) return batchFileCommand(comspecFrom((n) => environment.get(env, n)), file, args);
+      if (isBatchFile(file))
+        return batchFileCommand(
+          comspecFrom((n) => environment.get(env, n)),
+          file,
+          args,
+        );
       return { file, args, display: [command, ...args].join(" ") };
     },
     async launch(spec, options) {

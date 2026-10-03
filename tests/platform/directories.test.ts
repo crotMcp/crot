@@ -4,7 +4,10 @@ import { platformDirectories } from "../../src/core/platform/directories.js";
 import { createEnvironmentPolicy } from "../../src/core/platform/environment.js";
 import { createNodePlatform, hostDirectories } from "../../src/core/platform/node-platform.js";
 
-const lookup = (env: Record<string, string>, windows = false) => (name: string) => createEnvironmentPolicy(windows).get(env, name);
+const lookup =
+  (env: Record<string, string>, windows = false) =>
+  (name: string) =>
+    createEnvironmentPolicy(windows).get(env, name);
 
 describe("platformDirectories", () => {
   it("Linux: XDG directories with spec fallbacks", () => {
@@ -13,13 +16,17 @@ describe("platformDirectories", () => {
       state: "/home/u/.local/state/crot",
       logs: "/home/u/.local/state/crot/logs",
     });
-    expect(platformDirectories("linux", lookup({ XDG_CONFIG_HOME: "/cfg", XDG_STATE_HOME: "/st" }), "/home/u")).toEqual({
-      config: "/cfg/crot",
-      state: "/st/crot",
-      logs: "/st/crot/logs",
-    });
+    expect(platformDirectories("linux", lookup({ XDG_CONFIG_HOME: "/cfg", XDG_STATE_HOME: "/st" }), "/home/u")).toEqual(
+      {
+        config: "/cfg/crot",
+        state: "/st/crot",
+        logs: "/st/crot/logs",
+      },
+    );
     // Relative XDG values are invalid per the specification and ignored.
-    expect(platformDirectories("linux", lookup({ XDG_CONFIG_HOME: "cfg" }), "/home/u").config).toBe("/home/u/.config/crot");
+    expect(platformDirectories("linux", lookup({ XDG_CONFIG_HOME: "cfg" }), "/home/u").config).toBe(
+      "/home/u/.config/crot",
+    );
   });
 
   it("macOS: Application Support and Logs", () => {
@@ -50,6 +57,8 @@ describe("platformDirectories", () => {
     const p = await createNodePlatform({ startupPath: "inherited" });
     expect(p.info.directories).toEqual(dirs);
     const custom = { config: dirs.config + "-x", state: dirs.state + "-x", logs: dirs.logs + "-x" };
-    expect((await createNodePlatform({ startupPath: "inherited", directories: custom })).info.directories).toEqual(custom);
+    expect((await createNodePlatform({ startupPath: "inherited", directories: custom })).info.directories).toEqual(
+      custom,
+    );
   });
 });

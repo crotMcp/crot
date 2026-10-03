@@ -36,14 +36,29 @@ const relayScript = path.join(path.dirname(bin), "crot-browser-relay.js");
 const TIMEOUT = 60_000;
 const BROWSER = { name: "Chrome", version: "130.0.0.0", extensionVersion: "0.1.0" };
 const TABS = [
-  { tabId: 7, windowId: 1, url: "https://example.com/private/path?q=secret", title: "Private Title", active: true, status: "complete" },
+  {
+    tabId: 7,
+    windowId: 1,
+    url: "https://example.com/private/path?q=secret",
+    title: "Private Title",
+    active: true,
+    status: "complete",
+  },
   { tabId: 9, windowId: 1, url: "https://example.org/", title: "Other", active: false },
 ];
 
 /** Sandbox defaults (src/core/permissions/policy.ts); browser capabilities are never among them. */
-const SANDBOX_DEFAULTS = ["filesystem.read", "filesystem.write", "shell.execute", "process.manage", "git.read", "git.write"];
+const SANDBOX_DEFAULTS = [
+  "filesystem.read",
+  "filesystem.write",
+  "shell.execute",
+  "process.manage",
+  "git.read",
+  "git.write",
+];
 
 /** JSON body of a tool result. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped tool result bodies in a test helper
 type Json = any;
 
 type Reply = { ok: true; result: unknown } | { ok: false; error: { code: string; message: string } };
@@ -57,9 +72,22 @@ function defaultReply(request: HostRequest): Reply {
       return { ok: true, result: { tabId: 11, url: String(params.url) } };
     case "page.read":
       // Ignores maxBytes: Core must enforce it regardless.
-      return { ok: true, result: { tabId: 7, url: TABS[0]!.url, title: "Private Title", format: params.format, content: "x".repeat(100), truncated: false } };
+      return {
+        ok: true,
+        result: {
+          tabId: 7,
+          url: TABS[0]!.url,
+          title: "Private Title",
+          format: params.format,
+          content: "x".repeat(100),
+          truncated: false,
+        },
+      };
     default:
-      return { ok: false, error: { code: "BROWSER_PAGE_RESTRICTED", message: "The browser does not allow this on the page." } };
+      return {
+        ok: false,
+        error: { code: "BROWSER_PAGE_RESTRICTED", message: "The browser does not allow this on the page." },
+      };
   }
 }
 
@@ -152,7 +180,9 @@ afterEach(async () => {
  * Windows %LOCALAPPDATA%\CROT.
  */
 async function hostEnvironment(): Promise<Host> {
-  const inherited = Object.fromEntries(Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined));
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined),
+  );
   if (isWindows) {
     const local = path.join(dirs.outside, "local");
     const env = { ...inherited, LOCALAPPDATA: local, APPDATA: path.join(dirs.outside, "roaming") };
@@ -162,10 +192,19 @@ async function hostEnvironment(): Promise<Host> {
     // A short HOME: the bridge socket lives below it and Unix socket paths are limited to 103 bytes.
     const home = await realpath(await mkdtemp("/tmp/crot-h-"));
     cleanups.push(() => rm(home, { recursive: true, force: true }));
-    return { env: { ...inherited, HOME: home }, stateDir: path.join(home, "Library", "Application Support", "CROT", "State"), home };
+    return {
+      env: { ...inherited, HOME: home },
+      stateDir: path.join(home, "Library", "Application Support", "CROT", "State"),
+      home,
+    };
   }
   const home = path.join(dirs.outside, "home");
-  const env = { ...inherited, HOME: home, XDG_STATE_HOME: path.join(dirs.outside, "state"), XDG_CONFIG_HOME: path.join(dirs.outside, "config") };
+  const env = {
+    ...inherited,
+    HOME: home,
+    XDG_STATE_HOME: path.join(dirs.outside, "state"),
+    XDG_CONFIG_HOME: path.join(dirs.outside, "config"),
+  };
   return { env, stateDir: path.join(dirs.outside, "state", "crot"), home };
 }
 
@@ -191,7 +230,12 @@ async function serve(options: ServeOptions) {
   const permissions = { mode: options.mode, ...(options.capabilities ? { capabilities: options.capabilities } : {}) };
   await writeFile(
     configFile,
-    JSON.stringify({ workspace: { root: dirs.workspace }, permissions, environment: { path: "inherited" }, browser: { enabled: true } }),
+    JSON.stringify({
+      workspace: { root: dirs.workspace },
+      permissions,
+      environment: { path: "inherited" },
+      browser: { enabled: true },
+    }),
   );
   const audit = options.auditFile ? ["--audit-log", options.auditFile] : ["--no-audit"];
   const transport = new StdioClientTransport({
@@ -236,7 +280,8 @@ function startRelay(command: string, args: readonly string[]): FakeExtension {
   return extension;
 }
 
-const startBuiltRelay = () => startRelay(process.execPath, [relayScript, "--state-dir", host.stateDir, CROT_EXTENSION_ORIGIN]);
+const startBuiltRelay = () =>
+  startRelay(process.execPath, [relayScript, "--state-dir", host.stateDir, CROT_EXTENSION_ORIGIN]);
 
 describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => {
   it(
@@ -268,7 +313,9 @@ describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => 
 
       // Responses are untrusted: one that fails Core's result schema is rejected.
       extension.reply = (request) =>
-        request.command === "tabs.list" ? { ok: true, result: { tabs: [{ tabId: "7", url: 1 }] } } : defaultReply(request);
+        request.command === "tabs.list"
+          ? { ok: true, result: { tabs: [{ tabId: "7", url: 1 }] } }
+          : defaultReply(request);
       expect(await crot.errorCode("browser_tabs_list")).toBe("OPERATION_FAILED");
 
       // Input is validated before anything is sent: javascript: URLs never reach the browser.
@@ -345,8 +392,12 @@ describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => 
       await waitFor(async () => (await crot.bridgeState()) === "connected", 10_000);
 
       expect((await crot.call("browser_tabs_list")).body).toEqual({ tabs: TABS });
-      expect(await crot.errorCode("browser_tab_open", { url: "https://example.com/private/path?q=secret" })).toBe("PERMISSION_DENIED");
-      expect(await crot.errorCode("browser_navigate", { tabId: 7, url: "https://example.com/" })).toBe("PERMISSION_DENIED");
+      expect(await crot.errorCode("browser_tab_open", { url: "https://example.com/private/path?q=secret" })).toBe(
+        "PERMISSION_DENIED",
+      );
+      expect(await crot.errorCode("browser_navigate", { tabId: 7, url: "https://example.com/" })).toBe(
+        "PERMISSION_DENIED",
+      );
       expect(await crot.errorCode("browser_click", { selector: "#go" })).toBe("PERMISSION_DENIED");
       expect(await crot.errorCode("browser_type", { selector: "#q", text: "typed-secret" })).toBe("PERMISSION_DENIED");
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -367,7 +418,9 @@ describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => 
       for (const operation of ["browser.tab_open", "browser.navigate", "browser.click", "browser.type"]) {
         expect(outcome(operation), operation).toBe("denied");
       }
-      expect(records.find((r) => r.operation === "browser.tab_open")?.details).toMatchObject({ origin: "https://example.com" });
+      expect(records.find((r) => r.operation === "browser.tab_open")?.details).toMatchObject({
+        origin: "https://example.com",
+      });
       // Audit records hold origins and lengths only: no full URLs, typed text or page data.
       expect(audit).not.toContain("/private/path");
       expect(audit).not.toContain("typed-secret");
@@ -443,13 +496,19 @@ describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => 
         process.platform === "darwin"
           ? path.join(host.home, "Library", "Application Support", "Google", "Chrome")
           : path.join(dirs.outside, "config", "google-chrome");
-      const manifest = JSON.parse(await readFile(path.join(chrome, "NativeMessagingHosts", `${CROT_NATIVE_HOST_NAME}.json`), "utf8")) as {
+      const manifest = JSON.parse(
+        await readFile(path.join(chrome, "NativeMessagingHosts", `${CROT_NATIVE_HOST_NAME}.json`), "utf8"),
+      ) as {
         name: string;
         type: string;
         path: string;
         allowed_origins: string[];
       };
-      expect(manifest).toMatchObject({ name: CROT_NATIVE_HOST_NAME, type: "stdio", allowed_origins: [CROT_EXTENSION_ORIGIN] });
+      expect(manifest).toMatchObject({
+        name: CROT_NATIVE_HOST_NAME,
+        type: "stdio",
+        allowed_origins: [CROT_EXTENSION_ORIGIN],
+      });
       expect(manifest.path).toBe(path.join(host.stateDir, "native-messaging", "crot-browser-host"));
 
       const crot = await serve({ mode: "full_control" });

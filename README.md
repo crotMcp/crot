@@ -488,14 +488,20 @@ npm install
 npm run typecheck
 npm run build
 npm test           # also builds the sources into a temporary directory for the stdio end-to-end test
-npm run check      # typecheck + test + build
+npm run lint       # ESLint
+npm run format     # Prettier (npm run format:check only checks)
+npm run check      # the local gate: lint, format:check, typecheck, typecheck:extension,
+                   # build, build:extension, test, test:extension
 
 npm run typecheck:extension
 npm run build:extension   # compiles the extension into extension/dist
 npm run test:extension
+
+npm run test:e2e:browser  # real Chromium E2E; separate from npm test and npm run check (docs/BROWSER_E2E.md)
 ```
 
-CI runs `typecheck`, `typecheck:extension`, `build`, `build:extension`, `test`
-and `test:extension` on Ubuntu, macOS and Windows with Node 20 and 22.
+CI runs `lint`, `format:check`, `typecheck`, `typecheck:extension`, `build`,
+`build:extension`, `test` and `test:extension` on Ubuntu, macOS and Windows with
+Node 20 and 22.
 Windows-specific behaviour (cmd quoting, PATHEXT lookup, path rules, environment
 casing) is also unit-tested as pure functions on every OS.

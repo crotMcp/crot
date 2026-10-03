@@ -15,7 +15,11 @@ export const POWERSHELL_PRELUDE =
 export function powershellCommand(executable: string, script: string): CommandSpec {
   const prelude = POWERSHELL_PRELUDE;
   const encoded = Buffer.from(prelude + script, "utf16le").toString("base64");
-  return { file: executable, args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], display: script };
+  return {
+    file: executable,
+    args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+    display: script,
+  };
 }
 
 export function shellCommand(shell: ShellInfo, script: string): CommandSpec {
@@ -39,7 +43,10 @@ export function createShellProvider(defaultShell: ShellId, shells: readonly Shel
     command(script, shell = defaultShell) {
       const info = shells.find((s) => s.id === shell);
       if (!info) {
-        throw new CrotError("NOT_FOUND", `Shell '${shell}' is not available on this machine. Available: ${shells.map((s) => s.id).join(", ") || "none"}.`);
+        throw new CrotError(
+          "NOT_FOUND",
+          `Shell '${shell}' is not available on this machine. Available: ${shells.map((s) => s.id).join(", ") || "none"}.`,
+        );
       }
       return shellCommand(info, script);
     },

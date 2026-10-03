@@ -31,19 +31,31 @@ export async function loadConfigFile(file: string): Promise<CrotConfigInput> {
   try {
     data = JSON.parse(stripBom(raw));
   } catch (error) {
-    throw new CrotError("CONFIG_ERROR", `Configuration file ${absolute} is not valid JSON: ${(error as Error).message}`);
+    throw new CrotError(
+      "CONFIG_ERROR",
+      `Configuration file ${absolute} is not valid JSON: ${(error as Error).message}`,
+    );
   }
   let config = data as CrotConfigInput;
   const base = path.dirname(absolute);
   if (config && typeof config === "object") {
     if (config.workspace && typeof config.workspace.root === "string") {
-      config = { ...config, workspace: { ...config.workspace, root: path.resolve(base, expandHome(config.workspace.root)) } };
+      config = {
+        ...config,
+        workspace: { ...config.workspace, root: path.resolve(base, expandHome(config.workspace.root)) },
+      };
     }
     if (config.audit && typeof config.audit.path === "string") {
       config = { ...config, audit: { ...config.audit, path: path.resolve(base, expandHome(config.audit.path)) } };
     }
     const http = config.http;
-    if (http && typeof http === "object" && http.auth && typeof http.auth === "object" && typeof http.auth.tokenFile === "string") {
+    if (
+      http &&
+      typeof http === "object" &&
+      http.auth &&
+      typeof http.auth === "object" &&
+      typeof http.auth.tokenFile === "string"
+    ) {
       config = {
         ...config,
         http: { ...http, auth: { ...http.auth, tokenFile: path.resolve(base, expandHome(http.auth.tokenFile)) } },

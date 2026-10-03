@@ -9,7 +9,13 @@ const EnvName = z
   .min(1)
   .regex(/^[^=\0]+$/, "Environment variable names must not contain '=' or NUL.");
 const Env = z
-  .record(EnvName, z.string().regex(/^[^\0]*$/, "Environment values must not contain NUL.").nullable())
+  .record(
+    EnvName,
+    z
+      .string()
+      .regex(/^[^\0]*$/, "Environment values must not contain NUL.")
+      .nullable(),
+  )
   .optional()
   .describe(
     "Environment variables added to or overriding the CROT process environment; null removes a variable. Names are case-insensitive on Windows.",
@@ -17,8 +23,15 @@ const Env = z
 const Shell = z
   .enum(SHELL_IDS)
   .optional()
-  .describe("Shell to use (sh, bash, zsh, cmd, powershell, pwsh). Defaults to the platform shell; see crot_status for available shells.");
-const TimeoutMs = z.number().int().positive().optional().describe("Timeout in milliseconds (bounded by the configured maximum).");
+  .describe(
+    "Shell to use (sh, bash, zsh, cmd, powershell, pwsh). Defaults to the platform shell; see crot_status for available shells.",
+  );
+const TimeoutMs = z
+  .number()
+  .int()
+  .positive()
+  .optional()
+  .describe("Timeout in milliseconds (bounded by the configured maximum).");
 const Command = z.string().min(1).describe("Executable name or path. Not interpreted by a shell.");
 const Args = z.array(z.string()).default([]).describe("Arguments passed verbatim to the executable.");
 const Encoding = z
@@ -28,7 +41,10 @@ const Encoding = z
   .describe(
     "How to decode stdout/stderr: auto (default: UTF-8; on Windows, output that is not UTF-8 is decoded with the console code page), utf-8, utf-16le, oem, ansi (Windows code pages), cpNNN or another WHATWG encoding label. The encoding used is reported with the output.",
   );
-const Script = z.string().min(1).describe("Script interpreted by the selected shell (default: /bin/sh on Linux/macOS, cmd.exe on Windows).");
+const Script = z
+  .string()
+  .min(1)
+  .describe("Script interpreted by the selected shell (default: /bin/sh on Linux/macOS, cmd.exe on Windows).");
 
 export const ExecInputSchema = z
   .object({
@@ -70,13 +86,25 @@ export const StartProcessInputSchema = z
     message: "Provide exactly one of 'command' or 'script'.",
   });
 
-export const ProcessIdInputSchema = z.object({ id: z.string().min(1).describe("Background process id returned by start.") }).strict();
+export const ProcessIdInputSchema = z
+  .object({ id: z.string().min(1).describe("Background process id returned by start.") })
+  .strict();
 
 export const ReadOutputInputSchema = z
   .object({
     id: z.string().min(1),
-    stdoutOffset: z.number().int().nonnegative().default(0).describe("Return stdout from this byte offset (use the previous nextStdoutOffset)."),
-    stderrOffset: z.number().int().nonnegative().default(0).describe("Return stderr from this byte offset (use the previous nextStderrOffset)."),
+    stdoutOffset: z
+      .number()
+      .int()
+      .nonnegative()
+      .default(0)
+      .describe("Return stdout from this byte offset (use the previous nextStdoutOffset)."),
+    stderrOffset: z
+      .number()
+      .int()
+      .nonnegative()
+      .default(0)
+      .describe("Return stderr from this byte offset (use the previous nextStderrOffset)."),
   })
   .strict();
 

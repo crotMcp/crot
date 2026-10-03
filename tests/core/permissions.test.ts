@@ -22,9 +22,9 @@ describe("permission policy", () => {
   });
 
   it("rejects filesystem.full in sandbox mode", () => {
-    expect(() => createPermissionPolicy({ mode: "sandbox", capabilities: ["filesystem.read", "filesystem.full"] })).toThrow(
-      CrotError,
-    );
+    expect(() =>
+      createPermissionPolicy({ mode: "sandbox", capabilities: ["filesystem.read", "filesystem.full"] }),
+    ).toThrow(CrotError);
   });
 
   it("honours an explicit capability subset", () => {
@@ -36,7 +36,9 @@ describe("permission policy", () => {
 describe("PermissionEngine", () => {
   it("allows granted capabilities inside the workspace", () => {
     const engine = new PermissionEngine(createPermissionPolicy({ mode: "sandbox" }));
-    expect(engine.authorize({ context: testContext, capability: "filesystem.read", paths: [inside] })).toEqual({ allowed: true });
+    expect(engine.authorize({ context: testContext, capability: "filesystem.read", paths: [inside] })).toEqual({
+      allowed: true,
+    });
   });
 
   it("denies capabilities that are not granted", () => {
@@ -48,14 +50,20 @@ describe("PermissionEngine", () => {
 
   it("denies paths outside the workspace in sandbox mode", () => {
     const engine = new PermissionEngine(createPermissionPolicy({ mode: "sandbox" }));
-    const decision = engine.authorize({ context: testContext, capability: "filesystem.read", paths: [inside, outside] });
+    const decision = engine.authorize({
+      context: testContext,
+      capability: "filesystem.read",
+      paths: [inside, outside],
+    });
     expect(decision.allowed).toBe(false);
     if (!decision.allowed) expect(decision.missing).toEqual(["filesystem.full"]);
   });
 
   it("allows paths outside the workspace in full_control mode", () => {
     const engine = new PermissionEngine(createPermissionPolicy({ mode: "full_control" }));
-    expect(engine.authorize({ context: testContext, capability: "filesystem.write", paths: [outside] })).toEqual({ allowed: true });
+    expect(engine.authorize({ context: testContext, capability: "filesystem.write", paths: [outside] })).toEqual({
+      allowed: true,
+    });
   });
 
   it("still enforces the capability set in full_control mode", () => {
@@ -63,6 +71,8 @@ describe("PermissionEngine", () => {
       createPermissionPolicy({ mode: "full_control", capabilities: ["filesystem.read", "filesystem.full"] }),
     );
     expect(engine.authorize({ context: testContext, capability: "shell.execute" }).allowed).toBe(false);
-    expect(engine.authorize({ context: testContext, capability: "filesystem.read", paths: [outside] }).allowed).toBe(true);
+    expect(engine.authorize({ context: testContext, capability: "filesystem.read", paths: [outside] }).allowed).toBe(
+      true,
+    );
   });
 });

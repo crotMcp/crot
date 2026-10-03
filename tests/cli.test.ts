@@ -12,7 +12,11 @@ beforeEach(async () => {
 afterEach(() => dirs.cleanup());
 
 /** Default directories inside the test's temp dir, so a real user config never leaks in. */
-const testDirectories = () => ({ config: path.join(dirs.outside, "cfg"), state: path.join(dirs.outside, "state"), logs: path.join(dirs.outside, "logs") });
+const testDirectories = () => ({
+  config: path.join(dirs.outside, "cfg"),
+  state: path.join(dirs.outside, "state"),
+  logs: path.join(dirs.outside, "logs"),
+});
 const parse = (argv: string[], env: NodeJS.ProcessEnv = {}) => parseCli(argv, env, { directories: testDirectories() });
 
 describe("parseCli", () => {
@@ -21,7 +25,10 @@ describe("parseCli", () => {
   });
 
   it("builds a config from flags", async () => {
-    const cmd = await parse(["--workspace", dirs.workspace, "--mode", "full-control", "--audit-log", "audit.jsonl"], {});
+    const cmd = await parse(
+      ["--workspace", dirs.workspace, "--mode", "full-control", "--audit-log", "audit.jsonl"],
+      {},
+    );
     expect(cmd).toEqual({
       kind: "serve",
       config: {
@@ -35,11 +42,18 @@ describe("parseCli", () => {
 
   it("merges a config file (from CROT_CONFIG) with flag overrides", async () => {
     const file = path.join(dirs.outside, "crot.json");
-    await writeFile(file, JSON.stringify({ workspace: { root: "../workspace", name: "proj" }, permissions: { mode: "full_control" } }));
+    await writeFile(
+      file,
+      JSON.stringify({ workspace: { root: "../workspace", name: "proj" }, permissions: { mode: "full_control" } }),
+    );
     const cmd = await parse(["--mode", "sandbox", "--no-audit"], { CROT_CONFIG: file });
     expect(cmd).toEqual({
       kind: "serve",
-      config: { workspace: { root: dirs.workspace, name: "proj" }, permissions: { mode: "sandbox" }, audit: { sink: "none" } },
+      config: {
+        workspace: { root: dirs.workspace, name: "proj" },
+        permissions: { mode: "sandbox" },
+        audit: { sink: "none" },
+      },
       configFile: file,
       configSource: "env",
       warnings: [],
@@ -96,12 +110,20 @@ describe("parseCli default configuration", () => {
     await writeDefault({ workspace: { root: dirs.outside } });
     const explicit = path.join(dirs.outside, "explicit.json");
     await writeFile(explicit, JSON.stringify({ workspace: { root: dirs.workspace } }));
-    expect(await parse(["--config", explicit])).toMatchObject({ config: { workspace: { root: dirs.workspace } }, configFile: explicit, configSource: "flag" });
+    expect(await parse(["--config", explicit])).toMatchObject({
+      config: { workspace: { root: dirs.workspace } },
+      configFile: explicit,
+      configSource: "flag",
+    });
     expect(await parse([], { CROT_CONFIG: explicit })).toMatchObject({ configFile: explicit, configSource: "env" });
   });
 
   it("without a default file, behaves as before", async () => {
     await expect(parse([])).rejects.toMatchObject({ code: "CONFIG_ERROR" });
-    expect(await parse(["-w", dirs.workspace])).toEqual({ kind: "serve", config: { workspace: { root: dirs.workspace } }, warnings: [] });
+    expect(await parse(["-w", dirs.workspace])).toEqual({
+      kind: "serve",
+      config: { workspace: { root: dirs.workspace } },
+      warnings: [],
+    });
   });
 });

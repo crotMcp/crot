@@ -136,7 +136,10 @@ export interface EnvironmentPolicy {
    * On case-insensitive platforms, an override replaces any differently-cased
    * existing name instead of creating a duplicate.
    */
-  merge(base: Readonly<Record<string, string | undefined>>, overrides?: Readonly<Record<string, string | null>>): Record<string, string>;
+  merge(
+    base: Readonly<Record<string, string | undefined>>,
+    overrides?: Readonly<Record<string, string | null>>,
+  ): Record<string, string>;
   /** Look up a variable using the platform's name semantics. */
   get(env: Readonly<Record<string, string | undefined>>, name: string): string | undefined;
 }
@@ -207,7 +210,11 @@ export interface ProcessLauncher {
    * lookup rules (PATH, PATHEXT, .cmd/.bat wrappers on Windows).
    * Throws NOT_FOUND when the executable cannot be found.
    */
-  resolveCommand(command: string, args: readonly string[], options: { cwd: string; env: Readonly<Record<string, string>> }): Promise<CommandSpec>;
+  resolveCommand(
+    command: string,
+    args: readonly string[],
+    options: { cwd: string; env: Readonly<Record<string, string>> },
+  ): Promise<CommandSpec>;
   /** Start a process. Throws NOT_FOUND / OPERATION_FAILED when it cannot start. */
   launch(spec: CommandSpec, options: LaunchOptions): Promise<ManagedProcess>;
   /** Whether terminate() can reach descendants after the direct child exited. */
@@ -248,7 +255,9 @@ export interface TextDecoding {
  * auto: UTF-8 (UTF-16 when a UTF-16LE BOM is present); output that is not valid
  * UTF-8 is decoded with `fallback` (the Windows console code page) when there is one.
  */
-export type ResolvedEncoding = { readonly mode: "auto"; readonly fallback: TextDecoding | null } | { readonly mode: "fixed"; readonly decoding: TextDecoding };
+export type ResolvedEncoding =
+  | { readonly mode: "auto"; readonly fallback: TextDecoding | null }
+  | { readonly mode: "fixed"; readonly decoding: TextDecoding };
 
 /** Decoding of command output. */
 export interface EncodingSupport {

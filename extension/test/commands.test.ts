@@ -46,7 +46,8 @@ async function failure(promise: Promise<unknown>): Promise<ExtensionError> {
   throw new Error("expected the command to fail");
 }
 
-const ok = (schema: { safeParse(v: unknown): { success: boolean } }, value: unknown) => expect(schema.safeParse(value).success).toBe(true);
+const ok = (schema: { safeParse(v: unknown): { success: boolean } }, value: unknown) =>
+  expect(schema.safeParse(value).success).toBe(true);
 
 describe("extension commands", () => {
   it("implements exactly the protocol's commands", () => {
@@ -66,7 +67,16 @@ describe("extension commands", () => {
   it("accepts only http and https URLs", () => {
     expect(isHttpUrl("https://example.com/")).toBe(true);
     expect(isHttpUrl("http://localhost:8080/x")).toBe(true);
-    for (const url of ["javascript:alert(1)", "data:text/html,x", "file:///etc/passwd", "chrome://settings", "about:blank", "/relative", "", 42]) {
+    for (const url of [
+      "javascript:alert(1)",
+      "data:text/html,x",
+      "file:///etc/passwd",
+      "chrome://settings",
+      "about:blank",
+      "/relative",
+      "",
+      42,
+    ]) {
       expect(isHttpUrl(url)).toBe(false);
     }
     expect(isHttpUrl("https://e.com/" + "a".repeat(URL_MAX_LENGTH))).toBe(false);
@@ -74,17 +84,38 @@ describe("extension commands", () => {
 
   it("lists tabs in Core's result shape", async () => {
     const { fake, handlers } = setup();
-    fake.addTab({ id: 4, windowId: 1, url: undefined, pendingUrl: "https://pending.example/", title: undefined, status: "weird" });
+    fake.addTab({
+      id: 4,
+      windowId: 1,
+      url: undefined,
+      pendingUrl: "https://pending.example/",
+      title: undefined,
+      status: "weird",
+    });
     const result = (await handlers["tabs.list"]({})) as { tabs: Record<string, unknown>[] };
     ok(BrowserTabsListResultSchema, result);
     expect(result.tabs.length).toBe(4);
-    expect(result.tabs[0]).toEqual({ tabId: 1, windowId: 1, url: "https://example.com/a", title: "A", active: true, status: "complete" });
-    expect(result.tabs[3]).toEqual({ tabId: 4, windowId: 1, url: "https://pending.example/", title: "", active: false });
+    expect(result.tabs[0]).toEqual({
+      tabId: 1,
+      windowId: 1,
+      url: "https://example.com/a",
+      title: "A",
+      active: true,
+      status: "complete",
+    });
+    expect(result.tabs[3]).toEqual({
+      tabId: 4,
+      windowId: 1,
+      url: "https://pending.example/",
+      title: "",
+      active: false,
+    });
   });
 
   it("bounds tab lists, titles and URLs", async () => {
     const fake = new FakeChrome();
-    for (let id = 0; id < MAX_TABS + 5; id++) fake.addTab({ id, title: "t".repeat(TITLE_MAX_LENGTH + 10), url: "https://e.com/" + "u".repeat(URL_MAX_LENGTH) });
+    for (let id = 0; id < MAX_TABS + 5; id++)
+      fake.addTab({ id, title: "t".repeat(TITLE_MAX_LENGTH + 10), url: "https://e.com/" + "u".repeat(URL_MAX_LENGTH) });
     fake.addTab({ id: -1 });
     const result = (await createCommandHandlers(fake.api)["tabs.list"]({})) as { tabs: unknown[] };
     expect(result.tabs.length).toBe(MAX_TABS);
@@ -94,7 +125,9 @@ describe("extension commands", () => {
   it("rejects unexpected or invalid parameters", async () => {
     const { handlers } = setup();
     expect((await failure(handlers["tabs.list"]({ extra: 1 }))).code).toBe("INVALID_INPUT");
-    expect((await failure(handlers["tabs.open"]({ url: "javascript:alert(1)", active: true }))).code).toBe("INVALID_INPUT");
+    expect((await failure(handlers["tabs.open"]({ url: "javascript:alert(1)", active: true }))).code).toBe(
+      "INVALID_INPUT",
+    );
     expect((await failure(handlers["tabs.open"]({ url: "https://e.com/" }))).code).toBe("INVALID_INPUT");
     expect((await failure(handlers["tabs.navigate"]({ url: "file:///etc/passwd" }))).code).toBe("INVALID_INPUT");
     expect((await failure(handlers["tabs.activate"]({ tabId: -1 }))).code).toBe("INVALID_INPUT");
@@ -106,10 +139,16 @@ describe("extension commands", () => {
     expect((await failure(handlers["page.click"]({ selector: "" }))).code).toBe("INVALID_INPUT");
     expect((await failure(handlers["page.click"]({ selector: "a\0b" }))).code).toBe("INVALID_INPUT");
     expect((await failure(handlers["page.click"]({ selector: "a", code: "alert(1)" }))).code).toBe("INVALID_INPUT");
-    expect((await failure(handlers["page.type"]({ selector: "a", text: "x".repeat(TYPE_TEXT_MAX_LENGTH + 1), clear: false }))).code).toBe(
+    expect(
+      (
+        await failure(
+          handlers["page.type"]({ selector: "a", text: "x".repeat(TYPE_TEXT_MAX_LENGTH + 1), clear: false }),
+        )
+      ).code,
+    ).toBe("INVALID_INPUT");
+    expect((await failure(handlers["page.type"]({ selector: "a", text: "x", clear: "yes" }))).code).toBe(
       "INVALID_INPUT",
     );
-    expect((await failure(handlers["page.type"]({ selector: "a", text: "x", clear: "yes" }))).code).toBe("INVALID_INPUT");
   });
 
   it("opens a tab and reports it after loading", async () => {
@@ -175,20 +214,30 @@ describe("extension commands", () => {
 
   it("refuses non-http(s) pages before touching them", async () => {
     const { fake, handlers } = setup();
-    expect((await failure(handlers["page.read"]({ tabId: 3, format: "text", maxBytes: 10 }))).code).toBe("BROWSER_PAGE_RESTRICTED");
-    expect((await failure(handlers["page.screenshot"]({ tabId: 3, format: "png" }))).code).toBe("BROWSER_PAGE_RESTRICTED");
+    expect((await failure(handlers["page.read"]({ tabId: 3, format: "text", maxBytes: 10 }))).code).toBe(
+      "BROWSER_PAGE_RESTRICTED",
+    );
+    expect((await failure(handlers["page.screenshot"]({ tabId: 3, format: "png" }))).code).toBe(
+      "BROWSER_PAGE_RESTRICTED",
+    );
     expect((await failure(handlers["page.click"]({ tabId: 3, selector: "a" }))).code).toBe("BROWSER_PAGE_RESTRICTED");
-    expect((await failure(handlers["page.type"]({ tabId: 3, selector: "a", text: "x", clear: false }))).code).toBe("BROWSER_PAGE_RESTRICTED");
+    expect((await failure(handlers["page.type"]({ tabId: 3, selector: "a", text: "x", clear: false }))).code).toBe(
+      "BROWSER_PAGE_RESTRICTED",
+    );
     expect(fake.injections.length).toBe(0);
     expect(fake.captures.length).toBe(0);
   });
 
   it("maps browser refusals to BROWSER_PAGE_RESTRICTED", async () => {
     const { fake, handlers } = setup();
-    fake.scriptError = new Error("Cannot access contents of the page. Extension manifest must request permission to access the respective host.");
+    fake.scriptError = new Error(
+      "Cannot access contents of the page. Extension manifest must request permission to access the respective host.",
+    );
     expect((await failure(handlers["page.click"]({ tabId: 1, selector: "a" }))).code).toBe("BROWSER_PAGE_RESTRICTED");
     fake.scriptError = new Error("The extensions gallery cannot be scripted.");
-    expect((await failure(handlers["page.read"]({ tabId: 1, format: "text", maxBytes: 5 }))).code).toBe("BROWSER_PAGE_RESTRICTED");
+    expect((await failure(handlers["page.read"]({ tabId: 1, format: "text", maxBytes: 5 }))).code).toBe(
+      "BROWSER_PAGE_RESTRICTED",
+    );
     fake.scriptError = new Error("Something else");
     const other = await failure(handlers["page.read"]({ tabId: 1, format: "text", maxBytes: 5 }));
     expect(other.code).toBe("OPERATION_FAILED");
@@ -198,11 +247,24 @@ describe("extension commands", () => {
     const { fake, handlers } = setup();
     fake.scriptResult = () => ({ ok: true, value: { content: "hello", truncated: false } });
     const read = await handlers["page.read"]({ format: "html", maxBytes: 100 });
-    expect(read).toEqual({ tabId: 1, url: "https://example.com/a", title: "A", format: "html", content: "hello", truncated: false });
+    expect(read).toEqual({
+      tabId: 1,
+      url: "https://example.com/a",
+      title: "A",
+      format: "html",
+      content: "hello",
+      truncated: false,
+    });
     ok(BrowserPageReadResultSchema, read);
     fake.scriptResult = () => ({ ok: true, value: null });
-    expect(await handlers["page.click"]({ tabId: 2, selector: "#go" })).toEqual({ tabId: 2, url: "https://example.org/b" });
-    expect(await handlers["page.type"]({ selector: "input", text: "hi", clear: true })).toEqual({ tabId: 1, url: "https://example.com/a" });
+    expect(await handlers["page.click"]({ tabId: 2, selector: "#go" })).toEqual({
+      tabId: 2,
+      url: "https://example.org/b",
+    });
+    expect(await handlers["page.type"]({ selector: "input", text: "hi", clear: true })).toEqual({
+      tabId: 1,
+      url: "https://example.com/a",
+    });
     const funcs = fake.injections.map((i) => i.func);
     expect(funcs.length).toBe(3);
     expect(funcs[0]).toBe(readPageContent);

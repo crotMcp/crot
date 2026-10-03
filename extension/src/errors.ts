@@ -21,7 +21,8 @@ export type ExtensionErrorCode = (typeof EXTENSION_ERROR_CODES)[number];
 
 const CODES: ReadonlySet<string> = new Set<string>(EXTENSION_ERROR_CODES);
 
-export const isExtensionErrorCode = (value: unknown): value is ExtensionErrorCode => typeof value === "string" && CODES.has(value);
+export const isExtensionErrorCode = (value: unknown): value is ExtensionErrorCode =>
+  typeof value === "string" && CODES.has(value);
 
 /** A failure of one command, reported to the host as an error response. */
 export class ExtensionError extends Error {

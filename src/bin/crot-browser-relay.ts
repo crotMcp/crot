@@ -25,6 +25,10 @@ async function exit(code: number): Promise<never> {
 }
 
 main().then(exit, (error: unknown) => {
-  log(error instanceof CrotError ? error.message : `fatal: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+  log(
+    error instanceof CrotError
+      ? error.message
+      : `fatal: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+  );
   return exit(1);
 });

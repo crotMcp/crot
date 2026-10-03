@@ -103,7 +103,9 @@ export function typeIntoElement(selector: string, text: string, clear: boolean):
       selection.removeAllRanges();
       selection.addRange(range);
     }
-    if (text.length === 0 ? !clear || document.execCommand("delete") : document.execCommand("insertText", false, text)) {
+    if (
+      text.length === 0 ? !clear || document.execCommand("delete") : document.execCommand("insertText", false, text)
+    ) {
       return { ok: true, value: null };
     }
     // execCommand unavailable: set the text directly.

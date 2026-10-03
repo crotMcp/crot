@@ -94,7 +94,10 @@ export class ExecutionGuard {
     for (const capability of capabilities) {
       const decision = this.engine.authorize({ context, capability, paths: op.paths ?? [] });
       if (!decision.allowed) {
-        const denied = new PermissionDeniedError(decision.reason, { operation: op.operation, missing: decision.missing });
+        const denied = new PermissionDeniedError(decision.reason, {
+          operation: op.operation,
+          missing: decision.missing,
+        });
         await record("denied", denied);
         throw denied;
       }

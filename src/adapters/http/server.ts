@@ -15,7 +15,10 @@ import { HTTP_TRANSPORT, httpContextResolver } from "./context.js";
 /** The only path served. */
 export const MCP_HTTP_PATH = "/mcp";
 
-export type CrotHttpServerConfig = Pick<HttpConfig, "host" | "port" | "allowedOrigins" | "maxRequestBytes" | "maxSessions" | "sessionIdleTimeoutMs">;
+export type CrotHttpServerConfig = Pick<
+  HttpConfig,
+  "host" | "port" | "allowedOrigins" | "maxRequestBytes" | "maxSessions" | "sessionIdleTimeoutMs"
+>;
 
 export interface CrotHttpServerOptions {
   readonly config: CrotHttpServerConfig;
@@ -83,9 +86,15 @@ function readBody(req: IncomingMessage, limit: number): Promise<Buffer | undefin
   });
 }
 
-const withAuth = (req: IncomingMessage, auth: AuthInfo): IncomingMessage & { auth: AuthInfo } => Object.assign(req, { auth });
+const withAuth = (req: IncomingMessage, auth: AuthInfo): IncomingMessage & { auth: AuthInfo } =>
+  Object.assign(req, { auth });
 
-const UNAUTHORIZED: Rejection = { status: 401, code: -32001, message: "Unauthorized", headers: { "WWW-Authenticate": 'Bearer realm="crot"' } };
+const UNAUTHORIZED: Rejection = {
+  status: 401,
+  code: -32001,
+  message: "Unauthorized",
+  headers: { "WWW-Authenticate": 'Bearer realm="crot"' },
+};
 const INVALID_TOKEN: Rejection = {
   status: 401,
   code: -32001,
@@ -165,7 +174,9 @@ export class CrotHttpServer {
     await new Promise<void>((resolve, reject) => {
       const onError = (error: Error) => {
         this.http.off("listening", onListening);
-        reject(new CrotError("CONFIG_ERROR", `Cannot listen on ${this.config.host}:${this.config.port}: ${error.message}`));
+        reject(
+          new CrotError("CONFIG_ERROR", `Cannot listen on ${this.config.host}:${this.config.port}: ${error.message}`),
+        );
       };
       const onListening = () => {
         this.http.off("error", onError);
@@ -177,7 +188,12 @@ export class CrotHttpServer {
     });
     this.http.on("error", (error) => this.log(`http: server error: ${error.message}`));
     this.boundPort = (this.http.address() as AddressInfo).port;
-    const names = ["127.0.0.1", "localhost", "[::1]", isIP(this.config.host) === 6 ? `[${this.config.host}]` : this.config.host];
+    const names = [
+      "127.0.0.1",
+      "localhost",
+      "[::1]",
+      isIP(this.config.host) === 6 ? `[${this.config.host}]` : this.config.host,
+    ];
     for (const name of names) this.allowedHosts.add(`${name.toLowerCase()}:${this.boundPort}`);
     const interval = Math.max(50, Math.min(this.config.sessionIdleTimeoutMs, 60_000));
     this.sweeper = setInterval(() => this.expireIdleSessions(), interval);
@@ -193,11 +209,18 @@ export class CrotHttpServer {
   }
 
   private async route(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (this.closing) return sendError(res, { status: 503, code: -32000, message: "Server is shutting down", headers: { Connection: "close" } });
+    if (this.closing)
+      return sendError(res, {
+        status: 503,
+        code: -32000,
+        message: "Server is shutting down",
+        headers: { Connection: "close" },
+      });
 
     // DNS rebinding protection: only loopback Host names on our port.
     const host = req.headers.host?.toLowerCase();
-    if (!host || !this.allowedHosts.has(host)) return sendError(res, { status: 403, code: -32000, message: "Forbidden: invalid Host header" });
+    if (!host || !this.allowedHosts.has(host))
+      return sendError(res, { status: 403, code: -32000, message: "Forbidden: invalid Host header" });
 
     const pathname = (req.url ?? "").split("?")[0];
     if (pathname !== MCP_HTTP_PATH) return sendError(res, { status: 404, code: -32000, message: "Not found" });
@@ -209,7 +232,12 @@ export class CrotHttpServer {
     }
 
     if (req.method !== "POST" && req.method !== "GET" && req.method !== "DELETE") {
-      return sendError(res, { status: 405, code: -32000, message: "Method not allowed", headers: { Allow: "GET, POST, DELETE" } });
+      return sendError(res, {
+        status: 405,
+        code: -32000,
+        message: "Method not allowed",
+        headers: { Allow: "GET, POST, DELETE" },
+      });
     }
 
     const auth = await this.authenticate(req);
@@ -219,7 +247,13 @@ export class CrotHttpServer {
     let body: unknown;
     if (req.method === "POST") {
       const raw = await readBody(req, this.config.maxRequestBytes);
-      if (raw === undefined) return sendError(res, { status: 413, code: -32600, message: "Request body too large", headers: { Connection: "close" } });
+      if (raw === undefined)
+        return sendError(res, {
+          status: 413,
+          code: -32600,
+          message: "Request body too large",
+          headers: { Connection: "close" },
+        });
       try {
         body = JSON.parse(raw.toString("utf8"));
       } catch {
@@ -231,11 +265,16 @@ export class CrotHttpServer {
     const sessionId = typeof header === "string" ? header : undefined;
     if (sessionId === undefined) {
       if (req.method === "POST" && isInitializeRequest(body)) return this.openSession(req, res, body, auth);
-      return sendError(res, { status: 400, code: -32000, message: "Bad Request: no session; send an initialize request first" });
+      return sendError(res, {
+        status: 400,
+        code: -32000,
+        message: "Bad Request: no session; send an initialize request first",
+      });
     }
     const session = this.sessions.get(sessionId);
     // A session is usable only by the principal that opened it.
-    if (!session || session.owner !== auth.clientId) return sendError(res, { status: 404, code: -32001, message: "Session not found" });
+    if (!session || session.owner !== auth.clientId)
+      return sendError(res, { status: 404, code: -32001, message: "Session not found" });
     session.lastSeen = Date.now();
     await session.transport.handleRequest(withAuth(req, auth), res, body);
   }

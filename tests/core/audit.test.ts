@@ -37,9 +37,19 @@ describe("audit", () => {
   it("records command lines but not environment values or stdin", async () => {
     const sink = new MemoryAuditSink();
     const core = await createTestCore({ workspace: { root: dirs.workspace } }, sink);
-    await core.processes.exec(ctx, { command: process.execPath, args: ["-e", "1"], env: { TOKEN: "hunter2" }, stdin: "stdin-secret" });
+    await core.processes.exec(ctx, {
+      command: process.execPath,
+      args: ["-e", "1"],
+      env: { TOKEN: "hunter2" },
+      stdin: "stdin-secret",
+    });
     const event = sink.events[0]!;
-    expect(event.details).toMatchObject({ command: process.execPath, args: ["-e", "1"], envKeys: ["TOKEN"], stdin: true });
+    expect(event.details).toMatchObject({
+      command: process.execPath,
+      args: ["-e", "1"],
+      envKeys: ["TOKEN"],
+      stdin: true,
+    });
     expect(JSON.stringify(event)).not.toContain("hunter2");
     expect(JSON.stringify(event)).not.toContain("stdin-secret");
   });
@@ -50,9 +60,16 @@ describe("audit", () => {
     await core.filesystem.writeFile(ctx, { path: "a.txt", content: "x" });
     await core.filesystem.listDirectory(ctx, {});
     await core.shutdown();
-    const lines = (await readFile(file, "utf8")).trim().split("\n").map((l) => JSON.parse(l) as AuditEvent);
+    const lines = (await readFile(file, "utf8"))
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as AuditEvent);
     expect(lines.map((l) => l.operation)).toEqual(["filesystem.write_file", "filesystem.list_directory"]);
-    expect(core.status().audit).toMatchObject({ sink: "file", path: file, protection: { mechanism: core.platform.privateFiles.mechanism } });
+    expect(core.status().audit).toMatchObject({
+      sink: "file",
+      path: file,
+      protection: { mechanism: core.platform.privateFiles.mechanism },
+    });
   });
 
   it("does not fail operations when the audit sink fails", async () => {
@@ -63,13 +80,18 @@ describe("audit", () => {
       { workspace: { root: dirs.workspace } },
       { auditSink: new JsonlFileAuditSink(path.join(blocker, "audit.jsonl")), onAuditError: (e) => errors.push(e) },
     );
-    await expect(core.filesystem.writeFile(ctx, { path: "a.txt", content: "x" })).resolves.toMatchObject({ bytesWritten: 1 });
+    await expect(core.filesystem.writeFile(ctx, { path: "a.txt", content: "x" })).resolves.toMatchObject({
+      bytesWritten: 1,
+    });
     expect(errors.length).toBe(1);
   });
 
   it("defaults the file sink to audit.jsonl in the platform logs directory", async () => {
     const logs = path.join(dirs.outside, "logs");
-    const platform = await createNodePlatform({ directories: { config: path.join(dirs.outside, "config"), state: dirs.outside, logs }, startupPath: "inherited" });
+    const platform = await createNodePlatform({
+      directories: { config: path.join(dirs.outside, "config"), state: dirs.outside, logs },
+      startupPath: "inherited",
+    });
     const core = await CrotCore.create({ workspace: { root: dirs.workspace }, audit: { sink: "file" } }, { platform });
     try {
       const expected = path.join(logs, "audit.jsonl");

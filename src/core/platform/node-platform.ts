@@ -10,7 +10,15 @@ import { pathRulesFor } from "./path-rules.js";
 import { createPrivateFileProtection } from "./private-files.js";
 import { createShellProvider } from "./shells.js";
 import { resolveStartupPath, type LoginShellRunner } from "./startup-path.js";
-import type { CodePages, OsFamily, Platform, PlatformDirectories, ShellId, ShellInfo, StartupPathMode } from "./types.js";
+import type {
+  CodePages,
+  OsFamily,
+  Platform,
+  PlatformDirectories,
+  ShellId,
+  ShellInfo,
+  StartupPathMode,
+} from "./types.js";
 import { comspecFrom, findWindowsExecutable } from "./windows-command.js";
 
 export interface NodePlatformOptions {
@@ -74,7 +82,12 @@ export async function createNodePlatform(options: NodePlatformOptions = {}): Pro
   };
   const find = (name: string) =>
     windows
-      ? findWindowsExecutable(name, { cwd: os.homedir(), path: pathValue, pathExt: environment.get(env, "PATHEXT"), isFile })
+      ? findWindowsExecutable(name, {
+          cwd: os.homedir(),
+          path: pathValue,
+          pathExt: environment.get(env, "PATHEXT"),
+          isFile,
+        })
       : findPosixExecutable(name, "/", pathValue);
 
   let defaultShell: ShellId;
@@ -136,8 +149,11 @@ export async function createNodePlatform(options: NodePlatformOptions = {}): Pro
 export function detectWindowsCodePages(systemRoot: string): Promise<CodePages | null> {
   const reg = path.win32.join(systemRoot, "System32", "reg.exe");
   return new Promise((resolve) => {
-    execFile(reg, ["query", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage"], { windowsHide: true, timeout: 5_000 }, (error, stdout) =>
-      resolve(error ? null : parseWindowsCodePages(String(stdout))),
+    execFile(
+      reg,
+      ["query", "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Nls\\CodePage"],
+      { windowsHide: true, timeout: 5_000 },
+      (error, stdout) => resolve(error ? null : parseWindowsCodePages(String(stdout))),
     );
   });
 }

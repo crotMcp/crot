@@ -32,11 +32,21 @@ import {
 
 const TOOL_TIMEOUT_MS = 30_000;
 
-export type ToolRunner = (file: string, args: readonly string[], env?: Readonly<Record<string, string>>) => Promise<string>;
+export type ToolRunner = (
+  file: string,
+  args: readonly string[],
+  env?: Readonly<Record<string, string>>,
+) => Promise<string>;
 
 const firstLine = (text: string) => text.trim().split(/\r?\n/)[0]!.slice(0, 200);
 
-const XML_ENTITIES: Readonly<Record<string, string>> = { "&lt;": "<", "&gt;": ">", "&amp;": "&", "&quot;": '"', "&apos;": "'" };
+const XML_ENTITIES: Readonly<Record<string, string>> = {
+  "&lt;": "<",
+  "&gt;": ">",
+  "&amp;": "&",
+  "&quot;": '"',
+  "&apos;": "'",
+};
 
 /**
  * Readable failure text from a tool's output. PowerShell writes errors to a
@@ -61,10 +71,22 @@ export const runTool: ToolRunner = (file, args, env) =>
     execFile(
       file,
       [...args],
-      { windowsHide: true, timeout: TOOL_TIMEOUT_MS, maxBuffer: MAX_TOOL_OUTPUT_BYTES, encoding: "utf8", shell: false, ...(env ? { env: { ...env } } : {}) },
+      {
+        windowsHide: true,
+        timeout: TOOL_TIMEOUT_MS,
+        maxBuffer: MAX_TOOL_OUTPUT_BYTES,
+        encoding: "utf8",
+        shell: false,
+        ...(env ? { env: { ...env } } : {}),
+      },
       (error, stdout, stderr) => {
         if (error) {
-          reject(new CrotError("OPERATION_FAILED", `${path.win32.basename(file)} failed: ${toolFailureText(stderr, stdout, error.message)}`));
+          reject(
+            new CrotError(
+              "OPERATION_FAILED",
+              `${path.win32.basename(file)} failed: ${toolFailureText(stderr, stdout, error.message)}`,
+            ),
+          );
           return;
         }
         resolve(stdout);
@@ -134,7 +156,8 @@ const ACL_ENCODED = Buffer.from(ACL_SCRIPT, "utf16le").toString("base64");
 function powershellEnv(extra: Readonly<Record<string, string>>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) {
-    if (value === undefined || name.toUpperCase() === "PSMODULEPATH" || name.toUpperCase().startsWith("CROT_ACL_")) continue;
+    if (value === undefined || name.toUpperCase() === "PSMODULEPATH" || name.toUpperCase().startsWith("CROT_ACL_"))
+      continue;
     env[name] = value;
   }
   return { ...env, ...extra };
@@ -146,20 +169,27 @@ export interface WindowsAclProtection extends PrivateFileProtection {
   protectFile(file: string): Promise<void>;
 }
 
-export function createWindowsAclProtection(options: { readonly tools: WindowsTools; readonly userSid: string; readonly run?: ToolRunner }): WindowsAclProtection {
+export function createWindowsAclProtection(options: {
+  readonly tools: WindowsTools;
+  readonly userSid: string;
+  readonly run?: ToolRunner;
+}): WindowsAclProtection {
   const sid = validateSid(options.userSid);
   const { tools } = options;
   const run = options.run ?? runTool;
 
   const acl = async (target: string, mode: "inspect" | "restrict"): Promise<AclReport> => {
     const env = powershellEnv({ CROT_ACL_TARGET: target, CROT_ACL_MODE: mode, CROT_ACL_SID: sid });
-    return parseAclReport(await run(tools.powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", ACL_ENCODED], env));
+    return parseAclReport(
+      await run(tools.powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", ACL_ENCODED], env),
+    );
   };
 
   const restrict = async (target: string): Promise<void> => {
     const p = validateWindowsPath(target);
     const report = await acl(p, "restrict");
-    if (!report.protected || !isOwnerOnly(report, sid)) throw new CrotError("OPERATION_FAILED", `Could not restrict ${p} to the CROT user.`);
+    if (!report.protected || !isOwnerOnly(report, sid))
+      throw new CrotError("OPERATION_FAILED", `Could not restrict ${p} to the CROT user.`);
   };
 
   return {
@@ -190,7 +220,12 @@ export function createWindowsAclProtection(options: { readonly tools: WindowsToo
       const info = await stat(p).catch(() => undefined);
       if (!info) return { mechanism: "windows-acl", ownerOnly: true, detail: "will be created with an owner-only ACL" };
       const report = await acl(p, "inspect");
-      if (isOwnerOnly(report, sid)) return { mechanism: "windows-acl", ownerOnly: true, detail: `ACL grants access only to the CROT user (${sid})` };
+      if (isOwnerOnly(report, sid))
+        return {
+          mechanism: "windows-acl",
+          ownerOnly: true,
+          detail: `ACL grants access only to the CROT user (${sid})`,
+        };
       const others = [...new Set(report.rules.filter((r) => r.type === "Allow" && r.sid !== sid).map((r) => r.sid))];
       return {
         mechanism: "windows-acl",
