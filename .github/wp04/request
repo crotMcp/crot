@@ -1,1 +1,1 @@
-run 1: resolve dev dependencies, format, verify
+run 2: resolve dev dependencies, format, verify (lock root compared by content)

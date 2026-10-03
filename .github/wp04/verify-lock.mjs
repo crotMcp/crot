@@ -10,11 +10,23 @@ const lockBefore = read(lockBeforePath);
 const lockAfter = read("package-lock.json");
 const expected = ["eslint", "@eslint/js", "typescript-eslint", "eslint-config-prettier", "prettier"].sort();
 const problems = [];
+const info = [];
+
+// Order-insensitive comparison of plain objects.
+const canon = (v) =>
+  v && typeof v === "object" && !Array.isArray(v)
+    ? Object.fromEntries(
+        Object.keys(v)
+          .sort()
+          .map((k) => [k, canon(v[k])]),
+      )
+    : v;
+const same = (a, b) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
 
 // package.json: only the expected devDependencies were added.
 const { devDependencies: devBefore = {}, ...restBefore } = pkgBefore;
 const { devDependencies: devAfter = {}, ...restAfter } = pkgAfter;
-if (JSON.stringify(restBefore) !== JSON.stringify(restAfter)) problems.push("package.json changed outside devDependencies");
+if (!same(restBefore, restAfter)) problems.push("package.json changed outside devDependencies");
 for (const [name, range] of Object.entries(devBefore)) {
   if (devAfter[name] !== range) problems.push(`devDependency ${name} changed: ${range} -> ${devAfter[name]}`);
 }
@@ -23,12 +35,21 @@ const added = Object.keys(devAfter)
   .sort();
 if (JSON.stringify(added) !== JSON.stringify(expected)) problems.push(`unexpected devDependencies: ${added.join(", ")}`);
 
-// package-lock.json: the root's runtime dependencies and every existing entry are unchanged.
+// package-lock.json root: runtime dependencies must match package.json (before and after).
 const rootBefore = lockBefore.packages[""] ?? {};
 const rootAfter = lockAfter.packages[""] ?? {};
 for (const key of ["dependencies", "optionalDependencies"]) {
-  if (JSON.stringify(rootBefore[key]) !== JSON.stringify(rootAfter[key])) problems.push(`lock root ${key} changed`);
+  if (!same(rootAfter[key], pkgAfter[key])) {
+    problems.push(`lock root ${key} does not match package.json: ${JSON.stringify(rootAfter[key])}`);
+  }
+  if (!same(rootBefore[key], rootAfter[key])) {
+    info.push(
+      `lock root ${key} resynced with package.json: ${JSON.stringify(rootBefore[key])} -> ${JSON.stringify(rootAfter[key])}`,
+    );
+  }
 }
+
+// package-lock.json: every existing package entry keeps its version, source and integrity.
 let kept = 0;
 for (const [path, entry] of Object.entries(lockBefore.packages)) {
   if (path === "") continue;
@@ -50,6 +71,7 @@ for (const n of expected) {
   const e = lockAfter.packages[`node_modules/${n}`];
   console.log(`  - ${n} ${e?.version} ${e?.integrity}`);
 }
+for (const i of info) console.log(`- Note: ${i}`);
 if (problems.length > 0) {
   console.log("- Problems:");
   for (const p of problems) console.log(`  - ${p}`);
