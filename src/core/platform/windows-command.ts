@@ -14,6 +14,8 @@ const w = path.win32;
 const DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD";
 const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
 const CMD_SHIM = /node_modules[\\/]\.bin[\\/][^\\/]+\.cmd$/i;
+/** Drive-absolute (C:\x) or UNC (\\server\share) path; excludes drive-relative (C:x) and root-relative (\x) forms. */
+const FULLY_QUALIFIED = /^(?:[a-zA-Z]:[\\/]|[\\/]{2}[^\\/])/;
 
 export interface WindowsLookup {
   readonly cwd: string;
@@ -22,26 +24,39 @@ export interface WindowsLookup {
   /** Value of PATHEXT or undefined. */
   readonly pathExt: string | undefined;
   readonly isFile: (candidate: string) => Promise<boolean>;
+  /**
+   * Search the working directory (default true, the Windows convention). When
+   * false, only fully qualified PATH entries are searched, and a command given
+   * as a path is accepted only when it is fully qualified (ARCHITECTURE.md §27, AD-1).
+   */
+  readonly searchCurrentDirectory?: boolean;
 }
 
-/** Find the file Windows would run for `command`, or null. Searches cwd, then PATH. */
+/** Whether `p` is a fully qualified Windows path (does not depend on the current directory or drive). */
+export function isFullyQualifiedWindowsPath(p: string): boolean {
+  return FULLY_QUALIFIED.test(p);
+}
+
+/**
+ * Find the file Windows would run for `command`, or null. Searches cwd, then
+ * PATH; with `searchCurrentDirectory: false`, only fully qualified PATH entries.
+ */
 export async function findWindowsExecutable(command: string, lookup: WindowsLookup): Promise<string | null> {
+  const searchCwd = lookup.searchCurrentDirectory ?? true;
   const exts = (lookup.pathExt ?? DEFAULT_PATHEXT)
     .split(";")
     .map((e) => e.trim().toLowerCase())
     .filter((e) => e.startsWith("."));
   const ext = w.extname(command).toLowerCase();
   const names = ext && exts.includes(ext) ? [command] : exts.map((e) => command + e);
-  const explicit = /[\\/]/.test(command) || w.isAbsolute(command);
-  const dirs = explicit
-    ? [lookup.cwd]
-    : [
-        lookup.cwd,
-        ...(lookup.path ?? "")
-          .split(";")
-          .map((d) => d.trim().replace(/^"(.*)"$/, "$1"))
-          .filter(Boolean),
-      ];
+  const explicit = /[\\/]/.test(command) || w.isAbsolute(command) || /^[a-zA-Z]:/.test(command);
+  if (explicit && !searchCwd && !isFullyQualifiedWindowsPath(command)) return null;
+  const pathDirs = (lookup.path ?? "")
+    .split(";")
+    .map((d) => d.trim().replace(/^"(.*)"$/, "$1"))
+    .filter(Boolean)
+    .filter((d) => searchCwd || isFullyQualifiedWindowsPath(d));
+  const dirs = explicit ? [lookup.cwd] : searchCwd ? [lookup.cwd, ...pathDirs] : pathDirs;
   for (const dir of dirs) {
     for (const name of names) {
       const candidate = w.resolve(lookup.cwd, dir, name);
