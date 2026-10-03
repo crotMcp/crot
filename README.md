@@ -9,12 +9,14 @@ README describes the current implementation and how to run it.
 
 ## Status
 
-Implemented (ARCHITECTURE.md §16, steps 1–6, the first part of step 7, and
-steps 10–11):
+Implemented (ARCHITECTURE.md §16, steps 1–6, the first part of step 7,
+steps 10–11 and the read part of step 21):
 
 - CROT Core: configuration, workspace, central permission engine, execution guard
 - Filesystem capability
 - Shell/process capability (foreground commands and managed background processes)
+- Git read capability (`git.read`: status, diff, log, branch, show; see
+  [Git (read-only)](#git-read-only))
 - Audit logging
 - Platform layer: Linux, macOS and Windows behaviour behind Core interfaces
 - CROT MCP: thin adapter over Core, stdio transport
@@ -26,13 +28,15 @@ steps 10–11):
   tools gated by `browser.read` / `browser.control` (see
   [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md))
 
-Not yet implemented: remote (non-loopback) exposure and MCP authorization
-(OAuth/OIDC), installer, account/licensing layer. Firefox is not supported.
+Not yet implemented: `git.write` and Docker operations, remote (non-loopback)
+exposure and MCP authorization (OAuth/OIDC), installer, account/licensing layer.
+Firefox is not supported.
 
 ## Requirements
 
 - Node.js 20 or newer
 - Linux, macOS or Windows (all three are covered by CI)
+- Git 2.32 or newer on `PATH` for the `git_*` tools
 
 ## Quick start
 
@@ -109,9 +113,9 @@ directory (CROT warns when a relative path is resolved).
 | `permissions.mode` | `sandbox` | `sandbox` or `full_control` |
 | `permissions.capabilities` | mode defaults | Explicit capability set |
 | `limits.maxReadBytes` | 10 MiB | Maximum bytes per file read |
-| `limits.defaultCommandTimeoutMs` | 120 000 | Foreground command timeout |
+| `limits.defaultCommandTimeoutMs` | 120 000 | Foreground command timeout (also Git commands) |
 | `limits.maxCommandTimeoutMs` | 3 600 000 | Maximum timeout a caller may request |
-| `limits.maxOutputBytes` | 1 MiB | Output kept per stream (most recent bytes) |
+| `limits.maxOutputBytes` | 1 MiB | Output kept per stream (most recent bytes); Git output beyond it is reported as `truncated` |
 | `limits.maxBackgroundProcesses` | 16 | Concurrently running background processes |
 | `audit.sink` | `stderr` | `file`, `stderr` or `none` |
 | `audit.path` | `<logs>/audit.jsonl` | Audit file for the `file` sink (see [Default locations](#default-locations)) |
@@ -241,10 +245,10 @@ Rules:
 The rules are the same for every transport and principal.
 
 Enforced capabilities today: `filesystem.read`, `filesystem.write`,
-`filesystem.full`, `shell.execute`, `process.manage`, `browser.read`,
-`browser.control`. The others (`git.*`, `docker.use`, `network.access`) are
-part of the model and reported by `crot_status`, and will gate dedicated
-operations when those are added.
+`filesystem.full`, `shell.execute`, `process.manage`, `git.read`,
+`browser.read`, `browser.control`. The others (`git.write`, `docker.use`,
+`network.access`) are part of the model and reported by `crot_status`, and will
+gate dedicated operations when those are added.
 
 **Browser capabilities.** The sandbox defaults do not include `browser.*`;
 `full_control` grants them. An explicit `capabilities` list replaces the mode
@@ -258,7 +262,53 @@ working directory of commands. It is not OS-level isolation: a command the agent
 runs with `shell.execute` has the operating-system permissions of the CROT
 process. To prevent command execution, leave `shell.execute` and
 `process.manage` out of the capability set (for example, a read-only setup is
-`"capabilities": ["filesystem.read"]`).
+`"capabilities": ["filesystem.read", "git.read"]`; `git.read` never runs
+repository-controlled programs, see below).
+
+## Git (read-only)
+
+`git_status`, `git_diff`, `git_log`, `git_branch` and `git_show` are Core
+operations of the `GitService`, gated by `git.read` and run through the
+ExecutionGuard like every other operation. The design is recorded in
+ARCHITECTURE.md §27 (AD-1): a `git.read` operation stays a read and never runs
+a program chosen by the repository or its configuration.
+
+- **Repository discovery without Git.** Core finds the repository from `cwd`
+  upwards (`.git` directory or `.git` file, `commondir` for linked worktrees).
+  The worktree, Git directory and common directory are paths of the operation:
+  in sandbox mode they must be inside the workspace (a workspace nested inside
+  a repository whose `.git` is outside it is denied); `full_control` reads any
+  repository. Bare repositories are not supported.
+- **Git from `PATH` only.** Git is resolved without searching the working
+  directory or relative `PATH` entries, so a `git.exe` / `git.bat` placed in a
+  repository is never run (Windows searches the working directory first for
+  ordinary commands). Git 2.32 or newer is required.
+- **Configuration check.** System and global Git configuration is not loaded
+  (only line-ending and display settings are carried over). Repository
+  configuration may only contain keys from an allowlist of settings that cannot
+  start programs; any other key (`core.fsmonitor`, `core.pager`,
+  `diff.external`, `filter.*`, `alias.*`, `include.path`, …) fails the
+  operation with `UNSAFE_REPOSITORY` before Git reads the repository. The error
+  names the keys, never their values.
+- **Hardened invocation.** Every command runs with explicit `--git-dir` /
+  `--work-tree`, `--no-pager`, no external diff or textconv, `core.fsmonitor`
+  off, no signature verification, no submodule recursion, no network protocols,
+  no optional lock writes and without inherited `GIT_*` variables. Revisions
+  cannot be options (a leading `-` is refused) and paths are literal pathspecs
+  inside the worktree.
+- **No race with CROT writes.** A `git.read` operation and a CROT filesystem
+  write (write, create directory, delete, move) into the same Git directory
+  never run at the same time. Writes into `.git` remain allowed under
+  `filesystem.write`.
+- **Results.** Structured status entries, commits and branches; diffs and
+  `show` output as text with a `truncated` flag beyond `limits.maxOutputBytes`.
+  Errors: `INVALID_INPUT` (bad arguments, paths outside the worktree),
+  `PERMISSION_DENIED`, `UNSAFE_REPOSITORY`, `NOT_FOUND` (no repository, no Git),
+  `OPERATION_FAILED` (Git failure, e.g. an unknown revision), `TIMEOUT`.
+
+Limits: commands run through `shell.execute` / `process.manage` or other
+programs are not serialized with `git.read`; Git itself and its built-in
+behaviour are trusted like every other program on `PATH`.
 
 ## Platform support
 
@@ -280,6 +330,12 @@ permission model. Platform code performs no authorization.
 | `PlatformDirectories` | default config/state/log locations | XDG (Linux), `~/Library` (macOS) | `%APPDATA%`, `%LOCALAPPDATA%` |
 | `PrivateFileProtection` | audit log, HTTP token file, browser bridge token file | created `0600` in `0700` directories; existing files checked | owner-only ACL set by the Native Host (inheritance removed, verified); Core fallback: inherited ACLs |
 | `PlatformInfo` | reported in `crot_status` and the MCP instructions | OS, architecture, path style, shells, encodings, process-control guarantees, PATH source, directories | same |
+
+`ProcessLauncher.resolveCommand` also has a PATH-only mode
+(`searchCurrentDirectory: false`): the working directory and relative `PATH`
+entries are not searched and relative command paths are refused. `git.read`
+always uses it; `process_exec`, `shell_run` and `process_start` keep the
+platform's usual lookup.
 
 Environment overrides may set a variable to `null` to remove it. A foreground
 command owns its process tree: descendants still running when it finishes or
@@ -334,7 +390,8 @@ both the stdio and the HTTP server shut down on the platform's shutdown signals:
 terminal hang-up); on Windows also `SIGBREAK` (Ctrl+Break) and `SIGHUP` (console
 window closed). Shutdown closes the transport (for HTTP: stops listening, closes
 every session and connection), stops accepting commands, terminates every process tree
-CROT started (background processes and running foreground commands; graceful
+CROT started (background processes, running foreground commands and Git
+commands; graceful
 first on POSIX, forced immediately on Windows, where graceful termination of
 console programs is not possible), waits for operations in flight to write
 their audit records, and flushes the audit log and standard streams. It must
@@ -415,6 +472,8 @@ its limitations). Not yet implemented:
 - Controlled subprocesses: argv execution without a shell by default; shell
   scripts are a separate, explicit tool; mandatory timeouts for foreground
   commands; process-tree termination; bounded output capture.
+- Read-only Git: `git.read` never runs programs chosen by repository contents
+  or repository configuration (ARCHITECTURE.md §27, AD-1).
 - Auditability: every authorized, failed and denied operation is recorded with
   principal (including transport and authentication method), capabilities,
   paths, outcome and duration. Audit events never
@@ -438,10 +497,12 @@ its limitations). Not yet implemented:
 | `process_exec`, `shell_run` (optional `shell`) | `shell.execute` |
 | `process_start` | `process.manage` + `shell.execute` |
 | `process_list`, `process_read_output`, `process_stop`, `process_remove` | `process.manage` |
+| `git_status`, `git_diff`, `git_log`, `git_branch`, `git_show` | `git.read` |
 | `browser_status`, `browser_tabs_list`, `browser_page_read`, `browser_screenshot` | `browser.read` |
 | `browser_tab_open`, `browser_navigate`, `browser_tab_activate`, `browser_tab_close`, `browser_click`, `browser_type` | `browser.control` |
 
-Paths outside the workspace additionally require `filesystem.full`. The tool
+Paths outside the workspace additionally require `filesystem.full` (for Git:
+the repository's worktree and Git directories). The tool
 set is identical on stdio and HTTP. Browser tools need a connected extension
 (see [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)).
 
@@ -461,6 +522,8 @@ src/
     capabilities/
       filesystem/          FileSystemService + input schemas
       process/             ProcessService + input schemas
+      git/                 GitService (git.read), repository discovery, configuration policy,
+                           output parsers, Git metadata lock, input schemas
       browser/             BrowserService, input/result schemas, BrowserConnection
     crot-core.ts           composition root
   adapters/mcp/            CROT MCP: tool catalogue, server, request → AuthContext
@@ -503,5 +566,7 @@ npm run test:e2e:browser  # real Chromium E2E; separate from npm test and npm ru
 CI runs `lint`, `format:check`, `typecheck`, `typecheck:extension`, `build`,
 `build:extension`, `test` and `test:extension` on Ubuntu, macOS and Windows with
 Node 20 and 22.
-Windows-specific behaviour (cmd quoting, PATHEXT lookup, path rules, environment
-casing) is also unit-tested as pure functions on every OS.
+Windows-specific behaviour (cmd quoting, PATHEXT lookup, PATH-only lookup, path
+rules, environment casing) is also unit-tested as pure functions on every OS.
+The Git tests create repositories with the `git` on `PATH` and need Git 2.32 or
+newer.
