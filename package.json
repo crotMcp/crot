@@ -19,9 +19,12 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "check": "npm run typecheck && npm run test && npm run build",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm run typecheck:extension && npm run build && npm run build:extension && npm test && npm run test:extension",
     "start": "node dist/bin/crot-mcp.js",
     "build:extension": "tsc -p extension/tsconfig.json",
     "typecheck:extension": "tsc -p extension/tsconfig.test.json",

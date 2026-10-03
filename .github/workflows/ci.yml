@@ -24,6 +24,8 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
       - run: npm run typecheck
       # CROT Browser Extension sources and tests (against a fake chrome API).
       - run: npm run typecheck:extension

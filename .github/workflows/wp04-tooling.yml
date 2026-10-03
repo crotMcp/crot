@@ -1,0 +1,130 @@
+name: WP-04 tooling (temporary)
+
+# Temporary, WP-04 only; removed before the PR is merged.
+# The authoring environment has no network access, so this resolves the
+# lint/format dev dependencies into package-lock.json with npm on a GitHub
+# runner (--package-lock-only --ignore-scripts), applies Prettier, commits the
+# results to this branch only, runs every project check on the CI matrix and
+# commits a report to .github/wp04/report.md.
+# Runs only when .github/wp04/request changes on the WP-04 branch.
+on:
+  push:
+    branches: [chore/wp-04-lint-format]
+    paths: [".github/wp04/request"]
+
+concurrency: wp04-tooling
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bash .github/wp04/prepare.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wp04-prepare
+          path: ${{ runner.temp }}/wp04
+
+  apply:
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.push.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wp04-prepare
+          path: ${{ runner.temp }}/wp04
+      - id: push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          shopt -s nullglob
+          patches=("$RUNNER_TEMP"/wp04/patches/*.patch)
+          if [ ${#patches[@]} -gt 0 ]; then
+            git am "${patches[@]}"
+            git push origin HEAD:refs/heads/chore/wp-04-lint-format
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: apply
+    name: verify ${{ matrix.os }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.apply.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: bash .github/wp04/verify.sh "${{ matrix.os }}-node${{ matrix.node }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wp04-verify-${{ matrix.os }}-node${{ matrix.node }}
+          path: ${{ runner.temp }}/wp04-verify
+
+  report:
+    needs: [prepare, apply, verify]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/wp-04-lint-format
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wp04-*
+          path: ${{ runner.temp }}/art
+      - env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULTS: "prepare=${{ needs.prepare.result }} apply=${{ needs.apply.result }} verify=${{ needs.verify.result }}"
+          VERIFIED: ${{ needs.apply.outputs.sha }}
+        run: |
+          f=.github/wp04/report.md
+          {
+            echo "# WP-04 temporary CI report"
+            echo
+            echo "- Run: $RUN_URL"
+            echo "- Trigger commit: $GITHUB_SHA"
+            echo "- Verified commit: ${VERIFIED:-none}"
+            echo "- Jobs: $RESULTS"
+            echo
+            cat "$RUNNER_TEMP"/art/wp04-prepare/prepare.md 2>/dev/null || echo "(no prepare notes)"
+            echo
+            echo "## verify"
+            echo
+            for x in "$RUNNER_TEMP"/art/wp04-verify-*/*.md; do
+              if [ -f "$x" ]; then cat "$x"; echo; fi
+            done
+          } > "$f"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$f"
+          git commit -q -m "chore(wp04): temporary CI report"
+          git push origin HEAD:refs/heads/chore/wp-04-lint-format

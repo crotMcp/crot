@@ -1,0 +1,14 @@
+# Build output and dependencies
+node_modules/
+dist/
+coverage/
+
+# Written by npm
+package.json
+package-lock.json
+
+# Documentation is not reformatted
+*.md
+
+# Pages loaded by the real-browser E2E; kept byte-for-byte
+tests-e2e/browser/fixtures/
