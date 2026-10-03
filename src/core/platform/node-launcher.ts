@@ -32,19 +32,28 @@ async function isExecutableFile(candidate: string): Promise<boolean> {
   }
 }
 
-/** Find an executable on POSIX: explicit paths relative to cwd, otherwise PATH entries. */
+/**
+ * Find an executable on POSIX: explicit paths relative to cwd, otherwise PATH entries
+ * (relative PATH entries are resolved against cwd, the child's working directory).
+ * With `searchCurrentDirectory: false`, explicit paths must be absolute and
+ * relative PATH entries (which name directories below cwd) are skipped
+ * (ARCHITECTURE.md §27, AD-1).
+ */
 export async function findPosixExecutable(
   command: string,
   cwd: string,
   pathValue: string | undefined,
+  searchCurrentDirectory = true,
 ): Promise<string | null> {
   if (command.includes("/")) {
+    if (!searchCurrentDirectory && !path.posix.isAbsolute(command)) return null;
     const candidate = path.posix.resolve(cwd, command);
     return (await isExecutableFile(candidate)) ? candidate : null;
   }
   for (const dir of (pathValue ?? "").split(":")) {
     if (!dir) continue;
-    const candidate = path.posix.join(dir, command);
+    if (!searchCurrentDirectory && !path.posix.isAbsolute(dir)) continue;
+    const candidate = path.posix.resolve(cwd, dir, command);
     if (await isExecutableFile(candidate)) return candidate;
   }
   return null;
@@ -151,8 +160,8 @@ export function createPosixLauncher(): ProcessLauncher {
   return {
     canTerminateOrphanedDescendants: true,
     processControl: { treeTermination: "process-group", orphanedDescendants: true, gracefulTermination: true },
-    async resolveCommand(command, args, { cwd, env }) {
-      const file = await findPosixExecutable(command, cwd, env.PATH);
+    async resolveCommand(command, args, { cwd, env, searchCurrentDirectory }) {
+      const file = await findPosixExecutable(command, cwd, env.PATH, searchCurrentDirectory ?? true);
       if (!file) throw new CrotError("NOT_FOUND", `Executable not found: ${command}`);
       return { file, args, display: [command, ...args].join(" ") };
     },
@@ -209,12 +218,13 @@ export function createWindowsLauncher(
     canTerminateOrphanedDescendants: false,
     // Graceful requests to console programs are ignored by taskkill without /F; CROT escalates after the grace period.
     processControl: { treeTermination: "taskkill-tree", orphanedDescendants: false, gracefulTermination: false },
-    async resolveCommand(command, args, { cwd, env }) {
+    async resolveCommand(command, args, { cwd, env, searchCurrentDirectory }) {
       const file = await findWindowsExecutable(command, {
         cwd,
         path: environment.get(env, "PATH"),
         pathExt: environment.get(env, "PATHEXT"),
         isFile,
+        searchCurrentDirectory: searchCurrentDirectory ?? true,
       });
       if (!file) throw new CrotError("NOT_FOUND", `Executable not found: ${command}`);
       if (isBatchFile(file))

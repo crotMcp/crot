@@ -19,7 +19,8 @@ import type { AuthContext } from "../../auth/principal.js";
 import type { Limits } from "../../config/schema.js";
 import { CrotError, fromNodeError, parseInput } from "../../errors.js";
 import type { ExecutionGuard } from "../../execution/guard.js";
-import { displayPath as display, type Workspace } from "../../workspace/workspace.js";
+import { displayPath as display, type ResolvedPath, type Workspace } from "../../workspace/workspace.js";
+import type { GitMetadataLock } from "../git/metadata-lock.js";
 import {
   CreateDirectoryInputSchema,
   DeleteInputSchema,
@@ -47,6 +48,8 @@ export interface FileSystemServiceDeps {
   readonly workspace: Workspace;
   readonly guard: ExecutionGuard;
   readonly limits: Pick<Limits, "maxReadBytes">;
+  /** Serialises writes into Git directories with git.read operations on them (ARCHITECTURE.md §27, AD-1). */
+  readonly gitLock?: GitMetadataLock;
 }
 
 /**
@@ -57,6 +60,17 @@ export interface FileSystemServiceDeps {
  */
 export class FileSystemService {
   constructor(private readonly deps: FileSystemServiceDeps) {}
+
+  /** Run a write after authorization, excluding git.read on any Git directory it touches. */
+  private exclusive<T>(paths: readonly ResolvedPath[], fn: () => Promise<T>): Promise<T> {
+    const lock = this.deps.gitLock;
+    return lock
+      ? lock.withWrite(
+          paths.map((p) => p.absolute),
+          fn,
+        )
+      : fn();
+  }
 
   async readFile(context: AuthContext, input: ReadFileInput): Promise<ReadFileResult> {
     const args = parseInput(ReadFileInputSchema, input);
@@ -106,20 +120,21 @@ export class FileSystemService {
         paths: [target],
         details: { mode: args.mode, encoding: args.encoding },
       },
-      async () => {
-        const data = Buffer.from(args.content, args.encoding);
-        // Writing to a FIFO or device would block or have side effects; only regular files are written.
-        await assertRegularFileOrMissing(target.absolute, display(target), false);
-        const existed = await exists(target.absolute);
-        try {
-          if (args.createParents) await mkdir(path.dirname(target.absolute), { recursive: true });
-          if (args.mode === "append") await appendFile(target.absolute, data);
-          else await writeFile(target.absolute, data, { flag: args.mode === "create" ? "wx" : "w" });
-        } catch (e) {
-          throw fromNodeError(e, `Cannot write ${display(target)}`);
-        }
-        return { path: display(target), bytesWritten: data.length, created: !existed };
-      },
+      () =>
+        this.exclusive([target], async () => {
+          const data = Buffer.from(args.content, args.encoding);
+          // Writing to a FIFO or device would block or have side effects; only regular files are written.
+          await assertRegularFileOrMissing(target.absolute, display(target), false);
+          const existed = await exists(target.absolute);
+          try {
+            if (args.createParents) await mkdir(path.dirname(target.absolute), { recursive: true });
+            if (args.mode === "append") await appendFile(target.absolute, data);
+            else await writeFile(target.absolute, data, { flag: args.mode === "create" ? "wx" : "w" });
+          } catch (e) {
+            throw fromNodeError(e, `Cannot write ${display(target)}`);
+          }
+          return { path: display(target), bytesWritten: data.length, created: !existed };
+        }),
     );
   }
 
@@ -198,15 +213,16 @@ export class FileSystemService {
     return this.deps.guard.run(
       context,
       { operation: "filesystem.create_directory", capability: "filesystem.write", paths: [target] },
-      async () => {
-        const existed = await exists(target.absolute);
-        try {
-          await mkdir(target.absolute, { recursive: args.recursive });
-        } catch (e) {
-          throw fromNodeError(e, `Cannot create directory ${display(target)}`);
-        }
-        return { path: display(target), created: !existed };
-      },
+      () =>
+        this.exclusive([target], async () => {
+          const existed = await exists(target.absolute);
+          try {
+            await mkdir(target.absolute, { recursive: args.recursive });
+          } catch (e) {
+            throw fromNodeError(e, `Cannot create directory ${display(target)}`);
+          }
+          return { path: display(target), created: !existed };
+        }),
     );
   }
 
@@ -221,33 +237,34 @@ export class FileSystemService {
         paths: [target],
         details: { recursive: args.recursive },
       },
-      async () => {
-        if (this.deps.workspace.isRoot(target))
-          throw new CrotError("INVALID_INPUT", "Refusing to delete the workspace root.");
-        if (target.absolute === path.parse(target.absolute).root)
-          throw new CrotError("INVALID_INPUT", "Refusing to delete a filesystem root.");
-        try {
-          const info = await lstat(target.absolute);
-          if (info.isDirectory() && !args.recursive) await rmdir(target.absolute);
-          // Retries cover transient EBUSY/EPERM on Windows (e.g. antivirus or indexer holding a file).
-          else
-            await rm(target.absolute, {
-              recursive: args.recursive,
-              force: false,
-              maxRetries: args.recursive ? 3 : 0,
-              retryDelay: 100,
-            });
-        } catch (e) {
-          if ((e as NodeJS.ErrnoException).code === "ENOTEMPTY") {
-            throw new CrotError(
-              "INVALID_INPUT",
-              `Directory is not empty (set recursive to delete it): ${display(target)}`,
-            );
+      () =>
+        this.exclusive([target], async () => {
+          if (this.deps.workspace.isRoot(target))
+            throw new CrotError("INVALID_INPUT", "Refusing to delete the workspace root.");
+          if (target.absolute === path.parse(target.absolute).root)
+            throw new CrotError("INVALID_INPUT", "Refusing to delete a filesystem root.");
+          try {
+            const info = await lstat(target.absolute);
+            if (info.isDirectory() && !args.recursive) await rmdir(target.absolute);
+            // Retries cover transient EBUSY/EPERM on Windows (e.g. antivirus or indexer holding a file).
+            else
+              await rm(target.absolute, {
+                recursive: args.recursive,
+                force: false,
+                maxRetries: args.recursive ? 3 : 0,
+                retryDelay: 100,
+              });
+          } catch (e) {
+            if ((e as NodeJS.ErrnoException).code === "ENOTEMPTY") {
+              throw new CrotError(
+                "INVALID_INPUT",
+                `Directory is not empty (set recursive to delete it): ${display(target)}`,
+              );
+            }
+            throw fromNodeError(e, `Cannot delete ${display(target)}`);
           }
-          throw fromNodeError(e, `Cannot delete ${display(target)}`);
-        }
-        return { path: display(target), deleted: true };
-      },
+          return { path: display(target), deleted: true };
+        }),
     );
   }
 
@@ -263,32 +280,33 @@ export class FileSystemService {
         paths: [from, to],
         details: { overwrite: args.overwrite },
       },
-      async () => {
-        if (this.deps.workspace.isRoot(from))
-          throw new CrotError("INVALID_INPUT", "Refusing to move the workspace root.");
-        if (!args.overwrite && (await exists(to.absolute))) {
-          throw new CrotError("ALREADY_EXISTS", `Destination exists (set overwrite to replace it): ${display(to)}`);
-        }
-        try {
-          await mkdir(path.dirname(to.absolute), { recursive: true });
-          await rename(from.absolute, to.absolute);
-        } catch (e) {
-          if ((e as NodeJS.ErrnoException).code !== "EXDEV") throw fromNodeError(e, `Cannot move ${display(from)}`);
-          // Cross-device move: copy then remove.
-          try {
-            await cp(from.absolute, to.absolute, {
-              recursive: true,
-              force: args.overwrite,
-              errorOnExist: !args.overwrite,
-              verbatimSymlinks: true,
-            });
-            await rm(from.absolute, { recursive: true });
-          } catch (copyError) {
-            throw fromNodeError(copyError, `Cannot move ${display(from)}`);
+      () =>
+        this.exclusive([from, to], async () => {
+          if (this.deps.workspace.isRoot(from))
+            throw new CrotError("INVALID_INPUT", "Refusing to move the workspace root.");
+          if (!args.overwrite && (await exists(to.absolute))) {
+            throw new CrotError("ALREADY_EXISTS", `Destination exists (set overwrite to replace it): ${display(to)}`);
           }
-        }
-        return { from: display(from), to: display(to) };
-      },
+          try {
+            await mkdir(path.dirname(to.absolute), { recursive: true });
+            await rename(from.absolute, to.absolute);
+          } catch (e) {
+            if ((e as NodeJS.ErrnoException).code !== "EXDEV") throw fromNodeError(e, `Cannot move ${display(from)}`);
+            // Cross-device move: copy then remove.
+            try {
+              await cp(from.absolute, to.absolute, {
+                recursive: true,
+                force: args.overwrite,
+                errorOnExist: !args.overwrite,
+                verbatimSymlinks: true,
+              });
+              await rm(from.absolute, { recursive: true });
+            } catch (copyError) {
+              throw fromNodeError(copyError, `Cannot move ${display(from)}`);
+            }
+          }
+          return { from: display(from), to: display(to) };
+        }),
     );
   }
 }

@@ -30,6 +30,13 @@ import {
   StartProcessInputSchema,
   StopProcessInputSchema,
 } from "../../core/capabilities/process/schemas.js";
+import {
+  GitBranchInputSchema,
+  GitDiffInputSchema,
+  GitLogInputSchema,
+  GitShowInputSchema,
+  GitStatusInputSchema,
+} from "../../core/capabilities/git/schemas.js";
 import type { CrotCore } from "../../core/crot-core.js";
 import { toImageToolResult } from "./results.js";
 
@@ -55,6 +62,9 @@ function tool<S extends z.ZodType, R>(definition: ToolDefinition<S, R>): ToolDef
 
 const EmptyInputSchema = z.object({}).strict();
 const local = { openWorldHint: false } as const;
+
+const GIT_NOTE =
+  "Git is taken from PATH only; repository configuration that could run programs is refused with UNSAFE_REPOSITORY. Requires git.read.";
 
 export const TOOLS: readonly ToolDefinition[] = [
   tool({
@@ -187,6 +197,48 @@ export const TOOLS: readonly ToolDefinition[] = [
     inputSchema: ProcessIdInputSchema,
     annotations: { ...local, readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     call: (core, ctx, input) => core.processes.remove(ctx, input),
+  }),
+
+  // Git (read-only; requires git.read)
+  tool({
+    name: "git_status",
+    title: "Git status",
+    description: `Show the branch, upstream tracking and changed, staged, untracked (and optionally ignored) files of the repository containing 'cwd', optionally limited to 'paths'. ${GIT_NOTE}`,
+    inputSchema: GitStatusInputSchema,
+    annotations: { ...local, readOnlyHint: true },
+    call: (core, ctx, input) => core.git.status(ctx, input),
+  }),
+  tool({
+    name: "git_diff",
+    title: "Git diff",
+    description: `Show changes as a unified diff: worktree vs index (default), index vs HEAD (staged=true), or between revisions 'from'/'to'; 'stat'/'nameOnly' summarize. External diff programs and textconv filters are never run. ${GIT_NOTE}`,
+    inputSchema: GitDiffInputSchema,
+    annotations: { ...local, readOnlyHint: true },
+    call: (core, ctx, input) => core.git.diff(ctx, input),
+  }),
+  tool({
+    name: "git_log",
+    title: "Git log",
+    description: `List commits (hash, parents, author, committer, dates, subject, body) reachable from 'revision' (default HEAD), optionally limited to 'paths'; page with maxCount/skip. ${GIT_NOTE}`,
+    inputSchema: GitLogInputSchema,
+    annotations: { ...local, readOnlyHint: true },
+    call: (core, ctx, input) => core.git.log(ctx, input),
+  }),
+  tool({
+    name: "git_branch",
+    title: "Git branches",
+    description: `List local branches (and remote-tracking branches with remote=true) with their commits and upstreams, and the current branch. ${GIT_NOTE}`,
+    inputSchema: GitBranchInputSchema,
+    annotations: { ...local, readOnlyHint: true },
+    call: (core, ctx, input) => core.git.branch(ctx, input),
+  }),
+  tool({
+    name: "git_show",
+    title: "Git show",
+    description: `Show a commit (metadata and, by default, its patch) or an object such as a file at a revision ('rev:path'). ${GIT_NOTE}`,
+    inputSchema: GitShowInputSchema,
+    annotations: { ...local, readOnlyHint: true },
+    call: (core, ctx, input) => core.git.show(ctx, input),
   }),
 
   // Browser (through the CROT Browser Extension). Read tools need browser.read, the others browser.control.

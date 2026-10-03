@@ -18,3 +18,6 @@ export * from "./capabilities/process/service.js";
 export * from "./capabilities/browser/schemas.js";
 export * from "./capabilities/browser/connection.js";
 export * from "./capabilities/browser/service.js";
+export * from "./capabilities/git/schemas.js";
+export * from "./capabilities/git/service.js";
+export * from "./capabilities/git/metadata-lock.js";
