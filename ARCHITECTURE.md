@@ -14,7 +14,8 @@
 > Implementation details of implemented components live in `README.md`,
 > `docs/NATIVE_HOST.md` and `docs/BROWSER_EXTENSION.md`. Section numbers 1–17
 > are stable (they are referenced from those documents); new sections start at 18.
-> Open questions that need a separate architectural decision are listed in §26.
+> Open questions that need a separate architectural decision are listed in §26;
+> decisions taken for work packages are recorded in §27.
 
 ## 1. Product
 
@@ -776,3 +777,75 @@ These need explicit decisions before the corresponding work packages.
    network.
 9. **Local HTTP credentials.** Whether the static local token is replaced by
    device credentials for local HTTP clients too, or only for remote mode.
+
+## 27. Architectural Decisions
+
+Decisions taken for individual work packages that extend or constrain this
+contract. Each decision states its context, the decision and its scope.
+
+### AD-1. `git.read` never runs repository-controlled programs (WP-10)
+
+**Context.** Git reads configuration from the repository (`.git/config`,
+`config.worktree`, included files) and from the user's system and global
+configuration. Several settings make Git start programs during *read*
+commands: `core.fsmonitor`, `core.pager`, `diff.external`,
+`diff.<driver>.textconv` / `.command`, `filter.<driver>.clean` / `.process`,
+`gpg.program` with `log.showSignature`, credential helpers, `core.sshCommand`
+and others. Repository contents are controlled by whoever produced the
+repository (a cloned project, an archive, an agent with `filesystem.write`).
+On Windows, command lookup searched the working directory before `PATH`, so a
+`git.exe` / `git.bat` inside the repository could run instead of Git.
+
+**Decision.**
+
+1. **Read stays read.** A `git.read` operation never starts a program chosen by
+   repository contents or by repository-local Git configuration. The only
+   program it runs is the Git executable found on `PATH`.
+2. **PATH-only executable lookup.** `ProcessLauncher.resolveCommand` has a
+   PATH-only mode (`searchCurrentDirectory: false`): the working directory and
+   relative `PATH` entries are not searched, and relative command paths are
+   refused. `git.read` always uses this mode. Every launcher implementation
+   (Core and Native Host) must honour it. The lookup of `shell.execute` /
+   `process.manage` commands is unchanged.
+3. **Repository discovery in Core.** The repository is located without running
+   Git: from the working directory upwards to the first `.git` directory or
+   `.git` file (`gitdir:`), plus `commondir` for linked worktrees. These
+   pointers are treated like symlinks: the resolved worktree, Git directory and
+   common directory are paths of the operation and are authorized by the
+   PermissionEngine (in sandbox mode they must be inside the workspace unless
+   `filesystem.full` is granted). Git then runs with explicit `--git-dir` and
+   `--work-tree`, and inherited `GIT_*` environment variables are removed. Bare
+   repositories are not supported.
+4. **Configuration.** System and global configuration are not loaded
+   (`GIT_CONFIG_NOSYSTEM`, `GIT_CONFIG_GLOBAL` set to the null device); a fixed
+   list of line-ending and display settings that cannot start programs is
+   carried over from them. Repository configuration (local and worktree scope)
+   is checked against an allowlist of keys that cannot start programs. Any other
+   key, including `include` / `includeIf`, fails the operation with
+   `UNSAFE_REPOSITORY` before Git reads the repository; the error names the
+   keys, never their values. The check is deny-by-default: keys are added to
+   the allowlist only when they are known not to start programs.
+5. **Hardened invocation.** Git runs with external programs disabled
+   (`--no-pager`, `--no-ext-diff`, `--no-textconv`, `core.fsmonitor=false`, no
+   signature verification, no submodule recursion, `protocol.allow=never`,
+   `GIT_NO_LAZY_FETCH`), without optional writes (`GIT_OPTIONAL_LOCKS=0`) and
+   with Git 2.32 or newer. Agent-supplied revisions cannot be options
+   (`--end-of-options`; a leading `-` is refused); paths are passed after `--`
+   as literal pathspecs.
+6. **No check/use race inside CROT.** Core holds a lock per Git directory: a
+   `git.read` operation (configuration check and Git commands) and a CROT
+   `filesystem.write` operation (write, create directory, delete, move) whose
+   paths are inside, or contain, that Git directory never run at the same time.
+   The permission model is unchanged: writes into `.git` remain allowed under
+   `filesystem.write`.
+
+**Scope and limits.**
+
+- Programs that modify the repository outside CROT's filesystem operations
+  (commands run through `shell.execute` / `process.manage`, other local
+  programs) are not serialized with `git.read`. They already execute code with
+  the user's permissions; this decision guarantees that a *read* operation does
+  not become such code execution.
+- The Git installation on `PATH` and its built-in behaviour are trusted, like
+  every other program on `PATH`.
+- Write operations (`git.write`) are not covered by this decision.
