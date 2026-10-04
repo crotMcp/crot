@@ -3,13 +3,10 @@
 > **Status: Design.** Nothing in this document is implemented. It fixes the
 > mechanism of user confirmations (ARCHITECTURE.md §21) so that a later work
 > package can implement it without new architectural decisions. The key
-> decisions are recorded in ARCHITECTURE.md §27, **AD-5**.
+> decisions are recorded in ARCHITECTURE.md §27, **AD-5**, **AD-6** and **AD-7**.
 >
->
-> **Two OPEN DECISIONS (§16) must be taken before WP-15 starts:** OD-1, binding
-> approvals to the expected browser tab/origin (a browser protocol change), and
-> OD-2, behaviour when the audit event of a gated operation cannot be written.
-> WP-15 must not implement either aspect until the decision is recorded.
+> The former open decisions OD-1 (browser tab/origin binding) and OD-2 (audit
+> failure for gated operations) are decided by AD-6 and AD-7 (§16).
 >
 > The TypeScript in this document is a **contract sketch** that pins down the
 > design. It is not code in `src/` and is not an implementation.
@@ -94,7 +91,10 @@ ExecutionGuard.run
    4. re-authorize every capability        (PermissionEngine.authorize again)
         + revalidation hook of the service (paths, targets still the same)
         denied -> audit "denied" (approval.status = approved) -> PermissionDeniedError
-   5. execute()                            (unchanged)
+   4a. write the mandatory approval audit record (AD-7)
+        write failed -> operation refused, approval not completed -> PermissionDeniedError
+   5. execute()                            (browser: expected tab/origin re-checked by the
+                                            extension right before the action, AD-6)
    6. audit "success" / "error"           (with approval block if a gate applied)
 ```
 
@@ -127,8 +127,9 @@ ExecutionGuard.run
   lock), process slot or browser request is held while a request is pending.
   Those are taken inside `execute()`, as they are today.
 - **I8 — Everything is audited.** Every operation for which a gate rule matched
-  produces exactly one audit event with an `approval` block, whatever the
-  outcome.
+  produces an audit event with an `approval` block, whatever the outcome. An
+  approved operation runs only after its mandatory approval audit record has
+  been written (AD-7, §11).
 
 ## 5. Gate policy
 
@@ -204,6 +205,11 @@ says otherwise.
   service-provided `revalidate()` that re-resolves paths and checks they are
   unchanged (for example symlink swaps during the wait). A difference means
   deny.
+- Browser operations are additionally bound to the target tab identity and
+  origin recorded when the request is created. The extension checks them again
+  immediately before the action. A closed or changed tab or a different origin
+  invalidates the approval; it is never transferred to another tab or origin
+  (AD-6, §13.1).
 
 ### 6.3 Presentation rules for providers
 
@@ -333,8 +339,10 @@ Rules:
 
 ## 11. Audit requirements
 
-Every guard operation for which a gate rule matched writes exactly **one**
-`AuditEvent`, as today. It carries an additional optional `approval` block:
+Every guard operation for which a gate rule matched writes an `AuditEvent`
+with an additional optional `approval` block. An approved operation also has a
+mandatory approval audit record. It is written after the approval and before
+`execute()`, and carries the same `approval` block (AD-7):
 
 | Field | Required | Meaning |
 | --- | --- | --- |
@@ -355,6 +363,8 @@ Outcome mapping:
 | `approved`, execution ok | `success` | — |
 | `approved`, execution failed | `error` | as today |
 | `approved`, re-authorization failed | `denied` | `PERMISSION_DENIED` |
+| `approved`, mandatory approval audit record could not be written (AD-7) | `denied` (not executed) | `PERMISSION_DENIED` |
+| `approved`, browser tab/origin binding no longer holds (AD-6) | `denied` (not executed) | `PERMISSION_DENIED` |
 | `rejected` / `expired` / `cancelled` / `unavailable` | `denied` | `PERMISSION_DENIED` |
 
 Rules:
@@ -368,6 +378,19 @@ Rules:
   `waitMs`.
 - `outcome` values do not change (`success | error | denied`). `approval` is an
   additive optional field, like `network` added by WP-13.
+- **Audit failure (AD-7).** For a gated operation, failure to write the
+  mandatory approval audit record means the operation is refused. The
+  approval is not successfully completed without that record. Operations that
+  require no approval keep the global behaviour: audit failures go to
+  `onAuditError` and do not affect the operation. Once `execute()` has
+  started, its effects cannot be revoked.
+- **Meaning of the mandatory record (AD-7).** It records that the operation
+  was approved and authorized before execution. It does **not** state that the
+  operation ran or succeeded. The execution result is only in the event
+  written after execution (`success` or `error`). If the process stops after
+  the mandatory record was written, or the operation fails, the mandatory
+  record must not be read as successful execution. A mandatory record without
+  a matching post-execution event means the result is unknown.
 - Decisions that arrive after the terminal status do not create audit events,
   because they change nothing. The provider gets `not_pending`.
 - A crash while a request is pending leaves no event. Nothing was executed, so
@@ -475,13 +498,15 @@ payload. Gate rules can match on it. The extension and the bridge are never
 approval providers, so a browser-originated request can never be approved
 from the browser.
 
-Binding browser *control* operations to what the user saw needs a precondition
-in the browser protocol: the expected tab id and origin, checked by the
-extension right before it acts. Without it, a gated operation on the *active*
-tab can hit a different page once the user approves it. **This is a change of
-the browser command protocol and is OPEN DECISION OD-1 (§16).** It is not
-decided by this design, and WP-15 must not implement approval gating of
-browser operations until OD-1 is recorded.
+Binding browser operations to what the user saw is decided by **AD-6**
+(formerly OD-1). When the request is created, Core records the target tab
+identity (concrete tab id and browser connection; a default *active* tab is
+resolved to a concrete tab) and its origin in the subject. The browser command
+carries them as an expected-tab/origin precondition, and the extension checks
+it immediately before it acts. A closed or changed tab or a different origin
+invalidates the approval. An approval is never transferred to another tab or
+origin. `browser.tab_open` is bound to the origin of the URL it opens. This is
+the browser command protocol change for gated operations.
 
 ### 13.2 Prompt-injection mitigation
 
@@ -525,7 +550,7 @@ the relay or remote network.
 | T3 | An external MCP server, the relay or the remote session approves | I4, §13.3: never a provider; the approval channel is independent of the request path |
 | T4 | A service or new capability runs without the gate | I2: gate inside ExecutionGuard; no opt-out field; the implementation must test that every guard operation is gate-evaluated |
 | T5 | Bait-and-switch: the user sees X, Core runs Y | I5: the subject is built from the captured arguments; digest-bound; single-use; no agent text in the subject |
-| T6 | The target changes during the wait (symlink swap, policy change, browser tab) | Step 4: re-authorize and `revalidate()`; browser precondition is a flagged open item (§13.1) |
+| T6 | The target changes during the wait (symlink swap, policy change, browser tab) | Step 4: re-authorize and `revalidate()`; browser tab identity and origin re-checked by the extension right before the action (AD-6) |
 | T7 | An old approval is replayed for a new request | Random request ids; approval consumed on the terminal transition |
 | T8 | A late approval after timeout or cancel runs the operation | Sequential state machine; first terminal wins; `not_pending` |
 | T9 | Approval fatigue / flooding the user until they click "yes" | Bounded queue with immediate `unavailable`; no batch or "always" approvals; no auto re-queue; every request audited |
@@ -538,6 +563,7 @@ the relay or remote network.
 | T16 | Pending requests hold locks and block CROT | I7; timeout; queue bound |
 | T17 | The client gave up, the user approves later, the operation runs unseen and the agent retries (double execution) | Cancel on caller abort; default timeout below client timeouts; residual risk documented |
 | T18 | A dangerous action is split into ungated steps (write a script, then run it) | Policy concern: gate by capability, not only by operation name; documented limitation |
+| T19 | An approved operation runs without a record of the approval (audit sink failing) | AD-7: the mandatory approval audit record is written before `execute()`; failure means refusal |
 
 Residual risks (not prevented by design): the user approves a harmful but
 correctly presented operation; a crash leaves no record of a pending request;
@@ -563,48 +589,40 @@ configured:
 - `CrotCoreOptions`: optional approval providers. `CrotStatus`: approvals
   summary (rules configured, provider present).
 
+- Browser command protocol: expected-tab/origin precondition for gated
+  `browser.*` operations (AD-6).
+- Gated operations: mandatory approval audit record before `execute()`; failure
+  to write it refuses the operation (AD-7).
+
 Not changed: capability vocabulary, sandbox/full_control semantics, protected
-paths, network policy, the browser command protocol, audit outcome values,
-and the rule that audit write failures never affect operations. Whether the
-last two change is OPEN DECISION OD-1 and OD-2 (§16), not this design.
+paths, network policy, audit outcome values, the browser protocol for
+operations without a gate, and the rule that audit write failures never affect
+operations that require no approval.
 
 Still open but not blocking WP-15: the default list of gated operations and
 headless profiles (§26, question 6). With no rules configured, nothing is
 gated.
 
-## 16. OPEN DECISIONS — required before WP-15 starts
+## 16. Decisions (formerly OPEN DECISIONS)
 
-The two questions below are **not deferred details**. They decide part of the
-security contract. Each must be decided and recorded as an architectural
-decision in ARCHITECTURE.md §27 **before WP-15 (implementation) begins**.
+WP-14 left two questions open and required them to be decided before WP-15.
+Both are now recorded as architectural decisions in ARCHITECTURE.md §27. No
+open decision from this design blocks WP-15.
 
-**WP-15 must not implement, stub or choose a default for either aspect until
-its decision is recorded**, so that the behaviour is not fixed by accident in
-the implementation. Leaving existing code unchanged is not a decision. In
-particular, the current non-blocking audit behaviour must not be adopted as
-the gated-operation policy just because it already exists.
+### OD-1 — decided by AD-6: browser approval binding
 
-### OD-1. Binding an approval to the expected browser tab and origin
+- An approval for a `browser.*` operation is bound to a concrete tab and
+  origin.
+- The tab identity and origin are recorded when the approval request is
+  created.
+- They are checked again immediately before the operation runs.
+- A closed or changed tab or a different origin invalidates the approval.
+- An approval cannot be transferred to another tab or origin.
 
-- **Question.** How is an approved browser operation bound to the tab and
-  origin the user saw, so that it cannot act on a different page (another
-  active tab, a navigation during the wait)?
-- **Why it is open.** It needs a precondition (expected tab id and origin)
-  checked by the extension right before it acts. That is a change of the
-  browser command protocol (`docs/BROWSER_EXTENSION.md`), which is a security
-  contract outside this design (§13.1).
-- **Blocked in WP-15 until decided:** approval gating of any `browser.*`
-  operation, including gate rules that match browser operations or
-  capabilities, and any change of the browser protocol.
+### OD-2 — decided by AD-7: audit failure for gated operations
 
-### OD-2. Behaviour when the audit event of a gated operation cannot be written
-
-- **Question.** What happens to a gated operation when its audit event cannot
-  be written? Options include executing anyway, as today for all operations
-  (`onAuditError`), refusing before execution, or another policy. The decision
-  also covers how this is reported to the user and the agent.
-- **Why it is open.** Today audit failures never affect operations. Changing
-  that for gated operations changes the audit contract of the ExecutionGuard.
-- **Blocked in WP-15 until decided:** any audit-failure handling specific to
-  gated operations, and any claim in code, tests or documentation about which
-  behaviour applies to them.
+- For an operation that requires approval, failure to write the mandatory
+  audit record means the operation is refused.
+- An approval is not successfully completed until its mandatory audit record
+  has been written.
+- The global audit policy for all other operations does not change.

@@ -672,8 +672,9 @@ Which operations require confirmation is a policy question (§26, question 6).
 
 The mechanism (approval gates: placement, approval subject, request
 lifecycle, queue, provider interface, audit, threat model) is designed in
-`docs/design/approval-gates.md` (WP-14) and decided in §27 AD-5; it is not
-implemented yet.
+`docs/design/approval-gates.md` (WP-14) and decided in §27 AD-5, AD-6
+(browser tab/origin binding) and AD-7 (audit failure); it is not implemented
+yet.
 
 ## 22. Remote Mode and CROT Cloud Relay
 
@@ -1165,20 +1166,86 @@ full design is `docs/design/approval-gates.md`.
 - An approval cannot make an operation safe if the user does not understand
   it. Policy scoping and audit remain the other mitigations (§19).
 
-**OPEN DECISIONS — required before WP-15 starts.** These two questions are part
-of the security contract. Each must be decided and recorded in this section
-before the implementation (WP-15) begins. **WP-15 must not implement, stub or
-choose a default for either aspect before its decision is recorded**, so that
-the implementation does not decide them by accident (details:
-`docs/design/approval-gates.md` §16).
+**Former open decisions.** The two open decisions recorded with this decision
+(OD-1, OD-2) are decided: OD-1 by AD-6 (browser tab/origin binding), OD-2 by
+AD-7 (audit failure for gated operations). AD-7 amends point 7 for approved
+operations.
 
-- **OD-1. Browser tab/origin binding.** How an approved browser operation is
-  bound to the tab and origin the user saw. This needs an expected tab/origin
-  precondition in the browser command protocol, which changes the browser
-  contract. Until decided, WP-15 does not gate `browser.*` operations and does
-  not change the browser protocol.
-- **OD-2. Audit write failure for gated operations.** Whether a gated
-  operation whose audit event cannot be written runs anyway (today's
-  behaviour for all operations), is refused, or follows another policy. Until
-  decided, WP-15 implements no gated-specific audit-failure handling and does
-  not treat today's behaviour as the decision.
+### AD-6. A browser approval is bound to one tab and origin and checked again right before the action (WP-14, OD-1)
+
+**Context.** AD-5 binds an approval to one guard operation and its subject.
+Browser operations also act on mutable state outside Core. The tab can be
+closed or reused, the active tab can change, and the page can navigate to
+another origin while the request is pending. An approval given for one page
+must not end up acting on another. The approval-gates design left this open as
+OD-1 because it needs a change of the browser command protocol.
+
+**Decision.**
+
+1. **Binding fixed at request time.** When an approval request is created for a
+   `browser.*` operation that targets a tab, Core records the identity of the
+   target tab and its origin in the approval subject. The identity is the
+   concrete tab id together with the browser connection it belongs to; a
+   default "active tab" is resolved to a concrete tab id at that point. The
+   origin is the tab's current origin. Both are covered by the subject digest
+   and shown to the user. `browser.tab_open` has no existing tab, so it is
+   bound to the origin of the URL it opens.
+2. **Re-check immediately before execution.** The bound tab identity and origin
+   are sent with the browser command as an expected-tab/origin precondition.
+   The extension checks the precondition immediately before it performs the
+   action, as part of the same command. This is the browser command protocol
+   change for gated operations.
+3. **Invalidation.** The approval is invalidated, and the operation is denied
+   without acting, if the tab no longer exists, its identity no longer matches
+   (for example after the browser connection changed), or its origin differs
+   from the bound origin. If the binding cannot be established at request time,
+   no approval can be given and the operation is denied.
+4. **No transfer.** An approval is never applied to another tab or origin, and
+   it is never re-bound after invalidation. A new attempt is a new request.
+
+**Scope and limits.**
+
+- This applies only to gated `browser.*` operations. Browser operations that no
+  gate rule matches keep today's protocol behaviour.
+- The binding is to the origin, not the full URL; navigation within the same
+  origin does not invalidate the approval.
+- The approval does not cover what the page does after the action (for
+  example, a click that starts a navigation).
+
+### AD-7. A gated operation is refused if its mandatory audit record cannot be written (WP-14, OD-2)
+
+**Context.** Audit write failures never affect operations today
+(`onAuditError`). For an operation that requires user approval, the audit
+record is the only lasting evidence of what the user approved. Running such an
+operation without it would leave an approved, executed operation with no
+record. The approval-gates design left this open as OD-2.
+
+**Decision.**
+
+1. **Audit failure means deny.** For an operation that requires approval,
+   failure to write its mandatory audit record means the operation is refused.
+   It does not run.
+2. **Approval completes only with its audit record.** An approval is not
+   successfully completed until its mandatory audit record has been written.
+   The record must therefore be written after the approval and before
+   `execute()` starts; only then may the operation run. This amends AD-5 point
+   7 (one audit event per operation) for approved operations: they have this
+   record before execution in addition to the event written after execution.
+3. **The record attests approval, not execution.** The mandatory record states
+   only that the operation was approved and authorized to run. It does not
+   state that the operation ran or succeeded. The execution result is only in
+   the event written after execution (`success` or `error`). If the process
+   stops after the mandatory record was written, or the operation fails, the
+   mandatory record must not be read as successful execution. A mandatory
+   record without a matching post-execution event means the result is
+   unknown.
+4. **Other operations unchanged.** This does not change the global audit
+   policy. Operations that require no approval keep today's behaviour: audit
+   failures are reported through `onAuditError` and do not affect the
+   operation.
+
+**Scope and limits.**
+
+- Once `execute()` has started, its effects cannot be revoked. A failure to
+  write the event after execution cannot undo the operation.
+- A denied gated operation whose denial cannot be recorded stays denied.
