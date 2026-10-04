@@ -1,6 +1,7 @@
 import type { AuthContext } from "../auth/principal.js";
 import type { ResolvedPath } from "../workspace/workspace.js";
 import type { Capability } from "./capabilities.js";
+import { NetworkPolicy, type NetworkTarget } from "./network/policy.js";
 import type { PermissionPolicy } from "./policy.js";
 
 /**
@@ -11,6 +12,12 @@ export interface AuthorizationRequest {
   readonly context: AuthContext;
   readonly capability: Capability;
   readonly paths?: readonly ResolvedPath[];
+  /**
+   * Network destinations of the operation (scheme, host, port and every
+   * address the connection may use). Only `network.access` operations may
+   * carry them; they are checked against the network policy.
+   */
+  readonly network?: readonly NetworkTarget[];
 }
 
 export type AuthorizationDecision =
@@ -25,6 +32,8 @@ export interface PermissionEngineOptions {
   readonly protectedPaths?: readonly string[];
   /** Path containment using the workspace's platform semantics. */
   readonly contains?: (ancestor: string, candidate: string) => boolean;
+  /** Host policy of network.access. Defaults to a policy that refuses every destination. */
+  readonly network?: NetworkPolicy;
 }
 
 /**
@@ -44,10 +53,15 @@ const WRITE_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>(["filesy
  *    (never grantable in sandbox mode).
  * 3. Write operations never touch CROT's protected paths (audit log,
  *    configuration), in any mode.
+ * 4. Network destinations are only authorized for `network.access`
+ *    operations, and every destination must pass the network policy (host
+ *    allow/deny rules, non-public addresses only by explicit IP/CIDR rules;
+ *    ARCHITECTURE.md §27, AD-4). No other capability grants network access.
  */
 export class PermissionEngine {
   private readonly protectedPaths: readonly string[];
   private readonly contains: (ancestor: string, candidate: string) => boolean;
+  private readonly networkPolicy: NetworkPolicy;
 
   constructor(
     private readonly policy: PermissionPolicy,
@@ -55,6 +69,12 @@ export class PermissionEngine {
   ) {
     this.protectedPaths = options.protectedPaths ?? [];
     this.contains = options.contains ?? ((a, c) => a === c || c.startsWith(a.endsWith("/") ? a : `${a}/`));
+    this.networkPolicy = options.network ?? NetworkPolicy.denyAll();
+  }
+
+  /** The host policy of network.access. */
+  get network(): NetworkPolicy {
+    return this.networkPolicy;
   }
 
   get protected(): readonly string[] {
@@ -101,6 +121,20 @@ export class PermissionEngine {
             missing: [],
           };
         }
+      }
+    }
+    const targets = request.network ?? [];
+    if (targets.length > 0) {
+      if (request.capability !== "network.access") {
+        return {
+          allowed: false,
+          reason: `Network destinations can only be authorized by 'network.access', not by '${request.capability}'.`,
+          missing: ["network.access"],
+        };
+      }
+      for (const target of targets) {
+        const decision = this.networkPolicy.evaluate(target);
+        if (!decision.allowed) return { allowed: false, reason: decision.reason, missing: [] };
       }
     }
     return { allowed: true };

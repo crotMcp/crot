@@ -5,7 +5,11 @@
     "name": "my-project"
   },
   "permissions": {
-    "mode": "sandbox"
+    "mode": "sandbox",
+    "network": {
+      "allow": [],
+      "deny": []
+    }
   },
   "limits": {
     "defaultCommandTimeoutMs": 120000,
