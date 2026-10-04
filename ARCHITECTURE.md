@@ -673,8 +673,10 @@ Which operations require confirmation is a policy question (§26, question 6).
 The mechanism (approval gates: placement, approval subject, request
 lifecycle, queue, provider interface, audit, threat model) is designed in
 `docs/design/approval-gates.md` (WP-14) and decided in §27 AD-5, AD-6
-(browser tab/origin binding) and AD-7 (audit failure); it is not implemented
-yet.
+(browser tab/origin binding) and AD-7 (audit failure). AD-8 (`tabs.resolve`),
+AD-9 (browser `connectionId`), AD-10 (`permissions.approvals` location and
+defaults) and AD-11 (expected browser subject check) complete the contract for the implementation (WP-15); it is not
+implemented yet.
 
 ## 22. Remote Mode and CROT Cloud Relay
 
@@ -1171,6 +1173,11 @@ full design is `docs/design/approval-gates.md`.
 AD-7 (audit failure for gated operations). AD-7 amends point 7 for approved
 operations.
 
+**WP-15 contract.** AD-8 (`tabs.resolve`), AD-9 (`connectionId`), AD-10
+(`permissions.approvals` location and defaults) and AD-11 (expected browser
+subject check) are part of the contract that
+WP-15 implements, together with AD-5, AD-6 and AD-7.
+
 ### AD-6. A browser approval is bound to one tab and origin and checked again right before the action (WP-14, OD-1)
 
 **Context.** AD-5 binds an approval to one guard operation and its subject.
@@ -1249,3 +1256,187 @@ record. The approval-gates design left this open as OD-2.
 - Once `execute()` has started, its effects cannot be revoked. A failure to
   write the event after execution cannot undo the operation.
 - A denied gated operation whose denial cannot be recorded stays denied.
+
+### AD-8. `tabs.resolve` binds a gated browser operation to a concrete tab before the approval request (WP-15 contract)
+
+**Context.** AD-6 point 1 requires Core to record the concrete target tab and
+its origin when an approval request for a `browser.*` operation is created; a
+default "active tab" must be resolved to a concrete tab id at that point. The
+extension's default target is the active tab of the last focused window. The
+existing `tabs.list` reports `active` per window but not which window was last
+focused, so Core cannot reproduce that choice, and no existing command returns
+the tab a command would act on. Found while planning WP-15.
+
+**Decision.**
+
+1. **New browser command `tabs.resolve`.** It is used only for gated
+   `browser.*` operations that target a tab. It lets Core obtain the concrete
+   tab and its current origin for the approval subject.
+2. **Minimal contract.**
+   - Parameters: `{ tabId?: number }`, the operation's own `tabId` argument.
+   - Resolution: the extension resolves the tab exactly as the operation's
+     command would: the given tab, or the active tab of the last focused window
+     when `tabId` is omitted.
+   - Result: `{ tabId: number, url: string }`, the concrete tab id and the URL
+     currently committed in that tab. The result is untrusted and is validated
+     by Core like every browser response. Core derives the bound origin from
+     `url`; only `http:` and `https:` origins can be bound.
+   - The command reads only the tab id and URL. It does not read page content
+     and does not act on the page.
+3. **Order in the pipeline.** Core sends `tabs.resolve` after `authorize()` has
+   allowed the operation and the gate rule has matched, and before the approval
+   request is created. It needs no capability of its own and adds none; it is
+   not an agent-callable tool and is not audited as an operation of its own.
+   For `browser.tab_open`, which targets no existing tab, it is not sent; the
+   operation stays bound to the origin of the URL it opens (AD-6 point 1).
+4. **Unknown state means deny.** If the concrete tab or its current state
+   cannot be determined — no such tab, no active tab, an invalid or
+   unvalidated response, a URL without an `http:`/`https:` origin, a timeout,
+   or a disconnected or changed connection (AD-9) — no approval request is
+   created and the operation is denied (AD-6 point 3).
+5. **Use of the result.** The resolved tab id and origin are written into the
+   approval subject and covered by its digest. They are the expected tab and
+   origin of the expected browser subject that the command carries and that is
+   checked immediately before the action (AD-6 point 2, AD-11).
+
+**Scope and limits.**
+
+- This is part of the WP-15 contract. Browser operations that no gate rule
+  matches do not use `tabs.resolve` and keep today's protocol behaviour.
+- The resolved state is a snapshot. The re-check before the action (AD-6) is
+  what prevents acting on a different tab or origin.
+
+### AD-9. Every browser bridge connection has a `connectionId`; a new connection invalidates browser approvals (WP-15 contract)
+
+**Context.** AD-6 binds a browser approval to the tab id together with the
+browser connection it belongs to, and invalidates it when the connection
+changed. Tab ids are only meaningful within one browser session; after a
+reconnect or browser restart the same id can denote another tab. Today
+`BrowserConnection` and `BrowserConnectionState` carry no connection identity,
+so Core cannot tell two connections apart. Found while planning WP-15.
+
+**Decision.**
+
+1. **One id per connection instance.** The browser bridge creates a new random
+   `connectionId` (at least 128 bits from a cryptographic source) every time it
+   accepts a new `hello`. It is never reused and never derived from data sent
+   by the browser. A reconnect of the same extension is a new connection with a
+   new id.
+2. **Minimal contract.**
+   - `BrowserConnectionState` in state `connected` carries `connectionId`.
+   - A browser request can carry an expected `connectionId`. The bridge sends
+     it only if the current connection has that id. Otherwise it rejects the
+     request without sending it; this is an expected-subject mismatch
+     (AD-11) and the operation is denied with `PERMISSION_DENIED`.
+   - The id is generated on the host side (bridge). The bridge tells the
+     extension the id of its connection when it accepts the `hello`, so that
+     the extension can perform the AD-11 check; the extension does not choose
+     it and cannot change it. The authoritative check is the bridge's. The id
+     is not part of agent-visible results or `crot_status`.
+3. **Binding.** An approval for a `browser.*` operation records the
+   `connectionId` of the connection current when the request is created. The
+   `tabs.resolve` request (AD-8) is sent with that id. The id is part of the
+   approval subject and covered by its digest.
+4. **Re-check before execution.** Immediately before the operation's command
+   is sent, the bridge checks that the connection is still the recorded one. If
+   the connection was replaced, lost or never re-established, the approval is
+   invalid and the operation is denied without acting. As today, requests in
+   flight on a connection that goes away fail.
+5. **No transfer.** An approval is never moved to a new connection. A new
+   attempt is a new request (AD-6 point 4).
+
+**Scope and limits.**
+
+- This is part of the WP-15 contract. It is needed only for gated `browser.*`
+  operations; other browser operations do not have to carry the id.
+- The id identifies a bridge connection, not a browser profile or a user.
+
+### AD-10. Approval rules live in `permissions.approvals` with fixed defaults (WP-15 contract)
+
+**Context.** The approval-gates design (§5, §7.2, §8) left the location of the
+`approvals` configuration section and its default values as proposals.
+
+**Decision.**
+
+1. **Location.** The approval gate policy is configured in
+   `permissions.approvals`, next to `permissions.network`. It is part of the
+   PermissionEngine policy, validated at startup and immutable at runtime
+   (AD-5 point 2).
+2. **Content and defaults.**
+   - `rules`: gate rules (AD-5 point 2); default: none, so nothing is gated.
+   - `timeoutMs`: approval timeout; default **45 000 ms** (45 s).
+   - Maximum approval timeout: **300 000 ms** (300 s). A larger `timeoutMs`
+     is a `CONFIG_ERROR` at startup.
+   - `maxPending`: maximum number of pending approval requests; default **8**.
+
+**Scope and limits.**
+
+- This is part of the WP-15 contract. It fixes only the location and the
+  default values; which operations are gated stays open (§26, question 6).
+
+### AD-11. A gated browser command carries an expected browser subject that must match right before the action (WP-15 contract)
+
+**Context.** AD-6 point 2 requires the bound tab and origin to be sent with the
+browser command and checked immediately before the action, and AD-9 adds the
+connection to the binding. AD-6, AD-8 and AD-9 do not fix what exactly is
+compared, how origins are compared, or which error a mismatch produces. This
+decision fixes the semantics and the error; internal field names are chosen by
+the implementation.
+
+**Decision.**
+
+1. **Expected browser subject.** Every command of a gated `browser.*`
+   operation carries an expected browser subject with at least:
+   - `tabId`: the concrete tab id resolved by `tabs.resolve` (AD-8);
+   - `origin`: the normalized origin bound in the approval subject;
+   - `connectionId`: the bridge connection recorded in the approval (AD-9).
+
+   The values are exactly those in the approved subject (covered by its
+   digest). `browser.tab_open` targets no existing tab: its expected subject
+   has no `tabId`, its `origin` is the normalized origin of the URL it opens,
+   and it carries `connectionId`.
+2. **Check immediately before the action.**
+   - The bridge compares `connectionId` with its current connection before it
+     sends the command (AD-9). On a mismatch the command is **not sent**.
+   - The extension, as part of the same command and immediately before it
+     acts, checks that the current tab id, the current normalized origin of
+     that tab and the id of its current connection equal the expected values.
+     The current origin is taken from the URL committed in the tab; if a
+     navigation to a different origin is pending, the origins do not match.
+     For `browser.tab_open` it checks `connectionId` and that the URL to open
+     has the expected origin.
+   - Any mismatch, a missing tab, or a value that cannot be determined means
+     the action is **not performed** and the operation is denied. Nothing is
+     retried, re-resolved or re-bound (AD-6 point 4).
+3. **Normalized origin.** An origin is the WHATWG URL origin serialization
+   (`scheme://host[:port]`: lowercase scheme and host, IDNA/punycode host,
+   default port omitted), never a raw or partial URL string. Only `http:` and
+   `https:` origins can be bound; opaque origins (`null`) and every other
+   scheme never match. Origins are compared by exact string equality of their
+   serializations.
+4. **Narrow only.** The check only decides whether an already authorized and
+   approved operation may still act. Passing it grants no capability, changes
+   no permission and replaces neither `authorize()` nor the re-authorization
+   after approval (AD-5).
+5. **Error.** A mismatch uses the existing error code `PERMISSION_DENIED`; no
+   new error code is introduced.
+   - Agent: `PERMISSION_DENIED` with
+     `details: { operation, missing: [], approval: { requestId, status: "approved" } }`
+     (design §10) and a fixed, Core-defined message stating that the browser
+     approval binding (tab, origin or connection) no longer holds.
+   - Audit: the event after execution has outcome `denied` and
+     `error.code: "PERMISSION_DENIED"` (design §11). The mandatory approval
+     record (AD-7) stays as written and does not mean execution.
+   - Bridge protocol: the extension reports a mismatch with the error code
+     `PERMISSION_DENIED`. In browser responses this code is reserved for the
+     expected-subject check; the extension uses it for nothing else. Core
+     treats it, and its own `connectionId` mismatch, as a denial and never
+     passes browser-supplied messages or details to the agent. An extension
+     that reports a mismatch falsely can only cause a denial.
+
+**Scope and limits.**
+
+- This is part of the WP-15 contract. Commands of browser operations that no
+  gate rule matches carry no expected subject and keep today's behaviour.
+- The check binds the origin, not the full URL (AD-6), and does not cover what
+  the page does after the action.
