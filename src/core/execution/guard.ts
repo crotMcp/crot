@@ -1,4 +1,5 @@
 import type { ApprovalBroker } from "../approvals/broker.js";
+import { ExposureTracker, UNTRUSTED_CONTENT_MESSAGE, UNTRUSTED_CONTENT_RULE_ID } from "../approvals/exposure.js";
 import { newApprovalRequestId, normalizedHttpOrigin, subjectDigest } from "../approvals/subject.js";
 import type {
   ApprovalBinding,
@@ -36,6 +37,23 @@ export interface OperationDescriptor {
    * the PermissionEngine policy, never by the service.
    */
   readonly approval?: ApprovalSubjectInput;
+  /**
+   * For the steps of one network_request call (network.resolve and
+   * network.request, including redirect hops): the session's exposure state
+   * when the call started, from ExecutionGuard.exposureSnapshot(). Honoured
+   * only for those two operations, for the same session and until
+   * endExposureSnapshot(); otherwise the current state is used. Marking is
+   * unaffected.
+   */
+  readonly exposure?: ExposureSnapshot;
+}
+
+/** Operations that may be evaluated with an exposure snapshot (AD-12 point 10). */
+const SNAPSHOT_OPERATIONS: ReadonlySet<string> = new Set(["network.resolve", "network.request"]);
+
+/** Opaque exposure state of a session at one moment; only the guard creates and reads it. */
+export interface ExposureSnapshot {
+  readonly __brand: "ExposureSnapshot";
 }
 
 export interface ExecutionGuardOptions {
@@ -53,6 +71,12 @@ export interface ExecutionGuardOptions {
    * while the request was pending). Used in step 4 for every path.
    */
   readonly revalidatePath?: (path: ResolvedPath) => Promise<boolean>;
+  /**
+   * Session exposure (AD-12). The guard marks the session after a source
+   * operation succeeded and passes the state to approvalRequirement().
+   * Defaults to a tracker of its own.
+   */
+  readonly exposure?: ExposureTracker;
 }
 
 /**
@@ -78,12 +102,35 @@ export class ApprovalBindingError extends PermissionDeniedError {
 export class ExecutionGuard {
   /** Operations that have not finished (including their audit record). */
   private readonly inFlight = new Set<Promise<unknown>>();
+  private readonly exposure: ExposureTracker;
+  private readonly snapshots = new WeakMap<
+    ExposureSnapshot,
+    { readonly context: AuthContext; readonly exposed: boolean }
+  >();
 
   constructor(
     private readonly engine: PermissionEngine,
     private readonly audit: AuditSink,
     private readonly options: ExecutionGuardOptions = {},
-  ) {}
+  ) {
+    this.exposure = options.exposure ?? new ExposureTracker();
+  }
+
+  /**
+   * The session's current exposure state, for the steps of one network_request
+   * call (OperationDescriptor.exposure). The caller must end it with
+   * endExposureSnapshot() when the call returns.
+   */
+  exposureSnapshot(context: AuthContext): ExposureSnapshot {
+    const snapshot = Object.freeze({}) as ExposureSnapshot;
+    this.snapshots.set(snapshot, { context, exposed: this.exposure.isExposed(context) });
+    return snapshot;
+  }
+
+  /** Ends a snapshot; later operations passing it are evaluated with the current state. */
+  endExposureSnapshot(snapshot: ExposureSnapshot): void {
+    this.snapshots.delete(snapshot);
+  }
 
   run<T>(context: AuthContext, op: OperationDescriptor, execute: () => Promise<T>): Promise<T> {
     const running = this.runGuarded(context, op, execute);
@@ -144,14 +191,18 @@ export class ExecutionGuard {
       throw denial;
     }
 
+    const exposed = this.exposedFor(context, op);
     const requirement = this.engine.approvalRequirement(context, {
       operation: op.operation,
       capabilities,
       ...(op.paths !== undefined ? { paths: op.paths } : {}),
+      exposed,
     });
     if (!requirement.required) {
       try {
         const result = await execute();
+        // AD-12: mark before the result is returned and independent of the audit write.
+        this.exposure.recordSuccess(context, op.operation);
         await record("success");
         return result;
       } catch (error) {
@@ -171,7 +222,7 @@ export class ExecutionGuard {
       throw denied;
     };
 
-    let subject = this.subject(context, op, capabilities, requirement.rule);
+    let subject = this.subject(context, op, capabilities, requirement.rule, exposed);
     const broker = this.options.approvals;
     const unavailable = broker ? broker.unavailableReason() : "no_provider";
     if (unavailable === undefined && op.approval?.bind) {
@@ -206,7 +257,13 @@ export class ExecutionGuard {
       ? await broker.request(subject, requirement.timeoutMs, context.signal)
       : syntheticUnavailable(subject);
     const approval = auditApproval(outcome, requirement.rule);
-    if (outcome.status !== "approved") return deny(approval, notApprovedMessage(op.operation, outcome));
+    if (outcome.status !== "approved") {
+      const message = notApprovedMessage(op.operation, outcome);
+      return deny(
+        approval,
+        requirement.rule === UNTRUSTED_CONTENT_RULE_ID ? `${UNTRUSTED_CONTENT_MESSAGE} ${message}` : message,
+      );
+    }
 
     // Step 4: re-authorize and revalidate; nothing the approval saw may have changed.
     const changed = async (reason: string, message: string): Promise<never> =>
@@ -255,6 +312,7 @@ export class ExecutionGuard {
 
     try {
       const result = await execute();
+      this.exposure.recordSuccess(context, op.operation);
       await record("success", undefined, approval);
       return result;
     } catch (error) {
@@ -267,6 +325,14 @@ export class ExecutionGuard {
       await record("error", error, approval);
       throw error;
     }
+  }
+
+  /** Exposure is monotone, so a snapshot of the same session can only be the earlier, never a weaker-than-real state. */
+  private exposedFor(context: AuthContext, op: OperationDescriptor): boolean {
+    const snapshot = SNAPSHOT_OPERATIONS.has(op.operation) ? op.exposure : undefined;
+    const taken = snapshot !== undefined ? this.snapshots.get(snapshot) : undefined;
+    if (taken !== undefined && taken.context.session === context.session) return taken.exposed;
+    return this.exposure.isExposed(context);
   }
 
   /** authorize() for every capability of the operation; the first denial, if any. */
@@ -295,6 +361,7 @@ export class ExecutionGuard {
     op: OperationDescriptor,
     capabilities: readonly Capability[],
     rule: string,
+    exposed: boolean,
   ): ApprovalSubject {
     const paths = (op.paths ?? []).map((p) => ({ absolute: p.absolute, insideWorkspace: p.insideWorkspace }));
     const effects: ApprovalEffect[] = op.approval
@@ -311,6 +378,8 @@ export class ExecutionGuard {
             },
       );
     }
+    // Computed only by Core (AD-12), never reported by the agent.
+    if (exposed) effects.push({ label: "exposure", value: "this session read untrusted content before this request" });
     return {
       operation: op.operation,
       capabilities,

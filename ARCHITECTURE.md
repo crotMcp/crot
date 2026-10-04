@@ -617,7 +617,7 @@ Boundaries:
 | Device | device credential | other devices, cloned installs | device identity and binding, revocation (§20) | **[Target]** |
 | Commercial | local execution | commercial service | entitlements never enter local authorization (§23) | **[Target]** |
 | User confirmation | user via UI provider | agent, page/tool content | §21, §27 AD-5…AD-11 (mechanism; no provider yet) | **[Partial]** |
-| Untrusted content (prompt injection) | Core (session exposure) | web pages, HTTP responses, later external MCP results | §27 AD-12: session exposure from source operations; effectful operations in an exposed session need approval | **[Target]** (WP-16b) |
+| Untrusted content (prompt injection) | Core (session exposure) | web pages, HTTP responses, later external MCP results | §27 AD-12: session exposure from source operations; effectful operations in an exposed session need approval | **[Implemented]** (WP-16b) |
 
 Cross-cutting rule: **untrusted content never becomes a local command by
 itself.** Web pages, external MCP results, files read by tools and relay
@@ -776,7 +776,7 @@ The tray app is a UI; control logic stays in Core/service.
 | Browser bridge, relay, extension (Chromium) | **[Implemented]** |
 | External MCP gateway / MCP client | **[Target]** |
 | User confirmations | **[Partial]** (mechanism implemented: WP-15, §27 AD-5…AD-11; no approval provider yet) |
-| Untrusted-content exposure (prompt-injection mitigation) | **[Target]** (decided: §27 AD-12; implementation WP-16b) |
+| Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | **[Target]** |
 | Remote mode, Cloud Relay | **[Target]** |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** |
@@ -1545,6 +1545,20 @@ against the current code showed that this cannot be done per value:
 9. **External MCP (prepared, not implemented).** Results of external MCP
    tools will be guard operations (§18) and become exposure sources by adding
    their operation names to the source list. No other mechanism is added.
+10. **Precedence and multi-step calls (clarified in WP-16b).**
+    - The built-in `untrusted-content` rules are evaluated before user rules.
+      When a user rule and `untrusted-content` both match, `untrusted-content`
+      is the matching rule: it is the `rule` of the approval subject (shown by
+      the UI) and `approval.rule` in the audit log. Whether an operation needs
+      approval does not depend on the order (any match gates it).
+    - One `network_request` call is evaluated with the session's exposure at
+      the start of the call: its `network.resolve` and `network.request`
+      steps, including every redirect hop, use that snapshot. A session that
+      was exposed before the call therefore needs approval for every hop. Each
+      successful hop still marks the session, so every later, separate
+      `network_request` call sees the current exposure. The snapshot is
+      honoured only for `network.resolve` / `network.request`, only for the
+      same session and only until the call returns.
 
 **Scope and limits.**
 

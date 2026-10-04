@@ -1,5 +1,6 @@
 import path from "node:path";
 import { ApprovalBroker } from "./approvals/broker.js";
+import { ExposureTracker, type UntrustedContentSetting } from "./approvals/exposure.js";
 import type { ApprovalProvider, ApprovalRuleId } from "./approvals/types.js";
 import { JsonlFileAuditSink, NullAuditSink, StreamAuditSink, type AuditSink } from "./audit/audit.js";
 import type { BrowserConnection } from "./capabilities/browser/connection.js";
@@ -49,6 +50,8 @@ export interface CrotStatus {
     readonly timeoutMs: number;
     readonly maxPending: number;
     readonly providers: number;
+    /** The built-in untrusted-content rule (AD-12). */
+    readonly untrustedContent: UntrustedContentSetting;
     readonly note?: string;
   };
 }
@@ -152,12 +155,17 @@ export class CrotCore {
       protectedPaths,
       contains: (a, c) => workspace.contains(a, c),
       network: networkPolicy,
-      approvals: { rules: config.permissions.approvals.rules, timeoutMs: config.permissions.approvals.timeoutMs },
+      approvals: {
+        rules: config.permissions.approvals.rules,
+        timeoutMs: config.permissions.approvals.timeoutMs,
+        untrustedContent: config.permissions.approvals.untrustedContent,
+      },
     });
     const approvalBroker = new ApprovalBroker({ maxPending: config.permissions.approvals.maxPending });
     for (const provider of options.approvalProviders ?? []) approvalBroker.register(provider);
     const guard = new ExecutionGuard(permissions, audit, {
       approvals: approvalBroker,
+      exposure: new ExposureTracker(),
       // Step 4 of a gated operation: every path must still resolve to the same place.
       revalidatePath: async (p) => {
         const again = await workspace.resolve(p.absolute, { followFinalSymlink: false });
@@ -257,18 +265,26 @@ export class CrotCore {
   }
 
   private approvalStatus(): CrotStatus["approvals"] {
-    const { rules, timeoutMs } = this.permissions.approvals;
+    const { rules, timeoutMs, untrustedContent } = this.permissions.approvals;
     const providers = this.approvalBroker.providerCount;
+    const notes: string[] = [];
+    if (rules.length > 0 && providers === 0)
+      notes.push(
+        "Approval rules are configured but no approval UI is registered: operations matched by them are denied.",
+      );
+    const sourceGranted = this.permissions.isGranted("browser.read") || this.permissions.isGranted("network.access");
+    if (untrustedContent === "require-approval" && providers === 0 && sourceGranted)
+      notes.push(
+        "No approval UI is registered: after a session reads a web page, screenshot, tab list or network response, " +
+          "its operations with effects are denied (permissions.approvals.untrustedContent).",
+      );
     return {
       rules: rules.map((r) => r.id),
       timeoutMs,
       maxPending: this.config.permissions.approvals.maxPending,
       providers,
-      ...(rules.length > 0 && providers === 0
-        ? {
-            note: "Approval rules are configured but no approval UI is registered: operations matched by them are denied.",
-          }
-        : {}),
+      untrustedContent,
+      ...(notes.length > 0 ? { note: notes.join(" ") } : {}),
     };
   }
 }

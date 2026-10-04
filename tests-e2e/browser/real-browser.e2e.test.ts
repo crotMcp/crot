@@ -69,13 +69,17 @@ describe.runIf(linux)(
         (r) => r.path === "/event" && r.query.get("type") === "click" && r.query.get("nonce") === nonce,
       );
 
-    async function writeConfig(name: string, capabilities: string[]): Promise<string> {
+    async function writeConfig(
+      name: string,
+      capabilities: string[],
+      approvals?: { untrustedContent: "off" },
+    ): Promise<string> {
       const file = path.join(sb.base, `config-${name}.json`);
       const config = {
         version: 1,
         workspace: { root: sb.workspace },
         // Ordinary CROT configuration: sandbox mode with an explicit capability list.
-        permissions: { mode: "sandbox", capabilities },
+        permissions: { mode: "sandbox", capabilities, ...(approvals ? { approvals } : {}) },
         environment: { path: "inherited" },
         browser: { enabled: true },
       };
@@ -155,7 +159,19 @@ describe.runIf(linux)(
     });
 
     it("starts CROT (MCP stdio, browser.read + browser.control): bridge waiting, no browser yet", async () => {
-      full = await h.startCrot(sb, await writeConfig("full", ["browser.read", "browser.control"]), auditFull);
+      // This session reads pages and then acts on them without an approval UI. The
+      // untrusted-content rule (ARCHITECTURE.md §27, AD-12) would deny every action
+      // after the first read, so this test configuration turns it off explicitly.
+      // The production default stays "require-approval" (checked in the NEGATIVE test).
+      full = await h.startCrot(
+        sb,
+        await writeConfig("full", ["browser.read", "browser.control"], { untrustedContent: "off" }),
+        auditFull,
+      );
+      expect(
+        (await h.ok<{ approvals: { untrustedContent: string } }>(full.client, "crot_status")).approvals
+          .untrustedContent,
+      ).toBe("off");
       const status = await h.ok<BrowserStatus>(full.client, "browser_status");
       expect(status.state).toBe("waiting");
       await expect(h.fails(full.client, "browser_tabs_list")).resolves.toMatchObject({ code: "BROWSER_NOT_CONNECTED" });
@@ -306,21 +322,39 @@ describe.runIf(linux)(
     it("NEGATIVE: with browser.read only, CROT denies browser.control operations and the browser is not touched", async () => {
       await full!.close();
       full = undefined;
+      // Production default configuration: no approvals section, so untrusted-content is on.
       readOnly = await h.startCrot(sb, await writeConfig("readonly", ["browser.read"]), auditReadOnly);
+      expect(
+        (await h.ok<{ approvals: { untrustedContent: string } }>(readOnly.client, "crot_status")).approvals
+          .untrustedContent,
+      ).toBe("require-approval");
       // Same real browser: the extension reconnects to the new CROT instance through a new relay.
       await waitConnected(readOnly);
       const requestsBefore = server.requests.length;
-      const tabsBefore = (await h.ok<{ tabs: TabInfo[] }>(readOnly.client, "browser_tabs_list")).tabs.length;
+      const tabs = (await h.ok<{ tabs: TabInfo[] }>(readOnly.client, "browser_tabs_list")).tabs;
+      const tabsBefore = tabs.length;
+      // A real, valid tab id from this session, so the denials below come from the
+      // permission model and not from input validation.
+      const target = tabs.find((t) => t.url === fixtureUrl());
+      expect(target, "the fixture tab is open in the browser").toBeDefined();
+      const tabId = target!.tabId;
+      expect(Number.isInteger(tabId) && tabId >= 0).toBe(true);
 
-      await expect(
-        h.fails(readOnly.client, "browser_click", { tabId, selector: "#action-button" }),
-      ).resolves.toMatchObject({ code: "PERMISSION_DENIED" });
-      await expect(h.fails(readOnly.client, "browser_navigate", { tabId, url: startUrl() })).resolves.toMatchObject({
+      // browser.control is not granted: authorize() denies before any approval gate
+      // (no approval details), even though browser_tabs_list exposed this session.
+      const deniedByPermissions = {
         code: "PERMISSION_DENIED",
-      });
-      await expect(h.fails(readOnly.client, "browser_tab_open", { url: startUrl() })).resolves.toMatchObject({
-        code: "PERMISSION_DENIED",
-      });
+        details: { missing: ["browser.control"] },
+      };
+      for (const [tool, args] of [
+        ["browser_click", { tabId, selector: "#action-button" }],
+        ["browser_navigate", { tabId, url: startUrl() }],
+        ["browser_tab_open", { url: startUrl() }],
+      ] as const) {
+        const error = await h.fails(readOnly.client, tool, args);
+        expect(error, tool).toMatchObject(deniedByPermissions);
+        expect(error, tool).not.toHaveProperty("details.approval");
+      }
 
       await h.sleep(1_500);
       // Nothing happened in the browser: same state, no new click, no navigation, no new tab.
@@ -334,8 +368,8 @@ describe.runIf(linux)(
       const { records } = await h.readAudit(auditReadOnly);
       for (const op of ["browser.click", "browser.navigate", "browser.tab_open"]) {
         expect(
-          records.some((r) => r.operation === op && r.outcome === "denied"),
-          `audit has a denied ${op}`,
+          records.some((r) => r.operation === op && r.outcome === "denied" && !("approval" in r)),
+          `audit has a denied ${op} (permission model, no approval)`,
         ).toBe(true);
       }
     });

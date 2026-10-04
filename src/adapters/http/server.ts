@@ -107,7 +107,9 @@ const INVALID_TOKEN: Rejection = {
  *
  * A transport adapter: every MCP session gets its own McpServer created by
  * createCrotMcpServer, all bound to the same CrotCore, so HTTP requests use
- * exactly the Core services, PermissionEngine and audit path of stdio.
+ * exactly the Core services, PermissionEngine and audit path of stdio. The
+ * McpServer instance is also the session for session exposure (AD-12), and a
+ * session is bound to the principal that opened it.
  *
  * Every request passes, in order: Host check, path check, Origin check,
  * method check, bearer authentication, body limit, JSON parsing and session

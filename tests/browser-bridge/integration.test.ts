@@ -210,6 +210,8 @@ async function hostEnvironment(): Promise<Host> {
 
 interface ServeOptions {
   readonly mode: "sandbox" | "full_control";
+  /** permissions.approvals.untrustedContent (AD-12); default: the built-in rule is on. */
+  readonly untrustedContent?: "off";
   readonly capabilities?: readonly string[];
   readonly auditFile?: string;
   readonly name?: string;
@@ -227,7 +229,11 @@ function parseJson(text: string): Json {
 /** Start the built crot-mcp with the browser bridge enabled and connect an MCP client to it. */
 async function serve(options: ServeOptions) {
   const configFile = path.join(dirs.outside, `${options.name ?? "crot"}.json`);
-  const permissions = { mode: options.mode, ...(options.capabilities ? { capabilities: options.capabilities } : {}) };
+  const permissions = {
+    mode: options.mode,
+    ...(options.capabilities ? { capabilities: options.capabilities } : {}),
+    ...(options.untrustedContent ? { approvals: { untrustedContent: options.untrustedContent } } : {}),
+  };
   await writeFile(
     configFile,
     JSON.stringify({
@@ -287,7 +293,8 @@ describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => 
   it(
     "full_control: tool calls reach the extension through the relay and validated results come back",
     async () => {
-      const crot = await serve({ mode: "full_control" });
+      // Reads and actions in one session: the untrusted-content rule (AD-12) is off here.
+      const crot = await serve({ mode: "full_control", untrustedContent: "off" });
       expect(await crot.bridgeState()).toBe("waiting");
       expect(await crot.errorCode("browser_tabs_list")).toBe("BROWSER_NOT_CONNECTED");
 

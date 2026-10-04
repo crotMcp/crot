@@ -8,6 +8,7 @@ import {
   type ServerNotification,
   type ServerRequest,
 } from "@modelcontextprotocol/sdk/types.js";
+import { newSession } from "../../core/auth/principal.js";
 import type { CrotCore } from "../../core/crot-core.js";
 import { parseInput } from "../../core/errors.js";
 import type { ContextResolver } from "./context.js";
@@ -33,6 +34,8 @@ type CallExtra = Pick<
  */
 export function createCrotMcpServer(core: CrotCore, options: CrotMcpServerOptions): McpServer {
   const status = core.status();
+  /** Session of every request of this server instance (session exposure, AD-12). */
+  const session = newSession();
   const server = new McpServer(
     { name: MCP_SERVER_NAME, version: status.version },
     { capabilities: { tools: {} }, instructions: instructions(core) },
@@ -48,8 +51,13 @@ export function createCrotMcpServer(core: CrotCore, options: CrotMcpServerOption
         ...(extra.authInfo !== undefined ? { authInfo: extra.authInfo } : {}),
         ...(clientInfo ? { client: { name: clientInfo.name, version: clientInfo.version } } : {}),
       });
+      // AD-12: the session is the server instance (stdio: the connection; HTTP: one instance per MCP session).
       // Cancellation (notifications/cancelled, closed transport) cancels a pending approval request.
-      const context = extra.signal !== undefined ? { ...resolved, signal: extra.signal } : resolved;
+      const context = {
+        ...resolved,
+        session: resolved.session ?? session,
+        ...(extra.signal !== undefined ? { signal: extra.signal } : {}),
+      };
       const input = parseInput(definition.inputSchema, args);
       const result = await definition.call(core, context, input);
       return definition.encode ? definition.encode(result) : toToolResult(result);
