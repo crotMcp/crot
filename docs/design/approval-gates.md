@@ -1,0 +1,572 @@
+# Approval Gates — Design (WP-14)
+
+> **Status: Design.** Nothing in this document is implemented. It fixes the
+> mechanism of user confirmations (ARCHITECTURE.md §21) so that a later work
+> package can implement it without new architectural decisions. The key
+> decisions are recorded in ARCHITECTURE.md §27, **AD-5**.
+>
+> The TypeScript in this document is a **contract sketch** that pins down the
+> design. It is not code in `src/` and is not an implementation.
+
+## 1. Goal and scope
+
+An **approval gate** makes CROT ask the user for an explicit decision before a
+dangerous operation runs. The operation runs only after the user approves it.
+In every other case it is denied: rejection, timeout, cancellation, no UI, or
+a full queue.
+
+In scope:
+
+- where the gate sits in the Core pipeline and why it cannot be bypassed;
+- what the user approves (the approval subject) and how the approval is bound
+  to the operation that is executed;
+- the request lifecycle: states, timeout, cancel, reject, approve;
+- the request queue;
+- the interface between Core and a future UI (approval provider);
+- the result returned to the agent;
+- audit requirements;
+- the threat model;
+- extension points for browser-originated actions, prompt-injection
+  mitigation and remote FULL CONTROL.
+
+Out of scope (separate work packages):
+
+- the implementation;
+- the list of operations that need approval by default (ARCHITECTURE.md §26,
+  question 6, stays open — this design fixes only the mechanism and the
+  headless behaviour);
+- the tray app, the local control channel and its authentication (§24);
+- remote mode, relay and remote approvers (§22);
+- taint/exposure tracking for prompt-injection mitigation (only the extension
+  point is defined here).
+
+## 2. Current pipeline (as implemented)
+
+From `src/core/execution/guard.ts` and `src/core/permissions/engine.ts`:
+
+1. A capability service parses the input (`parseInput`), resolves paths
+   (`Workspace.resolve`) and builds an `OperationDescriptor`: `operation`,
+   `capability` (one or several), `paths`, `network`, audit-safe `details`.
+2. `ExecutionGuard.run(context, op, execute)` calls
+   `PermissionEngine.authorize()` once for **every** capability of the
+   descriptor. Any `allowed: false` gives an audited `denied` event and a
+   `PermissionDeniedError`.
+3. Only then does it call `execute()`. The closure captures the arguments that
+   were parsed in step 1. It writes one `AuditEvent` with outcome `success` or
+   `error`.
+4. `AuthorizationDecision` is binary (`allowed: true | false`). The policy
+   (`PermissionPolicy`) is immutable and created once at startup.
+5. Audit write failures go to `onAuditError` and do not affect the operation.
+
+The approval gate fits into step 2/3 without changing steps 1, 2 or 4.
+
+## 3. Terms
+
+| Term | Meaning |
+| --- | --- |
+| Approval gate | The step in the ExecutionGuard that may suspend an authorized operation until the user decides. |
+| Gate rule | A policy rule that marks an operation as requiring approval. Part of the PermissionEngine policy. |
+| Approval request | One pending request for one guard operation. It has exactly one terminal status. |
+| Approval subject | The immutable, Core-generated description of what will be executed if the user approves it. |
+| Approval broker | The Core component that owns the queue and the state machine. |
+| Approval provider | A UI outside Core (first: the tray app) that shows requests to the user and returns decisions. |
+| Ticket | The per-request handle a provider uses to decide. It is the only way to decide a request. |
+
+## 4. Placement in the pipeline
+
+```text
+service: parse input -> resolve paths -> build OperationDescriptor (+ approval subject input)
+   |
+   v
+ExecutionGuard.run
+   1. authorize every capability          (PermissionEngine.authorize — unchanged, binary)
+        denied -> audit "denied" -> PermissionDeniedError
+   2. gate evaluation                      (PermissionEngine.approvalRequirement — new, read-only)
+        not required -> step 5
+   3. approval request                     (ApprovalBroker: queue, provider, timeout)
+        not approved -> audit "denied" (approval.status) -> PermissionDeniedError
+   4. re-authorize every capability        (PermissionEngine.authorize again)
+        + revalidation hook of the service (paths, targets still the same)
+        denied -> audit "denied" (approval.status = approved) -> PermissionDeniedError
+   5. execute()                            (unchanged)
+   6. audit "success" / "error"           (with approval block if a gate applied)
+```
+
+### 4.1 Invariants
+
+- **I1 — Narrow only.** The gate runs only after `authorize()` allowed the
+  operation. Its only possible results are "continue" or "deny". An approval
+  never grants a capability, never allows a path outside the workspace without
+  `filesystem.full`, never touches protected paths, and never adds network
+  destinations. `authorize()` keeps its current meaning and signature.
+- **I2 — One pipeline.** The gate lives inside `ExecutionGuard`. There is no
+  second permission system and no service-level approval logic. A capability
+  service cannot skip the gate: `OperationDescriptor` has no opt-out field,
+  and the gate decision is made by the PermissionEngine policy, not by the
+  service.
+- **I3 — Deny by default.** Every non-`approved` terminal status means deny.
+  So do missing providers, a full queue, shutdown and internal errors of the
+  broker.
+- **I4 — Only the user decides.** Only a provider registered in the
+  composition root can decide, through the ticket of that request. No MCP tool,
+  browser command, external MCP server, relay or agent-reachable API can list,
+  approve or reject requests.
+- **I5 — What you see is what runs.** The approval is bound to one guard
+  operation and to the digest of its subject. `execute()` uses only arguments
+  captured before the request. The approval is single-use.
+- **I6 — Approval is not policy.** A decision affects exactly one request. There
+  is no "always allow" or "allow similar". Changing what needs approval means
+  changing the configuration, which is a protected path.
+- **I7 — Nothing is held while waiting.** No lock (for example the Git metadata
+  lock), process slot or browser request is held while a request is pending.
+  Those are taken inside `execute()`, as they are today.
+- **I8 — Everything is audited.** Every operation for which a gate rule matched
+  produces exactly one audit event with an `approval` block, whatever the
+  outcome.
+
+## 5. Gate policy
+
+The rules that decide whether an operation needs approval are part of the
+PermissionEngine policy. They are configured in a new `approvals` section,
+validated at startup and immutable at runtime, like `permissions.network`.
+
+- A rule matches on facts Core knows: `operation` name, capabilities,
+  `principal.kind`, permission mode, and whether any path is outside the
+  workspace. Later extensions can also match on request origin and session
+  exposure (§13). Facts reported by the client (`principal.client`) are never
+  used for matching.
+- A rule matches if every given condition matches. An operation needs approval
+  if any rule matches. The engine returns the id of the first matching rule
+  (for audit) and the effective timeout.
+- **Default: no rules.** Without configuration, nothing is gated and behaviour
+  is exactly as today. The default list of gated operations is decided
+  separately (§26, question 6).
+- Unknown operation names, unknown capabilities or rules that can never match
+  are a `CONFIG_ERROR` at startup.
+- If rules exist but no provider is registered, Core starts. A
+  `crot_status` note says the operations affected by those rules will be
+  denied. This is the headless behaviour: deny, never allow.
+
+Each guard operation is gated on its own. A service that runs several guard
+operations (for example `network.resolve` + one `network.request` per redirect
+hop, AD-4) may create several requests if the rules match each one. Rule
+authors target the operation names they want to gate.
+
+## 6. What the user approves: the approval subject
+
+### 6.1 Content
+
+The user approves **one concrete operation as Core will execute it**. They do
+not approve the agent's intent, a tool name or a capability. The subject is
+built by Core from the same parsed arguments that `execute()` captures:
+
+| Field | Source | Notes |
+| --- | --- | --- |
+| `operation` | descriptor | e.g. `process.shell` |
+| `capabilities` | descriptor | all capabilities that were authorized |
+| `summary` | service, fixed template per operation | e.g. "Run a shell script" — a template, never agent text |
+| `effects` | service | structured key/value items: full command line or script, absolute canonical paths (marked *outside workspace* when true), full target URL and tab id/origin for browser actions, typed text length, HTTP method and origin, Compose project, branch names, … |
+| `paths` | descriptor | absolute, as resolved |
+| `network` | descriptor | scheme, host, port, addresses checked |
+| `principal` | AuthContext | `id`, `kind`, `transport`, `authMethod`; `client` shown and marked *self-reported* |
+| `mode` | policy | `sandbox` / `full_control` |
+| `rule` | gate policy | id of the matching rule ("why am I asked") |
+| `origin` | AuthContext (future) | §13 |
+| `createdAt`, `expiresAt` | broker | |
+
+The subject may contain more than audit `details`. Audit details are
+intentionally lossy: for example `browser.navigate` records only the origin
+and `browser.type` only the text length. The user may need the full URL or
+script to decide. The subject is shown only to the local user through a
+provider. It is **never written to the audit log**. Only its digest is (§10).
+Secret-bearing inputs (environment values, stdin, file contents, typed text)
+are shown as their size or key names, not their value, unless a later decision
+says otherwise.
+
+### 6.2 Binding
+
+- The subject is serialized canonically (stable key order, UTF-8 JSON) and
+  hashed (SHA-256) to `subjectDigest`.
+- `approve` must carry the `subjectDigest` the provider showed. A mismatch is
+  rejected and the request stays pending.
+- The approval is valid only for the request id (128-bit random) of one guard
+  operation and is consumed when the request leaves `pending`.
+- `execute()` must not read agent-controllable state that was not part of the
+  subject. Today's services already capture parsed arguments in the closure.
+  The implementation WP must check this for every gated operation.
+- After approval, step 4 runs `authorize()` again. It also runs an optional
+  service-provided `revalidate()` that re-resolves paths and checks they are
+  unchanged (for example symlink swaps during the wait). A difference means
+  deny.
+
+### 6.3 Presentation rules for providers
+
+The subject contains untrusted strings (paths, scripts, URLs, selectors). These
+can come from repositories, web pages or the agent. Providers must:
+
+- render every value as plain text, never as Markdown/HTML or a link;
+- make control characters, bidi overrides and zero-width characters visible;
+- never shorten silently: truncation is shown together with the full size, and
+  the full value is reachable;
+- display the fields in a fixed order defined by Core, with Core-generated
+  labels;
+- show principal kind and *remote* prominently;
+- show *outside workspace* and *full_control* prominently.
+
+The protocol does **not** carry an agent-supplied justification text. It would
+be a direct prompt-injection channel into the decision UI.
+
+## 7. Request lifecycle
+
+### 7.1 States
+
+```text
+                      +-------------+
+     create --------> |   pending   |
+                      +-------------+
+       |     |        |      |       \
+approve|  reject  timeout  cancel   shutdown / provider gone
+       v     v        v      v        v
+  approved rejected expired cancelled cancelled
+
+  (no request is created when no provider is registered or the queue is full:
+   terminal status `unavailable` is recorded directly)
+```
+
+| Status | Terminal | Meaning | Operation |
+| --- | --- | --- | --- |
+| `pending` | no | shown to the user, waiting | suspended |
+| `approved` | yes | the user approved this subject | re-authorized, then executed |
+| `rejected` | yes | the user rejected it | denied |
+| `expired` | yes | `expiresAt` reached without a decision (**timeout = reject**) | denied |
+| `cancelled` | yes | the caller aborted (MCP cancel, transport closed), CROT shuts down, or the last provider unregistered | denied |
+| `unavailable` | yes | not queued: no provider registered, or queue full | denied |
+
+The statuses are exhaustive and mutually exclusive. Every request reaches
+exactly one terminal status, exactly once.
+
+### 7.2 Transition rules
+
+- The broker handles transitions sequentially, in one state machine per
+  process. The first transition out of `pending` wins. Any later decision,
+  timer or cancel is a no-op. A provider that decides too late gets
+  `{ ok: false, reason: "not_pending" }`.
+- Timeout: `expiresAt = createdAt + timeoutMs`. The default is configurable and
+  proposed at 45 s. It is bounded above (proposed at 300 s). The default is
+  below the common MCP client request timeout (60 s in the MCP TypeScript SDK).
+  Otherwise the client may give up while the request is still pending.
+- Cancellation: the guard passes the caller's abort signal to the broker. The
+  adapter supplies it through an optional `signal` in `AuthContext`, an
+  additive extension. Until adapters supply it, only timeout and shutdown
+  cancel.
+- Shutdown: `CrotCore.shutdown()` cancels every pending request **before**
+  `guard.drain()`. Pending requests do not use up the drain window.
+- Restart: requests are kept only in memory. A restart ends them. The tool call
+  is gone with the process, so nothing runs. There is no persistence and no
+  resumption.
+- `approved` does not mean "executed". The execution outcome is the audit
+  event's `outcome`.
+
+## 8. Queue
+
+- One in-memory queue per Core process, ordered by `createdAt` (FIFO).
+- Bounded by `approvals.maxPending` (proposed default: 8). When the queue is
+  full, a new request becomes `unavailable` immediately. It does not wait and
+  does not evict other requests.
+- Every request is decided on its own. There is no batch approval, no merging
+  of similar requests and no automatic resubmission after `rejected` or
+  `expired`. An agent that retries creates a new request, which is audited.
+- Providers get a snapshot of all pending requests when they register, so a
+  reconnecting tray shows the current state. They get request and resolution
+  notifications after that.
+- The queue is not visible to the agent.
+
+## 9. Interface for the UI (approval provider)
+
+Core defines the interface. Implementations live outside Core (§21, §24). The
+tray app's provider maps it onto the authenticated local control channel. That
+channel and its authentication are part of the tray/service work package. Core
+assumes only that a provider object handed to it in the composition root
+speaks for the local user.
+
+Logical protocol (transport-independent):
+
+| Direction | Message | Content |
+| --- | --- | --- |
+| Core -> UI | `approval.snapshot` | all `pending` requests (on registration) |
+| Core -> UI | `approval.requested` | `requestId`, `subject`, `subjectDigest`, `expiresAt` |
+| Core -> UI | `approval.resolved` | `requestId`, terminal `status` (UI removes the prompt) |
+| UI -> Core | `approval.decide` | `requestId`, `decision: approve \| reject`, `subjectDigest` (required for approve) |
+| Core -> UI | decide result | `ok`, or `not_pending` / `digest_mismatch` / `unknown_request` |
+
+Rules:
+
+- Providers are registered only in `CrotCore.create` options, in the same way
+  as `BrowserConnection`. MCP adapters, the browser bridge and future external
+  MCP or relay adapters get no reference to the broker.
+- With several providers, every one sees every request, and the first valid
+  decision wins (§7.2). The provider id is recorded in audit.
+- A provider must not decide automatically (no "auto-approve" provider in
+  product builds). Test providers exist only in tests.
+- `channel` describes where the provider asks the user: `local-ui`. A future
+  remote approver (for example a phone bound to the device) would be a
+  separate channel value and needs its own decision (§13.3). A provider may
+  never use the same channel the request came from.
+
+## 10. Result returned to the agent
+
+- Approved and executed: the normal tool result. The agent only sees that the
+  call took longer.
+- Every other case: the existing `PermissionDeniedError` (`PERMISSION_DENIED`).
+  Its `details` are `{ operation, missing: [], approval: { requestId, status } }`.
+  No new error code is needed, and clients that already handle
+  `PERMISSION_DENIED` keep working. The message tells the agent that approval
+  was not given and that it should not retry in a loop.
+- The agent never receives the subject, the provider id or the rule
+  definitions.
+
+## 11. Audit requirements
+
+Every guard operation for which a gate rule matched writes exactly **one**
+`AuditEvent`, as today. It carries an additional optional `approval` block:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `requestId` | yes | correlates with what the provider showed |
+| `status` | yes | terminal status (§7.1) |
+| `rule` | yes | id of the matching gate rule |
+| `subjectDigest` | yes | SHA-256 of the canonical subject; never the subject itself |
+| `requestedAt`, `resolvedAt` | yes | ISO timestamps |
+| `waitMs` | yes | time spent in `pending` |
+| `provider` | when decided by a provider | provider id and channel |
+| `cancelReason` | for `cancelled` / `unavailable` | `caller_aborted`, `shutdown`, `provider_gone`, `no_provider`, `queue_full` |
+| `reauthorization` | when approved but denied in step 4 | short reason |
+
+Outcome mapping:
+
+| Approval status | `outcome` | `error.code` |
+| --- | --- | --- |
+| `approved`, execution ok | `success` | — |
+| `approved`, execution failed | `error` | as today |
+| `approved`, re-authorization failed | `denied` | `PERMISSION_DENIED` |
+| `rejected` / `expired` / `cancelled` / `unavailable` | `denied` | `PERMISSION_DENIED` |
+
+Rules:
+
+- The existing audit content rules still apply: no file contents, output,
+  stdin, environment values, typed text or full URLs where the operation's
+  details avoid them today. The subject is not recorded; only its digest is.
+  This lets an audit reviewer check a disputed decision against a subject
+  saved by the UI, if the UI ever stores one.
+- `timestamp` stays the start of the guard operation. `durationMs` includes
+  `waitMs`.
+- `outcome` values do not change (`success | error | denied`). `approval` is an
+  additive optional field, like `network` added by WP-13.
+- Decisions that arrive after the terminal status do not create audit events,
+  because they change nothing. The provider gets `not_pending`.
+- A crash while a request is pending leaves no event. Nothing was executed, so
+  no executed operation is missing from the audit trail. This is accepted and
+  documented. A separate "requested" event is not introduced.
+
+## 12. Contract sketch (design only)
+
+```ts
+// Core — permissions (additive; authorize() is unchanged)
+type ApprovalRuleId = string;
+
+interface ApprovalRule {
+  readonly id: ApprovalRuleId;
+  readonly match: {
+    readonly operations?: readonly string[];
+    readonly capabilities?: readonly Capability[];
+    readonly principalKinds?: readonly PrincipalKind[];
+    readonly modes?: readonly PermissionMode[];
+    readonly outsideWorkspace?: boolean;
+    // reserved for later decisions (§13): origins, exposure
+  };
+}
+
+type ApprovalRequirement =
+  | { readonly required: false }
+  | { readonly required: true; readonly rule: ApprovalRuleId; readonly timeoutMs: number };
+
+// PermissionEngine (new method, pure, no side effects):
+//   approvalRequirement(context: AuthContext, op: OperationDescriptor): ApprovalRequirement
+
+// Core — what the service adds to OperationDescriptor (additive, optional, never audited)
+interface ApprovalSubjectInput {
+  readonly summary: string; // fixed template per operation
+  readonly effects: readonly { readonly label: string; readonly value: string; readonly flag?: "outside_workspace" | "secret_size_only" }[];
+  /** Re-check after approval that resolved paths/targets are unchanged. */
+  readonly revalidate?: () => Promise<boolean>;
+}
+
+// Core — broker
+type ApprovalStatus = "pending" | "approved" | "rejected" | "expired" | "cancelled" | "unavailable";
+type TerminalApprovalStatus = Exclude<ApprovalStatus, "pending">;
+
+interface ApprovalSubject {
+  readonly operation: string;
+  readonly capabilities: readonly Capability[];
+  readonly summary: string;
+  readonly effects: ApprovalSubjectInput["effects"];
+  readonly paths: readonly { readonly absolute: string; readonly insideWorkspace: boolean }[];
+  readonly network: readonly { readonly scheme: string; readonly host: string; readonly port: number }[];
+  readonly principal: Principal; // client marked self-reported in the UI
+  readonly mode: PermissionMode;
+  readonly rule: ApprovalRuleId;
+}
+
+interface PresentedApproval {
+  readonly requestId: string;
+  readonly subject: ApprovalSubject;
+  readonly subjectDigest: string;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+}
+
+type DecideResult = { readonly ok: true } | { readonly ok: false; readonly reason: "not_pending" | "digest_mismatch" };
+
+interface ApprovalTicket {
+  readonly requestId: string;
+  approve(subjectDigest: string): DecideResult;
+  reject(): DecideResult;
+}
+
+// Implemented outside Core (tray). Registered only in the composition root.
+interface ApprovalProvider {
+  readonly id: string;
+  readonly channel: "local-ui";
+  present(request: PresentedApproval, ticket: ApprovalTicket): void;
+  resolved(requestId: string, status: TerminalApprovalStatus): void;
+}
+
+// Used only by ExecutionGuard.
+interface ApprovalBroker {
+  request(subject: ApprovalSubject, timeoutMs: number, signal?: AbortSignal): Promise<ApprovalOutcome>;
+  cancelAll(reason: "shutdown"): void;
+}
+
+interface ApprovalOutcome {
+  readonly requestId: string;
+  readonly status: TerminalApprovalStatus;
+  readonly subjectDigest: string;
+  readonly requestedAt: string;
+  readonly resolvedAt: string;
+  readonly provider?: { readonly id: string; readonly channel: string };
+  readonly cancelReason?: "caller_aborted" | "shutdown" | "provider_gone" | "no_provider" | "queue_full";
+}
+```
+
+## 13. Extension points (not implemented, the design must allow them)
+
+### 13.1 Browser-originated actions
+
+Today the browser cannot initiate operations (§7). If a later work package
+lets the extension originate requests, they get an explicit `origin`
+(`browser`) in `AuthContext`, set by the adapter and never by the browser
+payload. Gate rules can match on it. The extension and the bridge are never
+approval providers, so a browser-originated request can never be approved
+from the browser.
+
+Binding browser *control* operations to what the user saw needs a precondition
+in the browser protocol: the expected tab id and origin, checked by the
+extension right before it acts. Without it, a gated operation on the *active*
+tab can hit a different page once the user approves it. **This is a change of
+the browser command protocol and needs its own decision.** It is not part of
+this design. Until it exists, the subject shows `tabId: active` and the origin
+at request time explicitly, and the implementation WP should refuse to gate
+`active`-tab control operations without that precondition.
+
+### 13.2 Prompt-injection mitigation
+
+CROT cannot tell whether a tool call was induced by injected content (§19). The
+planned mitigation is *exposure*. Core records that the session has read
+untrusted content (`browser.page_read`, `network_request` responses, later
+external MCP results). Gate rules can then require approval for dangerous
+operations in an exposed session. The rule model reserves a matcher for this.
+The subject would show the exposure ("this session read content from
+`https://…` before this request"). Exposure is computed only by Core, never
+reported by the agent.
+
+### 13.3 Remote FULL CONTROL
+
+Remote principals (`kind: remote`, §22) are distinguishable in the rule
+matcher (`principalKinds`). A remote FULL CONTROL profile can require approval
+for every mutating capability. Two invariants carry over:
+
+- approvals for remote requests come from a provider on a channel independent
+  of the remote request path; the relay and the remote MCP session can never
+  approve;
+- a remote approver (for example a phone app) would be a separately
+  authenticated, device-bound provider channel. Defining it is part of the
+  remote-mode work package.
+
+## 14. Threat model
+
+**Assets:** the user's files, processes, browser session, network position and
+credentials, the integrity of the audit log, and the meaning of a user's
+approval.
+
+**Adversaries:** a misled or malicious agent, content that injects
+instructions (web pages, repositories, tool output, external MCP results), a
+compromised browser side (extension, page), other local processes, and later
+the relay or remote network.
+
+| # | Bypass scenario | Prevented by |
+| --- | --- | --- |
+| T1 | The agent approves its own request (tool call, crafted argument) | I4: no agent-reachable API; tickets go only to registered providers |
+| T2 | A web page or the extension approves | I4: the bridge/extension cannot call Core and is never a provider |
+| T3 | An external MCP server, the relay or the remote session approves | I4, §13.3: never a provider; the approval channel is independent of the request path |
+| T4 | A service or new capability runs without the gate | I2: gate inside ExecutionGuard; no opt-out field; the implementation must test that every guard operation is gate-evaluated |
+| T5 | Bait-and-switch: the user sees X, Core runs Y | I5: the subject is built from the captured arguments; digest-bound; single-use; no agent text in the subject |
+| T6 | The target changes during the wait (symlink swap, policy change, browser tab) | Step 4: re-authorize and `revalidate()`; browser precondition is a flagged open item (§13.1) |
+| T7 | An old approval is replayed for a new request | Random request ids; approval consumed on the terminal transition |
+| T8 | A late approval after timeout or cancel runs the operation | Sequential state machine; first terminal wins; `not_pending` |
+| T9 | Approval fatigue / flooding the user until they click "yes" | Bounded queue with immediate `unavailable`; no batch or "always" approvals; no auto re-queue; every request audited |
+| T10 | A misleading prompt (bidi, newlines, long text hiding the payload, lookalike paths) | §6.3 presentation rules; Core-defined fields and labels; absolute canonical paths; no Markdown |
+| T11 | A spoofed identity in the prompt (`client` name) | `client` marked self-reported; matching uses only Core facts |
+| T12 | Downgrade: no UI, provider crash, broker error → allow | I3: all of these mean deny |
+| T13 | Approval used to widen permissions (missing capability, outside workspace) | I1: gate only after allow; approval cannot grant |
+| T14 | The agent changes the gate policy | Policy immutable at runtime; configuration file is a protected path |
+| T15 | Another local process poses as the tray | Providers registered only in the composition root; channel authentication required by the tray WP (§24) |
+| T16 | Pending requests hold locks and block CROT | I7; timeout; queue bound |
+| T17 | The client gave up, the user approves later, the operation runs unseen and the agent retries (double execution) | Cancel on caller abort; default timeout below client timeouts; residual risk documented |
+| T18 | A dangerous action is split into ungated steps (write a script, then run it) | Policy concern: gate by capability, not only by operation name; documented limitation |
+
+Residual risks (not prevented by design): the user approves a harmful but
+correctly presented operation; a crash leaves no record of a pending request;
+operations whose effects the subject cannot describe fully (an arbitrary shell
+script is shown in full, but its effects are not analysed).
+
+## 15. Impact on existing contracts
+
+Additive changes the implementation WP will make. They are all optional fields
+or new methods, and existing behaviour is unchanged when no gate rule is
+configured:
+
+- `ExecutionGuard.runGuarded`: steps 2–4 (§4). The public `run()` signature
+  stays the same. `shutdown` cancels pending requests before `drain()`.
+- `PermissionEngine`: new pure method `approvalRequirement()`. `authorize()` and
+  `AuthorizationDecision` are unchanged.
+- Configuration: new `approvals` section (`rules`, `timeoutMs`, `maxPending`),
+  empty by default.
+- `OperationDescriptor`: optional `approval?: ApprovalSubjectInput`.
+- `AuditEvent`: optional `approval` block (§11). `outcome` values are unchanged.
+- `PermissionDeniedError.details`: optional `approval` key.
+- `AuthContext`: optional `signal` for caller cancellation.
+- `CrotCoreOptions`: optional approval providers. `CrotStatus`: approvals
+  summary (rules configured, provider present).
+
+Not changed: capability vocabulary, sandbox/full_control semantics, protected
+paths, network policy, the browser command protocol, audit outcome values,
+and the rule that audit write failures never affect operations.
+
+Open items that need a separate decision before or during implementation:
+
+1. Browser protocol precondition (expected tab and origin) for binding
+   browser-control approvals (§13.1). It changes the browser security contract.
+2. Whether a failed audit write should block a *gated* operation. Today audit
+   failures never block operations (`onAuditError`), and this design keeps
+   that.
+3. The default list of gated operations and headless profiles (§26, question 6).

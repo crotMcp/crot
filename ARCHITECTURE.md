@@ -670,6 +670,11 @@ CROT can require explicit user approval before a sensitive operation.
 
 Which operations require confirmation is a policy question (§26, question 6).
 
+The mechanism (approval gates: placement, approval subject, request
+lifecycle, queue, provider interface, audit, threat model) is designed in
+`docs/design/approval-gates.md` (WP-14) and decided in §27 AD-5; it is not
+implemented yet.
+
 ## 22. Remote Mode and CROT Cloud Relay
 
 **[Target]** — not implemented. Today HTTP binds to loopback only.
@@ -760,7 +765,7 @@ The tray app is a UI; control logic stays in Core/service.
 | Native Host (OS platform layer) | **[Implemented]** |
 | Browser bridge, relay, extension (Chromium) | **[Implemented]** |
 | External MCP gateway / MCP client | **[Target]** |
-| User confirmations | **[Target]** |
+| User confirmations | **[Target]** (mechanism designed: WP-14, §27 AD-5) |
 | OAuth/OIDC identity, accounts, device binding | **[Target]** |
 | Remote mode, Cloud Relay | **[Target]** |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** |
@@ -789,7 +794,9 @@ These need explicit decisions before the corresponding work packages.
 5. **Server-initiated MCP features** of external servers (requests back to the
    client, root listings and similar): forwarding policy.
 6. **Confirmation policy.** Which operations require confirmation, and the
-   behaviour without an available UI (headless use).
+   behaviour without an available UI (headless use). WP-14 (§27 AD-5) fixes
+   the mechanism and the headless behaviour (deny); the list of gated
+   operations remains open.
 7. **Relay encryption model.** Whether traffic is end-to-end encrypted between
    client and device or TLS terminates at the relay (the relay then sees
    traffic in transit, even though it never stores it).
@@ -1094,3 +1101,71 @@ environment variables and IPv4-mapped/NAT64 IPv6 addresses.
 - Response content is untrusted data and is returned to the agent as is.
 - The browser bridge (`browser.*`) navigates the user's browser, which has its
   own network access; it is not governed by `network.access`.
+
+### AD-5. Approval gates only narrow an authorized operation and only the user can open them (WP-14)
+
+**Context.** §21 requires explicit user approval for sensitive operations, with
+deny as the safe default, and §2.3 path 5 places it in the ExecutionGuard. The
+mechanism has to be reusable later for browser-originated actions,
+prompt-injection mitigation and remote FULL CONTROL. It must not become a
+second permission system or a way around the PermissionEngine. Approval
+prompts face the same adversaries as the rest of CROT: the agent, injected
+content, the browser side, other local processes and later the relay. The
+full design is `docs/design/approval-gates.md`.
+
+**Decision.**
+
+1. **Narrow only, after authorization.** The gate is a step of the
+   ExecutionGuard. It runs after `PermissionEngine.authorize()` has allowed
+   every capability of the operation. Its results are "continue" or "deny".
+   `authorize()` and `AuthorizationDecision` stay unchanged and binary. An
+   approval never grants a capability, a path outside the workspace, a
+   protected path or a network destination.
+2. **Policy in the PermissionEngine.** Gate rules are a validated, immutable
+   policy section (`approvals`). They match on Core facts only: operation,
+   capabilities, principal kind, mode and paths outside the workspace; later
+   also origin and session exposure. A new pure engine method evaluates them,
+   and services cannot opt out. The default is no rules, which keeps today's
+   behaviour. Which operations are gated stays open (§26, question 6).
+3. **The user approves one concrete operation.** Core builds the approval
+   subject from the arguments `execute()` captures, never from agent-supplied
+   text. The subject is bound by a SHA-256 digest and a random request id, and
+   the approval is single-use. After approval the operation is re-authorized
+   and re-validated before it runs. There are no "always allow" or batch
+   approvals; changing what is gated means changing the configuration.
+4. **Unambiguous lifecycle; everything except approval denies.** The statuses
+   are `pending` and the terminal `approved`, `rejected`, `expired`,
+   `cancelled` and `unavailable`. The first terminal transition wins. Timeout,
+   caller abort, shutdown, a missing provider and a full queue all deny.
+   Requests live only in memory, and nothing (locks, processes) is held while
+   waiting.
+5. **Bounded queue.** There is one FIFO queue per process with a configured
+   maximum. A request that does not fit is `unavailable` immediately. Requests
+   are never merged or resubmitted automatically, and the agent cannot see the
+   queue.
+6. **Providers outside Core, registered only in the composition root.** Core
+   defines the `ApprovalProvider`, ticket and broker interfaces. UIs implement
+   them outside Core (the tray first) and are registered only in
+   `CrotCore.create`. MCP adapters, the browser side, external MCP and the
+   relay never get the broker and are never providers. The approval channel is
+   always independent of the request path.
+7. **Agent result and audit.** When the gate does not approve, the agent gets
+   the existing `PERMISSION_DENIED` with `details.approval: { requestId, status }`.
+   Every gated operation still writes one audit event, with an additive
+   `approval` block: request id, status, rule, subject digest, timestamps,
+   wait time, provider and cancel reason. The subject itself is never recorded,
+   and the audit outcome values stay the same.
+
+**Scope and limits.**
+
+- This is a design only. The implementation, the tray provider and its
+  authenticated local control channel are separate work packages.
+- Binding browser-control approvals to the page the user saw needs an expected
+  tab/origin precondition in the browser protocol. That changes the browser
+  contract and needs its own decision.
+- Audit write failures still never block operations, including gated ones.
+  Changing that is a separate decision.
+- If CROT crashes while a request is pending, no audit event is written;
+  nothing was executed.
+- An approval cannot make an operation safe if the user does not understand
+  it. Policy scoping and audit remain the other mitigations (§19).
