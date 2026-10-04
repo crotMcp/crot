@@ -5,6 +5,12 @@
 > package can implement it without new architectural decisions. The key
 > decisions are recorded in ARCHITECTURE.md §27, **AD-5**.
 >
+>
+> **Two OPEN DECISIONS (§16) must be taken before WP-15 starts:** OD-1, binding
+> approvals to the expected browser tab/origin (a browser protocol change), and
+> OD-2, behaviour when the audit event of a gated operation cannot be written.
+> WP-15 must not implement either aspect until the decision is recorded.
+>
 > The TypeScript in this document is a **contract sketch** that pins down the
 > design. It is not code in `src/` and is not an implementation.
 
@@ -473,10 +479,9 @@ Binding browser *control* operations to what the user saw needs a precondition
 in the browser protocol: the expected tab id and origin, checked by the
 extension right before it acts. Without it, a gated operation on the *active*
 tab can hit a different page once the user approves it. **This is a change of
-the browser command protocol and needs its own decision.** It is not part of
-this design. Until it exists, the subject shows `tabId: active` and the origin
-at request time explicitly, and the implementation WP should refuse to gate
-`active`-tab control operations without that precondition.
+the browser command protocol and is OPEN DECISION OD-1 (§16).** It is not
+decided by this design, and WP-15 must not implement approval gating of
+browser operations until OD-1 is recorded.
 
 ### 13.2 Prompt-injection mitigation
 
@@ -560,13 +565,46 @@ configured:
 
 Not changed: capability vocabulary, sandbox/full_control semantics, protected
 paths, network policy, the browser command protocol, audit outcome values,
-and the rule that audit write failures never affect operations.
+and the rule that audit write failures never affect operations. Whether the
+last two change is OPEN DECISION OD-1 and OD-2 (§16), not this design.
 
-Open items that need a separate decision before or during implementation:
+Still open but not blocking WP-15: the default list of gated operations and
+headless profiles (§26, question 6). With no rules configured, nothing is
+gated.
 
-1. Browser protocol precondition (expected tab and origin) for binding
-   browser-control approvals (§13.1). It changes the browser security contract.
-2. Whether a failed audit write should block a *gated* operation. Today audit
-   failures never block operations (`onAuditError`), and this design keeps
-   that.
-3. The default list of gated operations and headless profiles (§26, question 6).
+## 16. OPEN DECISIONS — required before WP-15 starts
+
+The two questions below are **not deferred details**. They decide part of the
+security contract. Each must be decided and recorded as an architectural
+decision in ARCHITECTURE.md §27 **before WP-15 (implementation) begins**.
+
+**WP-15 must not implement, stub or choose a default for either aspect until
+its decision is recorded**, so that the behaviour is not fixed by accident in
+the implementation. Leaving existing code unchanged is not a decision. In
+particular, the current non-blocking audit behaviour must not be adopted as
+the gated-operation policy just because it already exists.
+
+### OD-1. Binding an approval to the expected browser tab and origin
+
+- **Question.** How is an approved browser operation bound to the tab and
+  origin the user saw, so that it cannot act on a different page (another
+  active tab, a navigation during the wait)?
+- **Why it is open.** It needs a precondition (expected tab id and origin)
+  checked by the extension right before it acts. That is a change of the
+  browser command protocol (`docs/BROWSER_EXTENSION.md`), which is a security
+  contract outside this design (§13.1).
+- **Blocked in WP-15 until decided:** approval gating of any `browser.*`
+  operation, including gate rules that match browser operations or
+  capabilities, and any change of the browser protocol.
+
+### OD-2. Behaviour when the audit event of a gated operation cannot be written
+
+- **Question.** What happens to a gated operation when its audit event cannot
+  be written? Options include executing anyway, as today for all operations
+  (`onAuditError`), refusing before execution, or another policy. The decision
+  also covers how this is reported to the user and the agent.
+- **Why it is open.** Today audit failures never affect operations. Changing
+  that for gated operations changes the audit contract of the ExecutionGuard.
+- **Blocked in WP-15 until decided:** any audit-failure handling specific to
+  gated operations, and any claim in code, tests or documentation about which
+  behaviour applies to them.

@@ -1160,12 +1160,25 @@ full design is `docs/design/approval-gates.md`.
 
 - This is a design only. The implementation, the tray provider and its
   authenticated local control channel are separate work packages.
-- Binding browser-control approvals to the page the user saw needs an expected
-  tab/origin precondition in the browser protocol. That changes the browser
-  contract and needs its own decision.
-- Audit write failures still never block operations, including gated ones.
-  Changing that is a separate decision.
 - If CROT crashes while a request is pending, no audit event is written;
   nothing was executed.
 - An approval cannot make an operation safe if the user does not understand
   it. Policy scoping and audit remain the other mitigations (§19).
+
+**OPEN DECISIONS — required before WP-15 starts.** These two questions are part
+of the security contract. Each must be decided and recorded in this section
+before the implementation (WP-15) begins. **WP-15 must not implement, stub or
+choose a default for either aspect before its decision is recorded**, so that
+the implementation does not decide them by accident (details:
+`docs/design/approval-gates.md` §16).
+
+- **OD-1. Browser tab/origin binding.** How an approved browser operation is
+  bound to the tab and origin the user saw. This needs an expected tab/origin
+  precondition in the browser command protocol, which changes the browser
+  contract. Until decided, WP-15 does not gate `browser.*` operations and does
+  not change the browser protocol.
+- **OD-2. Audit write failure for gated operations.** Whether a gated
+  operation whose audit event cannot be written runs anyway (today's
+  behaviour for all operations), is refused, or follows another policy. Until
+  decided, WP-15 implements no gated-specific audit-failure handling and does
+  not treat today's behaviour as the decision.
