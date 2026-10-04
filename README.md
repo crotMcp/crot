@@ -336,7 +336,11 @@ agent.
 - **Identity is data.** `user.name` and `user.email` from global/system
   configuration are passed with `-c` as plain values (repository values win);
   with `user.useConfigOnly` Git never guesses an identity. Nothing else from
-  global/system configuration is loaded.
+  global/system configuration is loaded, except the line-ending settings
+  (`core.autocrlf`, `core.eol`, `core.safecrlf`): together with repository
+  settings and `.gitattributes` they apply to `git_add` and `git_checkout` as in
+  your own Git (e.g. CRLF in the worktree with Git for Windows' default
+  `core.autocrlf=true`).
 - **Only non-destructive operations.**
   - `git_add`: literal paths inside the worktree, or `all: true` for the whole
     worktree; never `--force` (ignored files stay unstaged), never paths inside

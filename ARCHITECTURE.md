@@ -891,6 +891,11 @@ options or programs.
    author/committer (repository-local values win; values with control
    characters are dropped). `user.useConfigOnly=true` keeps Git from guessing
    an identity. No further system/global configuration is loaded.
+   The line-ending settings carried over by AD-1 (`core.autocrlf`, `core.eol`,
+   `core.safecrlf`) and the repository's own settings and `.gitattributes`
+   (`text`, `eol`) apply to `add` and `checkout` exactly as in the user's Git:
+   for example, with Git for Windows' default `core.autocrlf=true` a checkout
+   writes CRLF and `add` stores LF. CROT does not override them.
 4. **Fixed, non-destructive operations.** `add` (literal paths in the worktree
    or the whole worktree; no `--force`, nothing inside the Git directories,
    symlinks staged as links), `commit` with a message (`--message=` as one

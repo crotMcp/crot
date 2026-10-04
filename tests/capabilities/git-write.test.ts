@@ -289,6 +289,10 @@ describe("git.write in sandbox mode", () => {
   });
 
   it("checkout switches branches and detaches only when asked explicitly", async () => {
+    // Exact bytes are checked, so the line-ending configuration is fixed here: Git for Windows
+    // sets core.autocrlf=true in its system configuration, which git.write applies like Git does
+    // (covered by "applies the line-ending configuration like Git" below).
+    git(repo, "config", "core.autocrlf", "false");
     const r = await core.git.checkout(ctx, { cwd: "repo", branch: "topic" });
     expect(r).toMatchObject({ branch: "topic", detached: false });
     expect(await readFile(path.join(repo, "topic.txt"), "utf8")).toBe("topic\n");
@@ -299,6 +303,22 @@ describe("git.write in sandbox mode", () => {
     await expect(core.git.checkout(ctx, { cwd: "repo", branch: head(repo) })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  });
+
+  it("applies the line-ending configuration like Git (core.autocrlf, .gitattributes)", async () => {
+    // Repository configuration wins over any system/global value of the host.
+    git(repo, "config", "core.autocrlf", "true");
+    await core.git.checkout(ctx, { cwd: "repo", branch: "topic" });
+    expect(await readFile(path.join(repo, "topic.txt"), "utf8")).toBe("topic\r\n");
+    await writeFile(path.join(repo, "crlf.txt"), "x\r\ny\r\n");
+    await core.git.add(ctx, { cwd: "repo", paths: ["repo/crlf.txt"] });
+    // The index stores the normalized text, as plain Git with the same configuration does.
+    expect(git(repo, "cat-file", "-p", ":crlf.txt")).toBe("x\ny\n");
+    await core.git.checkout(ctx, { cwd: "repo", branch: "main" });
+    // An eol attribute overrides core.autocrlf for its paths.
+    await writeFile(path.join(repo, ".gitattributes"), "topic.txt eol=lf\n");
+    await core.git.checkout(ctx, { cwd: "repo", branch: "topic" });
+    expect(await readFile(path.join(repo, "topic.txt"), "utf8")).toBe("topic\n");
   });
 
   it("checkout never checks out individual paths", async () => {
@@ -626,6 +646,33 @@ describe.runIf(!isWindows)("git.write and the user's global configuration", () =
     if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = savedXdg;
     await dirs.cleanup();
+  });
+
+  it("applies a global core.autocrlf exactly like plain Git with the same configuration", async () => {
+    const repo = await makeRepo(path.join(dirs.workspace, "repo"));
+    const home = path.join(dirs.outside, "home");
+    await mkdir(home);
+    await writeFile(path.join(home, ".gitconfig"), "[core]\n\tautocrlf = true\n");
+    process.env.HOME = home;
+    process.env.XDG_CONFIG_HOME = path.join(home, ".config");
+    const userGit = (...args: string[]) =>
+      execFileSync("git", args, { cwd: repo, env: { ...GIT_ENV, GIT_CONFIG_GLOBAL: path.join(home, ".gitconfig") } });
+    const core = await createTestCore({ workspace: { root: dirs.workspace } });
+    try {
+      await core.git.checkout(ctx, { cwd: "repo", branch: "topic" });
+      const viaCrot = await readFile(path.join(repo, "topic.txt"), "utf8");
+      userGit("switch", "-q", "main");
+      userGit("switch", "-q", "topic");
+      expect(viaCrot).toBe("topic\r\n");
+      expect(await readFile(path.join(repo, "topic.txt"), "utf8")).toBe(viaCrot);
+      // A repository-local value wins over the global one.
+      userGit("switch", "-q", "main");
+      git(repo, "config", "core.autocrlf", "false");
+      await core.git.checkout(ctx, { cwd: "repo", branch: "topic" });
+      expect(await readFile(path.join(repo, "topic.txt"), "utf8")).toBe("topic\n");
+    } finally {
+      await core.shutdown();
+    }
   });
 
   it("uses only user.name/user.email from it; global hooks, editors and signing are never applied", async () => {
