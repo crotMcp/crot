@@ -260,3 +260,34 @@ describe("HostConnection", () => {
     });
   });
 });
+
+describe("HostConnection connectionId (AD-9)", () => {
+  it("passes the connection id from welcome to command handlers and forgets it on disconnect", async () => {
+    const seen: (string | undefined)[] = [];
+    let later: (() => string | undefined) | undefined;
+    const { runtime, connection } = setup({
+      handlers: handlers({
+        "page.click": async (_params, context) => {
+          seen.push(context?.connectionId());
+          later = context?.connectionId;
+          return { tabId: 1, url: "https://example.com/" };
+        },
+      }),
+    });
+    connection.ensureConnected();
+    const port = runtime.lastPort;
+    port.deliver({ ...WELCOME, connectionId: "c".repeat(32) });
+    port.deliver(request("r1", "page.click", { selector: "a" }));
+    await sleep(5);
+    expect(seen).toEqual(["c".repeat(32)]);
+    port.hostDisconnect();
+    expect(later?.()).toBeUndefined();
+  });
+
+  it("rejects a malformed connection id in welcome", () => {
+    const { runtime, connection } = setup();
+    connection.ensureConnected();
+    runtime.lastPort.deliver({ ...WELCOME, connectionId: "not hex!" });
+    expect(connection.state).not.toBe("connected");
+  });
+});

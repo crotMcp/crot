@@ -118,6 +118,9 @@ directory (CROT warns when a relative path is resolved).
 | `permissions.capabilities` | mode defaults | Explicit capability set |
 | `permissions.network.allow` | `[]` | Hosts `network_request` may reach (see [Network access](#network-access)) |
 | `permissions.network.deny` | `[]` | Hosts that are always refused; deny wins over allow |
+| `permissions.approvals.rules` | `[]` | Operations that need the user's approval (see [Approval gates](#approval-gates)) |
+| `permissions.approvals.timeoutMs` | 45 000 | How long a request waits for a decision (at most 300 000) |
+| `permissions.approvals.maxPending` | 8 | Pending approval requests; more are denied at once |
 | `limits.maxReadBytes` | 10 MiB | Maximum bytes per file read |
 | `limits.defaultCommandTimeoutMs` | 120 000 | Foreground command timeout (also Git commands) |
 | `limits.maxCommandTimeoutMs` | 3 600 000 | Maximum timeout a caller may request |
@@ -458,6 +461,40 @@ allow rule; with the default empty policy every request is refused, also in
   keep the network access the operating system gives them; `network.access`
   neither grants nor removes it. Restricting their traffic needs OS-level egress
   control, which is not implemented.
+
+## Approval gates
+
+Gate rules make CROT ask the user before an operation runs (ARCHITECTURE.md
+§21, §27 AD-5…AD-11; [`docs/design/approval-gates.md`](docs/design/approval-gates.md)).
+A gate only narrows: it applies after the operation was authorized, and every
+outcome other than an explicit approval denies it with `PERMISSION_DENIED`
+(`details.approval: { requestId, status }`).
+
+```json
+"permissions": {
+  "mode": "sandbox",
+  "approvals": {
+    "rules": [
+      { "id": "shell", "match": { "operations": ["process.shell", "process.exec"] } },
+      { "id": "remote-writes", "match": { "capabilities": ["filesystem.write"], "principalKinds": ["remote"] } }
+    ],
+    "timeoutMs": 45000
+  }
+}
+```
+
+- A rule matches when every condition holds: `operations`, `capabilities`
+  (any), `principalKinds`, `modes`, `outsideWorkspace`. Unknown operations and
+  rules that can never match stop CROT with a configuration error.
+- **No approval UI exists yet.** Until the tray app provides one, operations
+  matched by a rule are denied (`crot_status` shows a note). Without rules
+  nothing changes.
+- Approvals are single-use and bound to a digest of exactly what runs. After
+  the approval CROT authorizes again and re-checks paths; an approval audit
+  record is written before execution, and if it cannot be written the
+  operation is refused.
+- Browser operations are bound to the concrete tab, its origin and the browser
+  connection; if any of them changes before the action, it is not performed.
 
 ## Platform support
 

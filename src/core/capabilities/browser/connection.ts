@@ -11,23 +11,58 @@ import type { BrowserImageFormat, BrowserInfo, BrowserPageFormat } from "./schem
  * BrowserService before it reaches an adapter.
  */
 
+/**
+ * Expected browser subject of a gated operation (ARCHITECTURE.md §27, AD-6,
+ * AD-11): the values of the approved subject. The extension checks them
+ * immediately before acting and refuses with PERMISSION_DENIED on any
+ * mismatch. Carried only by commands of gated operations.
+ */
+export interface ExpectedBrowserSubject {
+  /** Absent only for tabs.open (bound to the origin of the URL it opens). */
+  readonly tabId?: number;
+  /** Normalized WHATWG origin, http(s) only, compared by exact equality. */
+  readonly origin: string;
+  /** Connection id of the approved subject (AD-9). */
+  readonly connectionId: string;
+}
+
+interface Expect {
+  readonly expect?: ExpectedBrowserSubject;
+}
+
 /** Parameters of each command Core sends to the extension. */
 export interface BrowserCommandParams {
   "tabs.list": Record<string, never>;
-  "tabs.open": { readonly url: string; readonly active: boolean };
-  "tabs.navigate": { readonly tabId?: number; readonly url: string };
-  "tabs.activate": { readonly tabId: number };
-  "tabs.close": { readonly tabId: number };
-  "page.read": { readonly tabId?: number; readonly format: BrowserPageFormat; readonly maxBytes: number };
-  "page.screenshot": { readonly tabId?: number; readonly format: BrowserImageFormat; readonly quality?: number };
-  "page.click": { readonly tabId?: number; readonly selector: string };
-  "page.type": { readonly tabId?: number; readonly selector: string; readonly text: string; readonly clear: boolean };
+  /**
+   * AD-8: the concrete tab a gated, tab-targeting operation would act on (the
+   * given tab, or the active tab of the last focused window) and its URL.
+   * Reads tab id and URL only; never acts on the page.
+   */
+  "tabs.resolve": { readonly tabId?: number };
+  "tabs.open": { readonly url: string; readonly active: boolean } & Expect;
+  "tabs.navigate": { readonly tabId?: number; readonly url: string } & Expect;
+  "tabs.activate": { readonly tabId: number } & Expect;
+  "tabs.close": { readonly tabId: number } & Expect;
+  "page.read": { readonly tabId?: number; readonly format: BrowserPageFormat; readonly maxBytes: number } & Expect;
+  "page.screenshot": {
+    readonly tabId?: number;
+    readonly format: BrowserImageFormat;
+    readonly quality?: number;
+  } & Expect;
+  "page.click": { readonly tabId?: number; readonly selector: string } & Expect;
+  "page.type": {
+    readonly tabId?: number;
+    readonly selector: string;
+    readonly text: string;
+    readonly clear: boolean;
+  } & Expect;
 }
 
 export type BrowserCommand = keyof BrowserCommandParams;
 
 export const BROWSER_COMMANDS: readonly BrowserCommand[] = [
   "tabs.list",
+  "tabs.resolve",
   "tabs.open",
   "tabs.navigate",
   "tabs.activate",
@@ -45,7 +80,12 @@ export const BROWSER_COMMANDS: readonly BrowserCommand[] = [
  */
 export type BrowserConnectionState =
   | { readonly kind: "waiting" }
-  | { readonly kind: "connected"; readonly browser: BrowserInfo }
+  | {
+      readonly kind: "connected";
+      readonly browser: BrowserInfo;
+      /** Random id (>= 128 bits) of this accepted connection; new for every hello, never reused (AD-9). Not shown to agents. */
+      readonly connectionId: string;
+    }
   | { readonly kind: "in_use" };
 
 export interface BrowserRequestOptions {
@@ -53,6 +93,11 @@ export interface BrowserRequestOptions {
   readonly timeoutMs: number;
   /** Aborted when Core gives up on the request (timeout, shutdown). */
   readonly signal: AbortSignal;
+  /**
+   * When set, the request is sent only on this connection; otherwise it is
+   * rejected with PERMISSION_DENIED without being sent (AD-9, AD-11).
+   */
+  readonly connectionId?: string;
 }
 
 export interface BrowserConnection {

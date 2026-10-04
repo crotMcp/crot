@@ -12,6 +12,14 @@ import { clickElement, readPageContent, typeIntoElement, type PageOutcome } from
  * checks every request's parameters, because the browser side must not trust
  * the other side of a channel either, and it refuses non-http(s) pages.
  *
+ * Commands of approved (gated) operations carry an expected browser subject
+ * `expect: { tabId?, origin, connectionId }` (ARCHITECTURE.md §27, AD-11).
+ * Immediately before acting, the handler checks the connection id the host
+ * assigned in `welcome`, the tab id, and the origin of the tab's committed URL
+ * (a pending navigation to another origin is a mismatch). Any mismatch, or a
+ * value that cannot be determined, refuses with PERMISSION_DENIED and nothing
+ * is done. The check only narrows; it grants nothing.
+ *
  * Results follow Core's result schemas (src/core/capabilities/browser/schemas.ts).
  * Core's limits are repeated below because that module depends on zod; the
  * extension tests check that both agree.
@@ -28,7 +36,13 @@ export const SCREENSHOT_MAX_BYTES = 16 * 1024 * 1024;
 export const LOAD_WAIT_MS = 20_000;
 
 export type CommandParams = Readonly<Record<string, unknown>>;
-export type CommandHandler = (params: CommandParams) => Promise<unknown>;
+/** Facts of the connection a command arrived on. */
+export interface CommandContext {
+  /** Connection id from the host's `welcome` (AD-9); undefined when unknown or the connection is gone. */
+  readonly connectionId: () => string | undefined;
+}
+
+export type CommandHandler = (params: CommandParams, context?: CommandContext) => Promise<unknown>;
 export type CommandHandlers = Readonly<Record<BrowserCommand, CommandHandler>>;
 
 export interface CommandOptions {
@@ -97,6 +111,66 @@ function enumParam<T extends string>(params: CommandParams, key: string, values:
   if (typeof value !== "string" || !values.includes(value as T))
     throw invalid("'" + key + "' must be one of " + values.join(", ") + ".");
   return value as T;
+}
+
+/** Expected browser subject of an approved operation (AD-11). */
+interface ExpectedSubject {
+  readonly tabId?: number;
+  readonly origin: string;
+  readonly connectionId: string;
+}
+
+const CONNECTION_ID_MAX_LENGTH = 128;
+
+function expectParam(params: CommandParams): ExpectedSubject | undefined {
+  const value = params.expect;
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw invalid("'expect' must be an object.");
+  const expected = value as Readonly<Record<string, unknown>>;
+  onlyKeys(expected, ["tabId", "origin", "connectionId"]);
+  const tabId = expected.tabId === undefined ? undefined : tabIdParam(expected);
+  const { origin, connectionId } = expected;
+  if (typeof origin !== "string" || origin.length === 0 || origin.length > URL_MAX_LENGTH)
+    throw invalid("'expect.origin' must be an origin.");
+  if (typeof connectionId !== "string" || connectionId.length === 0 || connectionId.length > CONNECTION_ID_MAX_LENGTH)
+    throw invalid("'expect.connectionId' must be a connection id.");
+  return tabId === undefined ? { origin, connectionId } : { tabId, origin, connectionId };
+}
+
+/**
+ * WHATWG origin of an http: or https: URL (lowercase scheme and host, punycode
+ * host, default port omitted); undefined for anything else, so opaque origins
+ * and other schemes never match. Same rule as Core's normalizedHttpOrigin.
+ */
+export function httpOrigin(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.length === 0) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    return url.origin === "null" ? undefined : url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+const mismatch = (what: string): ExtensionError =>
+  new ExtensionError(
+    "PERMISSION_DENIED",
+    "The approved browser target no longer matches (" + what + "); the action was not performed.",
+  );
+
+function checkConnection(expected: ExpectedSubject, context: CommandContext | undefined): void {
+  const current = context?.connectionId();
+  if (current === undefined || current !== expected.connectionId) throw mismatch("connection");
+}
+
+/** The whole expected subject against the tab as it is right now. */
+function checkTab(expected: ExpectedSubject, tab: ChromeTab, context: CommandContext | undefined): void {
+  checkConnection(expected, context);
+  if (expected.tabId === undefined || tab.id !== expected.tabId) throw mismatch("tab");
+  const origin = httpOrigin(tab.url);
+  if (origin === undefined || origin !== expected.origin) throw mismatch("origin");
+  if (tab.pendingUrl && httpOrigin(tab.pendingUrl) !== expected.origin) throw mismatch("navigation to another origin");
 }
 
 // ---------------------------------------------------------------- results
@@ -197,6 +271,30 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     );
   }
 
+  /**
+   * The tab a command acts on. With an expected subject: exactly the approved
+   * tab, checked (connection, tab, origin) right before the action; without
+   * one: the requested tab or the active tab (page commands: http(s) only).
+   */
+  async function targetTab(
+    tabId: number | undefined,
+    expected: ExpectedSubject | undefined,
+    context: CommandContext | undefined,
+    page: boolean,
+  ): Promise<ChromeTab & { readonly id: number }> {
+    if (!expected) return page ? resolvePageTab(tabId) : resolveTab(tabId);
+    if (tabId === undefined || tabId !== expected.tabId) throw mismatch("tab");
+    let tab: ChromeTab;
+    try {
+      tab = await api.tabs.get(tabId);
+    } catch {
+      throw mismatch("tab closed");
+    }
+    if (!hasId(tab)) throw mismatch("tab closed");
+    checkTab(expected, tab, context);
+    return tab;
+  }
+
   /** Resolve when the tab has finished loading, has been closed, or after loadWaitMs. Never rejects. */
   function waitForLoad(tabId: number): Promise<void> {
     return new Promise<void>((resolve) => {
@@ -244,10 +342,22 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       return { tabs: tabs.filter(hasId).slice(0, MAX_TABS).map(tabInfo) };
     },
 
-    async "tabs.open"(params) {
-      onlyKeys(params, ["url", "active"]);
+    async "tabs.resolve"(params) {
+      onlyKeys(params, ["tabId"]);
+      const tab = await resolveTab(optionalTabIdParam(params));
+      // The committed URL: what the tab shows now, not where it may be going.
+      return { tabId: tab.id, url: bounded(tab.url, URL_MAX_LENGTH) };
+    },
+
+    async "tabs.open"(params, context) {
+      onlyKeys(params, ["url", "active", "expect"]);
       const url = urlParam(params);
       const active = booleanParam(params, "active");
+      const expected = expectParam(params);
+      if (expected) {
+        checkConnection(expected, context);
+        if (expected.tabId !== undefined || httpOrigin(url) !== expected.origin) throw mismatch("origin");
+      }
       let tab: ChromeTab;
       try {
         tab = await api.tabs.create({ url, active });
@@ -258,11 +368,11 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       return loaded(tab.id);
     },
 
-    async "tabs.navigate"(params) {
-      onlyKeys(params, ["tabId", "url"]);
+    async "tabs.navigate"(params, context) {
+      onlyKeys(params, ["tabId", "url", "expect"]);
       const tabId = optionalTabIdParam(params);
       const url = urlParam(params);
-      const tab = await resolveTab(tabId);
+      const tab = await targetTab(tabId, expectParam(params), context, false);
       try {
         await api.tabs.update(tab.id, { url });
       } catch (error) {
@@ -271,9 +381,11 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       return loaded(tab.id);
     },
 
-    async "tabs.activate"(params) {
-      onlyKeys(params, ["tabId"]);
-      const tab = await getTab(tabIdParam(params));
+    async "tabs.activate"(params, context) {
+      onlyKeys(params, ["tabId", "expect"]);
+      const tabId = tabIdParam(params);
+      const expected = expectParam(params);
+      const tab = expected ? await targetTab(tabId, expected, context, false) : await getTab(tabId);
       try {
         await api.tabs.update(tab.id, { active: true });
         await api.windows.update(tab.windowId, { focused: true });
@@ -283,9 +395,11 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       return { tabId: tab.id, url: tabUrl(tab) };
     },
 
-    async "tabs.close"(params) {
-      onlyKeys(params, ["tabId"]);
-      const tab = await getTab(tabIdParam(params));
+    async "tabs.close"(params, context) {
+      onlyKeys(params, ["tabId", "expect"]);
+      const tabId = tabIdParam(params);
+      const expected = expectParam(params);
+      const tab = expected ? await targetTab(tabId, expected, context, false) : await getTab(tabId);
       try {
         await api.tabs.remove(tab.id);
       } catch (error) {
@@ -294,14 +408,14 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       return { tabId: tab.id, closed: true };
     },
 
-    async "page.read"(params) {
-      onlyKeys(params, ["tabId", "format", "maxBytes"]);
+    async "page.read"(params, context) {
+      onlyKeys(params, ["tabId", "format", "maxBytes", "expect"]);
       const tabId = optionalTabIdParam(params);
       const format = enumParam(params, "format", ["text", "html"] as const);
       const maxBytes = params.maxBytes;
       if (!Number.isSafeInteger(maxBytes) || (maxBytes as number) < 1)
         throw invalid("'maxBytes' must be a positive integer.");
-      const tab = await resolvePageTab(tabId);
+      const tab = await targetTab(tabId, expectParam(params), context, true);
       const page = await runInPage(tab.id, readPageContent, [format, maxBytes as number]);
       if (typeof page?.content !== "string" || typeof page.truncated !== "boolean") {
         throw new ExtensionError("OPERATION_FAILED", "The page returned an invalid result.");
@@ -316,8 +430,8 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       };
     },
 
-    async "page.screenshot"(params) {
-      onlyKeys(params, ["tabId", "format", "quality"]);
+    async "page.screenshot"(params, context) {
+      onlyKeys(params, ["tabId", "format", "quality", "expect"]);
       const tabId = optionalTabIdParam(params);
       const format = enumParam(params, "format", ["png", "jpeg"] as const);
       const quality = params.quality;
@@ -326,7 +440,8 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         if (!Number.isInteger(quality) || (quality as number) < 0 || (quality as number) > 100)
           throw invalid("'quality' must be an integer from 0 to 100.");
       }
-      const tab = await resolvePageTab(tabId);
+      const expected = expectParam(params);
+      const tab = await targetTab(tabId, expected, context, true);
       // A screenshot is a read: CROT never activates a tab to take one.
       if (!tab.active) {
         throw invalid(
@@ -347,6 +462,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       if (!visible || visible.id !== tab.id)
         throw new ExtensionError("OPERATION_FAILED", "The visible tab changed while taking the screenshot.");
       if (!isHttpUrl(visible.url)) throw restricted();
+      if (expected) checkTab(expected, visible, context);
       const prefix = "data:image/" + format + ";base64,";
       if (typeof dataUrl !== "string" || !dataUrl.startsWith(prefix))
         throw new ExtensionError("OPERATION_FAILED", "The browser returned an unexpected image.");
@@ -358,22 +474,22 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       return { tabId: tab.id, url: tabUrl(visible), mimeType: "image/" + format, data };
     },
 
-    async "page.click"(params) {
-      onlyKeys(params, ["tabId", "selector"]);
+    async "page.click"(params, context) {
+      onlyKeys(params, ["tabId", "selector", "expect"]);
       const tabId = optionalTabIdParam(params);
       const selector = selectorParam(params);
-      const tab = await resolvePageTab(tabId);
+      const tab = await targetTab(tabId, expectParam(params), context, true);
       await runInPage(tab.id, clickElement, [selector]);
       return { tabId: tab.id, url: tabUrl(tab) };
     },
 
-    async "page.type"(params) {
-      onlyKeys(params, ["tabId", "selector", "text", "clear"]);
+    async "page.type"(params, context) {
+      onlyKeys(params, ["tabId", "selector", "text", "clear", "expect"]);
       const tabId = optionalTabIdParam(params);
       const selector = selectorParam(params);
       const text = stringParam(params, "text", 0, TYPE_TEXT_MAX_LENGTH);
       const clear = booleanParam(params, "clear");
-      const tab = await resolvePageTab(tabId);
+      const tab = await targetTab(tabId, expectParam(params), context, true);
       await runInPage(tab.id, typeIntoElement, [selector, text, clear]);
       return { tabId: tab.id, url: tabUrl(tab) };
     },

@@ -19,6 +19,10 @@
  * 2. Only one extension is connected at a time; further connections are
  *    refused while one is active.
  * 3. On disconnect every pending request fails with BROWSER_NOT_CONNECTED.
+ * 4. Every accepted hello gets a new random connectionId (AD-9), reported in
+ *    state() and sent to the extension in `welcome`. A request that names a
+ *    connectionId (a gated, approved operation) is sent only on that
+ *    connection; otherwise it is rejected with PERMISSION_DENIED unsent.
  *
  * Ownership is exclusive (one CROT instance per user owns the endpoint) and is
  * decided once, in start(). When another live instance owns it, this bridge
@@ -30,7 +34,7 @@
  * crashed instance is removed at start (POSIX) once a connection attempt has
  * shown that nobody listens on it.
  */
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, rmdir, stat, unlink } from "node:fs/promises";
 import net from "node:net";
 import type {
@@ -108,11 +112,14 @@ interface PendingRequest {
   readonly resolve: (value: unknown) => void;
   readonly reject: (error: CrotError) => void;
   readonly cleanup: () => void;
+  /** The request carried an expected browser subject: only then may the extension answer PERMISSION_DENIED (AD-11). */
+  readonly expectsSubject: boolean;
 }
 
 interface ConnectedExtension {
   readonly socket: net.Socket;
   readonly browser: BrowserInfo;
+  readonly connectionId: string;
 }
 
 const notConnected = () => new CrotError("BROWSER_NOT_CONNECTED", "The CROT Browser Extension is not connected.");
@@ -167,7 +174,8 @@ export class BrowserBridge implements BrowserConnection {
   }
 
   state(): BrowserConnectionState {
-    if (this.extension) return { kind: "connected", browser: this.extension.browser };
+    if (this.extension)
+      return { kind: "connected", browser: this.extension.browser, connectionId: this.extension.connectionId };
     return this.server || this.closed ? { kind: "waiting" } : { kind: "in_use" };
   }
 
@@ -188,8 +196,25 @@ export class BrowserBridge implements BrowserConnection {
   ): Promise<unknown> {
     if (this.closed) return Promise.reject(new CrotError("BROWSER_NOT_CONNECTED", "The browser bridge is closed."));
     const extension = this.extension;
-    if (!extension || extension.socket.destroyed) return Promise.reject(this.server ? notConnected() : inUse());
+    if (!extension || extension.socket.destroyed) {
+      if (options.connectionId !== undefined)
+        return Promise.reject(
+          new CrotError(
+            "PERMISSION_DENIED",
+            "The browser connection of the approved operation no longer exists; the request was not sent.",
+          ),
+        );
+      return Promise.reject(this.server ? notConnected() : inUse());
+    }
     if (options.signal.aborted) return Promise.reject(cancelled());
+    if (options.connectionId !== undefined && options.connectionId !== extension.connectionId) {
+      return Promise.reject(
+        new CrotError(
+          "PERMISSION_DENIED",
+          "The browser connection changed since the operation was approved; the request was not sent.",
+        ),
+      );
+    }
     if (this.pending.size >= this.maxPending) {
       return Promise.reject(
         new CrotError("RESOURCE_BUSY", "Too many browser requests in flight (at most " + this.maxPending + ")."),
@@ -219,7 +244,8 @@ export class BrowserBridge implements BrowserConnection {
         clearTimeout(timer);
         options.signal.removeEventListener("abort", onAbort);
       };
-      this.pending.set(id, { resolve, reject, cleanup });
+      const expectsSubject = isObjectWithExpect(params);
+      this.pending.set(id, { resolve, reject, cleanup, expectsSubject });
       options.signal.addEventListener("abort", onAbort, { once: true });
       // All frames of one request are written consecutively (chunked requests must not interleave).
       for (const frame of frames) extension.socket.write(frame);
@@ -380,10 +406,11 @@ export class BrowserBridge implements BrowserConnection {
             }
             clearTimeout(timer);
             this.handshakes.delete(socket);
-            this.extension = { socket, browser: hello.browser };
+            const connectionId = randomBytes(16).toString("hex");
+            this.extension = { socket, browser: hello.browser, connectionId };
             phase = "ready";
             reader.maxFrameBytes = MAX_BROWSER_TO_HOST_FRAME_BYTES;
-            for (const frame of encodeHostMessage({ type: "welcome", protocol: BRIDGE_PROTOCOL_VERSION }))
+            for (const frame of encodeHostMessage({ type: "welcome", protocol: BRIDGE_PROTOCOL_VERSION, connectionId }))
               socket.write(frame);
             const b = hello.browser;
             this.log(
@@ -420,7 +447,7 @@ export class BrowserBridge implements BrowserConnection {
     this.pending.delete(response.id);
     pending.cleanup();
     if (response.ok) pending.resolve(response.result);
-    else pending.reject(extensionError(response.error.code, response.error.message));
+    else pending.reject(extensionError(response.error.code, response.error.message, pending.expectsSubject));
   }
 
   private abandon(id: string, error: CrotError): void {
@@ -466,9 +493,11 @@ function clean(text: string, max = MAX_ERROR_MESSAGE): string {
 const describe = (error: unknown): string => clean(error instanceof Error ? error.message : String(error), 200);
 
 /** Error reported by the extension: allowlisted code, sanitized and bounded message, no details. */
-function extensionError(code: string, message: string): CrotError {
+function extensionError(code: string, message: string, expectsSubject: boolean): CrotError {
   const text = clean(message) || "unknown error";
   if (EXTENSION_ERROR_CODES.has(code)) return new CrotError(code as CrotErrorCode, text);
+  // Reserved for the expected browser subject check (AD-11); it can only deny the operation it answers.
+  if (code === "PERMISSION_DENIED" && expectsSubject) return new CrotError("PERMISSION_DENIED", text);
   return new CrotError("OPERATION_FAILED", clean("Browser error " + code + ": " + text));
 }
 
@@ -518,4 +547,8 @@ async function removeStaleSocket(socketPath: string): Promise<void> {
   await unlink(socketPath).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== "ENOENT") throw error;
   });
+}
+
+function isObjectWithExpect(params: unknown): boolean {
+  return typeof params === "object" && params !== null && (params as { expect?: unknown }).expect !== undefined;
 }

@@ -11,6 +11,7 @@ export * from "./config/load.js";
 export * from "./config/paths.js";
 export * from "./platform/index.js";
 export * from "./audit/audit.js";
+export * from "./approvals/index.js";
 export * from "./execution/guard.js";
 export * from "./crot-core.js";
 export * from "./capabilities/filesystem/schemas.js";

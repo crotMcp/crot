@@ -77,6 +77,8 @@ class FakeClient {
   private readonly reader = new MessageReader(MAX_HOST_TO_BROWSER_FRAME_BYTES);
   private readonly queue: unknown[] = [];
   readonly closed: Promise<void>;
+  /** Connection id the bridge assigned in welcome (AD-9). */
+  connectionId = "";
 
   private constructor(readonly socket: net.Socket) {
     socket.on("error", () => undefined);
@@ -125,7 +127,13 @@ async function connectExtension(bridge: BrowserBridge, token: string): Promise<F
   const client = await FakeClient.connect(bridge.endpoint.path);
   client.send({ type: "auth", protocol: BRIDGE_PROTOCOL_VERSION, token });
   client.send({ type: "hello", protocol: BRIDGE_PROTOCOL_VERSION, browser: BROWSER });
-  expect(await client.next()).toEqual({ type: "welcome", protocol: BRIDGE_PROTOCOL_VERSION });
+  const welcome = (await client.next()) as { connectionId: string };
+  expect(welcome).toEqual({
+    type: "welcome",
+    protocol: BRIDGE_PROTOCOL_VERSION,
+    connectionId: expect.stringMatching(/^[0-9a-f]{32}$/),
+  });
+  client.connectionId = welcome.connectionId;
   return client;
 }
 
@@ -193,7 +201,11 @@ describe("BrowserBridge", () => {
   it("completes the handshake and carries requests and responses", async () => {
     const { bridge, token, logs } = await startBridge();
     const client = await connectExtension(bridge, token);
-    expect(bridge.state()).toEqual({ kind: "connected", browser: BROWSER });
+    expect(bridge.state()).toEqual({
+      kind: "connected",
+      browser: BROWSER,
+      connectionId: expect.stringMatching(/^[0-9a-f]{32}$/),
+    });
     expect(bridge.status()).toMatchObject({ state: "connected", browser: BROWSER });
 
     const pending = bridge.request("tabs.close", { tabId: 7 }, options());
@@ -214,6 +226,66 @@ describe("BrowserBridge", () => {
     expect(await two).toBe("second");
 
     expect(logs.join("\n").includes(token)).toBe(false);
+  });
+
+  it("gives every accepted hello a new connectionId and sends pinned requests only on that connection (AD-9)", async () => {
+    const { bridge, token } = await startBridge();
+    const first = await connectExtension(bridge, token);
+    const state = bridge.state();
+    expect(state).toMatchObject({ kind: "connected", connectionId: first.connectionId });
+
+    // Pinned to the current connection: sent.
+    const pinned = bridge.request("tabs.resolve", {}, { ...options(), connectionId: first.connectionId });
+    const request = await first.nextRequest();
+    expect(request).toMatchObject({ command: "tabs.resolve", params: {} });
+    first.send({ type: "response", id: request.id, ok: true, result: { tabId: 1, url: "https://example.com/" } });
+    expect(await pinned).toEqual({ tabId: 1, url: "https://example.com/" });
+
+    // Pinned to another connection: rejected, nothing sent.
+    const wrong = await rejection(
+      bridge.request("tabs.close", { tabId: 1 }, { ...options(), connectionId: "f".repeat(32) }),
+    );
+    expect(wrong.code).toBe("PERMISSION_DENIED");
+
+    // A reconnect gets a new id; the old one no longer works, even while disconnected.
+    first.close();
+    await waitFor(() => bridge.state().kind === "waiting");
+    expect(
+      (await rejection(bridge.request("tabs.close", { tabId: 1 }, { ...options(), connectionId: first.connectionId })))
+        .code,
+    ).toBe("PERMISSION_DENIED");
+    const second = await connectExtension(bridge, token);
+    expect(second.connectionId).not.toBe(first.connectionId);
+    expect(
+      (await rejection(bridge.request("tabs.close", { tabId: 1 }, { ...options(), connectionId: first.connectionId })))
+        .code,
+    ).toBe("PERMISSION_DENIED");
+    await roundTrip(bridge, second); // the rejected requests were never sent
+  });
+
+  it("accepts PERMISSION_DENIED from the extension only for requests with an expected subject (AD-11)", async () => {
+    const { bridge, token } = await startBridge();
+    const client = await connectExtension(bridge, token);
+    const expected = { tabId: 1, origin: "https://example.com", connectionId: client.connectionId };
+    const pending = bridge.request(
+      "page.click",
+      { tabId: 1, selector: "#a", expect: expected },
+      { ...options(), connectionId: client.connectionId },
+    );
+    const request = await client.nextRequest();
+    expect(request.params).toEqual({ tabId: 1, selector: "#a", expect: expected });
+    client.send({
+      type: "response",
+      id: request.id,
+      ok: false,
+      error: { code: "PERMISSION_DENIED", message: "origin" },
+    });
+    expect((await rejection(pending)).code).toBe("PERMISSION_DENIED");
+
+    const plain = bridge.request("page.click", { tabId: 1, selector: "#a" }, options());
+    const second = await client.nextRequest();
+    client.send({ type: "response", id: second.id, ok: false, error: { code: "PERMISSION_DENIED", message: "m" } });
+    expect((await rejection(plain)).code).toBe("OPERATION_FAILED");
   });
 
   it("maps extension errors to sanitized CrotErrors with allowlisted codes", async () => {
@@ -286,7 +358,11 @@ describe("BrowserBridge", () => {
     second.send({ type: "auth", protocol: 1, token });
     second.send({ type: "hello", protocol: 1, browser: { ...BROWSER, name: "Edge" } });
     await second.closed;
-    expect(bridge.state()).toEqual({ kind: "connected", browser: BROWSER });
+    expect(bridge.state()).toEqual({
+      kind: "connected",
+      browser: BROWSER,
+      connectionId: expect.stringMatching(/^[0-9a-f]{32}$/),
+    });
     await roundTrip(bridge, first);
   });
 

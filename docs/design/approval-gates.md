@@ -1,8 +1,10 @@
 # Approval Gates — Design (WP-14)
 
-> **Status: Design.** Nothing in this document is implemented. It fixes the
-> mechanism of user confirmations (ARCHITECTURE.md §21) so that a later work
-> package can implement it without new architectural decisions. The key
+> **Status: Implemented (WP-15).** This document fixes the mechanism of user
+> confirmations (ARCHITECTURE.md §21); WP-15 implements it in
+> `src/core/approvals/`, `src/core/execution/guard.ts`, the browser bridge and
+> the extension. No approval provider (UI) exists yet: with gate rules
+> configured, gated operations are denied until the tray app provides one. The key
 > decisions are recorded in ARCHITECTURE.md §27, **AD-5**, **AD-6** and **AD-7**.
 >
 > The former open decisions OD-1 (browser tab/origin binding) and OD-2 (audit

@@ -18,6 +18,7 @@ class StubConnection implements BrowserConnection {
 const CONNECTED: BrowserConnectionState = {
   kind: "connected",
   browser: { name: "Chrome", version: "130.0.0.0", extensionVersion: "0.1.0" },
+  connectionId: "c0ffee00c0ffee00c0ffee00c0ffee00",
 };
 
 let dirs: TempDirs;

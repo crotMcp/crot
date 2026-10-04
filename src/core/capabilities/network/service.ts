@@ -114,6 +114,16 @@ export class NetworkService {
           capability: "network.access",
           network: [target],
           details: { method, origin: current.url.origin, hop, followRedirects: req.followRedirects },
+          approval: {
+            summary: "Send an HTTP request",
+            effects: [
+              { label: "method", value: method },
+              { label: "URL", value: current.url.href },
+              { label: "redirect hop", value: String(hop) },
+              { label: "header names", value: Object.keys(headers).join(", ") },
+              ...(body ? [{ label: "body bytes", value: String(body.length), flag: "secret_size_only" as const }] : []),
+            ],
+          },
         },
         () => this.send(current, target, method, headers, body, maxBytes, deadline),
       );

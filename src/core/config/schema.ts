@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  DEFAULT_APPROVAL_MAX_PENDING,
+  DEFAULT_APPROVAL_TIMEOUT_MS,
+  MAX_APPROVAL_TIMEOUT_MS,
+} from "../approvals/rules.js";
 import { CapabilitySchema } from "../permissions/capabilities.js";
 import { NetworkPolicyConfigSchema } from "../permissions/network/policy.js";
 import { PERMISSION_MODES } from "../permissions/policy.js";
@@ -136,6 +141,41 @@ export const BrowserConfigSchema = z
   })
   .strict();
 
+/** One approval gate rule: an operation needs approval when every given condition matches. */
+export const ApprovalRuleConfigSchema = z
+  .object({
+    /** Recorded in audit events and shown to the user ("why am I asked"). */
+    id: z.string().min(1).max(100),
+    match: z
+      .object({
+        operations: z.array(z.string().min(1)).min(1).optional(),
+        capabilities: z.array(CapabilitySchema).min(1).optional(),
+        principalKinds: z
+          .array(z.enum(["local", "remote"]))
+          .min(1)
+          .optional(),
+        modes: z.array(z.enum(PERMISSION_MODES)).min(1).optional(),
+        outsideWorkspace: z.boolean().optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
+/**
+ * Approval gates (ARCHITECTURE.md §27, AD-10). No rules by default: nothing is
+ * gated. With rules but without a registered approval provider (no tray app),
+ * gated operations are denied.
+ */
+export const ApprovalsConfigSchema = z
+  .object({
+    rules: z.array(ApprovalRuleConfigSchema).default([]),
+    /** How long a request waits for the user; then it expires (denied). At most 300 s. */
+    timeoutMs: z.number().int().positive().max(MAX_APPROVAL_TIMEOUT_MS).default(DEFAULT_APPROVAL_TIMEOUT_MS),
+    /** Pending requests at the same time; more are denied immediately. */
+    maxPending: z.number().int().positive().default(DEFAULT_APPROVAL_MAX_PENDING),
+  })
+  .strict();
+
 export const CrotConfigSchema = z
   .object({
     version: z.literal(1).default(1),
@@ -153,9 +193,11 @@ export const CrotConfigSchema = z
         capabilities: z.array(CapabilitySchema).optional(),
         /** Host policy of network.access; deny by default (ARCHITECTURE.md §27, AD-4). */
         network: NetworkPolicyConfigSchema.default({ allow: [], deny: [] }),
+        /** Approval gates (AD-10). */
+        approvals: ApprovalsConfigSchema.default(ApprovalsConfigSchema.parse({})),
       })
       .strict()
-      .default({ mode: "sandbox", network: { allow: [], deny: [] } }),
+      .default({ mode: "sandbox", network: { allow: [], deny: [] }, approvals: ApprovalsConfigSchema.parse({}) }),
     limits: LimitsSchema.default(LimitsSchema.parse({})),
     audit: AuditConfigSchema.default({ sink: "stderr" }),
     environment: EnvironmentConfigSchema.default({ path: "auto" }),
@@ -170,5 +212,6 @@ export type Limits = z.output<typeof LimitsSchema>;
 export type AuditConfig = z.output<typeof AuditConfigSchema>;
 export type HttpConfig = z.output<typeof HttpConfigSchema>;
 export type HttpConfigInput = z.input<typeof HttpConfigSchema>;
+export type ApprovalsConfig = z.output<typeof ApprovalsConfigSchema>;
 export type BrowserConfig = z.output<typeof BrowserConfigSchema>;
 export type BrowserConfigInput = z.input<typeof BrowserConfigSchema>;

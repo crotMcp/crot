@@ -34,6 +34,11 @@ export interface AuthContext {
   readonly principal: Principal;
   /** Optional correlation id supplied by the adapter. */
   readonly requestId?: string;
+  /**
+   * Aborted when the caller gives up (MCP cancellation, transport closed).
+   * Supplied by adapters; a pending approval request is then cancelled.
+   */
+  readonly signal?: AbortSignal;
 }
 
 export function localPrincipal(transport: string, client?: ClientInfo): Principal {

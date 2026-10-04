@@ -212,8 +212,33 @@ Errors the extension may report are limited to `NOT_FOUND`, `INVALID_INPUT`,
 `TIMEOUT`, `LIMIT_EXCEEDED`, `RESOURCE_BUSY`, `OPERATION_FAILED` and
 `BROWSER_PAGE_RESTRICTED`. `BROWSER_NOT_CONNECTED` and `BROWSER_BRIDGE_IN_USE`
 are decided by Core from the bridge state; the extension cannot claim them or
-any authorization error. Results are validated against Core's schemas: an
+any authorization error, with one exception: `PERMISSION_DENIED` answers a
+command of an approved operation whose expected browser subject no longer
+matches (see below); for any other command it becomes `OPERATION_FAILED`. Results are validated against Core's schemas: an
 invalid result, or a result for a different tab, becomes `OPERATION_FAILED`.
+
+### Approval gates
+
+When a `permissions.approvals` rule matches a browser operation (ARCHITECTURE.md
+§27, AD-6, AD-8, AD-9, AD-11):
+
+- Before the approval request, Core resolves the concrete tab with the
+  `tabs.resolve` command (`{ tabId? }` → `{ tabId, url }`: the given tab or the
+  active tab of the last focused window; it never acts on the page).
+  `browser_tab_open` is bound to the origin of the URL instead. If the tab or
+  its `http(s)` origin cannot be determined, the operation is denied without a
+  request.
+- The approval records the tab id, the normalized origin and the bridge
+  `connectionId` (a random id the bridge assigns to every accepted `hello` and
+  sends in `welcome`).
+- After the approval, the command names the concrete tab and carries
+  `expect: { tabId?, origin, connectionId }`. The bridge sends it only on that
+  connection; the extension checks connection, tab and the origin of the
+  committed URL (a pending navigation to another origin is a mismatch)
+  immediately before acting. Any mismatch returns `PERMISSION_DENIED` and
+  nothing is done; the approval is never transferred to another tab or origin.
+- `browser_status` and `browser_tabs_list` do not target a tab and are not
+  bound to one.
 
 ## Protocol
 
@@ -225,8 +250,8 @@ Handshake:
 1. The relay connects to the bridge endpoint and sends an `auth` frame
    (`protocol`, `token`).
 2. It then forwards the extension's `hello`.
-3. The bridge validates both and answers with `welcome`, which the relay
-   forwards to the extension.
+3. The bridge validates both and answers with `welcome` (`protocol`,
+   `connectionId`), which the relay forwards to the extension.
 
 After that, the bridge sends requests and the extension answers each with a
 response carrying the same id.

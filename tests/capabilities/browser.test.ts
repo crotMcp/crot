@@ -17,6 +17,7 @@ import { createPermissionPolicy, type PermissionMode } from "../../src/core/perm
 import { testContext as ctx } from "../helpers.js";
 
 const BROWSER: BrowserInfo = { name: "Chrome", version: "130.0.0.0", extensionVersion: "0.1.0" };
+const CONNECTION_ID = "c0ffee00c0ffee00c0ffee00c0ffee00";
 const PAGE_URL = "https://example.com/page";
 const DEFAULT_MAX_READ = 10 * 1024 * 1024;
 
@@ -51,7 +52,7 @@ function defaultResponse(command: BrowserCommand, p: Record<string, unknown>): u
 
 /** Stands in for the browser bridge. Records every request it receives. */
 class FakeConnection implements BrowserConnection {
-  current: BrowserConnectionState = { kind: "connected", browser: BROWSER };
+  current: BrowserConnectionState = { kind: "connected", browser: BROWSER, connectionId: CONNECTION_ID };
   readonly calls: { command: BrowserCommand; params: Record<string, unknown> }[] = [];
   readonly handlers = new Map<BrowserCommand, Handler>();
 

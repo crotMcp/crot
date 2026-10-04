@@ -41,6 +41,7 @@ export const MAX_ERROR_CODE_LENGTH = 64;
 export const MAX_ERROR_MESSAGE_LENGTH = 2000;
 
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/;
+const CONNECTION_ID = /^[0-9a-f]{32,64}$/;
 const TOKEN = /^[A-Za-z0-9_-]{32,256}$/;
 const ERROR_CODE = /^[A-Z][A-Z0-9_]*$/;
 const COMMANDS: ReadonlySet<string> = new Set<string>(BROWSER_COMMANDS);
@@ -84,6 +85,12 @@ export type BrowserToHostMessage = BrowserHello | BrowserResponse;
 export interface HostWelcome {
   readonly type: "welcome";
   readonly protocol: number;
+  /**
+   * Id of this connection, chosen by the host for every accepted hello
+   * (AD-9). The extension checks it against the expected browser subject of
+   * gated commands (AD-11); it cannot choose or change it.
+   */
+  readonly connectionId?: string;
 }
 
 /** Host -> extension: one authorized command. */
@@ -112,6 +119,11 @@ export interface RelayAuth {
   readonly type: "auth";
   readonly protocol: number;
   readonly token: string;
+}
+
+/** Connection id of the bridge (AD-9): 128-bit random, hex. */
+export function isConnectionId(value: unknown): value is string {
+  return typeof value === "string" && CONNECTION_ID.test(value);
 }
 
 export function isRequestId(value: unknown): value is string {
@@ -409,9 +421,13 @@ export function parseBrowserMessage(value: unknown): BrowserToHostMessage {
 export function parseHostMessage(value: unknown): HostToBrowserMessage {
   if (!isObject(value)) invalid("message");
   switch (value.type) {
-    case "welcome":
+    case "welcome": {
       if (!isProtocolNumber(value.protocol)) invalid("welcome");
-      return { type: "welcome", protocol: value.protocol };
+      const connectionId = value.connectionId;
+      if (connectionId === undefined) return { type: "welcome", protocol: value.protocol };
+      if (!isConnectionId(connectionId)) invalid("welcome");
+      return { type: "welcome", protocol: value.protocol, connectionId };
+    }
     case "request": {
       const { id, command, params } = value;
       if (!isRequestId(id) || typeof command !== "string" || !COMMANDS.has(command) || !isObject(params))
