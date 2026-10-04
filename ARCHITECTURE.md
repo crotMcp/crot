@@ -231,6 +231,7 @@ When the user grants them, CROT can provide:
 - Processes — **[Implemented]**
 - Git — **[Partial]**: read operations (`status`, `diff`, `log`, `branch`, `show`) are a dedicated capability gated by `git.read` (§27 AD-1); local write operations (`add`, `commit`, branch create/rename/delete, checkout of a branch or a detached commit) are gated by `git.write` (§27 AD-2); network operations (fetch, pull, push) and destructive operations (amend, force, reset) are not implemented and remain usable only through `shell.execute`
 - Docker — **[Partial]**: dedicated operations gated by `docker.use` (§27 AD-3): list containers, read container logs, `compose up` and `compose down` with a reviewed Compose model; build, pull, push, run, exec and every other Docker command are not implemented and remain usable only through `shell.execute`
+- Network — **[Partial]**: HTTP(S) requests made by CROT itself, gated by `network.access` and the host policy `permissions.network` (§27 AD-4); no OS-level egress control for processes or containers
 - Python, Node.js, FFmpeg, project tools — **[Partial]**: usable through `shell.execute` / `process.manage`
 
 New local capabilities are added as Core capability services that go through
@@ -289,10 +290,10 @@ browser.control
 network.access
 ```
 
-Enforced today: `filesystem.*`, `shell.execute`, `process.manage`, `git.read`,
-`git.write`, `docker.use`, `browser.read`, `browser.control`. `network.access`
-is part of the model and reported by `crot_status`, and will gate dedicated
-operations when those are added.
+Enforced today: all of the above. `network.access` gates CROT's own HTTP
+requests (`network_request`) together with the host policy
+`permissions.network` (§27 AD-4); it does not restrict the network traffic of
+processes or containers started through other capabilities.
 
 **[Target]** extensions of the same model (not a second permission system):
 capabilities for external MCP servers (§18), user confirmation as a possible
@@ -540,6 +541,8 @@ Further target work, order to be set by the work packages:
 19. External MCP gateway (CROT as MCP client)     [Target, §18]
 20. Tray app and supervised local service         [Target, §24]
 21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
+22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
+23. OS-level egress control for processes/Docker  [Target, §27 AD-4]
 ```
 
 The order may change when technically justified, but architectural boundaries must remain intact.
@@ -750,6 +753,8 @@ The tray app is a UI; control logic stays in Core/service.
 | Git local write operations (`git.write`: add, commit, branch create/rename/delete, checkout) | **[Implemented]** (WP-11, §27 AD-2) |
 | Docker dedicated operations (`docker.use`: ps, logs, compose up/down) | **[Implemented]** (WP-12, §27 AD-3) |
 | Git network operations | **[Target]** (usable via shell) |
+| HTTP(S) requests with host policy (`network.access`) | **[Implemented]** (WP-13, §27 AD-4) |
+| OS-level egress control for processes and containers | **[Target]** (§27 AD-4) |
 | Local MCP tools over stdio | **[Implemented]** |
 | Streamable HTTP, loopback, local token | **[Implemented]** |
 | Native Host (OS platform layer) | **[Implemented]** |
@@ -1004,3 +1009,88 @@ reachable through `shell.execute`, which gives no Docker-specific guarantees.
   them.
 - `shell.execute` remains a broader path to Docker and is governed by its own
   capability.
+
+### AD-4. `network.access` is a host policy for CROT's own HTTP requests (WP-13)
+
+**Context.** An agent that can send HTTP requests can reach services on the
+user's computer and local network (loopback admin interfaces, routers, cloud
+metadata endpoints) and can exfiltrate data. Hostname allowlists are commonly
+bypassed with numeric IP forms, DNS names that resolve to internal addresses,
+DNS rebinding between check and connect, redirects to internal hosts, proxy
+environment variables and IPv4-mapped/NAT64 IPv6 addresses.
+
+**Decision.**
+
+1. **One dedicated operation.** `network_request` (Core `NetworkService`) sends
+   one HTTP(S) request: methods GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS;
+   `http`/`https` URLs only; URLs with credentials are refused; hop-by-hop,
+   `Host`, `Content-Length`, `Transfer-Encoding`, proxy and similar headers are
+   refused. No raw TCP, WebSocket or other protocol is available.
+2. **Capability and policy.** The request needs `network.access` **and** an
+   allow rule in `permissions.network.allow`; without the capability, without a
+   matching rule or with a matching deny rule the request is denied
+   (`PERMISSION_DENIED`). `network.access` is not in the sandbox defaults, and
+   the default policy is empty, so the default is denial. Network destinations
+   are authorized only through `network.access`: the PermissionEngine denies any
+   operation carrying network targets under another capability, and
+   `network.access` grants nothing for files, shell, processes, Git or Docker.
+3. **Rules.** `host`, `*.host` (subdomains only), an IP address, a CIDR range or
+   `*`, optionally with `:port` or `:*` (IPv6 in brackets when a port is given).
+   An allow rule without a port allows ports 80 and 443; a deny rule without a
+   port denies every port. Deny wins. Host rules match names only, IP/CIDR rules
+   match addresses (the literal address or every resolved address). Rules are
+   validated and canonicalized at startup; invalid or non-canonical rules are a
+   `CONFIG_ERROR`. In sandbox mode `*`, single-label wildcards and ranges wider
+   than /8 (IPv4) or /32 (IPv6) are refused.
+4. **Address classes.** Addresses are parsed canonically (WHATWG URL parsing
+   turns decimal, octal, hex and shortened IPv4 forms into dotted quads;
+   IPv4-mapped, NAT64 and 6to4 IPv6 addresses are classified by their embedded
+   IPv4 address). Loopback, private, link-local (including cloud metadata
+   addresses), unspecified, multicast, documentation and reserved addresses are
+   reachable only through an explicit IP/CIDR allow rule, never through a host
+   rule or `*`.
+5. **Check before DNS, pin after DNS.** The host name is checked before it is
+   resolved (`network.resolve`), so a denied name is never looked up. The name
+   is resolved once; every resolved address is then checked
+   (`network.request`), and the connection is made only to those checked
+   addresses through a pinned lookup. A DNS answer that changes after the check
+   (DNS rebinding) is not used. `localhost` and `*.localhost` resolve to
+   loopback without DNS.
+6. **Redirects.** Redirects are followed manually up to
+   `limits.maxNetworkRedirects` (or not at all with `followRedirects: false`);
+   each hop is checked from step 5 again. An `https` request never follows a
+   redirect to `http`; `Authorization` and `Cookie` are removed on a
+   cross-origin redirect; 303 (and 301/302 after POST) become GET.
+7. **No proxy, no ambient configuration.** Requests use a private agent without
+   keep-alive; `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and similar variables are
+   ignored, so a proxy cannot bypass the check. TLS uses the system/Node trust
+   store with certificate verification on.
+8. **Limits.** An overall deadline per request including DNS and redirects
+   (`timeoutMs`, default `limits.defaultNetworkTimeoutMs`, at most
+   `limits.maxNetworkTimeoutMs`) gives `TIMEOUT`; the request body is limited to
+   1 MiB and the response to `maxResponseBytes` (at most
+   `limits.maxNetworkResponseBytes`, then `truncated`). Shutdown aborts requests
+   in flight.
+9. **Audit.** Each hop is an ExecutionGuard operation with method, origin
+   (scheme, host, port), hop number and the checked addresses; paths, query
+   strings, headers and bodies are not recorded.
+
+**Scope and limits.**
+
+- `network.access` controls only requests made by CROT itself. It is **not an
+  OS-level firewall**: programs started through `shell.execute` or
+  `process.manage`, Git through the shell and Docker containers keep the
+  network access the operating system gives them; `network.access` neither
+  grants nor restricts it. Those paths are governed by their own capabilities;
+  note that `shell.execute` and `process.manage` are sandbox defaults, so a
+  sandbox that grants them can reach the network through child processes
+  exactly as before WP-13. Restricting that traffic needs OS-level egress
+  control (firewall rules per process, network namespaces, a filtering proxy
+  forced on child processes, Docker network policy) and is a separate work
+  package (§16, step 23).
+- The system DNS resolver is trusted to answer the lookup; CROT pins the
+  answer but cannot verify it. TLS protects `https` hosts against a hostile
+  resolver, `http` does not.
+- Response content is untrusted data and is returned to the agent as is.
+- The browser bridge (`browser.*`) navigates the user's browser, which has its
+  own network access; it is not governed by `network.access`.

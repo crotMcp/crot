@@ -39,13 +39,14 @@ export const CAPABILITY_DESCRIPTIONS: Readonly<Record<Capability, string>> = {
     "Read browser state through the CROT Browser Extension: bridge status, open tabs, page content and screenshots.",
   "browser.control":
     "Control the browser through the CROT Browser Extension: open, navigate, activate and close tabs; click and type on pages.",
-  "network.access": "Reserved: dedicated network operations.",
+  "network.access":
+    "Send HTTP(S) requests to hosts allowed by the network policy (permissions.network); deny by default. Loopback, private and link-local addresses need explicit IP/CIDR rules. Does not grant commands, processes or containers anything.",
 };
 
 /**
  * Capabilities that currently gate implemented operations. The rest are part of
  * the model so that policies and clients can already reason about them, but no
- * operation uses them yet.
+ * operation uses them yet (currently: none).
  */
 export const ENFORCED_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>([
   "filesystem.read",
@@ -58,4 +59,5 @@ export const ENFORCED_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   "docker.use",
   "browser.read",
   "browser.control",
+  "network.access",
 ]);

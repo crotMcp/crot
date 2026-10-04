@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CapabilitySchema } from "../permissions/capabilities.js";
+import { NetworkPolicyConfigSchema } from "../permissions/network/policy.js";
 import { PERMISSION_MODES } from "../permissions/policy.js";
 import { STARTUP_PATH_MODES } from "../platform/types.js";
 
@@ -33,6 +34,18 @@ export const LimitsSchema = z
       .default(1024 * 1024),
     /** Maximum number of concurrently running background processes. */
     maxBackgroundProcesses: z.number().int().positive().default(16),
+    /** Default timeout of a network request (DNS, connect, every redirect hop and the response body). */
+    defaultNetworkTimeoutMs: z.number().int().positive().default(30_000),
+    /** Upper bound a caller may request for a network request timeout. */
+    maxNetworkTimeoutMs: z.number().int().positive().default(120_000),
+    /** Maximum response body bytes returned by a network request (the rest is reported as truncated). */
+    maxNetworkResponseBytes: z
+      .number()
+      .int()
+      .positive()
+      .default(1024 * 1024),
+    /** Maximum redirects a network request follows. */
+    maxNetworkRedirects: z.number().int().min(0).max(20).default(5),
   })
   .strict();
 
@@ -138,9 +151,11 @@ export const CrotConfigSchema = z
         mode: z.enum(PERMISSION_MODES).default("sandbox"),
         /** Explicit capability set; omitted means the mode's defaults. */
         capabilities: z.array(CapabilitySchema).optional(),
+        /** Host policy of network.access; deny by default (ARCHITECTURE.md §27, AD-4). */
+        network: NetworkPolicyConfigSchema.default({ allow: [], deny: [] }),
       })
       .strict()
-      .default({ mode: "sandbox" }),
+      .default({ mode: "sandbox", network: { allow: [], deny: [] } }),
     limits: LimitsSchema.default(LimitsSchema.parse({})),
     audit: AuditConfigSchema.default({ sink: "stderr" }),
     environment: EnvironmentConfigSchema.default({ path: "auto" }),

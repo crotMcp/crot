@@ -7,6 +7,7 @@ import { DockerService } from "./capabilities/docker/service.js";
 import { FileSystemService } from "./capabilities/filesystem/service.js";
 import { GitMetadataLock } from "./capabilities/git/metadata-lock.js";
 import { GitService } from "./capabilities/git/service.js";
+import { NetworkService } from "./capabilities/network/service.js";
 import { ProcessService } from "./capabilities/process/service.js";
 import { parseConfig } from "./config/load.js";
 import { expandHome } from "./config/paths.js";
@@ -15,6 +16,7 @@ import { CrotError } from "./errors.js";
 import { ExecutionGuard } from "./execution/guard.js";
 import { CAPABILITIES, ENFORCED_CAPABILITIES, type Capability } from "./permissions/capabilities.js";
 import { PermissionEngine } from "./permissions/engine.js";
+import { NetworkPolicy, type NetworkPolicySummary } from "./permissions/network/policy.js";
 import { createPermissionPolicy, type PermissionMode } from "./permissions/policy.js";
 import { DEFAULT_AUDIT_FILE_NAME } from "./platform/directories.js";
 import { createNodePlatform } from "./platform/node-platform.js";
@@ -37,6 +39,8 @@ export interface CrotStatus {
   readonly protectedPaths: readonly string[];
   /** Browser bridge state (no browser data). */
   readonly browser: { readonly state: BrowserBridgeState };
+  /** Host policy of network.access (rules as configured). */
+  readonly network: NetworkPolicySummary;
 }
 
 export const CORE_VERSION = "0.1.0";
@@ -79,6 +83,7 @@ export class CrotCore {
     readonly git: GitService,
     readonly docker: DockerService,
     readonly browser: BrowserService,
+    readonly network: NetworkService,
     readonly platform: Platform,
     private readonly audit: AuditSink,
     private readonly auditProtection: PrivateFileStatus | undefined,
@@ -111,6 +116,8 @@ export class CrotCore {
         ? { mode: config.permissions.mode, capabilities: config.permissions.capabilities }
         : { mode: config.permissions.mode },
     );
+    // Validated before anything is opened: an invalid rule is a configuration error.
+    const networkPolicy = NetworkPolicy.create(config.permissions.network, config.permissions.mode);
     const audit = options.auditSink ?? createAuditSink(config.audit, platform.privateFiles);
     const auditFile =
       audit instanceof JsonlFileAuditSink ? audit.file : config.audit.sink === "file" ? config.audit.path : undefined;
@@ -123,7 +130,11 @@ export class CrotCore {
     const protectedPaths = [
       ...new Set(await Promise.all(guarded.map(async (p) => (await workspace.resolve(path.resolve(p))).absolute))),
     ];
-    const permissions = new PermissionEngine(policy, { protectedPaths, contains: (a, c) => workspace.contains(a, c) });
+    const permissions = new PermissionEngine(policy, {
+      protectedPaths,
+      contains: (a, c) => workspace.contains(a, c),
+      network: networkPolicy,
+    });
     const guard = new ExecutionGuard(permissions, audit, {
       onAuditError:
         options.onAuditError ?? ((e) => process.stderr.write(`crot: audit write failed: ${(e as Error).message}\n`)),
@@ -140,6 +151,7 @@ export class CrotCore {
       limits: config.limits,
       ...(options.browser ? { connection: options.browser } : {}),
     });
+    const network = new NetworkService({ guard, limits: config.limits });
     return new CrotCore(
       config,
       workspace,
@@ -150,6 +162,7 @@ export class CrotCore {
       git,
       docker,
       browser,
+      network,
       platform,
       audit,
       auditProtection,
@@ -158,7 +171,7 @@ export class CrotCore {
 
   /**
    * Release resources, in order: stop accepting browser operations and cancel
-   * those waiting for the browser; stop accepting commands and terminate every
+   * those waiting for the browser; abort network requests in flight; stop accepting commands and terminate every
    * process tree CROT started (including running Git and Docker commands); wait for
    * operations in flight to write their audit records; flush and close the
    * audit sink. Idempotent.
@@ -168,6 +181,7 @@ export class CrotCore {
   shutdown(): Promise<void> {
     this.shuttingDown ??= (async () => {
       this.browser.shutdown();
+      this.network.shutdown();
       await this.processes.shutdown();
       await this.git.shutdown();
       await this.docker.shutdown();
@@ -207,6 +221,7 @@ export class CrotCore {
       platform: this.platform.info,
       protectedPaths: this.permissions.protected,
       browser: { state: this.browser.state() },
+      network: this.permissions.network.summary(),
     };
   }
 }

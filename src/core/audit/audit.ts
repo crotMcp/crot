@@ -17,6 +17,13 @@ export interface AuditEvent {
   readonly requestId?: string;
   /** Absolute paths touched by the operation. */
   readonly paths: readonly string[];
+  /** Network destinations (scheme, host, port, addresses used), for network.access operations. */
+  readonly network?: readonly {
+    readonly scheme: string;
+    readonly host: string;
+    readonly port: number;
+    readonly addresses?: readonly string[];
+  }[];
   readonly outcome: "success" | "error" | "denied";
   readonly durationMs: number;
   readonly error?: { readonly code: string; readonly message: string };

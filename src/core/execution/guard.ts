@@ -4,6 +4,7 @@ import type { AuthContext } from "../auth/principal.js";
 import { CrotError, PermissionDeniedError } from "../errors.js";
 import type { Capability } from "../permissions/capabilities.js";
 import type { PermissionEngine } from "../permissions/engine.js";
+import type { NetworkTarget } from "../permissions/network/policy.js";
 import type { ResolvedPath } from "../workspace/workspace.js";
 
 /** Description of one Core operation, used for authorization and auditing. */
@@ -14,6 +15,8 @@ export interface OperationDescriptor {
   readonly capability: Capability | readonly Capability[];
   /** Every path the operation touches (targets, working directories). */
   readonly paths?: readonly ResolvedPath[];
+  /** Every network destination the operation contacts (network.access only). */
+  readonly network?: readonly NetworkTarget[];
   /** Audit-safe summary of the operation. Never include file contents, output or secrets. */
   readonly details?: Readonly<Record<string, unknown>>;
 }
@@ -79,6 +82,7 @@ export class ExecutionGuard {
       principal: context.principal,
       ...(context.requestId !== undefined ? { requestId: context.requestId } : {}),
       paths: (op.paths ?? []).map((p) => p.absolute),
+      ...(op.network !== undefined && op.network.length > 0 ? { network: op.network.map(auditTarget) } : {}),
       ...(op.details !== undefined ? { details: op.details } : {}),
     };
     const record = (outcome: "success" | "error" | "denied", error?: unknown) =>
@@ -92,7 +96,12 @@ export class ExecutionGuard {
       });
 
     for (const capability of capabilities) {
-      const decision = this.engine.authorize({ context, capability, paths: op.paths ?? [] });
+      const decision = this.engine.authorize({
+        context,
+        capability,
+        paths: op.paths ?? [],
+        ...(op.network !== undefined ? { network: op.network } : {}),
+      });
       if (!decision.allowed) {
         const denied = new PermissionDeniedError(decision.reason, {
           operation: op.operation,
@@ -119,6 +128,16 @@ export class ExecutionGuard {
       this.options.onAuditError?.(error);
     }
   }
+}
+
+/** Destination as recorded in the audit log: no path, query, headers or body. */
+function auditTarget(t: NetworkTarget): { scheme: string; host: string; port: number; addresses?: string[] } {
+  return {
+    scheme: t.scheme,
+    host: t.host,
+    port: t.port,
+    ...(t.addresses !== undefined ? { addresses: t.addresses.map((a) => a.text) } : {}),
+  };
 }
 
 function summarizeError(error: unknown): { code: string; message: string } {

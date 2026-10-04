@@ -29,8 +29,10 @@ steps 10–11 and step 21 — Git read and write):
 - CROT Browser Extension for Chromium browsers (Chrome, Edge, Brave): browser
   tools gated by `browser.read` / `browser.control` (see
   [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md))
+- HTTP(S) requests made by CROT itself, gated by `network.access` and a host
+  allow/deny policy (see [Network access](#network-access))
 
-Not yet implemented: Docker operations beyond `docker.use` (build, pull, push, run, exec), Git network operations (fetch, pull, push), remote (non-loopback)
+Not yet implemented: Docker operations beyond `docker.use` (build, pull, push, run, exec), Git network operations (fetch, pull, push), OS-level network egress control for processes and containers, remote (non-loopback)
 exposure and MCP authorization (OAuth/OIDC), installer, account/licensing layer.
 Firefox is not supported.
 
@@ -114,11 +116,17 @@ directory (CROT warns when a relative path is resolved).
 | `workspace.name` | directory name | Display name |
 | `permissions.mode` | `sandbox` | `sandbox` or `full_control` |
 | `permissions.capabilities` | mode defaults | Explicit capability set |
+| `permissions.network.allow` | `[]` | Hosts `network_request` may reach (see [Network access](#network-access)) |
+| `permissions.network.deny` | `[]` | Hosts that are always refused; deny wins over allow |
 | `limits.maxReadBytes` | 10 MiB | Maximum bytes per file read |
 | `limits.defaultCommandTimeoutMs` | 120 000 | Foreground command timeout (also Git commands) |
 | `limits.maxCommandTimeoutMs` | 3 600 000 | Maximum timeout a caller may request |
 | `limits.maxOutputBytes` | 1 MiB | Output kept per stream (most recent bytes); Git output beyond it is reported as `truncated` |
 | `limits.maxBackgroundProcesses` | 16 | Concurrently running background processes |
+| `limits.defaultNetworkTimeoutMs` | 30 000 | `network_request` timeout (DNS, connection, redirects and body) |
+| `limits.maxNetworkTimeoutMs` | 120 000 | Maximum network timeout a caller may request |
+| `limits.maxNetworkResponseBytes` | 1 MiB | Maximum response body kept; the rest is reported as `truncated` |
+| `limits.maxNetworkRedirects` | 5 | Redirects followed per request (0–20) |
 | `audit.sink` | `stderr` | `file`, `stderr` or `none` |
 | `audit.path` | `<logs>/audit.jsonl` | Audit file for the `file` sink (see [Default locations](#default-locations)) |
 | `environment.path` | `auto` | `PATH` for commands: `auto`, `login-shell` or `inherited` (see [Startup PATH](#startup-path)) |
@@ -238,6 +246,8 @@ Rules:
 1. The operation's capability must be granted.
 2. Any path or working directory outside the workspace also requires
    `filesystem.full`, which cannot be granted in sandbox mode.
+3. A network destination is authorized only under `network.access` and only
+   when the host policy `permissions.network` allows it.
 
 | Mode | Default capabilities | Scope |
 | --- | --- | --- |
@@ -246,11 +256,10 @@ Rules:
 
 The rules are the same for every transport and principal.
 
-Enforced capabilities today: `filesystem.read`, `filesystem.write`,
-`filesystem.full`, `shell.execute`, `process.manage`, `git.read`, `git.write`,
-`docker.use`, `browser.read`, `browser.control`. `network.access` is part of
-the model and reported by `crot_status`, and will gate dedicated operations
-when those are added.
+Enforced capabilities today: all of them — `filesystem.read`,
+`filesystem.write`, `filesystem.full`, `shell.execute`, `process.manage`,
+`git.read`, `git.write`, `docker.use`, `browser.read`, `browser.control`,
+`network.access`.
 
 **Browser capabilities.** The sandbox defaults do not include `browser.*`;
 `full_control` grants them. An explicit `capabilities` list replaces the mode
@@ -401,6 +410,54 @@ the sandbox defaults; grant it explicitly or use `full_control`.
   does with the allowed mounts and networks. Container labels can be set by
   anyone who creates a container. `shell.execute` remains a broader path to
   Docker.
+
+## Network access
+
+`network_request` sends one HTTP(S) request made by CROT itself. It requires
+`network.access` (not a sandbox default; granted by `full_control`) **and** an
+allow rule; with the default empty policy every request is refused, also in
+`full_control`. Details: ARCHITECTURE.md §27, AD-4.
+
+```json
+"permissions": {
+  "mode": "sandbox",
+  "capabilities": ["filesystem.read", "filesystem.write", "shell.execute", "process.manage", "git.read", "git.write", "network.access"],
+  "network": {
+    "allow": ["api.example.com", "*.example.org", "127.0.0.1:3000"],
+    "deny": ["admin.example.com"]
+  }
+}
+```
+
+- **Rules**: `host`, `*.host` (subdomains only), an IP address, a CIDR range
+  (`10.1.2.0/24`, `[fd00::/48]:8080`) or `*`, optionally with `:port` or `:*`.
+  Allow rules without a port allow 80 and 443; deny rules without a port deny
+  every port. Deny wins. Invalid rules stop CROT with a configuration error. In
+  sandbox mode `*`, single-label wildcards (`*.com`) and ranges wider than `/8`
+  (IPv4) or `/32` (IPv6) are refused.
+- **Addresses**: numeric forms (`2130706433`, `0x7f.1`, `[::ffff:127.0.0.1]`)
+  are normalized before the check. Loopback, private, link-local (including
+  cloud metadata addresses), multicast, reserved and similar addresses are
+  reachable only through an explicit IP/CIDR allow rule, never through a host
+  name rule or `*`.
+- **DNS**: the host is checked before it is resolved; every resolved address is
+  checked, and the connection uses only those addresses, so a DNS answer that
+  changes afterwards (DNS rebinding) has no effect. `localhost` always means
+  loopback.
+- **Redirects** are followed manually (`limits.maxNetworkRedirects`); every hop
+  is checked again; `https` never redirects to `http`; `Authorization` and
+  `Cookie` are dropped across origins.
+- **No proxy**: `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` are ignored; URLs with
+  credentials and headers such as `Host`, `Transfer-Encoding` or
+  `Proxy-Authorization` are refused. TLS certificates are verified.
+- **Limits**: an overall timeout, 1 MiB request bodies, bounded responses.
+  The audit log records method, origin and checked addresses, never paths,
+  query strings, headers or bodies.
+- **Not a firewall.** `network.access` governs only CROT's own requests.
+  Programs started with `shell.execute`/`process.manage` and Docker containers
+  keep the network access the operating system gives them; `network.access`
+  neither grants nor removes it. Restricting their traffic needs OS-level egress
+  control, which is not implemented.
 
 ## Platform support
 
@@ -575,8 +632,9 @@ its limitations). Not yet implemented:
   contain file contents, command output, stdin, environment values or credentials.
   Browser operations record only URL origins, tab ids, truncated selectors and
   typed text length — never page content, screenshots, typed text or full URLs.
-- No telemetry and no network communication: CROT itself makes no outbound
-  connections. The stdio server communicates only with the client that launched
+- No telemetry and no hidden network communication: CROT makes outbound
+  connections only for `network_request`, which needs `network.access` and an
+  allow rule (none by default). The stdio server communicates only with the client that launched
   it; the HTTP server listens on loopback only and requires authentication.
   The browser bridge uses local IPC only (Unix socket or named pipe,
   token-authenticated); browser tools do make the browser load the pages the
@@ -595,6 +653,7 @@ its limitations). Not yet implemented:
 | `git_status`, `git_diff`, `git_log`, `git_branch`, `git_show` | `git.read` |
 | `git_add`, `git_commit`, `git_branch_create`, `git_branch_rename`, `git_branch_delete`, `git_checkout` | `git.write` |
 | `docker_ps`, `docker_logs`, `docker_compose_up`, `docker_compose_down` | `docker.use` |
+| `network_request` | `network.access` + `permissions.network` allow rule |
 | `browser_status`, `browser_tabs_list`, `browser_page_read`, `browser_screenshot` | `browser.read` |
 | `browser_tab_open`, `browser_navigate`, `browser_tab_activate`, `browser_tab_close`, `browser_click`, `browser_type` | `browser.control` |
 
@@ -609,7 +668,7 @@ set is identical on stdio and HTTP. Browser tools need a connected extension
 src/
   core/                    CROT Core (no dependency on any adapter or client)
     auth/                  Principal / AuthContext
-    permissions/           capabilities, policies, PermissionEngine
+    permissions/           capabilities, policies, PermissionEngine; network/ host policy and IP classification
     workspace/             workspace boundary and path resolution
     config/                configuration schema and loading
     execution/             ExecutionGuard (authorize → execute → audit)
@@ -622,6 +681,7 @@ src/
       git/                 GitService (git.read, git.write), repository discovery, configuration policy,
                            output parsers, Git metadata lock, input schemas
       browser/             BrowserService, input/result schemas, BrowserConnection
+      network/             NetworkService (network.access): pinned DNS, manual redirects, input schemas
     crot-core.ts           composition root
   adapters/mcp/            CROT MCP: tool catalogue, server, request → AuthContext
   adapters/http/           Streamable HTTP transport: request pipeline, sessions,
