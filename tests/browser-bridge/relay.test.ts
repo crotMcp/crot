@@ -226,8 +226,16 @@ describe("crot-browser-relay with the BrowserBridge", () => {
     const { bridge, dir, token, logs: bridgeLogs } = await startBridge();
     const { browser, exit, logs } = startRelay(dir);
     browser.send(HELLO);
-    expect(await browser.next()).toEqual({ type: "welcome", protocol: BRIDGE_PROTOCOL_VERSION });
-    expect(bridge.state()).toEqual({ kind: "connected", browser: BROWSER });
+    expect(await browser.next()).toEqual({
+      type: "welcome",
+      protocol: BRIDGE_PROTOCOL_VERSION,
+      connectionId: expect.stringMatching(/^[0-9a-f]{32}$/),
+    });
+    expect(bridge.state()).toEqual({
+      kind: "connected",
+      browser: BROWSER,
+      connectionId: expect.stringMatching(/^[0-9a-f]{32}$/),
+    });
 
     const pending = bridge.request("tabs.close", { tabId: 7 }, options());
     const request = await browser.nextRequest();
@@ -254,7 +262,11 @@ describe("crot-browser-relay with the BrowserBridge", () => {
     cleanups.push(() => restarted.close());
     const second = startRelay(dir);
     second.browser.send(HELLO);
-    expect(await second.browser.next()).toEqual({ type: "welcome", protocol: BRIDGE_PROTOCOL_VERSION });
+    expect(await second.browser.next()).toEqual({
+      type: "welcome",
+      protocol: BRIDGE_PROTOCOL_VERSION,
+      connectionId: expect.stringMatching(/^[0-9a-f]{32}$/),
+    });
     expect(restarted.state().kind).toBe("connected");
   });
 

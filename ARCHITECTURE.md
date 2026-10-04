@@ -652,7 +652,9 @@ Target model:
 
 ## 21. User Confirmations
 
-**[Target]** — not implemented.
+**[Partial]** — the mechanism (approval gates) is implemented in Core (WP-15);
+no approval provider (UI) exists yet, so with gate rules configured the gated
+operations are denied. The tray app provider is **[Target]**.
 
 CROT can require explicit user approval before a sensitive operation.
 
@@ -675,8 +677,10 @@ lifecycle, queue, provider interface, audit, threat model) is designed in
 `docs/design/approval-gates.md` (WP-14) and decided in §27 AD-5, AD-6
 (browser tab/origin binding) and AD-7 (audit failure). AD-8 (`tabs.resolve`),
 AD-9 (browser `connectionId`), AD-10 (`permissions.approvals` location and
-defaults) and AD-11 (expected browser subject check) complete the contract for the implementation (WP-15); it is not
-implemented yet.
+defaults) and AD-11 (expected browser subject check) complete the contract.
+WP-15 implements it: `src/core/approvals/` (broker, rules, subject digest),
+the gated path of `ExecutionGuard`, `permissions.approvals`, `tabs.resolve`,
+the bridge `connectionId` and the extension's expected browser subject check.
 
 ## 22. Remote Mode and CROT Cloud Relay
 

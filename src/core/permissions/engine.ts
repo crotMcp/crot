@@ -1,3 +1,5 @@
+import { DEFAULT_APPROVAL_TIMEOUT_MS, ruleMatches, validateApprovalRules } from "../approvals/rules.js";
+import type { ApprovalRequirement, ApprovalRule } from "../approvals/types.js";
 import type { AuthContext } from "../auth/principal.js";
 import type { ResolvedPath } from "../workspace/workspace.js";
 import type { Capability } from "./capabilities.js";
@@ -34,6 +36,18 @@ export interface PermissionEngineOptions {
   readonly contains?: (ancestor: string, candidate: string) => boolean;
   /** Host policy of network.access. Defaults to a policy that refuses every destination. */
   readonly network?: NetworkPolicy;
+  /**
+   * Approval gate rules (permissions.approvals). Validated against the policy
+   * here; an invalid rule is a CONFIG_ERROR. No rules: nothing is gated.
+   */
+  readonly approvals?: { readonly rules: readonly ApprovalRule[]; readonly timeoutMs?: number };
+}
+
+/** The facts approvalRequirement() evaluates (a subset of an OperationDescriptor). */
+export interface ApprovalRequirementRequest {
+  readonly operation: string;
+  readonly capabilities: readonly Capability[];
+  readonly paths?: readonly ResolvedPath[];
 }
 
 /**
@@ -62,6 +76,8 @@ export class PermissionEngine {
   private readonly protectedPaths: readonly string[];
   private readonly contains: (ancestor: string, candidate: string) => boolean;
   private readonly networkPolicy: NetworkPolicy;
+  private readonly approvalRules: readonly ApprovalRule[];
+  private readonly approvalTimeoutMs: number;
 
   constructor(
     private readonly policy: PermissionPolicy,
@@ -70,6 +86,32 @@ export class PermissionEngine {
     this.protectedPaths = options.protectedPaths ?? [];
     this.contains = options.contains ?? ((a, c) => a === c || c.startsWith(a.endsWith("/") ? a : `${a}/`));
     this.networkPolicy = options.network ?? NetworkPolicy.denyAll();
+    const rules = options.approvals?.rules ?? [];
+    validateApprovalRules(rules, policy);
+    this.approvalRules = Object.freeze(rules.map((r) => Object.freeze({ ...r, match: Object.freeze({ ...r.match }) })));
+    this.approvalTimeoutMs = options.approvals?.timeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
+  }
+
+  /** Configured gate rules (immutable). */
+  get approvals(): { readonly rules: readonly ApprovalRule[]; readonly timeoutMs: number } {
+    return { rules: this.approvalRules, timeoutMs: this.approvalTimeoutMs };
+  }
+
+  /**
+   * Whether an operation that authorize() allowed needs the user's approval
+   * (docs/design/approval-gates.md §5). Pure; the first matching rule wins.
+   * It can only add a gate, never allow anything authorize() denied.
+   */
+  approvalRequirement(context: AuthContext, request: ApprovalRequirementRequest): ApprovalRequirement {
+    const facts = {
+      context,
+      operation: request.operation,
+      capabilities: request.capabilities,
+      paths: request.paths ?? [],
+      mode: this.policy.mode,
+    };
+    const rule = this.approvalRules.find((r) => ruleMatches(r, facts));
+    return rule ? { required: true, rule: rule.id, timeoutMs: this.approvalTimeoutMs } : { required: false };
   }
 
   /** The host policy of network.access. */

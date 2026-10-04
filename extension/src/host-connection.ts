@@ -57,6 +57,8 @@ const utf8 = new TextEncoder();
 export class HostConnection {
   private port: ChromePort | undefined;
   private connected = false;
+  /** Connection id the host assigned in `welcome` (AD-9); checked by gated commands (AD-11). */
+  private connectionId: string | undefined;
   private reassembler = new ChunkReassembler();
   private readonly inFlight = new Set<string>();
   private failures = 0;
@@ -101,6 +103,7 @@ export class HostConnection {
     }
     this.port = port;
     this.connected = false;
+    this.connectionId = undefined;
     this.reassembler = new ChunkReassembler();
     this.inFlight.clear();
     port.onMessage.addListener((message) => this.receive(port, message));
@@ -134,6 +137,7 @@ export class HostConnection {
       clearTimeout(this.welcomeTimer);
       this.welcomeTimer = undefined;
       this.connected = true;
+      this.connectionId = message.connectionId;
       this.failures = 0;
       this.log("connected to the CROT Host");
       return;
@@ -148,7 +152,9 @@ export class HostConnection {
   private async execute(port: ChromePort, request: HostRequest): Promise<void> {
     let response: BrowserResponse;
     try {
-      const result = await this.options.handlers[request.command](request.params);
+      // The id is read when a command checks it, right before acting: a dropped port has none.
+      const context = { connectionId: () => (this.port === port && this.connected ? this.connectionId : undefined) };
+      const result = await this.options.handlers[request.command](request.params, context);
       response = { type: "response", id: request.id, ok: true, result };
     } catch (error) {
       response = { type: "response", id: request.id, ok: false, error: toWireError(error) };
@@ -185,6 +191,7 @@ export class HostConnection {
     this.welcomeTimer = undefined;
     this.port = undefined;
     this.connected = false;
+    this.connectionId = undefined;
     this.inFlight.clear();
     this.log(
       (wasConnected ? "disconnected from the CROT Host: " : "could not connect to the CROT Host: ") +

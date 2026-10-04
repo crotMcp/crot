@@ -1,4 +1,6 @@
 import path from "node:path";
+import { ApprovalBroker } from "./approvals/broker.js";
+import type { ApprovalProvider, ApprovalRuleId } from "./approvals/types.js";
 import { JsonlFileAuditSink, NullAuditSink, StreamAuditSink, type AuditSink } from "./audit/audit.js";
 import type { BrowserConnection } from "./capabilities/browser/connection.js";
 import type { BrowserBridgeState } from "./capabilities/browser/schemas.js";
@@ -41,6 +43,14 @@ export interface CrotStatus {
   readonly browser: { readonly state: BrowserBridgeState };
   /** Host policy of network.access (rules as configured). */
   readonly network: NetworkPolicySummary;
+  /** Approval gates: configured rules and whether an approval UI is registered (never pending requests). */
+  readonly approvals: {
+    readonly rules: readonly ApprovalRuleId[];
+    readonly timeoutMs: number;
+    readonly maxPending: number;
+    readonly providers: number;
+    readonly note?: string;
+  };
 }
 
 export const CORE_VERSION = "0.1.0";
@@ -63,6 +73,13 @@ export interface CrotCoreOptions {
    * through it; the bridge cannot call into Core.
    */
   readonly browser?: BrowserConnection;
+  /**
+   * Approval providers: UIs that ask the local user to approve gated
+   * operations (the tray app). Registered only here; no adapter, browser
+   * bridge or tool can reach the approval broker. Without a provider every
+   * operation matched by a permissions.approvals rule is denied.
+   */
+  readonly approvalProviders?: readonly ApprovalProvider[];
 }
 
 /**
@@ -85,6 +102,7 @@ export class CrotCore {
     readonly browser: BrowserService,
     readonly network: NetworkService,
     readonly platform: Platform,
+    private readonly approvalBroker: ApprovalBroker,
     private readonly audit: AuditSink,
     private readonly auditProtection: PrivateFileStatus | undefined,
   ) {}
@@ -134,8 +152,17 @@ export class CrotCore {
       protectedPaths,
       contains: (a, c) => workspace.contains(a, c),
       network: networkPolicy,
+      approvals: { rules: config.permissions.approvals.rules, timeoutMs: config.permissions.approvals.timeoutMs },
     });
+    const approvalBroker = new ApprovalBroker({ maxPending: config.permissions.approvals.maxPending });
+    for (const provider of options.approvalProviders ?? []) approvalBroker.register(provider);
     const guard = new ExecutionGuard(permissions, audit, {
+      approvals: approvalBroker,
+      // Step 4 of a gated operation: every path must still resolve to the same place.
+      revalidatePath: async (p) => {
+        const again = await workspace.resolve(p.absolute, { followFinalSymlink: false });
+        return again.absolute === p.absolute && again.insideWorkspace === p.insideWorkspace;
+      },
       onAuditError:
         options.onAuditError ?? ((e) => process.stderr.write(`crot: audit write failed: ${(e as Error).message}\n`)),
     });
@@ -164,13 +191,15 @@ export class CrotCore {
       browser,
       network,
       platform,
+      approvalBroker,
       audit,
       auditProtection,
     );
   }
 
   /**
-   * Release resources, in order: stop accepting browser operations and cancel
+   * Release resources, in order: cancel every pending approval request (so
+   * none uses up the drain window and none can be approved afterwards); stop accepting browser operations and cancel
    * those waiting for the browser; abort network requests in flight; stop accepting commands and terminate every
    * process tree CROT started (including running Git and Docker commands); wait for
    * operations in flight to write their audit records; flush and close the
@@ -180,6 +209,7 @@ export class CrotCore {
    */
   shutdown(): Promise<void> {
     this.shuttingDown ??= (async () => {
+      this.approvalBroker.cancelAll("shutdown");
       this.browser.shutdown();
       this.network.shutdown();
       await this.processes.shutdown();
@@ -222,6 +252,23 @@ export class CrotCore {
       protectedPaths: this.permissions.protected,
       browser: { state: this.browser.state() },
       network: this.permissions.network.summary(),
+      approvals: this.approvalStatus(),
+    };
+  }
+
+  private approvalStatus(): CrotStatus["approvals"] {
+    const { rules, timeoutMs } = this.permissions.approvals;
+    const providers = this.approvalBroker.providerCount;
+    return {
+      rules: rules.map((r) => r.id),
+      timeoutMs,
+      maxPending: this.config.permissions.approvals.maxPending,
+      providers,
+      ...(rules.length > 0 && providers === 0
+        ? {
+            note: "Approval rules are configured but no approval UI is registered: operations matched by them are denied.",
+          }
+        : {}),
     };
   }
 }

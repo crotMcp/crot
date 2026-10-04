@@ -21,7 +21,10 @@ export interface CrotMcpServerOptions {
   readonly resolveContext: ContextResolver;
 }
 
-type CallExtra = Pick<RequestHandlerExtra<ServerRequest, ServerNotification>, "requestId" | "sessionId" | "authInfo">;
+type CallExtra = Pick<
+  RequestHandlerExtra<ServerRequest, ServerNotification>,
+  "requestId" | "sessionId" | "authInfo" | "signal"
+>;
 
 /**
  * Create the CROT MCP server: a thin, transport-independent adapter that
@@ -39,12 +42,14 @@ export function createCrotMcpServer(core: CrotCore, options: CrotMcpServerOption
   async function run(definition: ToolDefinition, args: unknown, extra: CallExtra): Promise<CallToolResult> {
     try {
       const clientInfo = server.server.getClientVersion();
-      const context = options.resolveContext({
+      const resolved = options.resolveContext({
         requestId: String(extra.requestId),
         ...(extra.sessionId !== undefined ? { sessionId: extra.sessionId } : {}),
         ...(extra.authInfo !== undefined ? { authInfo: extra.authInfo } : {}),
         ...(clientInfo ? { client: { name: clientInfo.name, version: clientInfo.version } } : {}),
       });
+      // Cancellation (notifications/cancelled, closed transport) cancels a pending approval request.
+      const context = extra.signal !== undefined ? { ...resolved, signal: extra.signal } : resolved;
       const input = parseInput(definition.inputSchema, args);
       const result = await definition.call(core, context, input);
       return definition.encode ? definition.encode(result) : toToolResult(result);

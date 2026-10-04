@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, open } from "node:fs/promises";
 import path from "node:path";
+import type { AuditApproval } from "../approvals/types.js";
 import type { Principal } from "../auth/principal.js";
 import type { Capability } from "../permissions/capabilities.js";
 
@@ -29,11 +30,38 @@ export interface AuditEvent {
   readonly error?: { readonly code: string; readonly message: string };
   /** Audit-safe operation summary (e.g. command line, flags). */
   readonly details?: Readonly<Record<string, unknown>>;
+  /**
+   * Present when an approval gate rule matched the operation (AD-5, AD-7):
+   * request id, terminal status, rule, subject digest and timing. Never the
+   * approval subject itself.
+   */
+  readonly approval?: AuditApproval;
 }
+
+/**
+ * Mandatory approval audit record (ARCHITECTURE.md §27, AD-7): written after
+ * an approval and the re-authorization, before the operation is executed. If
+ * it cannot be written, the operation is refused.
+ *
+ * It records that the operation was approved and authorized; it does **not**
+ * state that the operation ran or succeeded (it has no `outcome`). The
+ * execution result is only in the operation's event written afterwards with
+ * the same `approval.requestId`; a record without that event means the result
+ * is unknown.
+ */
+export interface ApprovalAuditRecord extends Omit<AuditEvent, "outcome" | "error" | "approval"> {
+  readonly kind: "approval";
+  readonly outcome?: undefined;
+  readonly error?: undefined;
+  readonly approval: AuditApproval;
+}
+
+/** Everything an audit sink receives. */
+export type AuditRecord = AuditEvent | ApprovalAuditRecord;
 
 /** Destination for audit events. Implementations must not transmit data off the machine. */
 export interface AuditSink {
-  record(event: AuditEvent): Promise<void>;
+  record(event: AuditRecord): Promise<void>;
   close?(): Promise<void>;
 }
 
@@ -47,8 +75,8 @@ export class NullAuditSink implements AuditSink {
 
 /** In-memory sink, useful for tests and embedding. */
 export class MemoryAuditSink implements AuditSink {
-  readonly events: AuditEvent[] = [];
-  async record(event: AuditEvent): Promise<void> {
+  readonly events: AuditRecord[] = [];
+  async record(event: AuditRecord): Promise<void> {
     this.events.push(event);
   }
 }
@@ -59,7 +87,7 @@ export class StreamAuditSink implements AuditSink {
     private readonly stream: NodeJS.WritableStream,
     private readonly flushTimeoutMs = 2_000,
   ) {}
-  async record(event: AuditEvent): Promise<void> {
+  async record(event: AuditRecord): Promise<void> {
     this.stream.write(`${JSON.stringify({ type: "crot.audit", ...event })}\n`);
   }
 
@@ -115,7 +143,7 @@ export class JsonlFileAuditSink implements AuditSink {
     private readonly protection: AuditFileProtection = POSIX_PRIVATE,
   ) {}
 
-  record(event: AuditEvent): Promise<void> {
+  record(event: AuditRecord): Promise<void> {
     this.ready ??= this.prepare();
     const options = this.protection.fileMode !== undefined ? { mode: this.protection.fileMode } : {};
     const write = this.queue

@@ -1,4 +1,15 @@
-import type { AuditSink } from "../audit/audit.js";
+import type { ApprovalBroker } from "../approvals/broker.js";
+import { newApprovalRequestId, normalizedHttpOrigin, subjectDigest } from "../approvals/subject.js";
+import type {
+  ApprovalBinding,
+  ApprovalEffect,
+  ApprovalOutcome,
+  ApprovalSubject,
+  ApprovalSubjectInput,
+  AuditApproval,
+  TerminalApprovalStatus,
+} from "../approvals/types.js";
+import type { AuditEvent, AuditSink } from "../audit/audit.js";
 import { newAuditEventId } from "../audit/audit.js";
 import type { AuthContext } from "../auth/principal.js";
 import { CrotError, PermissionDeniedError } from "../errors.js";
@@ -19,11 +30,42 @@ export interface OperationDescriptor {
   readonly network?: readonly NetworkTarget[];
   /** Audit-safe summary of the operation. Never include file contents, output or secrets. */
   readonly details?: Readonly<Record<string, unknown>>;
+  /**
+   * Input for the approval subject, used only when a gate rule matches. There
+   * is deliberately no opt-out: whether an operation is gated is decided by
+   * the PermissionEngine policy, never by the service.
+   */
+  readonly approval?: ApprovalSubjectInput;
 }
 
 export interface ExecutionGuardOptions {
-  /** Called when the audit sink fails; the operation itself is not affected. */
+  /**
+   * Called when the audit sink fails. For operations without an approval gate
+   * the operation is not affected; for gated operations a failed mandatory
+   * approval record refuses the operation (AD-7).
+   */
   readonly onAuditError?: (error: unknown) => void;
+  /** Approval broker. Without one, every gated operation is denied (no provider). */
+  readonly approvals?: ApprovalBroker;
+  /**
+   * Re-resolves one path of an approved operation; false when it no longer
+   * resolves to the same place (e.g. an ancestor was swapped for a symlink
+   * while the request was pending). Used in step 4 for every path.
+   */
+  readonly revalidatePath?: (path: ResolvedPath) => Promise<boolean>;
+}
+
+/**
+ * Thrown by a capability service from inside execute() when the binding of an
+ * approved operation no longer holds (browser: tab, origin or connection
+ * changed; AD-6, AD-11). The action was not performed. The guard audits the
+ * operation as denied and reports PERMISSION_DENIED with the approval details.
+ */
+export class ApprovalBindingError extends PermissionDeniedError {
+  constructor(message: string) {
+    super(message);
+    this.name = "ApprovalBindingError";
+  }
 }
 
 /**
@@ -85,7 +127,7 @@ export class ExecutionGuard {
       ...(op.network !== undefined && op.network.length > 0 ? { network: op.network.map(auditTarget) } : {}),
       ...(op.details !== undefined ? { details: op.details } : {}),
     };
-    const record = (outcome: "success" | "error" | "denied", error?: unknown) =>
+    const record = (outcome: AuditEvent["outcome"], error?: unknown, approval?: AuditApproval) =>
       this.record({
         id: newAuditEventId(),
         timestamp: new Date(started).toISOString(),
@@ -93,8 +135,146 @@ export class ExecutionGuard {
         outcome,
         durationMs: Date.now() - started,
         ...(error !== undefined ? { error: summarizeError(error) } : {}),
+        ...(approval !== undefined ? { approval } : {}),
       });
 
+    const denial = this.authorizeAll(context, op, capabilities);
+    if (denial) {
+      await record("denied", denial);
+      throw denial;
+    }
+
+    const requirement = this.engine.approvalRequirement(context, {
+      operation: op.operation,
+      capabilities,
+      ...(op.paths !== undefined ? { paths: op.paths } : {}),
+    });
+    if (!requirement.required) {
+      try {
+        const result = await execute();
+        await record("success");
+        return result;
+      } catch (error) {
+        await record("error", error);
+        throw error;
+      }
+    }
+
+    // ---- approval gate (docs/design/approval-gates.md §4): it can only narrow.
+    const deny = async (approval: AuditApproval, message: string): Promise<never> => {
+      const denied = new PermissionDeniedError(message, {
+        operation: op.operation,
+        missing: [],
+        approval: { requestId: approval.requestId, status: approval.status },
+      });
+      await record("denied", denied, approval);
+      throw denied;
+    };
+
+    let subject = this.subject(context, op, capabilities, requirement.rule);
+    const broker = this.options.approvals;
+    const unavailable = broker ? broker.unavailableReason() : "no_provider";
+    if (unavailable === undefined && op.approval?.bind) {
+      let binding: ApprovalBinding;
+      try {
+        binding = checkBinding(await op.approval.bind());
+      } catch (error) {
+        // AD-8: the target could not be determined -> no request, denied.
+        const now = new Date().toISOString();
+        return deny(
+          {
+            requestId: newApprovalRequestId(),
+            status: "unavailable",
+            rule: requirement.rule,
+            subjectDigest: subjectDigest(subject),
+            requestedAt: now,
+            resolvedAt: now,
+            waitMs: 0,
+          },
+          `Approval is required for ${op.operation}, but its target could not be determined ` +
+            `(${summarizeError(error).message}); no approval was requested and the operation was denied.`,
+        );
+      }
+      subject = {
+        ...subject,
+        effects: [...subject.effects, ...(binding.effects ?? [])],
+        ...(binding.browser ? { browser: binding.browser } : {}),
+      };
+    }
+
+    const outcome: ApprovalOutcome = broker
+      ? await broker.request(subject, requirement.timeoutMs, context.signal)
+      : syntheticUnavailable(subject);
+    const approval = auditApproval(outcome, requirement.rule);
+    if (outcome.status !== "approved") return deny(approval, notApprovedMessage(op.operation, outcome));
+
+    // Step 4: re-authorize and revalidate; nothing the approval saw may have changed.
+    const changed = async (reason: string, message: string): Promise<never> =>
+      deny({ ...approval, reauthorization: reason }, message);
+    const again = this.authorizeAll(context, op, capabilities);
+    if (again) return changed(again.message, `Approved, but no longer authorized: ${again.message}`);
+    let valid: boolean;
+    try {
+      valid = true;
+      const revalidatePath = this.options.revalidatePath;
+      if (revalidatePath) {
+        for (const p of op.paths ?? []) if (!(await revalidatePath(p))) valid = false;
+      }
+      if (valid && op.approval?.revalidate) valid = await op.approval.revalidate();
+    } catch {
+      valid = false;
+    }
+    if (!valid)
+      return changed(
+        "revalidation failed: the target changed while waiting for approval",
+        `Approved, but the target of ${op.operation} changed while waiting for approval; the operation was denied.`,
+      );
+    if (context.signal?.aborted)
+      return changed(
+        "the caller cancelled the request",
+        `Approved, but the caller cancelled ${op.operation}; it was not executed.`,
+      );
+
+    // Step 4a (AD-7): the mandatory approval record; without it the approval is not completed.
+    try {
+      await this.audit.record({
+        kind: "approval",
+        id: newAuditEventId(),
+        timestamp: new Date(started).toISOString(),
+        ...base,
+        durationMs: Date.now() - started,
+        approval,
+      });
+    } catch (error) {
+      this.options.onAuditError?.(error);
+      return changed(
+        "the mandatory approval audit record could not be written",
+        `Approved, but the approval could not be recorded in the audit log; ${op.operation} was not executed.`,
+      );
+    }
+
+    try {
+      const result = await execute();
+      await record("success", undefined, approval);
+      return result;
+    } catch (error) {
+      if (error instanceof ApprovalBindingError) {
+        return changed(
+          `binding no longer holds: ${error.message}`,
+          `Approved, but the approved target of ${op.operation} changed; the action was not performed.`,
+        );
+      }
+      await record("error", error, approval);
+      throw error;
+    }
+  }
+
+  /** authorize() for every capability of the operation; the first denial, if any. */
+  private authorizeAll(
+    context: AuthContext,
+    op: OperationDescriptor,
+    capabilities: readonly Capability[],
+  ): PermissionDeniedError | undefined {
     for (const capability of capabilities) {
       const decision = this.engine.authorize({
         context,
@@ -103,25 +283,48 @@ export class ExecutionGuard {
         ...(op.network !== undefined ? { network: op.network } : {}),
       });
       if (!decision.allowed) {
-        const denied = new PermissionDeniedError(decision.reason, {
-          operation: op.operation,
-          missing: decision.missing,
-        });
-        await record("denied", denied);
-        throw denied;
+        return new PermissionDeniedError(decision.reason, { operation: op.operation, missing: decision.missing });
       }
     }
-    try {
-      const result = await execute();
-      await record("success");
-      return result;
-    } catch (error) {
-      await record("error", error);
-      throw error;
-    }
+    return undefined;
   }
 
-  private async record(event: Parameters<AuditSink["record"]>[0]): Promise<void> {
+  /** The approval subject, built by Core from the descriptor (the same captured arguments execute() uses). */
+  private subject(
+    context: AuthContext,
+    op: OperationDescriptor,
+    capabilities: readonly Capability[],
+    rule: string,
+  ): ApprovalSubject {
+    const paths = (op.paths ?? []).map((p) => ({ absolute: p.absolute, insideWorkspace: p.insideWorkspace }));
+    const effects: ApprovalEffect[] = op.approval
+      ? [...op.approval.effects]
+      : Object.entries(op.details ?? {}).map(([label, value]) => ({ label, value: effectValue(value) }));
+    for (const p of paths) {
+      effects.push(
+        p.insideWorkspace
+          ? { label: "path", value: p.absolute }
+          : {
+              label: "path",
+              value: p.absolute,
+              flag: "outside_workspace",
+            },
+      );
+    }
+    return {
+      operation: op.operation,
+      capabilities,
+      summary: op.approval?.summary ?? op.operation,
+      effects,
+      paths,
+      network: (op.network ?? []).map((t) => ({ scheme: t.scheme, host: t.host, port: t.port })),
+      principal: context.principal,
+      mode: this.engine.mode,
+      rule,
+    };
+  }
+
+  private async record(event: AuditEvent): Promise<void> {
     try {
       await this.audit.record(event);
     } catch (error) {
@@ -143,4 +346,77 @@ function auditTarget(t: NetworkTarget): { scheme: string; host: string; port: nu
 function summarizeError(error: unknown): { code: string; message: string } {
   if (error instanceof CrotError) return { code: error.code, message: error.message };
   return { code: "OPERATION_FAILED", message: error instanceof Error ? error.message : String(error) };
+}
+
+function effectValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/** Shape check of a service binding; anything Core cannot use means the target is undeterminable. */
+function checkBinding(binding: ApprovalBinding): ApprovalBinding {
+  const browser = binding.browser;
+  if (browser !== undefined) {
+    if (browser.tabId !== undefined && (!Number.isSafeInteger(browser.tabId) || browser.tabId < 0))
+      throw new CrotError("OPERATION_FAILED", "invalid tab id");
+    if (normalizedHttpOrigin(browser.origin) !== browser.origin)
+      throw new CrotError("OPERATION_FAILED", "the tab has no http(s) origin");
+    if (typeof browser.connectionId !== "string" || browser.connectionId.length === 0)
+      throw new CrotError("OPERATION_FAILED", "the browser connection has no id");
+  }
+  return binding;
+}
+
+function syntheticUnavailable(subject: ApprovalSubject): ApprovalOutcome {
+  const now = new Date().toISOString();
+  return {
+    requestId: newApprovalRequestId(),
+    status: "unavailable",
+    subjectDigest: subjectDigest(subject),
+    requestedAt: now,
+    resolvedAt: now,
+    cancelReason: "no_provider",
+  };
+}
+
+function auditApproval(outcome: ApprovalOutcome, rule: string): AuditApproval {
+  return {
+    requestId: outcome.requestId,
+    status: outcome.status,
+    rule,
+    subjectDigest: outcome.subjectDigest,
+    requestedAt: outcome.requestedAt,
+    resolvedAt: outcome.resolvedAt,
+    waitMs: Math.max(0, Date.parse(outcome.resolvedAt) - Date.parse(outcome.requestedAt)),
+    ...(outcome.provider ? { provider: outcome.provider } : {}),
+    ...(outcome.cancelReason ? { cancelReason: outcome.cancelReason } : {}),
+  };
+}
+
+const NOT_APPROVED: Record<Exclude<TerminalApprovalStatus, "approved">, string> = {
+  rejected: "the user rejected the request",
+  expired: "the request expired without a decision",
+  cancelled: "the request was cancelled",
+  unavailable: "the request could not be shown to the user",
+};
+
+const REASONS: Record<string, string> = {
+  caller_aborted: "the caller cancelled the operation",
+  shutdown: "CROT is shutting down",
+  provider_gone: "the approval UI disconnected",
+  no_provider: "no approval UI is connected",
+  queue_full: "too many approval requests are pending",
+};
+
+function notApprovedMessage(operation: string, outcome: ApprovalOutcome): string {
+  const status = outcome.status as Exclude<TerminalApprovalStatus, "approved">;
+  const reason = outcome.cancelReason ? ` (${REASONS[outcome.cancelReason]})` : "";
+  return (
+    `${operation} requires the user's approval and was not approved: ${NOT_APPROVED[status]}${reason}. ` +
+    "The operation was not executed. Do not retry it in a loop; ask the user instead."
+  );
 }

@@ -3,9 +3,13 @@ import { MAX_ERROR_MESSAGE_LENGTH } from "../../src/browser-bridge/protocol.js";
 /**
  * Error codes the extension reports. They are the codes the CROT Host accepts
  * from the extension (EXTENSION_ERROR_CODES in src/browser-bridge/server.ts);
- * authorization and bridge-state codes are deliberately absent: the
- * extension cannot claim them, and the host would map them to
- * OPERATION_FAILED anyway.
+ * bridge-state codes are deliberately absent: the extension cannot claim
+ * them, and the host would map them to OPERATION_FAILED anyway.
+ *
+ * PERMISSION_DENIED is reserved for the expected browser subject check of
+ * approved operations (ARCHITECTURE.md §27, AD-11). The host accepts it only
+ * in answer to a command that carried an expected subject; it can only deny
+ * that one operation.
  */
 export const EXTENSION_ERROR_CODES = [
   "NOT_FOUND",
@@ -15,6 +19,7 @@ export const EXTENSION_ERROR_CODES = [
   "RESOURCE_BUSY",
   "OPERATION_FAILED",
   "BROWSER_PAGE_RESTRICTED",
+  "PERMISSION_DENIED",
 ] as const;
 
 export type ExtensionErrorCode = (typeof EXTENSION_ERROR_CODES)[number];

@@ -1,9 +1,11 @@
 import { StringDecoder } from "node:string_decoder";
 import type { z } from "zod";
+import { normalizedHttpOrigin } from "../../approvals/subject.js";
+import type { ApprovalBinding, ApprovalBrowserSubject, ApprovalEffect } from "../../approvals/types.js";
 import type { AuthContext } from "../../auth/principal.js";
 import type { Limits } from "../../config/schema.js";
 import { CrotError, parseInput, type CrotErrorCode } from "../../errors.js";
-import type { ExecutionGuard } from "../../execution/guard.js";
+import { ApprovalBindingError, type ExecutionGuard } from "../../execution/guard.js";
 import type { Capability } from "../../permissions/capabilities.js";
 import type { BrowserCommand, BrowserCommandParams, BrowserConnection, BrowserConnectionState } from "./connection.js";
 import {
@@ -86,6 +88,17 @@ export interface BrowserServiceDeps {
  * Core's result schemas, and errors reported by the browser are mapped to an
  * allowlist of codes. Audit records hold tab ids, URL origins, truncated
  * selectors and text lengths: never page content, typed text or full URLs.
+ *
+ * Approval gates (AD-6, AD-8, AD-9, AD-11): when a gate rule matches a
+ * tab-targeting operation, the guard asks this service to bind it first. The
+ * concrete tab and its URL are resolved with `tabs.resolve` (the given tab or
+ * the active tab of the last focused window) and recorded together with the
+ * normalized origin and the bridge's connectionId in the approval subject.
+ * `browser.tab_open` is bound to the origin of the URL it opens. After the
+ * approval, every command of the operation names the concrete tab and carries
+ * the expected subject; the bridge sends it only on the approved connection
+ * and the extension checks tab, origin and connection immediately before it
+ * acts. Any mismatch denies the operation (PERMISSION_DENIED) without acting.
  */
 export class BrowserService {
   private readonly timeoutMs: number;
@@ -104,18 +117,32 @@ export class BrowserService {
   /** Bridge state and connected browser (browser.read). Reports, rather than fails, when not connected. */
   async status(context: AuthContext, input: BrowserStatusInput = {}): Promise<BrowserStatus> {
     parseInput(BrowserStatusInputSchema, input);
-    return this.run(context, "browser.status", "browser.read", {}, async () => {
-      this.assertOpen();
-      return describeState(this.deps.connection?.state());
-    });
+    return this.run(
+      context,
+      "browser.status",
+      "browser.read",
+      {},
+      NO_TARGET("Report the browser connection status"),
+      async () => {
+        this.assertOpen();
+        return describeState(this.deps.connection?.state());
+      },
+    );
   }
 
   async listTabs(context: AuthContext, input: BrowserTabsListInput = {}): Promise<BrowserTabsListResult> {
     parseInput(BrowserTabsListInputSchema, input);
-    return this.run(context, "browser.tabs_list", "browser.read", {}, async () => {
-      const raw = await this.send("tabs.list", {});
-      return validate(BrowserTabsListResultSchema, raw, "tabs.list");
-    });
+    return this.run(
+      context,
+      "browser.tabs_list",
+      "browser.read",
+      {},
+      NO_TARGET("List the open browser tabs"),
+      async () => {
+        const raw = await this.send("tabs.list", {});
+        return validate(BrowserTabsListResultSchema, raw, "tabs.list");
+      },
+    );
   }
 
   async readPage(context: AuthContext, input: BrowserPageReadInput = {}): Promise<BrowserPageReadResult> {
@@ -126,10 +153,22 @@ export class BrowserService {
       "browser.page_read",
       "browser.read",
       { tabId: tabRef(args.tabId), format: args.format, maxBytes },
-      async () => {
-        const raw = await this.send("page.read", { ...tab(args.tabId), format: args.format, maxBytes });
+      {
+        summary: "Read the content of a browser tab",
+        effects: [
+          { label: "format", value: args.format },
+          { label: "maximum bytes", value: String(maxBytes) },
+        ],
+        target: { tabId: args.tabId },
+      },
+      async (bound) => {
+        const raw = await this.send(
+          "page.read",
+          bindParams({ ...tab(args.tabId), format: args.format, maxBytes }, bound),
+          bound,
+        );
         const result = validate(BrowserPageReadResultSchema, raw, "page.read");
-        expectTab("page.read", args.tabId, result.tabId);
+        expectTab("page.read", bound?.tabId ?? args.tabId, result.tabId);
         if (result.format !== args.format) throw invalidResponse("page.read");
         // The browser is asked to respect maxBytes; Core enforces it regardless.
         const content = truncateUtf8(result.content, maxBytes);
@@ -145,14 +184,26 @@ export class BrowserService {
       "browser.screenshot",
       "browser.read",
       { tabId: tabRef(args.tabId), format: args.format },
-      async () => {
-        const raw = await this.send("page.screenshot", {
-          ...tab(args.tabId),
-          format: args.format,
-          ...(args.quality !== undefined ? { quality: args.quality } : {}),
-        });
+      {
+        summary: "Take a screenshot of a browser tab",
+        effects: [{ label: "format", value: args.format }],
+        target: { tabId: args.tabId },
+      },
+      async (bound) => {
+        const raw = await this.send(
+          "page.screenshot",
+          bindParams(
+            {
+              ...tab(args.tabId),
+              format: args.format,
+              ...(args.quality !== undefined ? { quality: args.quality } : {}),
+            },
+            bound,
+          ),
+          bound,
+        );
         const result = validate(BrowserScreenshotResultSchema, raw, "page.screenshot");
-        expectTab("page.screenshot", args.tabId, result.tabId);
+        expectTab("page.screenshot", bound?.tabId ?? args.tabId, result.tabId);
         if (result.mimeType !== `image/${args.format}`) throw invalidResponse("page.screenshot");
         if (Buffer.byteLength(result.data, "base64") > BROWSER_SCREENSHOT_MAX_BYTES) {
           throw new CrotError("LIMIT_EXCEEDED", `Screenshot exceeds ${BROWSER_SCREENSHOT_MAX_BYTES} bytes.`);
@@ -169,8 +220,16 @@ export class BrowserService {
       "browser.tab_open",
       "browser.control",
       { origin: urlOrigin(args.url), active: args.active },
-      async () => {
-        const raw = await this.send("tabs.open", { url: args.url, active: args.active });
+      {
+        summary: "Open a new browser tab",
+        effects: [
+          { label: "URL", value: args.url },
+          { label: "active", value: String(args.active) },
+        ],
+        target: { url: args.url },
+      },
+      async (bound) => {
+        const raw = await this.send("tabs.open", bindParams({ url: args.url, active: args.active }, bound), bound);
         return validate(BrowserTabActionResultSchema, raw, "tabs.open");
       },
     );
@@ -183,10 +242,15 @@ export class BrowserService {
       "browser.navigate",
       "browser.control",
       { tabId: tabRef(args.tabId), origin: urlOrigin(args.url) },
-      async () => {
-        const raw = await this.send("tabs.navigate", { ...tab(args.tabId), url: args.url });
+      {
+        summary: "Navigate a browser tab to a URL",
+        effects: [{ label: "URL", value: args.url }],
+        target: { tabId: args.tabId },
+      },
+      async (bound) => {
+        const raw = await this.send("tabs.navigate", bindParams({ ...tab(args.tabId), url: args.url }, bound), bound);
         const result = validate(BrowserTabActionResultSchema, raw, "tabs.navigate");
-        expectTab("tabs.navigate", args.tabId, result.tabId);
+        expectTab("tabs.navigate", bound?.tabId ?? args.tabId, result.tabId);
         return result;
       },
     );
@@ -194,18 +258,27 @@ export class BrowserService {
 
   async activateTab(context: AuthContext, input: BrowserTabActivateInput): Promise<BrowserTabActionResult> {
     const args = parseInput(BrowserTabActivateInputSchema, input);
-    return this.run(context, "browser.tab_activate", "browser.control", { tabId: args.tabId }, async () => {
-      const raw = await this.send("tabs.activate", { tabId: args.tabId });
-      const result = validate(BrowserTabActionResultSchema, raw, "tabs.activate");
-      expectTab("tabs.activate", args.tabId, result.tabId);
-      return result;
-    });
+    const approval = { summary: "Activate a browser tab", effects: [], target: { tabId: args.tabId } };
+    return this.run(
+      context,
+      "browser.tab_activate",
+      "browser.control",
+      { tabId: args.tabId },
+      approval,
+      async (bound) => {
+        const raw = await this.send("tabs.activate", bindParams({ tabId: args.tabId }, bound), bound);
+        const result = validate(BrowserTabActionResultSchema, raw, "tabs.activate");
+        expectTab("tabs.activate", args.tabId, result.tabId);
+        return result;
+      },
+    );
   }
 
   async closeTab(context: AuthContext, input: BrowserTabCloseInput): Promise<BrowserTabCloseResult> {
     const args = parseInput(BrowserTabCloseInputSchema, input);
-    return this.run(context, "browser.tab_close", "browser.control", { tabId: args.tabId }, async () => {
-      const raw = await this.send("tabs.close", { tabId: args.tabId });
+    const approval = { summary: "Close a browser tab", effects: [], target: { tabId: args.tabId } };
+    return this.run(context, "browser.tab_close", "browser.control", { tabId: args.tabId }, approval, async (bound) => {
+      const raw = await this.send("tabs.close", bindParams({ tabId: args.tabId }, bound), bound);
       const result = validate(BrowserTabCloseResultSchema, raw, "tabs.close");
       expectTab("tabs.close", args.tabId, result.tabId);
       return result;
@@ -219,10 +292,19 @@ export class BrowserService {
       "browser.click",
       "browser.control",
       { tabId: tabRef(args.tabId), selector: auditSelector(args.selector) },
-      async () => {
-        const raw = await this.send("page.click", { ...tab(args.tabId), selector: args.selector });
+      {
+        summary: "Click an element in a browser tab",
+        effects: [{ label: "selector", value: args.selector }],
+        target: { tabId: args.tabId },
+      },
+      async (bound) => {
+        const raw = await this.send(
+          "page.click",
+          bindParams({ ...tab(args.tabId), selector: args.selector }, bound),
+          bound,
+        );
         const result = validate(BrowserTabActionResultSchema, raw, "page.click");
-        expectTab("page.click", args.tabId, result.tabId);
+        expectTab("page.click", bound?.tabId ?? args.tabId, result.tabId);
         return result;
       },
     );
@@ -236,15 +318,23 @@ export class BrowserService {
       textLength: args.text.length,
       clear: args.clear,
     };
-    return this.run(context, "browser.type", "browser.control", details, async () => {
-      const raw = await this.send("page.type", {
-        ...tab(args.tabId),
-        selector: args.selector,
-        text: args.text,
-        clear: args.clear,
-      });
+    const approval: BrowserApproval = {
+      summary: "Type text into an element in a browser tab",
+      effects: [
+        { label: "selector", value: args.selector },
+        { label: "text length", value: String(args.text.length), flag: "secret_size_only" },
+        { label: "clear first", value: String(args.clear) },
+      ],
+      target: { tabId: args.tabId },
+    };
+    return this.run(context, "browser.type", "browser.control", details, approval, async (bound) => {
+      const raw = await this.send(
+        "page.type",
+        bindParams({ ...tab(args.tabId), selector: args.selector, text: args.text, clear: args.clear }, bound),
+        bound,
+      );
       const result = validate(BrowserTabActionResultSchema, raw, "page.type");
-      expectTab("page.type", args.tabId, result.tabId);
+      expectTab("page.type", bound?.tabId ?? args.tabId, result.tabId);
       return result;
     });
   }
@@ -256,14 +346,70 @@ export class BrowserService {
     this.pending.clear();
   }
 
+  /**
+   * Run one browser operation through the guard. `approval` describes it for
+   * the approval subject; `bind` is called by the guard only when a gate rule
+   * matched. `execute` receives the binding of an approved operation, or
+   * undefined when the operation is not gated.
+   */
   private run<T>(
     context: AuthContext,
     operation: string,
     capability: Capability,
     details: Record<string, unknown>,
-    execute: () => Promise<T>,
+    approval: BrowserApproval,
+    execute: (bound: ApprovalBrowserSubject | undefined) => Promise<T>,
   ): Promise<T> {
-    return this.deps.guard.run(context, { operation, capability, details }, execute);
+    let bound: ApprovalBrowserSubject | undefined;
+    const target = approval.target;
+    const bind =
+      target === undefined
+        ? undefined
+        : async (): Promise<ApprovalBinding> => {
+            const binding = await this.bindTarget(target);
+            bound = binding.browser;
+            return binding;
+          };
+    return this.deps.guard.run(
+      context,
+      {
+        operation,
+        capability,
+        details,
+        approval: { summary: approval.summary, effects: approval.effects, ...(bind ? { bind } : {}) },
+      },
+      () => execute(bound),
+    );
+  }
+
+  /**
+   * Bind a gated operation to its concrete target (AD-6, AD-8, AD-9): the
+   * connection it will use, and the resolved tab with its normalized origin
+   * (or, for tab_open, the origin of the URL). Throws when anything cannot be
+   * determined; the guard then denies without creating a request.
+   */
+  private async bindTarget(target: BrowserTarget): Promise<ApprovalBinding> {
+    const state = this.requireConnection().state();
+    if (state.kind !== "connected") throw new CrotError("BROWSER_NOT_CONNECTED", WAITING_DETAIL);
+    const connectionId = state.connectionId;
+    if ("url" in target) {
+      const origin = normalizedHttpOrigin(target.url);
+      if (origin === undefined) throw new CrotError("INVALID_INPUT", "The URL has no http(s) origin.");
+      return { browser: { origin, connectionId } };
+    }
+    const raw = await this.send("tabs.resolve", tab(target.tabId), undefined, connectionId);
+    const resolved = validate(BrowserTabActionResultSchema, raw, "tabs.resolve");
+    if (target.tabId !== undefined && resolved.tabId !== target.tabId) throw invalidResponse("tabs.resolve");
+    const origin = normalizedHttpOrigin(resolved.url);
+    if (origin === undefined) throw new CrotError("BROWSER_PAGE_RESTRICTED", "The tab has no http(s) origin.");
+    return {
+      browser: { tabId: resolved.tabId, origin, connectionId },
+      effects: [
+        { label: "tab", value: String(resolved.tabId) },
+        { label: "tab URL", value: resolved.url },
+        { label: "tab origin", value: origin },
+      ],
+    };
   }
 
   private assertOpen(): void {
@@ -282,8 +428,29 @@ export class BrowserService {
     return connection;
   }
 
-  private async send<C extends BrowserCommand>(command: C, params: BrowserCommandParams[C]): Promise<unknown> {
-    const connection = this.requireConnection();
+  /**
+   * Send one command. With `bound` (an approved, gated operation) it is sent
+   * only on the approved connection, and a PERMISSION_DENIED answer (the
+   * expected subject no longer holds) becomes an ApprovalBindingError.
+   * `connectionId` alone pins tabs.resolve to the connection being bound.
+   */
+  /** The connection of an approved operation; a changed or lost connection invalidates the approval (AD-9). */
+  private boundConnection(bound: ApprovalBrowserSubject): BrowserConnection {
+    this.assertOpen();
+    const connection = this.deps.connection;
+    const state = connection?.state();
+    if (!connection || state?.kind !== "connected" || state.connectionId !== bound.connectionId)
+      throw new ApprovalBindingError("The browser connection changed since the operation was approved.");
+    return connection;
+  }
+
+  private async send<C extends BrowserCommand>(
+    command: C,
+    params: BrowserCommandParams[C],
+    bound?: ApprovalBrowserSubject,
+    connectionId: string | undefined = bound?.connectionId,
+  ): Promise<unknown> {
+    const connection = bound ? this.boundConnection(bound) : this.requireConnection();
     const controller = new AbortController();
     this.pending.add(controller);
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -300,10 +467,16 @@ export class BrowserService {
     });
     try {
       return await Promise.race([
-        connection.request(command, params, { timeoutMs: this.timeoutMs, signal: controller.signal }),
+        connection.request(command, params, {
+          timeoutMs: this.timeoutMs,
+          signal: controller.signal,
+          ...(connectionId !== undefined ? { connectionId } : {}),
+        }),
         interrupted,
       ]);
     } catch (error) {
+      if (bound && error instanceof CrotError && error.code === "PERMISSION_DENIED")
+        throw new ApprovalBindingError(cleanMessage(error.message));
       throw sanitizeBrowserError(error);
     } finally {
       clearTimeout(timer);
@@ -329,6 +502,32 @@ function describeState(state: BrowserConnectionState | undefined): BrowserStatus
 }
 
 const tab = (tabId: number | undefined): { tabId?: number } => (tabId === undefined ? {} : { tabId });
+
+/** What a gated browser operation is bound to: a tab (given, or the active one), or the URL tab_open opens. */
+type BrowserTarget = { readonly tabId: number | undefined } | { readonly url: string };
+
+interface BrowserApproval {
+  readonly summary: string;
+  readonly effects: readonly ApprovalEffect[];
+  /** Absent: the operation does not act on a tab (status, tabs_list) and has no browser binding. */
+  readonly target?: BrowserTarget;
+}
+
+const NO_TARGET = (summary: string): BrowserApproval => ({ summary, effects: [] });
+
+/**
+ * Parameters of an approved operation: the concrete tab of the binding and
+ * the expected browser subject (AD-11). Unchanged when the operation is not gated.
+ */
+function bindParams<P extends object>(params: P, bound: ApprovalBrowserSubject | undefined): P {
+  if (!bound) return params;
+  const expect = {
+    ...(bound.tabId !== undefined ? { tabId: bound.tabId } : {}),
+    origin: bound.origin,
+    connectionId: bound.connectionId,
+  };
+  return { ...params, ...(bound.tabId !== undefined ? { tabId: bound.tabId } : {}), expect };
+}
 
 const tabRef = (tabId: number | undefined): number | "active" => tabId ?? "active";
 

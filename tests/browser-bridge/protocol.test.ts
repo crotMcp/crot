@@ -248,6 +248,14 @@ describe("message validation", () => {
 
   it("accepts host messages", () => {
     expect(parseHostMessage({ type: "welcome", protocol: 1 })).toEqual({ type: "welcome", protocol: 1 });
+    const connectionId = "0123456789abcdef".repeat(2);
+    expect(parseHostMessage({ type: "welcome", protocol: 1, connectionId })).toEqual({
+      type: "welcome",
+      protocol: 1,
+      connectionId,
+    });
+    expect(() => parseHostMessage({ type: "welcome", protocol: 1, connectionId: "x" })).toThrow();
+    expect(() => parseHostMessage({ type: "welcome", protocol: 1, connectionId: 7 })).toThrow();
     expect(parseHostMessage({ type: "request", id: "r1", command: "tabs.list", params: {} })).toEqual({
       type: "request",
       id: "r1",
