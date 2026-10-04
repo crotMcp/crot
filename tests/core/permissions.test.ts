@@ -75,4 +75,14 @@ describe("PermissionEngine", () => {
       true,
     );
   });
+
+  it("applies the protected-path rule to git.write but not to git.read", () => {
+    const engine = new PermissionEngine(createPermissionPolicy({ mode: "full_control" }), {
+      protectedPaths: ["/ws/.crot/audit.jsonl"],
+    });
+    const ws: ResolvedPath = { absolute: "/ws", relative: "", insideWorkspace: true };
+    expect(engine.authorize({ context: testContext, capability: "git.write", paths: [ws] }).allowed).toBe(false);
+    expect(engine.authorize({ context: testContext, capability: "git.read", paths: [ws] }).allowed).toBe(true);
+    expect(engine.authorize({ context: testContext, capability: "git.write", paths: [inside] }).allowed).toBe(true);
+  });
 });

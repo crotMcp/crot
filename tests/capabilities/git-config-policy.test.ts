@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isAllowedRepositoryKey,
   parseConfigList,
+  FORWARDED_IDENTITY_KEYS,
   reviewConfig,
 } from "../../src/core/capabilities/git/config-policy.js";
 
@@ -60,5 +61,28 @@ describe("git config policy", () => {
     ]);
     expect(review.unsafeKeys).toEqual([]);
     expect(review.forwarded.some((f) => f.startsWith("core.fsmonitor") || f.startsWith("core.pager"))).toBe(false);
+  });
+
+  it("forwards the global identity only when asked to, as plain data", () => {
+    const entries = [
+      { scope: "global", key: "user.name", value: "Global User" },
+      { scope: "global", key: "user.email", value: "g@example.com" },
+      { scope: "global", key: "user.signingKey", value: "k" },
+      { scope: "global", key: "core.hooksPath", value: "/x" },
+    ] as const;
+    expect(reviewConfig(entries).forwarded.some((f) => f.startsWith("user."))).toBe(false);
+    const review = reviewConfig(entries, FORWARDED_IDENTITY_KEYS);
+    expect(review.forwarded).toEqual(["user.name=Global User", "user.email=g@example.com"]);
+    expect(review.unsafeKeys).toEqual([]);
+    // A repository-local identity wins; control characters are never forwarded.
+    const local = reviewConfig(
+      [
+        { scope: "global", key: "user.name", value: "Global User" },
+        { scope: "local", key: "user.name", value: "Repo User" },
+        { scope: "global", key: "user.email", value: "a\nb@example.com" },
+      ],
+      FORWARDED_IDENTITY_KEYS,
+    );
+    expect(local.forwarded).toEqual([]);
   });
 });

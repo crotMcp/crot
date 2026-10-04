@@ -27,8 +27,12 @@ export interface PermissionEngineOptions {
   readonly contains?: (ancestor: string, candidate: string) => boolean;
 }
 
-/** Capabilities whose operations modify the filesystem. */
-const WRITE_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>(["filesystem.write"]);
+/**
+ * Capabilities whose operations modify the filesystem. git.write modifies Git
+ * metadata and the worktree (ARCHITECTURE.md §27, AD-2), so a git.write
+ * operation whose paths contain a protected path is denied.
+ */
+const WRITE_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>(["filesystem.write", "git.write"]);
 
 /**
  * The single authorization mechanism of CROT. Every Core operation is

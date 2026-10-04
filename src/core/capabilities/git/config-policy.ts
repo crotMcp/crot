@@ -145,6 +145,13 @@ export const FORWARDED_GLOBAL_KEYS: readonly string[] = [
   "diff.algorithm",
 ];
 
+/**
+ * Additional keys carried over for git.write only (ARCHITECTURE.md §27, AD-2):
+ * the commit author/committer identity. They are plain data passed with -c;
+ * they never name a program and do not cause further configuration to load.
+ */
+export const FORWARDED_IDENTITY_KEYS: readonly string[] = ["user.name", "user.email"];
+
 const INHERITED_SCOPES = new Set(["system", "global"]);
 
 /** Parse `git config --list --null --show-scope` output: `scope NUL key [LF value] NUL` per entry. */
@@ -193,14 +200,17 @@ export interface ConfigReview {
  * scopes (local, worktree, command, unknown) must be allowed. Forwarded keys
  * are taken from system/global configuration unless the repository sets them itself.
  */
-export function reviewConfig(entries: readonly ConfigEntry[]): ConfigReview {
+export function reviewConfig(
+  entries: readonly ConfigEntry[],
+  forwardKeys: readonly string[] = FORWARDED_GLOBAL_KEYS,
+): ConfigReview {
   const unsafe: string[] = [];
   const repositoryKeys = new Set<string>();
   const inherited = new Map<string, string>();
   for (const entry of entries) {
     const key = entry.key.toLowerCase();
     if (INHERITED_SCOPES.has(entry.scope)) {
-      if (FORWARDED_GLOBAL_KEYS.includes(key) && entry.value !== null && /^[^\0-\x1f\x7f]*$/.test(entry.value)) {
+      if (forwardKeys.includes(key) && entry.value !== null && /^[^\0-\x1f\x7f]*$/.test(entry.value)) {
         inherited.set(key, entry.value);
       }
       continue;

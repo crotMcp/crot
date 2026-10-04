@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -8,18 +9,34 @@ import { CrotError, parseInput } from "../../errors.js";
 import type { ExecutionGuard } from "../../execution/guard.js";
 import type { ManagedProcess, Platform } from "../../platform/types.js";
 import { displayPath as display, type ResolvedPath, type Workspace } from "../../workspace/workspace.js";
-import { parseConfigList, reviewConfig } from "./config-policy.js";
+import { FORWARDED_GLOBAL_KEYS, FORWARDED_IDENTITY_KEYS, parseConfigList, reviewConfig } from "./config-policy.js";
 import { discoverRepository, type DiscoveredRepository } from "./discovery.js";
 import type { GitMetadataLock } from "./metadata-lock.js";
 import { BRANCH_FORMAT, LOG_FORMAT, parseBranches, parseLog, parseStatus } from "./parse.js";
 import {
+  GitAddInputSchema,
+  GitBranchCreateInputSchema,
+  GitBranchDeleteInputSchema,
   GitBranchInputSchema,
+  GitBranchRenameInputSchema,
+  GitCheckoutInputSchema,
+  GitCommitInputSchema,
   GitDiffInputSchema,
   GitLogInputSchema,
   GitShowInputSchema,
   GitStatusInputSchema,
+  type GitAddInput,
+  type GitAddResult,
+  type GitBranchCreateInput,
+  type GitBranchDeleteInput,
   type GitBranchInput,
+  type GitBranchRenameInput,
   type GitBranchResult,
+  type GitBranchWriteResult,
+  type GitCheckoutInput,
+  type GitCheckoutResult,
+  type GitCommitInput,
+  type GitCommitResult,
   type GitDiffInput,
   type GitLogInput,
   type GitLogResult,
@@ -58,7 +75,30 @@ const FIXED_CONFIG: readonly string[] = [
   "status.submoduleSummary=false",
 ];
 
+/**
+ * Settings added to every Git command of a git.write operation (ARCHITECTURE.md §27, AD-2).
+ * Together with FIXED_CONFIG they keep write commands from starting programs:
+ * no hooks (the hooks directory is the null device, where no hook can exist),
+ * no signing, no automatic gc/maintenance (which could detach a background
+ * process), no editor, and no identity guessed from the host.
+ */
+const WRITE_CONFIG: readonly string[] = [
+  `core.hooksPath=${os.devNull}`,
+  "commit.gpgSign=false",
+  "tag.gpgSign=false",
+  "gc.auto=0",
+  "maintenance.auto=false",
+  "user.useConfigOnly=true",
+  "core.editor=:",
+  "sequence.editor=:",
+  "advice.detachedHead=false",
+];
+
+type AccessMode = "read" | "write";
+
 interface Repository extends DiscoveredRepository {
+  /** git.read or git.write: selects the environment and the fixed settings of every command. */
+  readonly mode: AccessMode;
   /** Pathspecs relative to the worktree root ('/' separated). */
   readonly pathspecs: readonly string[];
   /** `key=value` settings forwarded from system/global configuration (set after the review). */
@@ -68,6 +108,8 @@ interface Repository extends DiscoveredRepository {
 interface GitEnvironments {
   readonly listing: Record<string, string>;
   readonly command: Record<string, string>;
+  /** Like `command`, for git.write commands (no editor can be started). */
+  readonly write: Record<string, string>;
   /** Like `command`, for Git run outside any repository (repository discovery stops at `dir`). */
   readonly standalone: Record<string, string>;
   /** Private directory holding the empty file used as GIT_CONFIG_GLOBAL. */
@@ -89,7 +131,9 @@ interface RunOptions {
   readonly standalone?: boolean;
 }
 
-type GitOperation = "git.status" | "git.diff" | "git.log" | "git.branch" | "git.show";
+type GitReadOperation = "git.status" | "git.diff" | "git.log" | "git.branch" | "git.show";
+type GitWriteOperation =
+  "git.add" | "git.commit" | "git.branch_create" | "git.branch_rename" | "git.branch_delete" | "git.checkout";
 
 /**
  * Git read capability of CROT Core (ARCHITECTURE.md §27, AD-1).
@@ -104,6 +148,14 @@ type GitOperation = "git.status" | "git.diff" | "git.log" | "git.branch" | "git.
  *   started without a shell, with GIT_* variables removed.
  * - The configuration check and the Git commands run under the GitMetadataLock,
  *   so CROT filesystem writes cannot change the Git directory in between.
+ *
+ * Git write capability (ARCHITECTURE.md §27, AD-2): add, commit, branch
+ * create/rename/delete (-d) and checkout of a branch or an explicit detached
+ * commit, gated by `git.write` (independent of git.read). The same discovery,
+ * authorization, configuration review and PATH-only invocation apply; in
+ * addition hooks, signing, editors and automatic gc are disabled for every
+ * command, and the operation holds the Git directories exclusively. No
+ * operation contacts a remote (no push, fetch or pull).
  */
 export class GitService {
   private readonly running = new Set<ManagedProcess>();
@@ -282,7 +334,7 @@ export class GitService {
 
   private async operation<T>(
     context: AuthContext,
-    operation: GitOperation,
+    operation: GitReadOperation,
     cwdInput: string,
     pathInputs: readonly string[],
     timeoutMs: number | undefined,
@@ -295,7 +347,7 @@ export class GitService {
     const resolvedPaths: ResolvedPath[] = [];
     for (const p of pathInputs) resolvedPaths.push(await this.deps.workspace.resolve(p));
     const pathspecs = resolvedPaths.map((p) => this.pathspec(discovered.worktree, p));
-    const repo: Repository = { ...discovered, pathspecs, forwarded: [] };
+    const repo: Repository = { ...discovered, mode: "read", pathspecs, forwarded: [] };
     const op = {
       operation,
       capability: "git.read",
@@ -311,6 +363,230 @@ export class GitService {
         return body({ ...repo, forwarded }, deadline);
       }),
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // git.write (ARCHITECTURE.md §27, AD-2)
+
+  async add(context: AuthContext, input: GitAddInput): Promise<GitAddResult> {
+    const args = parseInput(GitAddInputSchema, input);
+    return this.writeOperation(
+      context,
+      "git.add",
+      args.cwd,
+      args.paths,
+      args.timeoutMs,
+      { all: args.all },
+      async (repo, deadline) => {
+        // No --force: ignored files stay unstaged; paths are literal (GIT_LITERAL_PATHSPECS).
+        const git = ["add"];
+        if (args.all) git.push("--all", "--", ".");
+        else git.push("--", ...repo.pathspecs);
+        await this.runGit(repo, git, deadline);
+        const staged = await this.runGit(
+          repo,
+          ["diff", "--cached", "--name-only", "-z", "--no-renames", "--no-ext-diff", "--no-textconv"],
+          deadline,
+        );
+        return {
+          repository: info(repo),
+          staged: staged.stdout.split("\0").filter((p) => p.length > 0),
+          truncated: staged.truncated,
+        };
+      },
+    );
+  }
+
+  async commit(context: AuthContext, input: GitCommitInput): Promise<GitCommitResult> {
+    const args = parseInput(GitCommitInputSchema, input);
+    // The message is agent content: the audit record keeps only its size and digest.
+    const details = {
+      allowEmpty: args.allowEmpty,
+      messageLength: args.message.length,
+      messageSha256: createHash("sha256").update(args.message, "utf8").digest("hex"),
+    };
+    return this.writeOperation(context, "git.commit", args.cwd, [], args.timeoutMs, details, async (repo, deadline) => {
+      // --message=<text> is a single argument, so the text can never be read as an option.
+      const git = ["commit", "--no-verify", "--no-gpg-sign", "--no-edit", `--message=${args.message}`];
+      if (args.allowEmpty) git.push("--allow-empty");
+      await this.runGit(repo, git, deadline);
+      return {
+        repository: info(repo),
+        commit: await this.revParse(repo, "HEAD", deadline),
+        branch: await this.currentBranch(repo, deadline),
+      };
+    });
+  }
+
+  async branchCreate(context: AuthContext, input: GitBranchCreateInput): Promise<GitBranchWriteResult> {
+    const args = parseInput(GitBranchCreateInputSchema, input);
+    const details = { name: args.name, startPoint: args.startPoint ?? null };
+    return this.writeOperation(
+      context,
+      "git.branch_create",
+      args.cwd,
+      [],
+      args.timeoutMs,
+      details,
+      async (repo, deadline) => {
+        const git = ["branch", "--no-track", "--end-of-options", args.name];
+        if (args.startPoint !== undefined) git.push(args.startPoint);
+        await this.runGit(repo, git, deadline);
+        return {
+          repository: info(repo),
+          branch: args.name,
+          commit: await this.revParse(repo, `refs/heads/${args.name}`, deadline),
+        };
+      },
+    );
+  }
+
+  async branchRename(context: AuthContext, input: GitBranchRenameInput): Promise<GitBranchWriteResult> {
+    const args = parseInput(GitBranchRenameInputSchema, input);
+    return this.writeOperation(
+      context,
+      "git.branch_rename",
+      args.cwd,
+      [],
+      args.timeoutMs,
+      { from: args.from, to: args.to },
+      async (repo, deadline) => {
+        // Only an existing local branch is renamed; -m (never -M) refuses an existing target.
+        await this.revParse(repo, `refs/heads/${args.from}`, deadline);
+        await this.runGit(repo, ["branch", "-m", "--end-of-options", args.from, args.to], deadline);
+        return {
+          repository: info(repo),
+          branch: args.to,
+          commit: await this.revParse(repo, `refs/heads/${args.to}`, deadline),
+          renamedFrom: args.from,
+        };
+      },
+    );
+  }
+
+  async branchDelete(context: AuthContext, input: GitBranchDeleteInput): Promise<GitBranchWriteResult> {
+    const args = parseInput(GitBranchDeleteInputSchema, input);
+    return this.writeOperation(
+      context,
+      "git.branch_delete",
+      args.cwd,
+      [],
+      args.timeoutMs,
+      { name: args.name },
+      async (repo, deadline) => {
+        const commit = await this.revParse(repo, `refs/heads/${args.name}`, deadline);
+        // -d (never -D/--force): Git refuses branches that are not fully merged and the current branch.
+        await this.runGit(repo, ["branch", "-d", "--end-of-options", args.name], deadline);
+        return { repository: info(repo), branch: args.name, commit };
+      },
+    );
+  }
+
+  async checkout(context: AuthContext, input: GitCheckoutInput): Promise<GitCheckoutResult> {
+    const args = parseInput(GitCheckoutInputSchema, input);
+    const details = { branch: args.branch ?? null, detach: args.detach ?? null };
+    return this.writeOperation(
+      context,
+      "git.checkout",
+      args.cwd,
+      [],
+      args.timeoutMs,
+      details,
+      async (repo, deadline) => {
+        // git switch never restores paths and needs --detach for anything but a branch; without
+        // --force/--discard-changes/--merge it refuses to overwrite local changes. --no-guess keeps
+        // it from creating a branch from a remote-tracking branch.
+        const git = ["switch", "--no-recurse-submodules"];
+        if (args.branch !== undefined) {
+          await this.revParse(repo, `refs/heads/${args.branch}`, deadline);
+          git.push("--no-guess", "--end-of-options", args.branch);
+        } else {
+          git.push("--detach", "--end-of-options", args.detach!);
+        }
+        await this.runGit(repo, git, deadline);
+        const branch = await this.currentBranch(repo, deadline);
+        return {
+          repository: info(repo),
+          branch,
+          detached: branch === null,
+          commit: await this.revParse(repo, "HEAD", deadline),
+        };
+      },
+    );
+  }
+
+  /**
+   * Run a git.write operation: the same discovery, authorization (capability
+   * git.write, every path of the operation), configuration review and
+   * PATH-only invocation as git.read, holding the Git directories exclusively.
+   */
+  private async writeOperation<T>(
+    context: AuthContext,
+    operation: GitWriteOperation,
+    cwdInput: string,
+    pathInputs: readonly string[],
+    timeoutMs: number | undefined,
+    details: Record<string, unknown>,
+    body: (repo: Repository, deadline: number) => Promise<T>,
+  ): Promise<T> {
+    const timeout = this.timeout(timeoutMs);
+    const start = await this.deps.workspace.resolve(cwdInput);
+    const discovered = await discoverRepository(this.deps.workspace, start);
+    const resolvedPaths: ResolvedPath[] = [];
+    // The final component is not followed: a symlink is staged as a link, never as its target.
+    for (const p of pathInputs) {
+      resolvedPaths.push(await this.deps.workspace.resolve(p, { followFinalSymlink: false }));
+    }
+    for (const p of resolvedPaths) this.refuseGitDirectoryPath(discovered, p);
+    const pathspecs = resolvedPaths.map((p) => this.pathspec(discovered.worktree, p));
+    const repo: Repository = { ...discovered, mode: "write", pathspecs, forwarded: [] };
+    const op = {
+      operation,
+      capability: "git.write",
+      paths: dedupe([start, discovered.worktree, discovered.gitDir, discovered.commonDir, ...resolvedPaths]),
+      details: { ...details, cwd: display(start), paths: pathspecs, timeoutMs: timeout },
+    } as const;
+    return this.deps.guard.run(context, op, () =>
+      this.deps.lock.withGitWrite([discovered.gitDir.absolute, discovered.commonDir.absolute], async () => {
+        this.assertOpen();
+        const deadline = Date.now() + timeout;
+        await this.checkVersion(repo, deadline);
+        const forwarded = await this.reviewRepositoryConfig(repo, deadline);
+        return body({ ...repo, forwarded }, deadline);
+      }),
+    );
+  }
+
+  /** Paths inside the Git directories are never staged (Git refuses them too; this keeps the error clear). */
+  private refuseGitDirectoryPath(repo: DiscoveredRepository, p: ResolvedPath): void {
+    for (const dir of [repo.gitDir, repo.commonDir]) {
+      if (this.deps.workspace.contains(dir.absolute, p.absolute)) {
+        throw new CrotError("INVALID_INPUT", `Path is inside the Git directory: ${display(p)}`);
+      }
+    }
+  }
+
+  private async revParse(repo: Repository, revision: string, deadline: number): Promise<string> {
+    const run = await this.runGit(
+      repo,
+      ["rev-parse", "--verify", "-q", "--end-of-options", `${revision}^{commit}`],
+      deadline,
+      { okExitCodes: [0, 1, 128] },
+    );
+    if (run.exitCode !== 0) {
+      const branch = revision.startsWith("refs/heads/") ? revision.slice("refs/heads/".length) : null;
+      throw new CrotError(
+        "NOT_FOUND",
+        branch !== null ? `Branch not found: ${branch}` : `Revision not found: ${revision}`,
+      );
+    }
+    return run.stdout.trim();
+  }
+
+  private async currentBranch(repo: Repository, deadline: number): Promise<string | null> {
+    const head = await this.runGit(repo, ["symbolic-ref", "-q", "HEAD"], deadline, { okExitCodes: [0, 1] });
+    const ref = head.exitCode === 0 ? head.stdout.trim() : "";
+    return ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : null;
   }
 
   /** Pathspec relative to the worktree; paths outside it are refused. */
@@ -337,15 +613,16 @@ export class GitService {
         standalone: true,
       });
       if (own.truncated) throw new CrotError("UNSAFE_REPOSITORY", "Repository configuration is too large to review.");
-      refuseUnsafeKeys(reviewConfig(parseConfigList(own.stdout)).unsafeKeys);
+      refuseUnsafeKeys(reviewConfig(parseConfigList(own.stdout)).unsafeKeys, repo.mode);
     }
     const run = await this.runGit(repo, ["config", "--list", "--null", "--show-scope"], deadline, {
       hardened: false,
       okExitCodes: [0, 1],
     });
     if (run.truncated) throw new CrotError("UNSAFE_REPOSITORY", "Repository configuration is too large to review.");
-    const review = reviewConfig(parseConfigList(run.stdout));
-    refuseUnsafeKeys(review.unsafeKeys);
+    const forwardKeys = repo.mode === "write" ? [...FORWARDED_GLOBAL_KEYS, ...FORWARDED_IDENTITY_KEYS] : undefined;
+    const review = reviewConfig(parseConfigList(run.stdout), forwardKeys);
+    refuseUnsafeKeys(review.unsafeKeys, repo.mode);
     return review.forwarded;
   }
 
@@ -357,7 +634,7 @@ export class GitService {
     if (version[0] < MIN_GIT_VERSION[0] || (version[0] === MIN_GIT_VERSION[0] && version[1] < MIN_GIT_VERSION[1])) {
       throw new CrotError(
         "OPERATION_FAILED",
-        `git.read requires Git ${MIN_GIT_VERSION.join(".")} or newer; found: ${run.stdout.trim() || "unknown"}`,
+        `git.${repo.mode} requires Git ${MIN_GIT_VERSION.join(".")} or newer; found: ${run.stdout.trim() || "unknown"}`,
       );
     }
     this.versionChecked = true;
@@ -401,6 +678,16 @@ export class GitService {
         GIT_CONFIG_NOSYSTEM: "1",
         GIT_CONFIG_GLOBAL: emptyConfig,
       }),
+      // git.write (AD-2): ':' is the editor Git never starts.
+      write: environment.merge(base, {
+        ...common,
+        GIT_LITERAL_PATHSPECS: "1",
+        GIT_ATTR_NOSYSTEM: "1",
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_CONFIG_GLOBAL: emptyConfig,
+        GIT_EDITOR: ":",
+        GIT_SEQUENCE_EDITOR: ":",
+      }),
       standalone: environment.merge(base, {
         ...common,
         GIT_CONFIG_NOSYSTEM: "1",
@@ -423,11 +710,20 @@ export class GitService {
     if (remaining <= 0) throw new CrotError("TIMEOUT", "Git operation timed out.");
     const standalone = options.standalone ?? false;
     const environments = await this.env();
-    const env = standalone ? environments.standalone : hardened ? environments.command : environments.listing;
+    const write = repo.mode === "write";
+    const env = standalone
+      ? environments.standalone
+      : hardened
+        ? write
+          ? environments.write
+          : environments.command
+        : environments.listing;
     const args = ["--no-pager"];
     if (!standalone) {
       args.push(`--git-dir=${repo.gitDir.absolute}`, `--work-tree=${repo.worktree.absolute}`);
-      if (hardened) for (const c of [...repo.forwarded, ...FIXED_CONFIG]) args.push("-c", c);
+      if (hardened) {
+        for (const c of [...repo.forwarded, ...FIXED_CONFIG, ...(write ? WRITE_CONFIG : [])]) args.push("-c", c);
+      }
     }
     args.push(...gitArgs);
     const cwd = standalone ? environments.dir : repo.worktree.absolute;
@@ -534,11 +830,11 @@ async function isFile(file: string): Promise<boolean> {
   }
 }
 
-function refuseUnsafeKeys(keys: readonly string[]): void {
+function refuseUnsafeKeys(keys: readonly string[], mode: AccessMode): void {
   if (keys.length === 0) return;
   throw new CrotError(
     "UNSAFE_REPOSITORY",
-    `Repository configuration contains settings that git.read does not allow (they could run programs): ${keys.join(", ")}`,
+    `Repository configuration contains settings that git.${mode} does not allow (they could run programs): ${keys.join(", ")}`,
     { keys },
   );
 }

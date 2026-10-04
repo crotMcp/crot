@@ -24,7 +24,8 @@ export type CrotErrorCode =
   | "BROWSER_PAGE_RESTRICTED"
   /**
    * The repository's own Git configuration contains settings that could make a
-   * git.read operation run programs; the operation is refused (ARCHITECTURE.md §27, AD-1).
+   * git.read or git.write operation run programs; the operation is refused
+   * (ARCHITECTURE.md §27, AD-1 and AD-2).
    */
   | "UNSAFE_REPOSITORY";
 
