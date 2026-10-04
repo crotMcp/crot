@@ -8,10 +8,10 @@
 > The former open decisions OD-1 (browser tab/origin binding) and OD-2 (audit
 > failure for gated operations) are decided by AD-6 and AD-7 (§16).
 >
-> **WP-15 contract.** AD-8 (`tabs.resolve`), AD-9 (browser `connectionId`) and
-> AD-10 (`permissions.approvals` location and defaults) were decided before the
-> implementation started (§17). Together with AD-5, AD-6 and AD-7 they are the
-> contract WP-15 implements.
+> **WP-15 contract.** AD-8 (`tabs.resolve`), AD-9 (browser `connectionId`),
+> AD-10 (`permissions.approvals` location and defaults) and AD-11 (expected
+> browser subject check) were decided before the implementation started (§17).
+> Together with AD-5, AD-6 and AD-7 they are the contract WP-15 implements.
 >
 > The TypeScript in this document is a **contract sketch** that pins down the
 > design. It is not code in `src/` and is not an implementation.
@@ -217,7 +217,9 @@ says otherwise.
   invalidates the approval; it is never transferred to another tab or origin
   (AD-6, §13.1). Core obtains the concrete tab and origin with `tabs.resolve`
   (AD-8), and the binding includes the `connectionId` of the browser
-  connection, checked again before the command is sent (AD-9).
+  connection, checked again before the command is sent (AD-9). The command
+  carries an expected browser subject (`tabId`, normalized `origin`,
+  `connectionId`); any mismatch denies the operation without acting (AD-11).
 
 ### 6.3 Presentation rules for providers
 
@@ -373,7 +375,7 @@ Outcome mapping:
 | `approved`, execution failed | `error` | as today |
 | `approved`, re-authorization failed | `denied` | `PERMISSION_DENIED` |
 | `approved`, mandatory approval audit record could not be written (AD-7) | `denied` (not executed) | `PERMISSION_DENIED` |
-| `approved`, browser tab/origin binding no longer holds (AD-6) | `denied` (not executed) | `PERMISSION_DENIED` |
+| `approved`, browser tab/origin/connection binding no longer holds (AD-6, AD-11) | `denied` (not executed) | `PERMISSION_DENIED` |
 | `rejected` / `expired` / `cancelled` / `unavailable` | `denied` | `PERMISSION_DENIED` |
 
 Rules:
@@ -552,6 +554,36 @@ interface BrowserRequestOptions {
   its digest. Immediately before the command is sent, the bridge checks the
   `connectionId`; a new connection invalidates the approval (AD-9).
 
+Expected browser subject check (**AD-11**). Field names are chosen by the
+implementation; the semantics and the error are fixed:
+
+```ts
+// Carried by every command of a gated browser.* operation; values are exactly
+// those of the approved subject.
+interface ExpectedBrowserSubject {
+  readonly tabId?: number; // absent only for browser.tab_open
+  readonly origin: string; // normalized WHATWG origin, http(s) only
+  readonly connectionId: string; // AD-9
+}
+// Mismatch (any field, missing tab, undeterminable value):
+//   bridge: connectionId differs -> command not sent
+//   extension: checks tabId, current origin of the committed URL (a pending
+//              navigation to another origin is a mismatch) and connectionId
+//              immediately before acting -> action not performed, responds
+//              with error code PERMISSION_DENIED (reserved for this check)
+//   agent: PERMISSION_DENIED, details { operation, missing: [], approval: { requestId, status: "approved" } }
+//   audit: outcome "denied", error.code "PERMISSION_DENIED"
+```
+
+- Origins are WHATWG origin serializations (lowercase scheme and host,
+  punycode host, default port omitted), compared by exact equality; opaque
+  origins and non-`http(s)` schemes never match.
+- The check only narrows: passing it grants no capability and changes no
+  permission. No new error code is introduced; browser-supplied messages are
+  never passed to the agent.
+- The bridge tells the extension its `connectionId` when it accepts the
+  `hello`; the extension cannot choose or change it.
+
 ### 13.2 Prompt-injection mitigation
 
 CROT cannot tell whether a tool call was induced by injected content (§19). The
@@ -635,11 +667,14 @@ configured:
   summary (rules configured, provider present).
 
 - Browser command protocol: expected-tab/origin precondition for gated
-  `browser.*` operations (AD-6); new command `tabs.resolve` for gated
-  tab-targeting operations (AD-8).
+  `browser.*` operations (AD-6), carried as the expected browser subject
+  (`tabId`, normalized `origin`, `connectionId`) with `PERMISSION_DENIED` on
+  mismatch (AD-11); new command `tabs.resolve` for gated tab-targeting
+  operations (AD-8).
 - Browser bridge: `connectionId` per accepted `hello` in
   `BrowserConnectionState`, optional expected `connectionId` in
-  `BrowserRequestOptions` (AD-9).
+  `BrowserRequestOptions`, `connectionId` sent to the extension when the
+  `hello` is accepted (AD-9).
 - Gated operations: mandatory approval audit record before `execute()`; failure
   to write it refuses the operation (AD-7).
 
@@ -678,7 +713,7 @@ open decision from this design blocks WP-15.
 
 ## 17. Decisions before WP-15 (part of the WP-15 contract)
 
-Planning WP-15 against the current code showed three gaps that needed a
+Planning WP-15 against the current code showed four gaps that needed a
 decision before implementation. They are recorded in ARCHITECTURE.md §27 and
 are part of the WP-15 contract:
 
@@ -695,3 +730,9 @@ are part of the WP-15 contract:
 - **AD-10 — configuration.** Approval rules live in `permissions.approvals`
   next to `permissions.network`. Defaults: `timeoutMs` 45 s, maximum 300 s,
   `maxPending` 8.
+- **AD-11 — expected browser subject check.** Every command of a gated
+  `browser.*` operation carries the expected `tabId`, normalized `origin` and
+  `connectionId`. The bridge checks `connectionId` before sending; the
+  extension checks all three immediately before acting. Any mismatch denies
+  the operation without acting, with the existing `PERMISSION_DENIED` (no new
+  error code). The check only narrows.
