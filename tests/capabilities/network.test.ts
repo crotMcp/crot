@@ -102,7 +102,12 @@ function setup(s: Setup = {}) {
   const mode = s.mode ?? "full_control";
   const engine = new PermissionEngine(
     createPermissionPolicy({ mode, capabilities: s.capabilities ?? ["network.access"] }),
-    { network: NetworkPolicy.create({ allow: s.allow ?? [], deny: s.deny ?? [] }, mode) },
+    {
+      network: NetworkPolicy.create({ allow: s.allow ?? [], deny: s.deny ?? [] }, mode),
+      // Several requests run in one session; the untrusted-content rule (AD-12) is
+      // tested in tests/core/session-exposure.test.ts.
+      approvals: { rules: [], untrustedContent: "off" },
+    },
   );
   const audit = new MemoryAuditSink();
   const lookups: string[] = [];

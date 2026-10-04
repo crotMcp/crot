@@ -3,6 +3,7 @@ import { CrotError } from "../errors.js";
 import type { Capability } from "../permissions/capabilities.js";
 import type { PermissionPolicy } from "../permissions/policy.js";
 import type { ResolvedPath } from "../workspace/workspace.js";
+import { UNTRUSTED_CONTENT_RULE_ID } from "./exposure.js";
 import { KNOWN_OPERATIONS } from "./operations.js";
 import type { ApprovalRule } from "./types.js";
 
@@ -25,6 +26,12 @@ export function validateApprovalRules(rules: readonly ApprovalRule[], policy: Pe
   for (const rule of rules) {
     const where = `permissions.approvals.rules: rule '${rule.id}'`;
     if (rule.id.trim().length === 0) throw new CrotError("CONFIG_ERROR", "permissions.approvals.rules: empty rule id.");
+    if (rule.id === UNTRUSTED_CONTENT_RULE_ID)
+      throw new CrotError(
+        "CONFIG_ERROR",
+        `${where}: the id '${UNTRUSTED_CONTENT_RULE_ID}' is reserved for the built-in rule ` +
+          "(permissions.approvals.untrustedContent).",
+      );
     if (ids.has(rule.id)) throw new CrotError("CONFIG_ERROR", `${where} is defined more than once.`);
     ids.add(rule.id);
     const m = rule.match;
@@ -56,6 +63,8 @@ export interface ApprovalFacts {
   readonly capabilities: readonly Capability[];
   readonly paths: readonly ResolvedPath[];
   readonly mode: PermissionPolicy["mode"];
+  /** Whether the session has read untrusted content (AD-12). */
+  readonly exposed: boolean;
 }
 
 /** Whether every condition of the rule holds. Uses only facts Core knows (never principal.client). */
@@ -65,6 +74,7 @@ export function ruleMatches(rule: ApprovalRule, facts: ApprovalFacts): boolean {
   if (m.capabilities !== undefined && !facts.capabilities.some((c) => m.capabilities?.includes(c))) return false;
   if (m.principalKinds !== undefined && !m.principalKinds.includes(facts.context.principal.kind)) return false;
   if (m.modes !== undefined && !m.modes.includes(facts.mode)) return false;
+  if (m.exposed !== undefined && m.exposed !== facts.exposed) return false;
   if (m.outsideWorkspace !== undefined) {
     const outside = facts.paths.some((p) => !p.insideWorkspace);
     if (outside !== m.outsideWorkspace) return false;

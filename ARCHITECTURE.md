@@ -617,7 +617,7 @@ Boundaries:
 | Device | device credential | other devices, cloned installs | device identity and binding, revocation (§20) | **[Target]** |
 | Commercial | local execution | commercial service | entitlements never enter local authorization (§23) | **[Target]** |
 | User confirmation | user via UI provider | agent, page/tool content | §21, §27 AD-5…AD-11 (mechanism; no provider yet) | **[Partial]** |
-| Untrusted content (prompt injection) | Core (session exposure) | web pages, HTTP responses, later external MCP results | §27 AD-12: session exposure from source operations; effectful operations in an exposed session need approval | **[Target]** (WP-16b) |
+| Untrusted content (prompt injection) | Core (session exposure) | web pages, HTTP responses, later external MCP results | §27 AD-12: session exposure from source operations; effectful operations in an exposed session need approval | **[Implemented]** (WP-16b) |
 
 Cross-cutting rule: **untrusted content never becomes a local command by
 itself.** Web pages, external MCP results, files read by tools and relay
@@ -776,7 +776,7 @@ The tray app is a UI; control logic stays in Core/service.
 | Browser bridge, relay, extension (Chromium) | **[Implemented]** |
 | External MCP gateway / MCP client | **[Target]** |
 | User confirmations | **[Partial]** (mechanism implemented: WP-15, §27 AD-5…AD-11; no approval provider yet) |
-| Untrusted-content exposure (prompt-injection mitigation) | **[Target]** (decided: §27 AD-12; implementation WP-16b) |
+| Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | **[Target]** |
 | Remote mode, Cloud Relay | **[Target]** |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** |

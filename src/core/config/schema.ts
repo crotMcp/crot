@@ -4,6 +4,7 @@ import {
   DEFAULT_APPROVAL_TIMEOUT_MS,
   MAX_APPROVAL_TIMEOUT_MS,
 } from "../approvals/rules.js";
+import { UNTRUSTED_CONTENT_SETTINGS } from "../approvals/exposure.js";
 import { CapabilitySchema } from "../permissions/capabilities.js";
 import { NetworkPolicyConfigSchema } from "../permissions/network/policy.js";
 import { PERMISSION_MODES } from "../permissions/policy.js";
@@ -156,14 +157,16 @@ export const ApprovalRuleConfigSchema = z
           .optional(),
         modes: z.array(z.enum(PERMISSION_MODES)).min(1).optional(),
         outsideWorkspace: z.boolean().optional(),
+        /** The session's exposure state (AD-12): true after it read untrusted content. */
+        exposed: z.boolean().optional(),
       })
       .strict(),
   })
   .strict();
 
 /**
- * Approval gates (ARCHITECTURE.md §27, AD-10). No rules by default: nothing is
- * gated. With rules but without a registered approval provider (no tray app),
+ * Approval gates (ARCHITECTURE.md §27, AD-10, AD-12). No user rules by
+ * default; the built-in `untrusted-content` rule is active unless turned off. With rules but without a registered approval provider (no tray app),
  * gated operations are denied.
  */
 export const ApprovalsConfigSchema = z
@@ -173,6 +176,12 @@ export const ApprovalsConfigSchema = z
     timeoutMs: z.number().int().positive().max(MAX_APPROVAL_TIMEOUT_MS).default(DEFAULT_APPROVAL_TIMEOUT_MS),
     /** Pending requests at the same time; more are denied immediately. */
     maxPending: z.number().int().positive().default(DEFAULT_APPROVAL_MAX_PENDING),
+    /**
+     * Built-in rule `untrusted-content` (AD-12): after a session read a web
+     * page, screenshot, tab list or network response, operations with effects
+     * need approval. On by default; "off" turns it off.
+     */
+    untrustedContent: z.enum(UNTRUSTED_CONTENT_SETTINGS).default("require-approval"),
   })
   .strict();
 

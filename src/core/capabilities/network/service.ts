@@ -5,7 +5,7 @@ import type { LookupFunction } from "node:net";
 import type { AuthContext } from "../../auth/principal.js";
 import type { Limits } from "../../config/schema.js";
 import { CrotError, parseInput } from "../../errors.js";
-import type { ExecutionGuard } from "../../execution/guard.js";
+import type { ExecutionGuard, ExposureSnapshot } from "../../execution/guard.js";
 import { parseIp, type IpAddress } from "../../permissions/network/addresses.js";
 import { normalizeHost, type NetworkTarget } from "../../permissions/network/policy.js";
 import {
@@ -104,9 +104,11 @@ export class NetworkService {
     let current = parseTargetUrl(req.url);
     const redirects: NetworkRedirect[] = [];
     let requireTls = false;
+    // AD-12: redirect hops are part of this call; they are gated by the exposure state when it started.
+    const exposure = this.guard.exposureSnapshot(context);
 
     for (let hop = 0; ; hop++) {
-      const target = await this.authorizeTarget(context, current, requireTls, deadline, hop);
+      const target = await this.authorizeTarget(context, current, requireTls, deadline, hop, exposure);
       const response = await this.guard.run(
         context,
         {
@@ -114,6 +116,7 @@ export class NetworkService {
           capability: "network.access",
           network: [target],
           details: { method, origin: current.url.origin, hop, followRedirects: req.followRedirects },
+          exposure,
           approval: {
             summary: "Send an HTTP request",
             effects: [
@@ -188,6 +191,7 @@ export class NetworkService {
     requireTls: boolean,
     deadline: number,
     hop: number,
+    exposure: ExposureSnapshot,
   ): Promise<NetworkTarget> {
     const base: NetworkTarget = { ...parsed.target, ...(requireTls ? { requireTls } : {}) };
     if (parsed.literal) return { ...base, addresses: [parsed.literal] };
@@ -198,6 +202,7 @@ export class NetworkService {
         capability: "network.access",
         network: [base],
         details: { host: base.host, hop },
+        exposure,
       },
       async () => {
         this.assertOpen();

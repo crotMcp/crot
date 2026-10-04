@@ -31,6 +31,8 @@ export interface ApprovalRule {
     readonly modes?: readonly PermissionMode[];
     /** true: some path is outside the workspace; false: every path is inside. */
     readonly outsideWorkspace?: boolean;
+    /** The session's exposure state (AD-12): true after it read untrusted content. */
+    readonly exposed?: boolean;
   };
 }
 

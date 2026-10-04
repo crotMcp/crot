@@ -85,7 +85,12 @@ function setup(options: SetupOptions = {}) {
   const mode = options.mode ?? "sandbox";
   const policy = createPermissionPolicy(options.capabilities ? { mode, capabilities: options.capabilities } : { mode });
   const audit = new MemoryAuditSink();
-  const guard = new ExecutionGuard(new PermissionEngine(policy), audit);
+  // Authorization tests: read and control operations run in one session, so the
+  // untrusted-content rule (AD-12, tests/core/session-exposure.test.ts) is off here.
+  const guard = new ExecutionGuard(
+    new PermissionEngine(policy, { approvals: { rules: [], untrustedContent: "off" } }),
+    audit,
+  );
   const fake = new FakeConnection();
   const service = new BrowserService({
     guard,

@@ -121,6 +121,7 @@ directory (CROT warns when a relative path is resolved).
 | `permissions.approvals.rules` | `[]` | Operations that need the user's approval (see [Approval gates](#approval-gates)) |
 | `permissions.approvals.timeoutMs` | 45 000 | How long a request waits for a decision (at most 300 000) |
 | `permissions.approvals.maxPending` | 8 | Pending approval requests; more are denied at once |
+| `permissions.approvals.untrustedContent` | `"require-approval"` | Built-in `untrusted-content` rule after a session read untrusted content; `"off"` turns it off |
 | `limits.maxReadBytes` | 10 MiB | Maximum bytes per file read |
 | `limits.defaultCommandTimeoutMs` | 120 000 | Foreground command timeout (also Git commands) |
 | `limits.maxCommandTimeoutMs` | 3 600 000 | Maximum timeout a caller may request |
@@ -484,17 +485,28 @@ outcome other than an explicit approval denies it with `PERMISSION_DENIED`
 ```
 
 - A rule matches when every condition holds: `operations`, `capabilities`
-  (any), `principalKinds`, `modes`, `outsideWorkspace`. Unknown operations and
+  (any), `principalKinds`, `modes`, `outsideWorkspace`, `exposed`. Unknown operations and
   rules that can never match stop CROT with a configuration error.
 - **No approval UI exists yet.** Until the tray app provides one, operations
-  matched by a rule are denied (`crot_status` shows a note). Without rules
-  nothing changes.
+  matched by a rule are denied (`crot_status` shows a note). Without user
+  rules only the built-in `untrusted-content` rule below applies.
 - Approvals are single-use and bound to a digest of exactly what runs. After
   the approval CROT authorizes again and re-checks paths; an approval audit
   record is written before execution, and if it cannot be written the
   operation is refused.
 - Browser operations are bound to the concrete tab, its origin and the browser
   connection; if any of them changes before the action, it is not performed.
+- **Untrusted content (§27 AD-12).** After a session successfully ran
+  `browser_page_read`, `browser_screenshot`, `browser_tabs_list` or
+  `network_request`, it is *exposed* until it ends (stdio: the connection;
+  HTTP: the MCP session). In an exposed session the built-in rule
+  `untrusted-content` requires approval for operations needing
+  `shell.execute`, `filesystem.write`, `git.write`, `network.access` or
+  `browser.control`, and for `docker_compose_up` / `docker_compose_down`;
+  reads are not affected. Without an approval UI these operations are denied
+  for the rest of the session. Content is never inspected, and nothing clears
+  the exposure. `"untrustedContent": "off"` turns the rule off; `crot_status`
+  reports the setting.
 
 ## Platform support
 

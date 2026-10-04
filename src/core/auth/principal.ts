@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 /**
  * Identity of the caller on whose behalf an operation runs.
  *
@@ -30,8 +32,29 @@ export interface Principal {
   readonly client?: ClientInfo;
 }
 
+/**
+ * One client session for session-scoped Core state (ARCHITECTURE.md §27,
+ * AD-12: session exposure). Created only by transport adapters (stdio: one
+ * per MCP server instance; HTTP: one per MCP session, which is bound to its
+ * authenticated principal) and compared by identity, never by `id`. Tool
+ * arguments, the client, the browser and page content can never set it.
+ */
+export interface SessionRef {
+  /** Random diagnostic id; carries no authority. */
+  readonly id: string;
+}
+
+export function newSession(): SessionRef {
+  return Object.freeze({ id: randomUUID() });
+}
+
 export interface AuthContext {
   readonly principal: Principal;
+  /**
+   * The session the request belongs to, supplied by the adapter. Absent
+   * (embedding, tests): Core treats the whole process as one session.
+   */
+  readonly session?: SessionRef;
   /** Optional correlation id supplied by the adapter. */
   readonly requestId?: string;
   /**

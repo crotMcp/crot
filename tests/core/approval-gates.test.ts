@@ -56,11 +56,22 @@ const exists = (p: string) =>
   );
 
 describe("approval gates: configuration", () => {
-  it("defaults to no rules, 45 s timeout and 8 pending requests; nothing is gated", async () => {
+  it("defaults to no user rules, 45 s timeout, 8 pending requests and the untrusted-content rule; a clean session is not gated", async () => {
     const audit = new MemoryAuditSink();
     core = await createTestCore({ workspace: { root: dirs.workspace } }, audit);
-    expect(core.config.permissions.approvals).toEqual({ rules: [], timeoutMs: 45_000, maxPending: 8 });
-    expect(core.status().approvals).toEqual({ rules: [], timeoutMs: 45_000, maxPending: 8, providers: 0 });
+    expect(core.config.permissions.approvals).toEqual({
+      rules: [],
+      timeoutMs: 45_000,
+      maxPending: 8,
+      untrustedContent: "require-approval",
+    });
+    expect(core.status().approvals).toEqual({
+      rules: [],
+      timeoutMs: 45_000,
+      maxPending: 8,
+      providers: 0,
+      untrustedContent: "require-approval",
+    });
     await core.filesystem.writeFile(ctx, { path: "a.txt", content: "x" });
     expect(audit.events).toHaveLength(1);
     expect(audit.events[0]).toMatchObject({ operation: "filesystem.write_file", outcome: "success" });

@@ -159,7 +159,8 @@ describe("MCP browser tools", () => {
 
   it("delegates every browser tool to Core and audits its operation (FULL_CONTROL)", async () => {
     const browser = new FakeBrowser();
-    await connect({ permissions: { mode: "full_control" } }, browser);
+    // Reads and actions in one session: the untrusted-content rule (AD-12) is off here.
+    await connect({ permissions: { mode: "full_control", approvals: { untrustedContent: "off" } } }, browser);
     for (const [name, args] of Object.entries(ALL_TOOLS)) {
       expect((await callRaw(name, args)).isError, name).toBeFalsy();
       const event = audit.events.at(-1)!;

@@ -1,4 +1,5 @@
 import { DEFAULT_APPROVAL_TIMEOUT_MS, ruleMatches, validateApprovalRules } from "../approvals/rules.js";
+import { UNTRUSTED_CONTENT_RULES, type UntrustedContentSetting } from "../approvals/exposure.js";
 import type { ApprovalRequirement, ApprovalRule } from "../approvals/types.js";
 import type { AuthContext } from "../auth/principal.js";
 import type { ResolvedPath } from "../workspace/workspace.js";
@@ -40,7 +41,12 @@ export interface PermissionEngineOptions {
    * Approval gate rules (permissions.approvals). Validated against the policy
    * here; an invalid rule is a CONFIG_ERROR. No rules: nothing is gated.
    */
-  readonly approvals?: { readonly rules: readonly ApprovalRule[]; readonly timeoutMs?: number };
+  readonly approvals?: {
+    readonly rules: readonly ApprovalRule[];
+    readonly timeoutMs?: number;
+    /** The built-in `untrusted-content` rule (AD-12). Default: "require-approval". */
+    readonly untrustedContent?: UntrustedContentSetting;
+  };
 }
 
 /** The facts approvalRequirement() evaluates (a subset of an OperationDescriptor). */
@@ -48,6 +54,8 @@ export interface ApprovalRequirementRequest {
   readonly operation: string;
   readonly capabilities: readonly Capability[];
   readonly paths?: readonly ResolvedPath[];
+  /** The session's exposure state, computed by Core (ExposureTracker). Default false. */
+  readonly exposed?: boolean;
 }
 
 /**
@@ -78,6 +86,9 @@ export class PermissionEngine {
   private readonly networkPolicy: NetworkPolicy;
   private readonly approvalRules: readonly ApprovalRule[];
   private readonly approvalTimeoutMs: number;
+  private readonly untrustedContent: UntrustedContentSetting;
+  /** Built-in rules first, then user rules; the first match wins. */
+  private readonly effectiveRules: readonly ApprovalRule[];
 
   constructor(
     private readonly policy: PermissionPolicy,
@@ -90,11 +101,22 @@ export class PermissionEngine {
     validateApprovalRules(rules, policy);
     this.approvalRules = Object.freeze(rules.map((r) => Object.freeze({ ...r, match: Object.freeze({ ...r.match }) })));
     this.approvalTimeoutMs = options.approvals?.timeoutMs ?? DEFAULT_APPROVAL_TIMEOUT_MS;
+    this.untrustedContent = options.approvals?.untrustedContent ?? "require-approval";
+    // Built-in rules are not validated against the policy: a capability that is
+    // not granted is simply never authorized, so the rule never fires for it.
+    this.effectiveRules = Object.freeze([
+      ...(this.untrustedContent === "off" ? [] : UNTRUSTED_CONTENT_RULES),
+      ...this.approvalRules,
+    ]);
   }
 
-  /** Configured gate rules (immutable). */
-  get approvals(): { readonly rules: readonly ApprovalRule[]; readonly timeoutMs: number } {
-    return { rules: this.approvalRules, timeoutMs: this.approvalTimeoutMs };
+  /** Configured gate rules (immutable) and the setting of the built-in untrusted-content rule. */
+  get approvals(): {
+    readonly rules: readonly ApprovalRule[];
+    readonly timeoutMs: number;
+    readonly untrustedContent: UntrustedContentSetting;
+  } {
+    return { rules: this.approvalRules, timeoutMs: this.approvalTimeoutMs, untrustedContent: this.untrustedContent };
   }
 
   /**
@@ -109,8 +131,9 @@ export class PermissionEngine {
       capabilities: request.capabilities,
       paths: request.paths ?? [],
       mode: this.policy.mode,
+      exposed: request.exposed ?? false,
     };
-    const rule = this.approvalRules.find((r) => ruleMatches(r, facts));
+    const rule = this.effectiveRules.find((r) => ruleMatches(r, facts));
     return rule ? { required: true, rule: rule.id, timeoutMs: this.approvalTimeoutMs } : { required: false };
   }
 
