@@ -3,6 +3,7 @@ import { JsonlFileAuditSink, NullAuditSink, StreamAuditSink, type AuditSink } fr
 import type { BrowserConnection } from "./capabilities/browser/connection.js";
 import type { BrowserBridgeState } from "./capabilities/browser/schemas.js";
 import { BrowserService } from "./capabilities/browser/service.js";
+import { DockerService } from "./capabilities/docker/service.js";
 import { FileSystemService } from "./capabilities/filesystem/service.js";
 import { GitMetadataLock } from "./capabilities/git/metadata-lock.js";
 import { GitService } from "./capabilities/git/service.js";
@@ -76,6 +77,7 @@ export class CrotCore {
     readonly filesystem: FileSystemService,
     readonly processes: ProcessService,
     readonly git: GitService,
+    readonly docker: DockerService,
     readonly browser: BrowserService,
     readonly platform: Platform,
     private readonly audit: AuditSink,
@@ -132,6 +134,7 @@ export class CrotCore {
     const filesystem = new FileSystemService({ workspace, guard, limits: config.limits, gitLock });
     const processes = new ProcessService({ workspace, guard, platform, limits: config.limits });
     const git = new GitService({ workspace, guard, platform, limits: config.limits, lock: gitLock });
+    const docker = new DockerService({ workspace, guard, platform, limits: config.limits, protectedPaths });
     const browser = new BrowserService({
       guard,
       limits: config.limits,
@@ -145,6 +148,7 @@ export class CrotCore {
       filesystem,
       processes,
       git,
+      docker,
       browser,
       platform,
       audit,
@@ -155,7 +159,7 @@ export class CrotCore {
   /**
    * Release resources, in order: stop accepting browser operations and cancel
    * those waiting for the browser; stop accepting commands and terminate every
-   * process tree CROT started (including running Git commands); wait for
+   * process tree CROT started (including running Git and Docker commands); wait for
    * operations in flight to write their audit records; flush and close the
    * audit sink. Idempotent.
    *
@@ -166,6 +170,7 @@ export class CrotCore {
       this.browser.shutdown();
       await this.processes.shutdown();
       await this.git.shutdown();
+      await this.docker.shutdown();
       await this.guard.drain(SHUTDOWN_DRAIN_MS);
       await this.audit.close?.();
     })();
@@ -180,6 +185,7 @@ export class CrotCore {
   terminateProcessesSync(): void {
     this.processes.terminateAllSync();
     this.git.terminateAllSync();
+    this.docker.terminateAllSync();
   }
 
   status(): CrotStatus {

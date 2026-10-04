@@ -28,7 +28,7 @@ The product has three parts:
 
 | Part | What the agent gets | Status |
 | --- | --- | --- |
-| Local computer | files, processes, shell, Git, Docker and further local capabilities | **[Implemented]** files, processes, shell, Git read (`git.read`) and local Git write (`git.write`); **[Partial]** Docker (see §5) |
+| Local computer | files, processes, shell, Git, Docker and further local capabilities | **[Implemented]** files, processes, shell, Git read (`git.read`), local Git write (`git.write`) and dedicated Docker operations (`docker.use`, see §5) |
 | User's browser | the user's real browser session through the browser bridge and extension | **[Implemented]** Chromium browsers |
 | External MCP services | tools of external MCP-compatible servers, reached through CROT | **[Target]** (§18) |
 
@@ -81,7 +81,7 @@ external service, identity provider or commercial backend.
 +---------|---------------------------------------------------|---------------------+
           v                                                   | local IPC (Unix socket /
    OS: files, processes, shells                               | named pipe, token-auth)
-   (docker, ... today via shell.execute)                      v
+   (git, docker: dedicated services; rest via shell.execute) v
                                                      crot-browser-relay
                                                      (native-messaging host, started by browser)
                                                               | Native Messaging (stdin/stdout)
@@ -96,6 +96,11 @@ The `GitService` (`git.read`, §27 AD-1; `git.write`, §27 AD-2) is a Core
 capability next to `ProcessService`: it runs through the same ExecutionGuard and
 starts Git through the `ProcessLauncher` in PATH-only mode. Git network
 operations (fetch, pull, push) are not part of it.
+
+The `DockerService` (`docker.use`, §27 AD-3) is a Core capability of the same
+kind: a fixed set of Docker operations (`ps`, `logs`, `compose up`,
+`compose down`) through the ExecutionGuard, with the Docker CLI started through
+the `ProcessLauncher` in PATH-only mode.
 
 ### 2.2 Target architecture
 
@@ -225,7 +230,7 @@ When the user grants them, CROT can provide:
 - Shell — **[Implemented]**
 - Processes — **[Implemented]**
 - Git — **[Partial]**: read operations (`status`, `diff`, `log`, `branch`, `show`) are a dedicated capability gated by `git.read` (§27 AD-1); local write operations (`add`, `commit`, branch create/rename/delete, checkout of a branch or a detached commit) are gated by `git.write` (§27 AD-2); network operations (fetch, pull, push) and destructive operations (amend, force, reset) are not implemented and remain usable only through `shell.execute`
-- Docker — **[Partial]**: usable through `shell.execute`; dedicated operations gated by `docker.use` are not implemented
+- Docker — **[Partial]**: dedicated operations gated by `docker.use` (§27 AD-3): list containers, read container logs, `compose up` and `compose down` with a reviewed Compose model; build, pull, push, run, exec and every other Docker command are not implemented and remain usable only through `shell.execute`
 - Python, Node.js, FFmpeg, project tools — **[Partial]**: usable through `shell.execute` / `process.manage`
 
 New local capabilities are added as Core capability services that go through
@@ -285,9 +290,9 @@ network.access
 ```
 
 Enforced today: `filesystem.*`, `shell.execute`, `process.manage`, `git.read`,
-`git.write`, `browser.read`, `browser.control`. `docker.use` and
-`network.access` are part of the model and reported by `crot_status`, and will
-gate dedicated operations when those are added.
+`git.write`, `docker.use`, `browser.read`, `browser.control`. `network.access`
+is part of the model and reported by `crot_status`, and will gate dedicated
+operations when those are added.
 
 **[Target]** extensions of the same model (not a second permission system):
 capabilities for external MCP servers (§18), user confirmation as a possible
@@ -534,7 +539,7 @@ Further target work, order to be set by the work packages:
 18. Remote mode and CROT Cloud Relay              [Target, §22]
 19. External MCP gateway (CROT as MCP client)     [Target, §18]
 20. Tray app and supervised local service         [Target, §24]
-21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1) and git.write (WP-11, §27 AD-2) implemented; Docker Target, §5]
+21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
 ```
 
 The order may change when technically justified, but architectural boundaries must remain intact.
@@ -600,6 +605,7 @@ Boundaries:
 | Local operations | Core + Platform | commands and their effects | workspace boundary, protected paths, timeouts, process-tree control; not OS sandboxing | **[Implemented]** |
 | Repository contents (`git.read`) | Core + Git on `PATH` | repository files and repository Git configuration | §27 AD-1: PATH-only lookup, configuration allowlist, hardened invocation, metadata lock | **[Implemented]** |
 | Repository contents (`git.write`) | Core + Git on `PATH` | repository files, repository Git configuration, hooks, agent-supplied messages and names | §27 AD-2: AD-1 checks plus hooks/editors/signing/maintenance disabled, fixed non-destructive commands, exclusive metadata lock, protected paths | **[Implemented]** |
+| Docker (`docker.use`) | Core + Docker CLI on `PATH` | Compose files, env files, container labels and logs, the Docker daemon | §27 AD-3: fixed operations, Compose policy and host-path checks, canonical private model file, no build/pull, environment allowlist | **[Implemented]** |
 | Local transports | Core | other local programs | stdio parent only; loopback HTTP with bearer token, Host/Origin checks | **[Implemented]** |
 | Browser | Core | bridge, relay, extension, browser, web pages | token-authenticated IPC, browser cannot initiate, fixed commands, result validation; page content untrusted | **[Implemented]** |
 | External MCP | Core | external servers, their tools and data | §18 | **[Target]** |
@@ -742,7 +748,8 @@ The tray app is a UI; control logic stays in Core/service.
 | Filesystem, shell, processes | **[Implemented]** |
 | Git read operations (`git.read`: status, diff, log, branch, show) | **[Implemented]** (WP-10, §27 AD-1) |
 | Git local write operations (`git.write`: add, commit, branch create/rename/delete, checkout) | **[Implemented]** (WP-11, §27 AD-2) |
-| Git network operations, Docker as dedicated capabilities | **[Target]** (usable via shell) |
+| Docker dedicated operations (`docker.use`: ps, logs, compose up/down) | **[Implemented]** (WP-12, §27 AD-3) |
+| Git network operations | **[Target]** (usable via shell) |
 | Local MCP tools over stdio | **[Implemented]** |
 | Streamable HTTP, loopback, local token | **[Implemented]** |
 | Native Host (OS platform layer) | **[Implemented]** |
@@ -923,3 +930,77 @@ options or programs.
   serialized, and Git on `PATH` with its built-in behaviour is trusted.
 - Committing while a merge is in progress concludes the merge (Git's own
   behaviour); `git switch` refuses to overwrite local changes.
+
+### AD-3. `docker.use` runs only fixed Docker operations under CROT's path rules (WP-12)
+
+**Context.** Docker can mount any host path into a container and run any
+program there; a Compose file can request privileged containers, host
+namespaces, devices or builds. Without a dedicated capability Docker was only
+reachable through `shell.execute`, which gives no Docker-specific guarantees.
+
+**Decision.**
+
+1. **Fixed operations, no shell.** `docker_ps`, `docker_logs`,
+   `docker_compose_up` and `docker_compose_down` are the only operations. The
+   Docker CLI is resolved on `PATH` only (never the current directory), started
+   with a fixed argument vector (no shell), no stdin, a private temporary
+   working directory, output limits and a timeout. Container references,
+   project and service names are validated by strict patterns and placed after
+   `--`; no agent value can become an option. Build, pull, push, run, exec, cp
+   and every other Docker command are not available; `up` always uses
+   `--pull never --no-build --detach`.
+2. **Environment allowlist.** Only `PATH`, home/temp/locale variables, Docker
+   connection variables (`DOCKER_HOST`, `DOCKER_CONTEXT`, `DOCKER_CONFIG`, TLS),
+   `SSH_AUTH_SOCK` and proxy variables are passed; all `COMPOSE_*` variables are
+   removed so the environment cannot add files, profiles or a project name.
+3. **Every step is an ExecutionGuard operation** with `docker.use` and the
+   paths it touches (`docker.inspect`, `docker.logs`, `docker.compose_config`,
+   `docker.compose_up`, `docker.compose_ps`, `docker.compose_down`), so the
+   PermissionEngine applies the normal workspace boundary: paths outside the
+   workspace additionally need `filesystem.full`.
+4. **Container scope.** A container belongs to the directory in its Compose
+   `working_dir` label. `docker_ps` with workspace scope lists only containers
+   whose label directory is inside the workspace; scope `all` and containers
+   without the label need `filesystem.full`. `docker_logs` inspects the
+   container first and checks its label directory the same way.
+5. **Compose pipeline.** The project directory, Compose files and `.env` are
+   resolved through the Workspace (canonical, symlinks followed) before any
+   Docker call. The files are scanned as text (size, encoding, `include`,
+   `extends`, `label_file`, YAML tags and escapes are refused), the env files
+   they reference are resolved and checked, then `docker compose config`
+   produces the normalized model. A deny-by-default policy reviews it: only
+   allowlisted top-level, service, mount, volume, network, secret and config
+   keys are accepted; privileged mode, capabilities, devices, host namespaces,
+   `build`, security options and similar keys are refused with
+   `UNSAFE_COMPOSE`. Every host path (bind mounts, file secrets and configs) is
+   resolved through the Workspace and part of the guarded `docker.compose_up`
+   operation; external volumes need `filesystem.full`.
+6. **Canonical private model.** `up` does not read the user's files again: the
+   reviewed model with canonical host paths is written to a private temporary
+   file and passed with an empty `--env-file`, so a file changed after the
+   review is not used.
+7. **Protected paths.** A writable bind mount that exposes CROT's audit log or
+   configuration file is denied (`PERMISSION_DENIED`) in every mode.
+8. **Down.** `compose down` looks up the project's containers by label, checks
+   their label directories like `logs`, and runs with an empty private model
+   and `--remove-orphans`; volumes and images are never removed.
+9. **Audit.** Operations, paths, project and service names, container ids and
+   exit codes are recorded; logs and Compose contents are not.
+
+**Scope and limits.**
+
+- `docker.use` is not an OS sandbox: a container can do whatever its image does
+  with the mounts and networks the reviewed model allows. Container labels are
+  set by whoever created the container; a container created outside CROT can
+  claim any `working_dir`.
+- Host paths are checked when the model is reviewed; a path replaced by a
+  symlink between the check and the daemon's mount is not detected.
+- With a remote `DOCKER_HOST` host paths refer to the remote machine.
+- `include`, `extends` and the implicit `compose.override.yaml` are not
+  supported; additional files must be listed explicitly.
+- `docker.use` is not part of the sandbox defaults; it is granted explicitly
+  (in sandbox mode only for the workspace) or by `full_control`.
+- Networks created by a project may remain after `down` if other containers use
+  them.
+- `shell.execute` remains a broader path to Docker and is governed by its own
+  capability.
