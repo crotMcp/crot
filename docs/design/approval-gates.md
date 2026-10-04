@@ -153,9 +153,11 @@ runtime.
 - A rule matches if every given condition matches. An operation needs approval
   if any rule matches. The engine returns the id of the first matching rule
   (for audit) and the effective timeout.
-- **Default: no rules.** Without configuration, nothing is gated and behaviour
-  is exactly as today. The default list of gated operations is decided
-  separately (§26, question 6).
+- **Default: no user rules.** Without configuration, no user rule exists. The
+  only default is the built-in `untrusted-content` rule for exposed sessions
+  (ARCHITECTURE.md §27, AD-12, amending AD-10), which can be turned off. The
+  general default list of gated operations is decided separately (§26,
+  question 6).
 - Unknown operation names, unknown capabilities or rules that can never match
   are a `CONFIG_ERROR` at startup.
 - If rules exist but no provider is registered, Core starts. A
@@ -424,7 +426,8 @@ interface ApprovalRule {
     readonly principalKinds?: readonly PrincipalKind[];
     readonly modes?: readonly PermissionMode[];
     readonly outsideWorkspace?: boolean;
-    // reserved for later decisions (§13): origins, exposure
+    readonly exposed?: boolean; // AD-12: session exposure (§13.2)
+    // reserved for later decisions (§13): origins
   };
 }
 
@@ -589,13 +592,26 @@ interface ExpectedBrowserSubject {
 ### 13.2 Prompt-injection mitigation
 
 CROT cannot tell whether a tool call was induced by injected content (§19). The
-planned mitigation is *exposure*. Core records that the session has read
-untrusted content (`browser.page_read`, `network_request` responses, later
-external MCP results). Gate rules can then require approval for dangerous
-operations in an exposed session. The rule model reserves a matcher for this.
-The subject would show the exposure ("this session read content from
-`https://…` before this request"). Exposure is computed only by Core, never
-reported by the agent.
+mitigation is *exposure*, decided by **AD-12** (implementation: WP-16b).
+
+- Provenance is tracked per session, not per value: MCP carries no label from
+  a result into a later call, and matching arguments against earlier results
+  would be a bypassable heuristic.
+- Core marks the session `exposed` after a source operation succeeded
+  (`browser.page_read`, `browser.screenshot`, `browser.tabs_list`,
+  `network.request`; later external MCP results). Marking depends only on the
+  operation, never on the content, and is never cleared during the session.
+- The session identifier is supplied by the transport adapter in
+  `AuthContext`; without one, the process is one session.
+- The rule matcher `exposed` and the built-in rule `untrusted-content` (on by
+  default, `permissions.approvals.untrustedContent: "off"` turns it off)
+  require approval for operations needing `shell.execute`, `filesystem.write`,
+  `git.write`, `network.access` or `browser.control`, and for
+  `docker.compose_up` / `docker.compose_down`, in an exposed session. This is
+  the WP-15 gate; there is no second mechanism.
+- The subject can show the exposure ("this session read untrusted content
+  before this request"). Exposure is computed only by Core, never reported by
+  the agent.
 
 ### 13.3 Remote FULL CONTROL
 
@@ -684,6 +700,12 @@ Not changed: capability vocabulary, sandbox/full_control semantics, protected
 paths, network policy, audit outcome values, the browser protocol for
 operations without a gate, and the rule that audit write failures never affect
 operations that require no approval.
+
+WP-16 (AD-12) adds, additively: an optional session identifier in
+`AuthContext`, the `exposed` matcher, the built-in `untrusted-content` rule
+with `permissions.approvals.untrustedContent`, and the Core-owned list of
+exposure sources. It amends AD-10 point 2 (the built-in rule is on by
+default).
 
 Still open but not blocking WP-15: the default list of gated operations and
 headless profiles (§26, question 6). With no rules configured, nothing is

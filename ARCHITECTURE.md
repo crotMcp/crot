@@ -616,14 +616,15 @@ Boundaries:
 | User tokens | identity provider + local verifier | token holders | short-lived, revocable, audience-bound tokens; Core sees only a Principal | **[Target]** (today: static local token) |
 | Device | device credential | other devices, cloned installs | device identity and binding, revocation (§20) | **[Target]** |
 | Commercial | local execution | commercial service | entitlements never enter local authorization (§23) | **[Target]** |
-| User confirmation | user via UI provider | agent, page/tool content | §21 | **[Target]** |
+| User confirmation | user via UI provider | agent, page/tool content | §21, §27 AD-5…AD-11 (mechanism; no provider yet) | **[Partial]** |
+| Untrusted content (prompt injection) | Core (session exposure) | web pages, HTTP responses, later external MCP results | §27 AD-12: session exposure from source operations; effectful operations in an exposed session need approval | **[Target]** (WP-16b) |
 
 Cross-cutting rule: **untrusted content never becomes a local command by
 itself.** Web pages, external MCP results, files read by tools and relay
 traffic are data. CROT never parses results to trigger operations; every
 operation must arrive as a new tool call and pass the full pipeline. CROT cannot
 stop an agent from following injected instructions; mitigations are capability
-scoping, user confirmations (§21) and audit.
+scoping, user confirmations (§21), session exposure (§27 AD-12) and audit.
 
 ## 20. Identity: User, Device, Account
 
@@ -671,6 +672,8 @@ CROT can require explicit user approval before a sensitive operation.
 - **Audit.** Requests and decisions are audited.
 
 Which operations require confirmation is a policy question (§26, question 6).
+§27 AD-12 decides one part of it: in a session that has read untrusted content
+(exposure), operations with effects require confirmation by default.
 
 The mechanism (approval gates: placement, approval subject, request
 lifecycle, queue, provider interface, audit, threat model) is designed in
@@ -772,7 +775,8 @@ The tray app is a UI; control logic stays in Core/service.
 | Native Host (OS platform layer) | **[Implemented]** |
 | Browser bridge, relay, extension (Chromium) | **[Implemented]** |
 | External MCP gateway / MCP client | **[Target]** |
-| User confirmations | **[Target]** (mechanism designed: WP-14, §27 AD-5) |
+| User confirmations | **[Partial]** (mechanism implemented: WP-15, §27 AD-5…AD-11; no approval provider yet) |
+| Untrusted-content exposure (prompt-injection mitigation) | **[Target]** (decided: §27 AD-12; implementation WP-16b) |
 | OAuth/OIDC identity, accounts, device binding | **[Target]** |
 | Remote mode, Cloud Relay | **[Target]** |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** |
@@ -802,8 +806,9 @@ These need explicit decisions before the corresponding work packages.
    client, root listings and similar): forwarding policy.
 6. **Confirmation policy.** Which operations require confirmation, and the
    behaviour without an available UI (headless use). WP-14 (§27 AD-5) fixes
-   the mechanism and the headless behaviour (deny); the list of gated
-   operations remains open.
+   the mechanism and the headless behaviour (deny); §27 AD-12 adds the
+   built-in `untrusted-content` rule for exposed sessions. The general list
+   of gated operations remains open.
 7. **Relay encryption model.** Whether traffic is end-to-end encrypted between
    client and device or TLS terminates at the relay (the relay then sees
    traffic in transit, even though it never stores it).
@@ -1377,6 +1382,9 @@ so Core cannot tell two connections apart. Found while planning WP-15.
 
 - This is part of the WP-15 contract. It fixes only the location and the
   default values; which operations are gated stays open (§26, question 6).
+- Point 2 is amended by AD-12: besides user rules (none by default), the
+  built-in `untrusted-content` rule for exposed sessions is active by default
+  and can be turned off with `permissions.approvals.untrustedContent: "off"`.
 
 ### AD-11. A gated browser command carries an expected browser subject that must match right before the action (WP-15 contract)
 
@@ -1444,3 +1452,116 @@ the implementation.
   gate rule matches carry no expected subject and keep today's behaviour.
 - The check binds the origin, not the full URL (AD-6), and does not cover what
   the page does after the action.
+
+### AD-12. Untrusted content marks the session as exposed; an exposed session needs approval for operations with effects (WP-16)
+
+**Context.** WP-16 requires that content from `browser.read` (and later from
+external MCP servers) is treated as untrusted, and that shell and write
+operations which may be driven by it need explicit approval. Planning WP-16
+against the current code showed that this cannot be done per value:
+
+- A tool result goes to the agent as text. The next tool call is new JSON
+  composed by the model. The MCP protocol has no field that carries a
+  provenance label from one result into a later call, and Core cannot link the
+  arguments of a call to an earlier result.
+- Linking them by comparing arguments with earlier results would be a hidden
+  heuristic that any paraphrase, translation or encoding defeats, and it would
+  make Core parse results, which §19 rules out. Returning opaque handles
+  instead of content would break the existing tool contracts, and the agent
+  would still see the content.
+- The design reserved *exposure* for this (`docs/design/approval-gates.md`
+  §13.2): Core records that a session has read untrusted content, and gate
+  rules match on that fact. `AuthContext` has no session identity yet, the
+  rule model has no exposure matcher, and AD-10 says that nothing is gated by
+  default.
+
+**Decision.**
+
+1. **Model: session exposure, not value provenance.** Provenance is tracked
+   per session as *exposure*: a Core fact with two states, `clean` and
+   `exposed`, that changes only from `clean` to `exposed`. It is separate from
+   the permission mode, the capability set and the principal, and it never
+   grants anything. Core never labels argument values as trusted or untrusted
+   by their content: text supplied by the user or the agent is not untrusted
+   because it resembles instructions, and content cannot make itself trusted
+   by its wording.
+2. **Session.** `AuthContext` gets an optional session identifier (additive),
+   set only by the transport adapter: for stdio, the server instance (one MCP
+   connection); for HTTP, the MCP session, which is bound to its authenticated
+   principal. Without a session identifier (embedding, tests), Core treats the
+   whole process as one session, so exposure is never lost, only over-applied.
+   Tool arguments, `principal.client`, the browser and page content can never
+   set or change it.
+3. **Sources.** Exposure sources are a Core-owned list of operation names
+   whose successful result carries externally controlled content:
+   - `browser.page_read`, `browser.screenshot` (text in images is read by
+     vision models) and `browser.tabs_list` (tab titles and URLs are set by
+     pages; titles of every open tab are returned, up to 10 000 characters
+     each, including tabs the agent did not choose to read);
+   - `network.request` (otherwise fetching the same page with
+     `network_request` would bypass the browser sources).
+
+   The session is marked after `execute()` of a source operation succeeded and
+   before its result is returned. Marking depends only on the operation, never
+   on the content, so nothing a page or response contains can avoid, undo or
+   change it. It does not depend on the audit write. A failed or denied source
+   operation does not mark. The list is checked against the known operation
+   names (startup and tests). `browser.status` and the results of
+   `browser.control` operations (tab id and URL) are not sources.
+4. **Gate: the WP-15 approval gate, no second mechanism.** The rule model gets
+   a matcher `exposed: boolean` (the session's exposure state), usable in user
+   rules too. A built-in rule set with the reserved id `untrusted-content`
+   (implemented as one or more ordinary `ApprovalRule`s evaluated by
+   `PermissionEngine.approvalRequirement()`) matches an operation in an
+   exposed session that requires any of the capabilities `shell.execute`,
+   `filesystem.write`, `git.write`, `network.access` or `browser.control`, or
+   is `docker.compose_up` or `docker.compose_down`. Such an operation goes
+   through the unchanged pipeline: `authorize()` -> approval gate ->
+   re-authorization -> mandatory approval record (AD-7) -> execution. The rule
+   applies in every permission mode and to every principal kind. Reads
+   (`filesystem.read`, `git.read`, Docker read operations, `browser.read`) are
+   not gated by it.
+5. **Default on, explicit opt-out (amends AD-10 point 2).** The built-in rule
+   is active by default. `permissions.approvals.untrustedContent` is
+   `"require-approval"` (default) or `"off"`. `crot_status` reports the
+   setting. User rules may not use the reserved id (`CONFIG_ERROR`). AD-10
+   point 2 now reads: no user rules by default; the built-in `untrusted-content`
+   rule is active unless turned off. All other defaults of AD-10 stay.
+6. **Headless.** Without an approval provider, an operation matched by the
+   rule is denied (AD-5 point 3): after a source operation, the operations of
+   point 4 are denied for the rest of the session. The agent gets the existing
+   `PERMISSION_DENIED` with the approval details (design §10) and a
+   Core-defined message saying that the session has read untrusted content.
+   Browser and network access are off by default, so this applies only where
+   the user enabled a source.
+7. **Lifetime.** Exposure lasts until the session ends. It is kept in memory
+   only. No tool, agent request, browser message, page content or
+   configuration value can clear it, and an approval does not clear it: every
+   matched operation asks again (design invariant I6). A reset by the user
+   through an approval provider channel would need a separate decision.
+8. **Audit.** Audit events stay as they are (§11 of the design); an operation
+   gated by the rule is identified by `approval.rule: "untrusted-content"`.
+   Source operations are already audited. Page content is never recorded.
+9. **External MCP (prepared, not implemented).** Results of external MCP
+   tools will be guard operations (§18) and become exposure sources by adding
+   their operation names to the source list. No other mechanism is added.
+
+**Scope and limits.**
+
+- This decision is the contract of WP-16 (implementation: WP-16b). It is
+  additive except for the amendment of AD-10 point 2.
+- Exposure is coarse: one source operation exposes the whole session. This is
+  the price of a mark that cannot be removed by transforming text.
+- Exposure does not detect injection and does not inspect content. CROT still
+  cannot stop an agent from following injected instructions in operations the
+  rule does not gate (reads) or that the user approves (§19).
+- A new session (a restarted stdio server, a new HTTP session) starts clean
+  while the model's context may still hold earlier untrusted content. Core
+  cannot see the client's context; this residual risk is accepted.
+- File contents, repository data, process output and Docker logs are also
+  untrusted (§19) but are not sources: marking them would expose almost every
+  session and make approvals meaningless (design T9). Residual risk, accepted.
+- Browser workflows that alternate reading and acting ask for approval for
+  every action after the first read. Users who need autonomous browsing can
+  turn the rule off or write narrower rules; the trade-off is theirs and is
+  visible in `crot_status`.
