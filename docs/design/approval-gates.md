@@ -384,6 +384,13 @@ Rules:
   require no approval keep the global behaviour: audit failures go to
   `onAuditError` and do not affect the operation. Once `execute()` has
   started, its effects cannot be revoked.
+- **Meaning of the mandatory record (AD-7).** It records that the operation
+  was approved and authorized before execution. It does **not** state that the
+  operation ran or succeeded. The execution result is only in the event
+  written after execution (`success` or `error`). If the process stops after
+  the mandatory record was written, or the operation fails, the mandatory
+  record must not be read as successful execution. A mandatory record without
+  a matching post-execution event means the result is unknown.
 - Decisions that arrive after the terminal status do not create audit events,
   because they change nothing. The provider gets `not_pending`.
 - A crash while a request is pending leaves no event. Nothing was executed, so

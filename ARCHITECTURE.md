@@ -1231,7 +1231,15 @@ record. The approval-gates design left this open as OD-2.
    `execute()` starts; only then may the operation run. This amends AD-5 point
    7 (one audit event per operation) for approved operations: they have this
    record before execution in addition to the event written after execution.
-3. **Other operations unchanged.** This does not change the global audit
+3. **The record attests approval, not execution.** The mandatory record states
+   only that the operation was approved and authorized to run. It does not
+   state that the operation ran or succeeded. The execution result is only in
+   the event written after execution (`success` or `error`). If the process
+   stops after the mandatory record was written, or the operation fails, the
+   mandatory record must not be read as successful execution. A mandatory
+   record without a matching post-execution event means the result is
+   unknown.
+4. **Other operations unchanged.** This does not change the global audit
    policy. Operations that require no approval keep today's behaviour: audit
    failures are reported through `onAuditError` and do not affect the
    operation.
