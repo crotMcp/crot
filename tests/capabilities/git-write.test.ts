@@ -194,8 +194,10 @@ describe("git.write in sandbox mode", () => {
     expect(r.staged).toEqual(["link.txt"]);
     const mode = git(repo, "ls-files", "-s", "link.txt");
     expect(mode.startsWith("120000")).toBe(true);
-    // The blob is the link target path, never the target's content.
-    expect(git(repo, "cat-file", "-p", ":link.txt")).toBe(path.join(dirs.outside, "secret.txt"));
+    // The blob is the link target path, never the target's content. Git for Windows reads link
+    // targets with forward slashes (compat/mingw.c: read_reparse_point -> normalize_ntpath).
+    const target = path.join(dirs.outside, "secret.txt").split(path.sep).join("/");
+    expect(git(repo, "cat-file", "-p", ":link.txt")).toBe(target);
   });
 
   it("commit records the staged changes with the repository identity", async () => {
