@@ -31,7 +31,13 @@ import {
   StopProcessInputSchema,
 } from "../../core/capabilities/process/schemas.js";
 import {
+  GitAddInputSchema,
+  GitBranchCreateInputSchema,
+  GitBranchDeleteInputSchema,
   GitBranchInputSchema,
+  GitBranchRenameInputSchema,
+  GitCheckoutInputSchema,
+  GitCommitInputSchema,
   GitDiffInputSchema,
   GitLogInputSchema,
   GitShowInputSchema,
@@ -65,6 +71,9 @@ const local = { openWorldHint: false } as const;
 
 const GIT_NOTE =
   "Git is taken from PATH only; repository configuration that could run programs is refused with UNSAFE_REPOSITORY. Requires git.read.";
+
+const GIT_WRITE_NOTE =
+  "Local only: never pushes, fetches or contacts a remote. Git is taken from PATH only; hooks, signing and editors are never run, and repository configuration that could run programs is refused with UNSAFE_REPOSITORY. Requires git.write.";
 
 export const TOOLS: readonly ToolDefinition[] = [
   tool({
@@ -239,6 +248,56 @@ export const TOOLS: readonly ToolDefinition[] = [
     inputSchema: GitShowInputSchema,
     annotations: { ...local, readOnlyHint: true },
     call: (core, ctx, input) => core.git.show(ctx, input),
+  }),
+
+  // Git (write, local only; requires git.write, independent of git.read)
+  tool({
+    name: "git_add",
+    title: "Git add",
+    description: `Stage new, modified and deleted files: the given 'paths' (matched literally, inside the repository worktree) or every change with all=true. Ignored files are not staged. ${GIT_WRITE_NOTE}`,
+    inputSchema: GitAddInputSchema,
+    annotations: { ...local, readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    call: (core, ctx, input) => core.git.add(ctx, input),
+  }),
+  tool({
+    name: "git_commit",
+    title: "Git commit",
+    description: `Commit the staged changes with 'message' on the current branch (or detached HEAD). No amend. The author is taken from the repository's or the user's user.name/user.email. ${GIT_WRITE_NOTE}`,
+    inputSchema: GitCommitInputSchema,
+    annotations: { ...local, readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    call: (core, ctx, input) => core.git.commit(ctx, input),
+  }),
+  tool({
+    name: "git_branch_create",
+    title: "Create Git branch",
+    description: `Create a local branch 'name' at 'startPoint' (default HEAD) without switching to it. Fails if the branch exists. ${GIT_WRITE_NOTE}`,
+    inputSchema: GitBranchCreateInputSchema,
+    annotations: { ...local, readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    call: (core, ctx, input) => core.git.branchCreate(ctx, input),
+  }),
+  tool({
+    name: "git_branch_rename",
+    title: "Rename Git branch",
+    description: `Rename the local branch 'from' to 'to'. Fails if 'to' exists (never forced). ${GIT_WRITE_NOTE}`,
+    inputSchema: GitBranchRenameInputSchema,
+    annotations: { ...local, readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    call: (core, ctx, input) => core.git.branchRename(ctx, input),
+  }),
+  tool({
+    name: "git_branch_delete",
+    title: "Delete Git branch",
+    description: `Delete the local branch 'name' if it is fully merged (git branch -d; never forced). The current branch cannot be deleted. ${GIT_WRITE_NOTE}`,
+    inputSchema: GitBranchDeleteInputSchema,
+    annotations: { ...local, readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    call: (core, ctx, input) => core.git.branchDelete(ctx, input),
+  }),
+  tool({
+    name: "git_checkout",
+    title: "Git checkout",
+    description: `Switch the worktree to the existing local 'branch', or to the commit 'detach' with a detached HEAD (explicit only). Never checks out individual paths and never overwrites local changes (fails instead). ${GIT_WRITE_NOTE}`,
+    inputSchema: GitCheckoutInputSchema,
+    annotations: { ...local, readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    call: (core, ctx, input) => core.git.checkout(ctx, input),
   }),
 
   // Browser (through the CROT Browser Extension). Read tools need browser.read, the others browser.control.

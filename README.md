@@ -10,13 +10,15 @@ README describes the current implementation and how to run it.
 ## Status
 
 Implemented (ARCHITECTURE.md §16, steps 1–6, the first part of step 7,
-steps 10–11 and the read part of step 21):
+steps 10–11 and step 21 — Git read and write):
 
 - CROT Core: configuration, workspace, central permission engine, execution guard
 - Filesystem capability
 - Shell/process capability (foreground commands and managed background processes)
 - Git read capability (`git.read`: status, diff, log, branch, show; see
   [Git (read-only)](#git-read-only))
+- Git write capability (`git.write`: add, commit, branch create/rename/delete,
+  checkout of a branch or a detached commit; see [Git (write)](#git-write))
 - Audit logging
 - Platform layer: Linux, macOS and Windows behaviour behind Core interfaces
 - CROT MCP: thin adapter over Core, stdio transport
@@ -28,7 +30,7 @@ steps 10–11 and the read part of step 21):
   tools gated by `browser.read` / `browser.control` (see
   [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md))
 
-Not yet implemented: `git.write` and Docker operations, remote (non-loopback)
+Not yet implemented: Docker operations, Git network operations (fetch, pull, push), remote (non-loopback)
 exposure and MCP authorization (OAuth/OIDC), installer, account/licensing layer.
 Firefox is not supported.
 
@@ -245,8 +247,8 @@ Rules:
 The rules are the same for every transport and principal.
 
 Enforced capabilities today: `filesystem.read`, `filesystem.write`,
-`filesystem.full`, `shell.execute`, `process.manage`, `git.read`,
-`browser.read`, `browser.control`. The others (`git.write`, `docker.use`,
+`filesystem.full`, `shell.execute`, `process.manage`, `git.read`, `git.write`,
+`browser.read`, `browser.control`. The others (`docker.use`,
 `network.access`) are part of the model and reported by `crot_status`, and will
 gate dedicated operations when those are added.
 
@@ -309,6 +311,60 @@ a program chosen by the repository or its configuration.
 Limits: commands run through `shell.execute` / `process.manage` or other
 programs are not serialized with `git.read`; Git itself and its built-in
 behaviour are trusted like every other program on `PATH`.
+
+## Git (write)
+
+`git_add`, `git_commit`, `git_branch_create`, `git_branch_rename`,
+`git_branch_delete` and `git_checkout` are Core operations of the same
+`GitService`, gated by `git.write` (independent of `git.read`) and run through
+the ExecutionGuard. The design is recorded in ARCHITECTURE.md §27 (AD-2):
+`git.write` changes only the repository's index, refs, objects and worktree and
+never runs a program supplied by the repository, its configuration or the
+agent.
+
+- **Same checks as `git.read`.** Repository discovery without Git, Git from
+  `PATH` only, the repository-configuration allowlist (`UNSAFE_REPOSITORY`
+  before anything is changed) and the sandbox/`full_control` path rules apply
+  unchanged. CROT's protected paths (audit log, configuration) are also
+  protected against `git.write`: a repository whose worktree or Git directory
+  contains one is refused with `PERMISSION_DENIED`.
+- **No hooks, editors, signing or maintenance.** Every write command runs with
+  `core.hooksPath` pointing to the null device, `--no-verify` for commits,
+  signing off (`--no-gpg-sign`, `commit.gpgSign=false`), editors set to `:`,
+  automatic `gc` / maintenance off, plus the `git.read` hardening (no fsmonitor,
+  no external diff/textconv, no submodule recursion, no network protocols).
+- **Identity is data.** `user.name` and `user.email` from global/system
+  configuration are passed with `-c` as plain values (repository values win);
+  with `user.useConfigOnly` Git never guesses an identity. Nothing else from
+  global/system configuration is loaded, except the line-ending settings
+  (`core.autocrlf`, `core.eol`, `core.safecrlf`): together with repository
+  settings and `.gitattributes` they apply to `git_add` and `git_checkout` as in
+  your own Git (e.g. CRLF in the worktree with Git for Windows' default
+  `core.autocrlf=true`).
+- **Only non-destructive operations.**
+  - `git_add`: literal paths inside the worktree, or `all: true` for the whole
+    worktree; never `--force` (ignored files stay unstaged), never paths inside
+    `.git`; a symlink is staged as a link, never as its target.
+  - `git_commit`: a message (no editor, no template); `allowEmpty` optional. No
+    amend, no fixup, no signing.
+  - `git_branch_create` (optional start point, no tracking),
+    `git_branch_rename` (refuses an existing target), `git_branch_delete`
+    (`-d` only: Git refuses unmerged branches and the current branch).
+  - `git_checkout`: `branch` (an existing local branch) or `detach` (an
+    explicitly requested commit). Uses `git switch` without `--force`, so local
+    changes are never overwritten and paths are never checked out.
+  - Not available: push, fetch, pull, amend, force, `-D`, reset, checkout of
+    paths, any network operation.
+- **Serialized.** A `git.write` operation holds the repository's Git
+  directories exclusively: it never runs at the same time as another
+  `git.write`, a `git.read` or a CROT filesystem write into the same Git
+  directory.
+- **Results and audit.** Staged paths, the new commit id, branch and HEAD
+  state. The audit record contains the branch names and paths, but for commits
+  only the message length and SHA-256 digest, never the message.
+
+Limits: as for `git.read`. Running `git_commit` while a merge is in progress
+concludes that merge (Git's own behaviour).
 
 ## Platform support
 
@@ -474,6 +530,9 @@ its limitations). Not yet implemented:
   commands; process-tree termination; bounded output capture.
 - Read-only Git: `git.read` never runs programs chosen by repository contents
   or repository configuration (ARCHITECTURE.md §27, AD-1).
+- Git writes without repository programs: `git.write` never runs hooks,
+  editors, signing programs or any other repository-supplied program, and has
+  no network operations (ARCHITECTURE.md §27, AD-2).
 - Auditability: every authorized, failed and denied operation is recorded with
   principal (including transport and authentication method), capabilities,
   paths, outcome and duration. Audit events never
@@ -498,6 +557,7 @@ its limitations). Not yet implemented:
 | `process_start` | `process.manage` + `shell.execute` |
 | `process_list`, `process_read_output`, `process_stop`, `process_remove` | `process.manage` |
 | `git_status`, `git_diff`, `git_log`, `git_branch`, `git_show` | `git.read` |
+| `git_add`, `git_commit`, `git_branch_create`, `git_branch_rename`, `git_branch_delete`, `git_checkout` | `git.write` |
 | `browser_status`, `browser_tabs_list`, `browser_page_read`, `browser_screenshot` | `browser.read` |
 | `browser_tab_open`, `browser_navigate`, `browser_tab_activate`, `browser_tab_close`, `browser_click`, `browser_type` | `browser.control` |
 
@@ -522,7 +582,7 @@ src/
     capabilities/
       filesystem/          FileSystemService + input schemas
       process/             ProcessService + input schemas
-      git/                 GitService (git.read), repository discovery, configuration policy,
+      git/                 GitService (git.read, git.write), repository discovery, configuration policy,
                            output parsers, Git metadata lock, input schemas
       browser/             BrowserService, input/result schemas, BrowserConnection
     crot-core.ts           composition root

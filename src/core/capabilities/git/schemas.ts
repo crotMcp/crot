@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { BranchInfo, CommitInfo, StatusBranch, StatusEntry } from "./parse.js";
 
-/** Input schemas for git.read operations, owned by Core and reused by adapters. */
+/** Input schemas for git.read and git.write operations, owned by Core and reused by adapters. */
 const Cwd = z
   .string()
   .min(1)
@@ -90,6 +90,137 @@ export const GitShowInputSchema = z
     timeoutMs: TimeoutMs,
   })
   .strict();
+
+// ---------------------------------------------------------------------------
+// git.write (ARCHITECTURE.md §27, AD-2)
+
+/**
+ * A branch name. It is always passed after --end-of-options; a leading '-',
+ * '@{' (reflog shorthands such as @{-1}) and control characters are refused
+ * here, everything else is validated by Git's own ref-name rules.
+ */
+const BranchName = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[^-]/, "A branch name must not start with '-'.")
+  .regex(/^[^\0-\x1f\x7f]*$/, "A branch name must not contain control characters.")
+  .refine((v) => !v.includes("@{"), { message: "A branch name must not contain '@{'." })
+  .refine((v) => v !== "HEAD" && v !== "@", { message: "'HEAD' is not a branch name." });
+
+export const GIT_COMMIT_MESSAGE_MAX_CHARS = 16_384;
+
+export const GitAddInputSchema = z
+  .object({
+    cwd: Cwd,
+    paths: z
+      .array(Pathspec)
+      .max(100)
+      .default([])
+      .describe("Files or directories to stage (new, modified and deleted files). Matched literally."),
+    all: z
+      .boolean()
+      .default(false)
+      .describe("Stage every change in the worktree (git add --all). Cannot be combined with 'paths'."),
+    timeoutMs: TimeoutMs,
+  })
+  .strict()
+  .refine((v) => v.all !== v.paths.length > 0, { message: "Give either 'paths' or all=true." });
+
+export const GitCommitInputSchema = z
+  .object({
+    cwd: Cwd,
+    message: z
+      .string()
+      .min(1)
+      .max(GIT_COMMIT_MESSAGE_MAX_CHARS)
+      .regex(/^[^\0]*$/, "The message must not contain NUL.")
+      .refine((v) => v.trim().length > 0, { message: "The message must not be empty." })
+      .describe("Commit message (subject line, optionally followed by a blank line and a body)."),
+    allowEmpty: z.boolean().default(false).describe("Create the commit even when nothing is staged."),
+    timeoutMs: TimeoutMs,
+  })
+  .strict();
+
+export const GitBranchCreateInputSchema = z
+  .object({
+    cwd: Cwd,
+    name: BranchName.describe("Name of the new branch. Fails if it already exists."),
+    startPoint: Revision.optional().describe("Commit the branch starts at (default HEAD)."),
+    timeoutMs: TimeoutMs,
+  })
+  .strict();
+
+export const GitBranchRenameInputSchema = z
+  .object({
+    cwd: Cwd,
+    from: BranchName.describe("Existing branch to rename."),
+    to: BranchName.describe("New name. Fails if a branch with this name already exists."),
+    timeoutMs: TimeoutMs,
+  })
+  .strict();
+
+export const GitBranchDeleteInputSchema = z
+  .object({
+    cwd: Cwd,
+    name: BranchName.describe("Branch to delete. Only fully merged branches are deleted (git branch -d)."),
+    timeoutMs: TimeoutMs,
+  })
+  .strict();
+
+export const GitCheckoutInputSchema = z
+  .object({
+    cwd: Cwd,
+    branch: BranchName.optional().describe("Existing local branch to switch to."),
+    detach: Revision.optional().describe(
+      "Commit to check out with a detached HEAD. Must be given explicitly; cannot be combined with 'branch'.",
+    ),
+    timeoutMs: TimeoutMs,
+  })
+  .strict()
+  .refine((v) => (v.branch === undefined) !== (v.detach === undefined), {
+    message: "Give exactly one of 'branch' or 'detach'.",
+  });
+
+export type GitAddInput = z.input<typeof GitAddInputSchema>;
+export type GitCommitInput = z.input<typeof GitCommitInputSchema>;
+export type GitBranchCreateInput = z.input<typeof GitBranchCreateInputSchema>;
+export type GitBranchRenameInput = z.input<typeof GitBranchRenameInputSchema>;
+export type GitBranchDeleteInput = z.input<typeof GitBranchDeleteInputSchema>;
+export type GitCheckoutInput = z.input<typeof GitCheckoutInputSchema>;
+
+export interface GitAddResult {
+  readonly repository: GitRepositoryInfo;
+  /** Paths staged in the index after the operation (relative to the worktree root). */
+  readonly staged: string[];
+  readonly truncated: boolean;
+}
+
+export interface GitCommitResult {
+  readonly repository: GitRepositoryInfo;
+  /** Hash of the new commit. */
+  readonly commit: string;
+  /** Branch the commit was made on, or null with a detached HEAD. */
+  readonly branch: string | null;
+}
+
+export interface GitBranchWriteResult {
+  readonly repository: GitRepositoryInfo;
+  readonly branch: string;
+  /** Commit the branch points to (for delete: pointed to before deletion). */
+  readonly commit: string;
+  /** Previous name (rename only). */
+  readonly renamedFrom?: string;
+}
+
+export interface GitCheckoutResult {
+  readonly repository: GitRepositoryInfo;
+  /** Current branch after the checkout, or null with a detached HEAD. */
+  readonly branch: string | null;
+  readonly detached: boolean;
+  /** Commit HEAD points to after the checkout. */
+  readonly commit: string;
+}
 
 export type GitStatusInput = z.input<typeof GitStatusInputSchema>;
 export type GitDiffInput = z.input<typeof GitDiffInputSchema>;

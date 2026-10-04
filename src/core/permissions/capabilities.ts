@@ -31,7 +31,8 @@ export const CAPABILITY_DESCRIPTIONS: Readonly<Record<Capability, string>> = {
   "shell.execute": "Run commands and shell scripts.",
   "process.manage": "Start, inspect and stop long-running background processes.",
   "git.read": "Run read-only Git operations (status, diff, log, branch, show) without repository-controlled programs.",
-  "git.write": "Reserved: dedicated Git write operations.",
+  "git.write":
+    "Run local Git write operations (add, commit, branch create/rename/delete, checkout of a branch or an explicit detached commit) without repository-controlled programs; no push or other network operations.",
   "docker.use": "Reserved: dedicated Docker operations.",
   "browser.read":
     "Read browser state through the CROT Browser Extension: bridge status, open tabs, page content and screenshots.",
@@ -52,6 +53,7 @@ export const ENFORCED_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability
   "shell.execute",
   "process.manage",
   "git.read",
+  "git.write",
   "browser.read",
   "browser.control",
 ]);

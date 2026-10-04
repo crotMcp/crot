@@ -28,7 +28,7 @@ The product has three parts:
 
 | Part | What the agent gets | Status |
 | --- | --- | --- |
-| Local computer | files, processes, shell, Git, Docker and further local capabilities | **[Implemented]** files, processes, shell, Git read (`git.read`); **[Partial]** Git write/Docker (see §5) |
+| Local computer | files, processes, shell, Git, Docker and further local capabilities | **[Implemented]** files, processes, shell, Git read (`git.read`) and local Git write (`git.write`); **[Partial]** Docker (see §5) |
 | User's browser | the user's real browser session through the browser bridge and extension | **[Implemented]** Chromium browsers |
 | External MCP services | tools of external MCP-compatible servers, reached through CROT | **[Target]** (§18) |
 
@@ -92,10 +92,10 @@ external service, identity provider or commercial backend.
                                                      User's browser profile
 ```
 
-The `GitService` (`git.read`, §27 AD-1) is a Core capability next to
-`ProcessService`: it runs through the same ExecutionGuard and starts Git through
-the `ProcessLauncher` in PATH-only mode. Git write operations are still used
-through `shell.execute`.
+The `GitService` (`git.read`, §27 AD-1; `git.write`, §27 AD-2) is a Core
+capability next to `ProcessService`: it runs through the same ExecutionGuard and
+starts Git through the `ProcessLauncher` in PATH-only mode. Git network
+operations (fetch, pull, push) are not part of it.
 
 ### 2.2 Target architecture
 
@@ -224,7 +224,7 @@ When the user grants them, CROT can provide:
 - Filesystem — **[Implemented]**
 - Shell — **[Implemented]**
 - Processes — **[Implemented]**
-- Git — **[Partial]**: read operations (`status`, `diff`, `log`, `branch`, `show`) are a dedicated capability gated by `git.read` (§27 AD-1); write operations gated by `git.write` are not implemented and remain usable through `shell.execute`
+- Git — **[Partial]**: read operations (`status`, `diff`, `log`, `branch`, `show`) are a dedicated capability gated by `git.read` (§27 AD-1); local write operations (`add`, `commit`, branch create/rename/delete, checkout of a branch or a detached commit) are gated by `git.write` (§27 AD-2); network operations (fetch, pull, push) and destructive operations (amend, force, reset) are not implemented and remain usable only through `shell.execute`
 - Docker — **[Partial]**: usable through `shell.execute`; dedicated operations gated by `docker.use` are not implemented
 - Python, Node.js, FFmpeg, project tools — **[Partial]**: usable through `shell.execute` / `process.manage`
 
@@ -285,7 +285,7 @@ network.access
 ```
 
 Enforced today: `filesystem.*`, `shell.execute`, `process.manage`, `git.read`,
-`browser.read`, `browser.control`. `git.write`, `docker.use` and
+`git.write`, `browser.read`, `browser.control`. `docker.use` and
 `network.access` are part of the model and reported by `crot_status`, and will
 gate dedicated operations when those are added.
 
@@ -534,7 +534,7 @@ Further target work, order to be set by the work packages:
 18. Remote mode and CROT Cloud Relay              [Target, §22]
 19. External MCP gateway (CROT as MCP client)     [Target, §18]
 20. Tray app and supervised local service         [Target, §24]
-21. Dedicated Git/Docker capabilities             [Partial: git.read implemented (WP-10, §27 AD-1); git.write, Docker Target, §5]
+21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1) and git.write (WP-11, §27 AD-2) implemented; Docker Target, §5]
 ```
 
 The order may change when technically justified, but architectural boundaries must remain intact.
@@ -599,6 +599,7 @@ Boundaries:
 | Agent -> CROT | Core | agent requests | schemas, ExecutionGuard, PermissionEngine, audit | **[Implemented]** |
 | Local operations | Core + Platform | commands and their effects | workspace boundary, protected paths, timeouts, process-tree control; not OS sandboxing | **[Implemented]** |
 | Repository contents (`git.read`) | Core + Git on `PATH` | repository files and repository Git configuration | §27 AD-1: PATH-only lookup, configuration allowlist, hardened invocation, metadata lock | **[Implemented]** |
+| Repository contents (`git.write`) | Core + Git on `PATH` | repository files, repository Git configuration, hooks, agent-supplied messages and names | §27 AD-2: AD-1 checks plus hooks/editors/signing/maintenance disabled, fixed non-destructive commands, exclusive metadata lock, protected paths | **[Implemented]** |
 | Local transports | Core | other local programs | stdio parent only; loopback HTTP with bearer token, Host/Origin checks | **[Implemented]** |
 | Browser | Core | bridge, relay, extension, browser, web pages | token-authenticated IPC, browser cannot initiate, fixed commands, result validation; page content untrusted | **[Implemented]** |
 | External MCP | Core | external servers, their tools and data | §18 | **[Target]** |
@@ -740,7 +741,8 @@ The tray app is a UI; control logic stays in Core/service.
 | Core, PermissionEngine, ExecutionGuard, audit | **[Implemented]** |
 | Filesystem, shell, processes | **[Implemented]** |
 | Git read operations (`git.read`: status, diff, log, branch, show) | **[Implemented]** (WP-10, §27 AD-1) |
-| Git write operations, Docker as dedicated capabilities | **[Target]** (usable via shell) |
+| Git local write operations (`git.write`: add, commit, branch create/rename/delete, checkout) | **[Implemented]** (WP-11, §27 AD-2) |
+| Git network operations, Docker as dedicated capabilities | **[Target]** (usable via shell) |
 | Local MCP tools over stdio | **[Implemented]** |
 | Streamable HTTP, loopback, local token | **[Implemented]** |
 | Native Host (OS platform layer) | **[Implemented]** |
@@ -855,4 +857,69 @@ On Windows, command lookup searched the working directory before `PATH`, so a
   not become such code execution.
 - The Git installation on `PATH` and its built-in behaviour are trusted, like
   every other program on `PATH`.
-- Write operations (`git.write`) are not covered by this decision.
+- Write operations (`git.write`) are covered by AD-2, which builds on this
+  decision without weakening it.
+
+### AD-2. `git.write` never runs repository-supplied programs (WP-11)
+
+**Context.** Git write commands start more programs than read commands: hooks
+(`pre-commit`, `commit-msg`, `post-checkout`, `reference-transaction`, …) from
+`.git/hooks` or `core.hooksPath`, editors (`core.editor`, `GIT_EDITOR`),
+signing programs (`gpg.program`, `commit.gpgSign`), automatic `gc` /
+maintenance, clean/smudge filters, and network access for some operations.
+Hooks and their location are repository contents. An agent with `git.write`
+also supplies commit messages and branch names, which must never become
+options or programs.
+
+**Decision.**
+
+1. **Write never runs repository programs.** A `git.write` operation never
+   starts a program supplied by repository contents, repository configuration
+   or the agent. The only program it runs is the Git executable found on
+   `PATH`. Every AD-1 rule applies unchanged: PATH-only lookup, repository
+   discovery in Core and authorization of the worktree / Git directories,
+   configuration allowlist with `UNSAFE_REPOSITORY` before Git touches the
+   repository, hardened invocation and no inherited `GIT_*` variables.
+2. **Programs disabled for every write command.** `core.hooksPath` points to the
+   null device (no hook is ever found), `commit --no-verify`, signing off
+   (`--no-gpg-sign`, `commit.gpgSign=false`, `tag.gpgSign=false`), editors are
+   `:` (`core.editor`, `sequence.editor`, `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`),
+   `gc.auto=0`, `maintenance.auto=false`, no submodule recursion,
+   `protocol.allow=never`.
+3. **Identity is data.** `user.name` and `user.email` are carried over from
+   system/global configuration with `-c` as plain values only for the commit
+   author/committer (repository-local values win; values with control
+   characters are dropped). `user.useConfigOnly=true` keeps Git from guessing
+   an identity. No further system/global configuration is loaded.
+   The line-ending settings carried over by AD-1 (`core.autocrlf`, `core.eol`,
+   `core.safecrlf`) and the repository's own settings and `.gitattributes`
+   (`text`, `eol`) apply to `add` and `checkout` exactly as in the user's Git:
+   for example, with Git for Windows' default `core.autocrlf=true` a checkout
+   writes CRLF and `add` stores LF. CROT does not override them.
+4. **Fixed, non-destructive operations.** `add` (literal paths in the worktree
+   or the whole worktree; no `--force`, nothing inside the Git directories,
+   symlinks staged as links), `commit` with a message (`--message=` as one
+   argument; optional `allowEmpty`), `branch` create (`--no-track`) / rename
+   (`-m`) / delete (`-d`), and `switch` to a local branch or to an explicitly
+   requested detached commit (`--no-guess`, never `--force`). Branch names and
+   revisions cannot be options (`--end-of-options`, a leading `-` is refused).
+   Push, fetch, pull, amend, force, `-D`, reset, checkout of paths and every
+   network operation are not available.
+5. **Exclusive metadata lock.** A `git.write` operation holds the repository's
+   Git directory and common directory exclusively: it never overlaps another
+   `git.write`, a `git.read` or a CROT `filesystem.write` operation on them.
+6. **Protected paths.** `git.write` is a write capability for the
+   PermissionEngine's protected-path rule (like `filesystem.write`): an
+   operation whose worktree or Git directories contain CROT's audit log or
+   configuration file is denied. The rule is not extended to ordinary `.git` writes
+   through other capabilities.
+7. **Audit.** Paths and branch names are recorded; commit messages are recorded
+   only as length and SHA-256 digest.
+
+**Scope and limits.**
+
+- `git.write` is independent of `git.read`; each is granted on its own.
+- The limits of AD-1 apply: programs outside CROT's operations are not
+  serialized, and Git on `PATH` with its built-in behaviour is trusted.
+- Committing while a merge is in progress concludes the merge (Git's own
+  behaviour); `git switch` refuses to overwrite local changes.

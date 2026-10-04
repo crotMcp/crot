@@ -126,7 +126,8 @@ export class CrotCore {
       onAuditError:
         options.onAuditError ?? ((e) => process.stderr.write(`crot: audit write failed: ${(e as Error).message}\n`)),
     });
-    // git.read and CROT writes into the Git directories it reads never run at the same time (AD-1, point 6).
+    // Git operations and CROT writes into the Git directories they use never run at the same time
+    // (AD-1 point 6, AD-2); git.write operations on one repository are also serialized.
     const gitLock = new GitMetadataLock((a, c) => workspace.contains(a, c));
     const filesystem = new FileSystemService({ workspace, guard, limits: config.limits, gitLock });
     const processes = new ProcessService({ workspace, guard, platform, limits: config.limits });

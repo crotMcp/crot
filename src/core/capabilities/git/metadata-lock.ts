@@ -1,7 +1,7 @@
 /** Whether `candidate` is `ancestor` or inside it (the workspace's path semantics). */
 export type ContainsPath = (ancestor: string, candidate: string) => boolean;
 
-type LockKind = "git-read" | "write";
+type LockKind = "git-read" | "git-write" | "write";
 
 interface Holder {
   readonly kind: LockKind;
@@ -9,16 +9,18 @@ interface Holder {
 }
 
 /**
- * Mutual exclusion between `git.read` operations and CROT filesystem writes
- * into the Git directories they read (ARCHITECTURE.md §27, AD-1, point 6).
+ * Mutual exclusion between Git operations and CROT filesystem writes into the
+ * Git directories they use (ARCHITECTURE.md §27, AD-1 point 6 and AD-2).
  *
  * - A git.read operation holds its Git directories (git dir and common dir)
  *   for the configuration check and every Git command it runs.
+ * - A git.write operation holds its Git directories the same way, exclusively.
  * - A filesystem write holds the paths it modifies.
- * - Two holders conflict only when they are of different kinds and one of
- *   their paths is inside, or contains, a path of the other. git.read
- *   operations never block each other, writes never block each other, and
- *   writes elsewhere are not affected.
+ * - Two holders conflict when one of their paths is inside, or contains, a
+ *   path of the other and either they are of different kinds or both are
+ *   git.write operations. git.read operations never block each other,
+ *   filesystem writes never block each other, and writes elsewhere are not
+ *   affected.
  *
  * Waiters are re-checked whenever a holder releases. The lock does not
  * authorize anything; permissions are decided by the PermissionEngine before
@@ -35,6 +37,14 @@ export class GitMetadataLock {
     return this.run("git-read", gitDirs, fn);
   }
 
+  /**
+   * Run a git.write operation on `gitDirs` while no other Git operation and no
+   * filesystem write touches them.
+   */
+  withGitWrite<T>(gitDirs: readonly string[], fn: () => Promise<T>): Promise<T> {
+    return this.run("git-write", gitDirs, fn);
+  }
+
   /** Run a filesystem write on `paths` while no git.read operation reads an overlapping Git directory. */
   withWrite<T>(paths: readonly string[], fn: () => Promise<T>): Promise<T> {
     return this.run("write", paths, fn);
@@ -47,7 +57,7 @@ export class GitMetadataLock {
 
   private conflicts(kind: LockKind, paths: readonly string[]): boolean {
     for (const holder of this.holders) {
-      if (holder.kind === kind) continue;
+      if (holder.kind === kind && kind !== "git-write") continue;
       for (const a of holder.paths) {
         for (const b of paths) {
           if (this.contains(a, b) || this.contains(b, a)) return true;
