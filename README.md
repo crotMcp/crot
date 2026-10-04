@@ -506,7 +506,10 @@ outcome other than an explicit approval denies it with `PERMISSION_DENIED`
   reads are not affected. Without an approval UI these operations are denied
   for the rest of the session. Content is never inspected, and nothing clears
   the exposure. `"untrustedContent": "off"` turns the rule off; `crot_status`
-  reports the setting.
+  reports the setting. The rule is evaluated before your rules, so a matching
+  operation is recorded with `approval.rule: "untrusted-content"`. The redirect
+  hops of one `network_request` call are evaluated with the exposure at the
+  start of the call; every later call sees the current exposure.
 
 ## Platform support
 

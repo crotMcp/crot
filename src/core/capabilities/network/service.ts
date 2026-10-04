@@ -104,72 +104,78 @@ export class NetworkService {
     let current = parseTargetUrl(req.url);
     const redirects: NetworkRedirect[] = [];
     let requireTls = false;
-    // AD-12: redirect hops are part of this call; they are gated by the exposure state when it started.
+    // AD-12 point 10: every step of this call (including redirect hops) is gated by the
+    // exposure state when the call started; the snapshot ends when the call returns.
     const exposure = this.guard.exposureSnapshot(context);
-
-    for (let hop = 0; ; hop++) {
-      const target = await this.authorizeTarget(context, current, requireTls, deadline, hop, exposure);
-      const response = await this.guard.run(
-        context,
-        {
-          operation: "network.request",
-          capability: "network.access",
-          network: [target],
-          details: { method, origin: current.url.origin, hop, followRedirects: req.followRedirects },
-          exposure,
-          approval: {
-            summary: "Send an HTTP request",
-            effects: [
-              { label: "method", value: method },
-              { label: "URL", value: current.url.href },
-              { label: "redirect hop", value: String(hop) },
-              { label: "header names", value: Object.keys(headers).join(", ") },
-              ...(body ? [{ label: "body bytes", value: String(body.length), flag: "secret_size_only" as const }] : []),
-            ],
+    try {
+      for (let hop = 0; ; hop++) {
+        const target = await this.authorizeTarget(context, current, requireTls, deadline, hop, exposure);
+        const response = await this.guard.run(
+          context,
+          {
+            operation: "network.request",
+            capability: "network.access",
+            network: [target],
+            details: { method, origin: current.url.origin, hop, followRedirects: req.followRedirects },
+            exposure,
+            approval: {
+              summary: "Send an HTTP request",
+              effects: [
+                { label: "method", value: method },
+                { label: "URL", value: current.url.href },
+                { label: "redirect hop", value: String(hop) },
+                { label: "header names", value: Object.keys(headers).join(", ") },
+                ...(body
+                  ? [{ label: "body bytes", value: String(body.length), flag: "secret_size_only" as const }]
+                  : []),
+              ],
+            },
           },
-        },
-        () => this.send(current, target, method, headers, body, maxBytes, deadline),
-      );
-      const location = response.location;
-      if (req.followRedirects && REDIRECT_STATUSES.has(response.status) && location !== undefined) {
-        if (redirects.length >= this.limits.maxNetworkRedirects) {
-          throw new CrotError(
-            "LIMIT_EXCEEDED",
-            `Too many redirects (maximum ${this.limits.maxNetworkRedirects}); last location was not followed.`,
-          );
+          () => this.send(current, target, method, headers, body, maxBytes, deadline),
+        );
+        const location = response.location;
+        if (req.followRedirects && REDIRECT_STATUSES.has(response.status) && location !== undefined) {
+          if (redirects.length >= this.limits.maxNetworkRedirects) {
+            throw new CrotError(
+              "LIMIT_EXCEEDED",
+              `Too many redirects (maximum ${this.limits.maxNetworkRedirects}); last location was not followed.`,
+            );
+          }
+          let next: ParsedUrl;
+          try {
+            next = parseTargetUrl(new URL(location, current.url).href);
+          } catch (error) {
+            throw new CrotError(
+              "OPERATION_FAILED",
+              `Redirect to an unsupported location refused: ${(error as Error).message}`,
+            );
+          }
+          redirects.push({ url: current.url.href, status: response.status });
+          if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === "POST")) {
+            if (method !== "HEAD") method = "GET";
+            body = undefined;
+            headers = withoutHeaders(headers, ["content-type"]);
+          }
+          if (next.url.origin !== current.url.origin) headers = withoutHeaders(headers, [...CREDENTIAL_HEADERS]);
+          requireTls = current.url.protocol === "https:";
+          current = next;
+          continue;
         }
-        let next: ParsedUrl;
-        try {
-          next = parseTargetUrl(new URL(location, current.url).href);
-        } catch (error) {
-          throw new CrotError(
-            "OPERATION_FAILED",
-            `Redirect to an unsupported location refused: ${(error as Error).message}`,
-          );
-        }
-        redirects.push({ url: current.url.href, status: response.status });
-        if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === "POST")) {
-          if (method !== "HEAD") method = "GET";
-          body = undefined;
-          headers = withoutHeaders(headers, ["content-type"]);
-        }
-        if (next.url.origin !== current.url.origin) headers = withoutHeaders(headers, [...CREDENTIAL_HEADERS]);
-        requireTls = current.url.protocol === "https:";
-        current = next;
-        continue;
+        return {
+          url: current.url.href,
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+          body: req.responseEncoding === "base64" ? response.body.toString("base64") : response.body.toString("utf8"),
+          bodyEncoding: req.responseEncoding,
+          bytes: response.body.length,
+          truncated: response.truncated,
+          redirects,
+          remoteAddress: response.remoteAddress,
+        };
       }
-      return {
-        url: current.url.href,
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-        body: req.responseEncoding === "base64" ? response.body.toString("base64") : response.body.toString("utf8"),
-        bodyEncoding: req.responseEncoding,
-        bytes: response.body.length,
-        truncated: response.truncated,
-        redirects,
-        remoteAddress: response.remoteAddress,
-      };
+    } finally {
+      this.guard.endExposureSnapshot(exposure);
     }
   }
 

@@ -38,13 +38,18 @@ export interface OperationDescriptor {
    */
   readonly approval?: ApprovalSubjectInput;
   /**
-   * For the later steps of one multi-step tool call (network.request redirect
-   * hops): the session's exposure state when the call started, from
-   * ExecutionGuard.exposureSnapshot(). The steps were requested before any of
-   * their results reached the agent. Marking is unaffected.
+   * For the steps of one network_request call (network.resolve and
+   * network.request, including redirect hops): the session's exposure state
+   * when the call started, from ExecutionGuard.exposureSnapshot(). Honoured
+   * only for those two operations, for the same session and until
+   * endExposureSnapshot(); otherwise the current state is used. Marking is
+   * unaffected.
    */
   readonly exposure?: ExposureSnapshot;
 }
+
+/** Operations that may be evaluated with an exposure snapshot (AD-12 point 10). */
+const SNAPSHOT_OPERATIONS: ReadonlySet<string> = new Set(["network.resolve", "network.request"]);
 
 /** Opaque exposure state of a session at one moment; only the guard creates and reads it. */
 export interface ExposureSnapshot {
@@ -111,11 +116,20 @@ export class ExecutionGuard {
     this.exposure = options.exposure ?? new ExposureTracker();
   }
 
-  /** The session's current exposure state, for the later steps of the same tool call (OperationDescriptor.exposure). */
+  /**
+   * The session's current exposure state, for the steps of one network_request
+   * call (OperationDescriptor.exposure). The caller must end it with
+   * endExposureSnapshot() when the call returns.
+   */
   exposureSnapshot(context: AuthContext): ExposureSnapshot {
     const snapshot = Object.freeze({}) as ExposureSnapshot;
     this.snapshots.set(snapshot, { context, exposed: this.exposure.isExposed(context) });
     return snapshot;
+  }
+
+  /** Ends a snapshot; later operations passing it are evaluated with the current state. */
+  endExposureSnapshot(snapshot: ExposureSnapshot): void {
+    this.snapshots.delete(snapshot);
   }
 
   run<T>(context: AuthContext, op: OperationDescriptor, execute: () => Promise<T>): Promise<T> {
@@ -177,7 +191,7 @@ export class ExecutionGuard {
       throw denial;
     }
 
-    const exposed = this.exposedFor(context, op.exposure);
+    const exposed = this.exposedFor(context, op);
     const requirement = this.engine.approvalRequirement(context, {
       operation: op.operation,
       capabilities,
@@ -314,7 +328,8 @@ export class ExecutionGuard {
   }
 
   /** Exposure is monotone, so a snapshot of the same session can only be the earlier, never a weaker-than-real state. */
-  private exposedFor(context: AuthContext, snapshot: ExposureSnapshot | undefined): boolean {
+  private exposedFor(context: AuthContext, op: OperationDescriptor): boolean {
+    const snapshot = SNAPSHOT_OPERATIONS.has(op.operation) ? op.exposure : undefined;
     const taken = snapshot !== undefined ? this.snapshots.get(snapshot) : undefined;
     if (taken !== undefined && taken.context.session === context.session) return taken.exposed;
     return this.exposure.isExposed(context);

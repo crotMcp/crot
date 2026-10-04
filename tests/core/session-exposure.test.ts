@@ -376,6 +376,98 @@ describe("session exposure: sessions", () => {
   });
 });
 
+/** A local HTTP server: /redirect answers 302 to /ok. Records the paths it receives. */
+async function withRedirectServer(fn: (port: number, seen: string[]) => Promise<void>): Promise<void> {
+  const seen: string[] = [];
+  const server = http.createServer((req, res) => {
+    seen.push(req.url ?? "");
+    if (req.url === "/redirect") res.writeHead(302, { location: "/ok" }).end();
+    else res.writeHead(200).end("hello");
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    await fn((server.address() as AddressInfo).port, seen);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+}
+
+function networkSetup(provider?: TestProvider) {
+  const engine = new PermissionEngine(createPermissionPolicy({ mode: "full_control" }), {
+    network: NetworkPolicy.create({ allow: ["127.0.0.1:*"], deny: [] }, "full_control"),
+    approvals: { rules: [], timeoutMs: 5_000 },
+  });
+  const broker = new ApprovalBroker({ maxPending: 8 });
+  if (provider) broker.register(provider);
+  const audit = new MemoryAuditSink();
+  const guard = new ExecutionGuard(engine, audit, { approvals: broker });
+  const network = new NetworkService({ guard, limits: LimitsSchema.parse({}) });
+  return { guard, network, audit };
+}
+
+describe("session exposure: network.request redirects (AD-12 point 10)", () => {
+  it("headless: a session exposed before the call cannot send even the first hop", async () => {
+    await withRedirectServer(async (port, seen) => {
+      const t = networkSetup();
+      const ctx = session();
+      await t.guard.run(ctx, { operation: "browser.page_read", capability: "browser.read" }, async () => "page");
+      const error = await denial(t.network.request(ctx, { url: `http://127.0.0.1:${port}/redirect` }));
+      expect(error.message).toMatch(/untrusted content/);
+      expect(seen).toEqual([]);
+    });
+  });
+
+  it("a redirect chain cannot bypass approval: every hop of an exposed session asks again", async () => {
+    await withRedirectServer(async (port, seen) => {
+      const ui = new TestProvider();
+      const t = networkSetup(ui);
+      const ctx = session();
+      await t.guard.run(ctx, { operation: "browser.tabs_list", capability: "browser.read" }, async () => "tabs");
+      const pending = t.network.request(ctx, { url: `http://127.0.0.1:${port}/redirect` });
+      const hop0 = await ui.next();
+      expect(hop0.request.subject).toMatchObject({ operation: "network.request", rule: "untrusted-content" });
+      expect(hop0.request.subject.effects).toContainEqual({ label: "redirect hop", value: "0" });
+      expect(hop0.ticket.approve(hop0.request.subjectDigest)).toEqual({ ok: true });
+      // The redirect target needs its own approval; rejecting it stops the chain.
+      const hop1 = await ui.next();
+      expect(hop1.request.subject).toMatchObject({ operation: "network.request", rule: "untrusted-content" });
+      expect(hop1.request.subject.effects).toContainEqual({ label: "URL", value: `http://127.0.0.1:${port}/ok` });
+      expect(hop1.request.subject.effects).toContainEqual({ label: "redirect hop", value: "1" });
+      hop1.ticket.reject();
+      const error = await denial(pending);
+      expect(error.details).toMatchObject({ operation: "network.request", approval: { status: "rejected" } });
+      expect(seen).toEqual(["/redirect"]);
+      const gated = (t.audit.events as AuditEvent[]).filter((e) => !("kind" in e) && e.operation === "network.request");
+      expect(gated.map((e) => [e.outcome, e.approval?.rule, e.approval?.status])).toEqual([
+        ["success", "untrusted-content", "approved"],
+        ["denied", "untrusted-content", "rejected"],
+      ]);
+    });
+  });
+
+  it("a snapshot is honoured only for network.resolve / network.request, for its session, until it ends", async () => {
+    const t = setup();
+    const ctx = session();
+    const snapshot = t.guard.exposureSnapshot(ctx);
+    await t.run(ctx, "browser.page_read", "browser.read");
+    const op = (operation: string, capability: Capability, context: AuthContext = ctx) =>
+      t.guard.run(context, { operation, capability, exposure: snapshot }, async () => operation);
+    await expect(op("network.resolve", "network.access")).resolves.toBe("network.resolve");
+    await expect(op("network.request", "network.access")).resolves.toBe("network.request");
+    // Other operations ignore it.
+    await denial(op("process.exec", "shell.execute"));
+    await denial(op("filesystem.write_file", "filesystem.write"));
+    // Another session cannot use it.
+    const other = session();
+    await t.run(other, "browser.page_read", "browser.read");
+    await denial(op("network.request", "network.access", other));
+    // Ended: the current state applies.
+    t.guard.endExposureSnapshot(snapshot);
+    await denial(op("network.request", "network.access"));
+  });
+});
+
 // ---- Core configuration and adapters.
 
 const PAGE_URL = "https://example.com/page";

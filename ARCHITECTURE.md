@@ -1545,6 +1545,20 @@ against the current code showed that this cannot be done per value:
 9. **External MCP (prepared, not implemented).** Results of external MCP
    tools will be guard operations (§18) and become exposure sources by adding
    their operation names to the source list. No other mechanism is added.
+10. **Precedence and multi-step calls (clarified in WP-16b).**
+    - The built-in `untrusted-content` rules are evaluated before user rules.
+      When a user rule and `untrusted-content` both match, `untrusted-content`
+      is the matching rule: it is the `rule` of the approval subject (shown by
+      the UI) and `approval.rule` in the audit log. Whether an operation needs
+      approval does not depend on the order (any match gates it).
+    - One `network_request` call is evaluated with the session's exposure at
+      the start of the call: its `network.resolve` and `network.request`
+      steps, including every redirect hop, use that snapshot. A session that
+      was exposed before the call therefore needs approval for every hop. Each
+      successful hop still marks the session, so every later, separate
+      `network_request` call sees the current exposure. The snapshot is
+      honoured only for `network.resolve` / `network.request`, only for the
+      same session and only until the call returns.
 
 **Scope and limits.**
 

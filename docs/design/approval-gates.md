@@ -152,7 +152,10 @@ runtime.
   used for matching.
 - A rule matches if every given condition matches. An operation needs approval
   if any rule matches. The engine returns the id of the first matching rule
-  (for audit) and the effective timeout.
+  (for audit) and the effective timeout. The built-in `untrusted-content`
+  rules are evaluated first: when they and a user rule both match, the subject
+  and `approval.rule` name `untrusted-content` (ARCHITECTURE.md §27, AD-12
+  point 10).
 - **Default: no user rules.** Without configuration, no user rule exists. The
   only default is the built-in `untrusted-content` rule for exposed sessions
   (ARCHITECTURE.md §27, AD-12, amending AD-10), which can be turned off. The
@@ -608,7 +611,11 @@ mitigation is *exposure*, decided by **AD-12** (implementation: WP-16b).
   require approval for operations needing `shell.execute`, `filesystem.write`,
   `git.write`, `network.access` or `browser.control`, and for
   `docker.compose_up` / `docker.compose_down`, in an exposed session. This is
-  the WP-15 gate; there is no second mechanism.
+  the WP-15 gate; there is no second mechanism. It is evaluated before user
+  rules, so `approval.rule` is `untrusted-content` whenever it matches.
+- One `network_request` call (its `network.resolve` / `network.request` steps
+  and redirect hops) is evaluated with the exposure at the start of the call;
+  each later, separate call sees the current exposure (AD-12 point 10).
 - The subject can show the exposure ("this session read untrusted content
   before this request"). Exposure is computed only by Core, never reported by
   the agent.
