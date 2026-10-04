@@ -21,3 +21,6 @@ export * from "./capabilities/browser/service.js";
 export * from "./capabilities/git/schemas.js";
 export * from "./capabilities/git/service.js";
 export * from "./capabilities/git/metadata-lock.js";
+export * from "./capabilities/docker/schemas.js";
+export * from "./capabilities/docker/compose-policy.js";
+export * from "./capabilities/docker/service.js";

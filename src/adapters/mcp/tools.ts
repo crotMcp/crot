@@ -43,6 +43,12 @@ import {
   GitShowInputSchema,
   GitStatusInputSchema,
 } from "../../core/capabilities/git/schemas.js";
+import {
+  DockerComposeDownInputSchema,
+  DockerComposeUpInputSchema,
+  DockerLogsInputSchema,
+  DockerPsInputSchema,
+} from "../../core/capabilities/docker/schemas.js";
 import type { CrotCore } from "../../core/crot-core.js";
 import { toImageToolResult } from "./results.js";
 
@@ -72,6 +78,8 @@ const local = { openWorldHint: false } as const;
 const GIT_NOTE =
   "Git is taken from PATH only; repository configuration that could run programs is refused with UNSAFE_REPOSITORY. Requires git.read.";
 
+const DOCKER_NOTE =
+  "Docker is taken from PATH only and started without a shell; no other Docker command can be run. Requires docker.use.";
 const GIT_WRITE_NOTE =
   "Local only: never pushes, fetches or contacts a remote. Git is taken from PATH only; hooks, signing and editors are never run, and repository configuration that could run programs is refused with UNSAFE_REPOSITORY. Requires git.write.";
 
@@ -298,6 +306,40 @@ export const TOOLS: readonly ToolDefinition[] = [
     inputSchema: GitCheckoutInputSchema,
     annotations: { ...local, readOnlyHint: false, destructiveHint: false, idempotentHint: false },
     call: (core, ctx, input) => core.git.checkout(ctx, input),
+  }),
+
+  // Docker (ARCHITECTURE.md §27, AD-3). Fixed operations only; everything requires docker.use.
+  tool({
+    name: "docker_ps",
+    title: "List Docker containers",
+    description: `List containers (id, names, image, state, status, ports, Compose project and service). scope=workspace (default): only containers of Compose projects whose directory is inside the workspace; scope=all: every container on the Docker host (also requires filesystem.full). ${DOCKER_NOTE}`,
+    inputSchema: DockerPsInputSchema,
+    annotations: { ...local, readOnlyHint: true },
+    call: (core, ctx, input) => core.docker.ps(ctx, input),
+  }),
+  tool({
+    name: "docker_logs",
+    title: "Read Docker container logs",
+    description: `Read the last 'tail' lines of a container's logs (stdout and stderr). The container's Compose project directory must be inside the workspace; containers outside it, or not created by Compose, also require filesystem.full. ${DOCKER_NOTE}`,
+    inputSchema: DockerLogsInputSchema,
+    annotations: { ...local, readOnlyHint: true },
+    call: (core, ctx, input) => core.docker.logs(ctx, input),
+  }),
+  tool({
+    name: "docker_compose_up",
+    title: "Docker Compose up",
+    description: `Start a Compose project in the background (docker compose up --detach --pull never --no-build). Compose files, env files and every host path the project mounts are checked like any other path (outside the workspace they require filesystem.full). Projects that build or pull images, use include/extends, grant containers host privileges (privileged, cap_add, devices, host namespaces, security options) or use volume or network drivers are refused with UNSAFE_COMPOSE. ${DOCKER_NOTE}`,
+    inputSchema: DockerComposeUpInputSchema,
+    annotations: { ...local, readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    call: (core, ctx, input) => core.docker.composeUp(ctx, input),
+  }),
+  tool({
+    name: "docker_compose_down",
+    title: "Docker Compose down",
+    description: `Stop and remove the containers of a Compose project, identified by name. Its project directories (recorded on its containers) must be inside the workspace unless filesystem.full is granted. Volumes and images are kept; project networks may remain. ${DOCKER_NOTE}`,
+    inputSchema: DockerComposeDownInputSchema,
+    annotations: { ...local, readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+    call: (core, ctx, input) => core.docker.composeDown(ctx, input),
   }),
 
   // Browser (through the CROT Browser Extension). Read tools need browser.read, the others browser.control.

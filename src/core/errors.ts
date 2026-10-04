@@ -27,7 +27,13 @@ export type CrotErrorCode =
    * git.read or git.write operation run programs; the operation is refused
    * (ARCHITECTURE.md §27, AD-1 and AD-2).
    */
-  | "UNSAFE_REPOSITORY";
+  | "UNSAFE_REPOSITORY"
+  /**
+   * A Compose project uses settings that docker.use does not allow (they could
+   * load unauthorized files, grant containers host privileges, build or pull
+   * images); the operation is refused (ARCHITECTURE.md §27, AD-3).
+   */
+  | "UNSAFE_COMPOSE";
 
 export class CrotError extends Error {
   readonly code: CrotErrorCode;

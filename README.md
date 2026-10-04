@@ -30,7 +30,7 @@ steps 10–11 and step 21 — Git read and write):
   tools gated by `browser.read` / `browser.control` (see
   [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md))
 
-Not yet implemented: Docker operations, Git network operations (fetch, pull, push), remote (non-loopback)
+Not yet implemented: Docker operations beyond `docker.use` (build, pull, push, run, exec), Git network operations (fetch, pull, push), remote (non-loopback)
 exposure and MCP authorization (OAuth/OIDC), installer, account/licensing layer.
 Firefox is not supported.
 
@@ -248,9 +248,9 @@ The rules are the same for every transport and principal.
 
 Enforced capabilities today: `filesystem.read`, `filesystem.write`,
 `filesystem.full`, `shell.execute`, `process.manage`, `git.read`, `git.write`,
-`browser.read`, `browser.control`. The others (`docker.use`,
-`network.access`) are part of the model and reported by `crot_status`, and will
-gate dedicated operations when those are added.
+`docker.use`, `browser.read`, `browser.control`. `network.access` is part of
+the model and reported by `crot_status`, and will gate dedicated operations
+when those are added.
 
 **Browser capabilities.** The sandbox defaults do not include `browser.*`;
 `full_control` grants them. An explicit `capabilities` list replaces the mode
@@ -365,6 +365,42 @@ agent.
 
 Limits: as for `git.read`. Running `git_commit` while a merge is in progress
 concludes that merge (Git's own behaviour).
+
+
+## Docker
+
+`docker_ps`, `docker_logs`, `docker_compose_up` and `docker_compose_down` are
+Core operations of the `DockerService`, gated by `docker.use` and run through
+the ExecutionGuard (design: ARCHITECTURE.md §27, AD-3). `docker.use` is not in
+the sandbox defaults; grant it explicitly or use `full_control`.
+
+- **Fixed operations only.** No shell, no arbitrary Docker commands, no build,
+  pull, push, run or exec. The Docker CLI comes from `PATH` only and runs with
+  a fixed argument list, an environment allowlist (all `COMPOSE_*` variables
+  removed), a timeout and output limits. Names and container references are
+  validated and can never become options.
+- **Same path rules.** Containers are attributed to their Compose project
+  directory (`com.docker.compose.project.working_dir` label). In sandbox mode
+  `docker_ps` lists, and `docker_logs` / `docker_compose_down` accept, only
+  containers of projects inside the workspace; other containers need
+  `filesystem.full`.
+- **Reviewed Compose model.** `docker_compose_up` resolves the project
+  directory, Compose files, `.env` and `env_file` entries through the normal
+  workspace checks, then reviews the normalized model against an allowlist:
+  `privileged`, `cap_add`, devices, host namespaces, `build`, `include`,
+  `extends`, security options and other unsafe keys are refused with
+  `UNSAFE_COMPOSE`. Every bind mount, file secret and config must pass the
+  workspace check (outside the workspace: `filesystem.full`); external volumes
+  need `filesystem.full`; a writable bind that exposes CROT's audit log or
+  configuration is always refused. The reviewed model with canonical paths is
+  started with `up --detach --pull never --no-build`; images must already be
+  present.
+- **Down** stops and removes the project's containers and networks
+  (`--remove-orphans`); volumes and images are kept.
+- **Limits.** Docker is not an OS sandbox: a container does what its image
+  does with the allowed mounts and networks. Container labels can be set by
+  anyone who creates a container. `shell.execute` remains a broader path to
+  Docker.
 
 ## Platform support
 
@@ -558,6 +594,7 @@ its limitations). Not yet implemented:
 | `process_list`, `process_read_output`, `process_stop`, `process_remove` | `process.manage` |
 | `git_status`, `git_diff`, `git_log`, `git_branch`, `git_show` | `git.read` |
 | `git_add`, `git_commit`, `git_branch_create`, `git_branch_rename`, `git_branch_delete`, `git_checkout` | `git.write` |
+| `docker_ps`, `docker_logs`, `docker_compose_up`, `docker_compose_down` | `docker.use` |
 | `browser_status`, `browser_tabs_list`, `browser_page_read`, `browser_screenshot` | `browser.read` |
 | `browser_tab_open`, `browser_navigate`, `browser_tab_activate`, `browser_tab_close`, `browser_click`, `browser_type` | `browser.control` |
 
