@@ -8,6 +8,11 @@
 > The former open decisions OD-1 (browser tab/origin binding) and OD-2 (audit
 > failure for gated operations) are decided by AD-6 and AD-7 (§16).
 >
+> **WP-15 contract.** AD-8 (`tabs.resolve`), AD-9 (browser `connectionId`) and
+> AD-10 (`permissions.approvals` location and defaults) were decided before the
+> implementation started (§17). Together with AD-5, AD-6 and AD-7 they are the
+> contract WP-15 implements.
+>
 > The TypeScript in this document is a **contract sketch** that pins down the
 > design. It is not code in `src/` and is not an implementation.
 
@@ -134,8 +139,9 @@ ExecutionGuard.run
 ## 5. Gate policy
 
 The rules that decide whether an operation needs approval are part of the
-PermissionEngine policy. They are configured in a new `approvals` section,
-validated at startup and immutable at runtime, like `permissions.network`.
+PermissionEngine policy. They are configured in `permissions.approvals`, next
+to `permissions.network` (AD-10), validated at startup and immutable at
+runtime.
 
 - A rule matches on facts Core knows: `operation` name, capabilities,
   `principal.kind`, permission mode, and whether any path is outside the
@@ -209,7 +215,9 @@ says otherwise.
   origin recorded when the request is created. The extension checks them again
   immediately before the action. A closed or changed tab or a different origin
   invalidates the approval; it is never transferred to another tab or origin
-  (AD-6, §13.1).
+  (AD-6, §13.1). Core obtains the concrete tab and origin with `tabs.resolve`
+  (AD-8), and the binding includes the `connectionId` of the browser
+  connection, checked again before the command is sent (AD-9).
 
 ### 6.3 Presentation rules for providers
 
@@ -263,8 +271,9 @@ exactly one terminal status, exactly once.
   process. The first transition out of `pending` wins. Any later decision,
   timer or cancel is a no-op. A provider that decides too late gets
   `{ ok: false, reason: "not_pending" }`.
-- Timeout: `expiresAt = createdAt + timeoutMs`. The default is configurable and
-  proposed at 45 s. It is bounded above (proposed at 300 s). The default is
+- Timeout: `expiresAt = createdAt + timeoutMs`. The default is configurable
+  (`permissions.approvals.timeoutMs`) and is 45 s. It is bounded above at
+  300 s; a larger value is a `CONFIG_ERROR` (AD-10). The default is
   below the common MCP client request timeout (60 s in the MCP TypeScript SDK).
   Otherwise the client may give up while the request is still pending.
 - Cancellation: the guard passes the caller's abort signal to the broker. The
@@ -282,7 +291,7 @@ exactly one terminal status, exactly once.
 ## 8. Queue
 
 - One in-memory queue per Core process, ordered by `createdAt` (FIFO).
-- Bounded by `approvals.maxPending` (proposed default: 8). When the queue is
+- Bounded by `permissions.approvals.maxPending` (default: 8, AD-10). When the queue is
   full, a new request becomes `unavailable` immediately. It does not wait and
   does not evict other requests.
 - Every request is decided on its own. There is no batch approval, no merging
@@ -508,6 +517,41 @@ invalidates the approval. An approval is never transferred to another tab or
 origin. `browser.tab_open` is bound to the origin of the URL it opens. This is
 the browser command protocol change for gated operations.
 
+The concrete tab and its origin are obtained with the `tabs.resolve` command
+(**AD-8**), and the tab identity includes the `connectionId` of the bridge
+connection (**AD-9**). Minimal contract:
+
+```ts
+// tabs.resolve (AD-8): sent only for gated, tab-targeting browser.* operations,
+// after authorize() and the gate rule matched, before the approval request.
+// Resolves exactly like the operation's command: given tab, or the active tab
+// of the last focused window. Reads tab id and URL only; never acts on the page.
+interface TabsResolveParams { readonly tabId?: number }
+interface TabsResolveResult { readonly tabId: number; readonly url: string } // untrusted, validated by Core
+
+// connectionId (AD-9): new random id (>= 128 bits) for every accepted hello,
+// generated on the host side, never reused, not visible to the agent.
+type BrowserConnectionState =
+  | { readonly kind: "waiting" }
+  | { readonly kind: "connected"; readonly browser: BrowserInfo; readonly connectionId: string }
+  | { readonly kind: "in_use" };
+
+interface BrowserRequestOptions {
+  readonly timeoutMs: number;
+  readonly signal: AbortSignal;
+  /** When set, the bridge sends the request only on this connection; otherwise it rejects without sending. */
+  readonly connectionId?: string;
+}
+```
+
+- If the tab or its current state cannot be determined (no such tab, no
+  active tab, invalid response, no `http:`/`https:` origin, timeout,
+  disconnected or changed connection), no approval request is created and the
+  operation is denied (AD-8 point 4).
+- The resolved tab id, origin and `connectionId` are part of the subject and
+  its digest. Immediately before the command is sent, the bridge checks the
+  `connectionId`; a new connection invalidates the approval (AD-9).
+
 ### 13.2 Prompt-injection mitigation
 
 CROT cannot tell whether a tool call was induced by injected content (§19). The
@@ -580,8 +624,9 @@ configured:
   stays the same. `shutdown` cancels pending requests before `drain()`.
 - `PermissionEngine`: new pure method `approvalRequirement()`. `authorize()` and
   `AuthorizationDecision` are unchanged.
-- Configuration: new `approvals` section (`rules`, `timeoutMs`, `maxPending`),
-  empty by default.
+- Configuration: new `permissions.approvals` section (`rules`, `timeoutMs`
+  default 45 s and at most 300 s, `maxPending` default 8), no rules by default
+  (AD-10).
 - `OperationDescriptor`: optional `approval?: ApprovalSubjectInput`.
 - `AuditEvent`: optional `approval` block (§11). `outcome` values are unchanged.
 - `PermissionDeniedError.details`: optional `approval` key.
@@ -590,7 +635,11 @@ configured:
   summary (rules configured, provider present).
 
 - Browser command protocol: expected-tab/origin precondition for gated
-  `browser.*` operations (AD-6).
+  `browser.*` operations (AD-6); new command `tabs.resolve` for gated
+  tab-targeting operations (AD-8).
+- Browser bridge: `connectionId` per accepted `hello` in
+  `BrowserConnectionState`, optional expected `connectionId` in
+  `BrowserRequestOptions` (AD-9).
 - Gated operations: mandatory approval audit record before `execute()`; failure
   to write it refuses the operation (AD-7).
 
@@ -626,3 +675,23 @@ open decision from this design blocks WP-15.
 - An approval is not successfully completed until its mandatory audit record
   has been written.
 - The global audit policy for all other operations does not change.
+
+## 17. Decisions before WP-15 (part of the WP-15 contract)
+
+Planning WP-15 against the current code showed three gaps that needed a
+decision before implementation. They are recorded in ARCHITECTURE.md §27 and
+are part of the WP-15 contract:
+
+- **AD-8 — `tabs.resolve`.** Core cannot resolve the default active tab (the
+  active tab of the last focused window) with the existing commands. A new
+  command returns the concrete tab id and URL for a gated, tab-targeting
+  `browser.*` operation before the approval request is created. If the tab or
+  its state cannot be determined, no approval is created and the operation is
+  denied.
+- **AD-9 — `connectionId`.** The bridge creates a new random `connectionId` for
+  every accepted `hello`. A browser approval records it, the bridge checks it
+  immediately before the command is sent, and a new connection invalidates the
+  approval.
+- **AD-10 — configuration.** Approval rules live in `permissions.approvals`
+  next to `permissions.network`. Defaults: `timeoutMs` 45 s, maximum 300 s,
+  `maxPending` 8.
