@@ -30,7 +30,15 @@ The product has three parts:
 | --- | --- | --- |
 | Local computer | files, processes, shell, Git, Docker and further local capabilities | **[Implemented]** files, processes, shell, Git read (`git.read`), local Git write (`git.write`) and dedicated Docker operations (`docker.use`, see §5) |
 | User's browser | the user's real browser session through the browser bridge and extension | **[Implemented]** Chromium browsers |
-| External MCP services | tools of external MCP-compatible servers, reached through CROT | **[Target]** (§18) |
+| External MCP services | tools of external MCP-compatible servers, reached through CROT | **[Target]** (§18), **post-v1** (§27 AD-13) |
+
+**Remote access is mandatory in v1 (§27 AD-13).** CROT v1, the first
+commercial release, accepts connections from remote MCP clients and agents
+(Notion and other MCP clients that reach servers only over the internet) and
+gives them access to the local computer and the user's browser through CROT
+(§22). This is a release-blocking function of v1, not optional and not
+post-release. It is a different function from the external MCP gateway (CROT
+as an MCP client of external servers, §18), which is post-v1.
 
 CROT is a **controlled layer** between AI agents and these resources, not a
 direct proxy: every operation passes CROT's permission, execution and audit
@@ -149,10 +157,10 @@ All paths end in the same Core pipeline; no path bypasses it.
    ExecutionGuard / PermissionEngine (`browser.read` / `browser.control`) ->
    BrowserBridge -> local IPC -> `crot-browser-relay` -> Native Messaging ->
    extension -> browser -> validated result -> audit.
-3. **External MCP operation** [Target]: agent -> CROT MCP -> external-MCP
+3. **External MCP operation** [Target, post-v1, AD-13]: agent -> CROT MCP -> external-MCP
    capability -> ExecutionGuard / PermissionEngine -> MCP client connector ->
    external MCP server -> result treated as untrusted data -> audit (§18).
-4. **Remote operation** [Target]: remote agent/client -> CROT Cloud Relay
+4. **Remote operation** [Target, mandatory in v1, AD-13]: remote agent/client -> CROT Cloud Relay
    (client authentication, routing to the bound device) -> outbound tunnel ->
    local CROT remote-transport adapter -> token re-verification -> Principal
    (`kind: remote`) -> the same paths 1–3 (§22).
@@ -169,12 +177,12 @@ All paths end in the same Core pipeline; no path bypasses it.
 | Browser bridge | device, inside `crot-mcp` | local IPC endpoint, handshake, request/response | **[Implemented]** |
 | `crot-browser-relay` | device, started by the browser | native-messaging host; forwards frames only | **[Implemented]** |
 | CROT Browser Extension | user's browser | fixed browser commands | **[Implemented]** (Chromium) |
-| MCP client connectors / external MCP gateway | device, outside Core | connections to external MCP servers | **[Target]** |
+| MCP client connectors / external MCP gateway | device, outside Core | connections to external MCP servers | **[Target]**, post-v1 (AD-13) |
 | Confirmation mechanism | Core interface + UI provider | explicit user approval of sensitive operations | **[Target]** |
 | CROT local service (sidecar) | device, background | supervised long-running `crot-mcp` | **[Target]** (today: started manually / by the MCP client) |
 | CROT Tray app | device | user UI | **[Target]** |
 | Installer / packages | device | Linux, Windows, macOS installation | **[Target]** |
-| CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Target]** |
+| CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Target]**, v1 (AD-13) |
 | Identity provider (third party) | cloud | user authentication, tokens | **[Target]** |
 | Account & Commercial service | cloud | accounts, subscriptions, plans, licensing, entitlements, device limits | **[Target]** |
 | User / device / account | identities | see §20 | **[Partial]**: only a local principal and a static local token exist |
@@ -216,8 +224,10 @@ CROT exposes a standards-compatible MCP interface (CROT as **MCP server**).
 - **[Implemented]** stdio transport; Streamable HTTP transport on loopback with
   a local bearer token behind the replaceable `AccessTokenVerifier`. The tool
   set, Core services, PermissionEngine and audit are identical on both.
-- **[Target]** remote exposure with MCP authorization (§20, §22).
-- **[Target]** CROT as **MCP client** of external MCP servers (§18).
+- **[Target, mandatory in v1]** remote exposure with MCP authorization: remote
+  MCP clients reach the local CROT through the Cloud Relay (§20, §22, §27 AD-13).
+- **[Target, post-v1]** CROT as **MCP client** of external MCP servers (§18,
+  §27 AD-13). A different function from remote exposure.
 
 Tools must have explicit schemas and validated inputs. Tool execution must enforce authorization, path validation, timeouts/rate limits where appropriate, and auditable execution.
 
@@ -390,7 +400,8 @@ Select project
 Choose permissions
         |
         v
-Connect AI Agent (local; remote optional, requires account, §22)
+Connect AI Agent (local, or remote such as Notion through the Cloud Relay
+with an account; both in v1, §22, §27 AD-13)
         |
         v
 Ready
@@ -492,7 +503,9 @@ The agent must be able to perform real development work.
 The MVP must be part of the final architecture, not disposable prototype code.
 
 Status: the local MCP side is implemented; completion of this milestone is not
-recorded in the repository. See §26, question 1.
+recorded in the repository. A Notion Agent reaches servers only over the
+internet, so this milestone needs remote access (§22); decided in §27 AD-13
+(§26, question 1).
 
 ## 15. Development Principles
 
@@ -532,17 +545,20 @@ Approximate order (status in brackets):
 15. Commercial account/licensing layer            [Target, §23]
 ```
 
-Further target work, order to be set by the work packages:
+Further target work. The v1 scope and order are fixed by §27 AD-13: items
+13–18 and 20 are required for v1 (remote access is mandatory in v1); item 19
+and item 23 are post-v1.
 
 ```text
-16. User confirmations                            [Target, §21]
-17. Identity, accounts and device binding         [Target, §20]
-18. Remote mode and CROT Cloud Relay              [Target, §22]
-19. External MCP gateway (CROT as MCP client)     [Target, §18]
-20. Tray app and supervised local service         [Target, §24]
+16. User confirmations                            [Partial: mechanism WP-15; tray provider v1, §21]
+17. Identity, accounts and device binding         [Target, v1, §20]
+18. Remote mode and CROT Cloud Relay              [Target, v1 (mandatory), §22]
+19. External MCP gateway (CROT as MCP client)     [Target, post-v1, §18]
+20. Tray app and supervised local service         [Target, v1, §24]
 21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
-23. OS-level egress control for processes/Docker  [Target, §27 AD-4]
+23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
+24. Command confinement L1 (Linux, macOS, Windows) [Target, v1, §27 AD-13]
 ```
 
 The order may change when technically justified, but architectural boundaries must remain intact.
@@ -567,7 +583,9 @@ pipeline.
 
 ## 18. External MCP Gateway
 
-**[Target]** — not implemented.
+**[Target]** — not implemented; **post-v1** (§27 AD-13). This is CROT as an
+MCP *client* of external servers. It is not remote access (remote MCP clients
+reaching the local CROT, §22), which is mandatory in v1.
 
 CROT acts as an MCP client of external MCP-compatible servers and exposes their
 tools to the agent through CROT MCP:
@@ -611,8 +629,8 @@ Boundaries:
 | Docker (`docker.use`) | Core + Docker CLI on `PATH` | Compose files, env files, container labels and logs, the Docker daemon | §27 AD-3: fixed operations, Compose policy and host-path checks, canonical private model file, no build/pull, environment allowlist | **[Implemented]** |
 | Local transports | Core | other local programs | stdio parent only; loopback HTTP with bearer token, Host/Origin checks | **[Implemented]** |
 | Browser | Core | bridge, relay, extension, browser, web pages | token-authenticated IPC, browser cannot initiate, fixed commands, result validation; page content untrusted | **[Implemented]** |
-| External MCP | Core | external servers, their tools and data | §18 | **[Target]** |
-| Remote access | local CROT | relay, remote clients, network | §22 | **[Target]** |
+| External MCP | Core | external servers, their tools and data | §18 | **[Target]** (post-v1, AD-13) |
+| Remote access | local CROT | relay, remote clients, network | §22, §27 AD-13 (incl. command confinement L1) | **[Target]** (mandatory in v1) |
 | User tokens | identity provider + local verifier | token holders | short-lived, revocable, audience-bound tokens; Core sees only a Principal | **[Target]** (today: static local token) |
 | Device | device credential | other devices, cloned installs | device identity and binding, revocation (§20) | **[Target]** |
 | Commercial | local execution | commercial service | entitlements never enter local authorization (§23) | **[Target]** |
@@ -687,7 +705,11 @@ the bridge `connectionId` and the extension's expected browser subject check.
 
 ## 22. Remote Mode and CROT Cloud Relay
 
-**[Target]** — not implemented. Today HTTP binds to loopback only.
+**[Target]** — not implemented; **mandatory in v1** (§27 AD-13). Today HTTP
+binds to loopback only. Remote MCP clients and agents (Notion and others)
+connect to CROT and, through it, use the local computer and the user's browser
+with the same tools, permissions, confirmations, exposure and audit as local
+clients.
 
 ```text
 AI agent / remote MCP client
@@ -710,9 +732,10 @@ Boundaries:
   operations.
 - **No inbound exposure.** The device opens the connection to the relay; no
   local port is opened to the internet.
-- **Explicit and visible.** Remote mode is off by default, enabled explicitly
-  per device, visible in the tray while active, and can be stopped/revoked at
-  any time.
+- **Explicit and visible.** Remote mode ships in v1. On each device it stays
+  off until the user enables it (a per-device security control of a mandatory
+  feature, not an optional feature), is visible in the tray while active, and
+  can be stopped/revoked at any time.
 - **Not a remote desktop.** Remote mode exposes only the CROT tool set under
   the same permissions — no screen streaming, no OS-level input, no hidden
   access.
@@ -774,24 +797,27 @@ The tray app is a UI; control logic stays in Core/service.
 | Streamable HTTP, loopback, local token | **[Implemented]** |
 | Native Host (OS platform layer) | **[Implemented]** |
 | Browser bridge, relay, extension (Chromium) | **[Implemented]** |
-| External MCP gateway / MCP client | **[Target]** |
+| External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
 | User confirmations | **[Partial]** (mechanism implemented: WP-15, §27 AD-5…AD-11; no approval provider yet) |
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
-| OAuth/OIDC identity, accounts, device binding | **[Target]** |
-| Remote mode, Cloud Relay | **[Target]** |
-| Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** |
-| Installer, tray app, supervised service | **[Target]** |
+| OAuth/OIDC identity, accounts, device binding | **[Target]** (v1, AD-13) |
+| Remote mode, Cloud Relay | **[Target]** (mandatory in v1, AD-13) |
+| Command confinement L1 (Linux, macOS, Windows) | **[Target]** (v1, AD-13) |
+| Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
+| Installer, tray app, supervised service | **[Target]** (v1, AD-13) |
 
 ## 26. Open Architectural Questions
 
 These need explicit decisions before the corresponding work packages.
 
-1. **First milestone vs remote mode.** §14 targets a Notion Agent as the first
+1. **First milestone vs remote mode.** *Decided in §27 AD-13: remote mode is
+   mandatory in v1; the Notion milestone uses it.* §14 targets a Notion Agent as the first
    client, but clients that only reach servers on the internet need remote
    exposure (README), which is placed after the local steps (§16, steps 14,
    18). Decide whether the first Notion milestone needs remote mode or a local
    bridge.
-2. **Single service vs per-client processes.** Today each stdio MCP client
+2. **Single service vs per-client processes.** *Decided in §27 AD-13: one
+   supervised service; stdio clients attach through a thin shim.* Today each stdio MCP client
    starts its own `crot-mcp`, and only one instance can own the browser bridge
    (`in_use`). The target supervised service (§24) needs a decision on how
    stdio clients attach to it.
@@ -809,13 +835,17 @@ These need explicit decisions before the corresponding work packages.
    the mechanism and the headless behaviour (deny); §27 AD-12 adds the
    built-in `untrusted-content` rule for exposed sessions. The general list
    of gated operations remains open.
-7. **Relay encryption model.** Whether traffic is end-to-end encrypted between
+7. **Relay encryption model.** *Decided for v1 in §27 AD-13: TLS terminates
+   at the relay, no payload storage or logging; end-to-end encryption post-v1.*
+   Whether traffic is end-to-end encrypted between
    client and device or TLS terminates at the relay (the relay then sees
    traffic in transit, even though it never stores it).
-8. **Licensing offline.** Whether any local feature is paid and, if so, how
+8. **Licensing offline.** *Decided in §27 AD-13: no local feature is
+   licensed; entitlements are checked only by the relay.* Whether any local feature is paid and, if so, how
    entitlements are checked offline without making local mode depend on the
    network.
-9. **Local HTTP credentials.** Whether the static local token is replaced by
+9. **Local HTTP credentials.** *Decided in §27 AD-13: the local token stays
+   for local clients; device credentials are used for remote mode.* Whether the static local token is replaced by
    device credentials for local HTTP clients too, or only for remote mode.
 
 ## 27. Architectural Decisions
@@ -1579,3 +1609,138 @@ against the current code showed that this cannot be done per value:
   every action after the first read. Users who need autonomous browsing can
   turn the rule off or write narrower rules; the trade-off is theirs and is
   visible in `crot_status`.
+
+### AD-13. CROT v1 scope: remote MCP clients reach the local computer and browser through CROT (mandatory); the external MCP gateway is post-v1
+
+**Context.** CROT's purpose is: remote agents and platforms (Notion and other
+MCP clients) -> CROT -> the user's local computer -> the local project and the
+local browser tabs. Notion's agents and similar clients run in the cloud and
+reach MCP servers only over the internet; they cannot reach a loopback
+endpoint. Earlier wording in this document (§10 "remote optional", §16 "order
+to be set", §26 question 1) left open whether remote access is part of the
+first release. The document also uses "remote" and "external MCP" close to
+each other although they are different functions. This decision fixes the v1
+scope and removes that ambiguity.
+
+**Decision.**
+
+1. **Remote access is mandatory in v1.** CROT v1, the first commercial
+   release, **must** accept connections from remote MCP clients and agents
+   (Notion and other MCP clients) and give them access, through CROT, to the
+   user's local computer (workspace files, shell and processes, Git, Docker)
+   and the user's browser (tabs, reading, browser control). It is
+   release-blocking: v1 does not ship without it. It is not optional, not
+   experimental, not an add-on and not post-release. Remote clients use the
+   same tool set and the same Core pipeline as local clients: ExecutionGuard,
+   PermissionEngine, approval gates (§21), session exposure (AD-12) and audit.
+   That remote mode is enabled per device by the user (§22) is a security
+   control of this mandatory feature, not a reason to treat the feature as
+   optional.
+2. **Two different functions.**
+   - **Function A — remote access** (CROT as MCP *server* for remote
+     clients): remote MCP client -> CROT Cloud Relay -> local CROT -> local
+     computer and browser (§2.3 path 4, §22). **Mandatory in v1.**
+   - **Function B — external MCP gateway** (CROT as MCP *client* of external
+     MCP servers): agent -> CROT -> external MCP servers (§2.3 path 3, §18).
+     **Post-v1.** Nothing in function A depends on function B, and function A
+     is never deferred or reduced because function B is deferred.
+   In this document "remote access" / "remote mode" always means function A;
+   "external MCP gateway" always means function B.
+3. **Release-blocking components of function A (v1).**
+   - CROT Cloud Relay: the device opens an outbound tunnel; the relay
+     authenticates clients and routes to the bound device, and never stores
+     or logs payloads; plus the device-side remote-transport adapter
+     (adapter level, Core unchanged).
+   - MCP authorization (OAuth) for remote MCP clients, so that Notion and
+     other clients can connect with a standard flow.
+   - Account and device binding (§20): a managed third-party identity
+     provider, device pairing from the tray, short-lived tokens bound to
+     account, device and CROT audience, verified locally through the
+     `AccessTokenVerifier` seam, revocation. `Principal` carries account and
+     device ids; credentials never reach Core or the audit log.
+   - One supervised local service (§24) that owns remote sessions and the
+     browser bridge; stdio clients attach through a thin shim.
+   - Tray app with the approval provider (§21) on an authenticated local
+     channel, remote mode on/off and the active remote session visible.
+     Without a provider, approval rules and the `untrusted-content` rule only
+     deny, which would break remote workflows that read the browser and then
+     act.
+   - Command confinement L1 (point 4) on Linux, macOS and Windows.
+   - Remote permission profile (point 5).
+   - Session exposure through the relay: one MCP session of a remote client
+     is one CROT session bound to its principal (AD-12 point 2).
+   - Installer, signed packages, updates, registration of the native host,
+     the published extension (§24), and entitlements checked by the relay
+     (§23).
+4. **Command confinement L1 (v1, all three OS).** Child processes of
+   `shell.execute` and `process.manage` in workspace (sandbox) mode run
+   confined by a fixed, Core-defined profile through the Platform / Native
+   Host layer:
+   - no read or write access to CROT's state (local token, device key,
+     control-channel credentials), configuration and audit log;
+   - writes only to the workspace, a private temporary directory and a short
+     allowlist of tool caches;
+   - no access to the Docker socket and to the GUI automation or control
+     channel of the tray app (an agent must not approve its own requests).
+   Mechanisms: Linux bubblewrap (with the AppArmor profile the installer
+   ships), macOS Seatbelt (CROT secrets in the Keychain), Windows Job Object
+   plus a restricted / low-integrity token for children (to be confirmed by a
+   spike first). L1 is required for v1 on every supported OS; it is not
+   replaced by turning remote shell off. Only as a runtime safety fallback,
+   on a machine where the mechanism is unavailable (for example an
+   unsupported OS version), CROT refuses shell and process operations of
+   remote principals there and reports the reason in `crot_status`.
+   Full control mode is unconfined by definition (§6).
+5. **Remote permission profile.** Remote sessions default to workspace mode
+   with the `untrusted-content` rule on. Full control for remote principals is
+   available in v1 as an explicit per-device opt-in, visible in the tray,
+   audited and revocable. Implemented with the existing `principalKinds`
+   matcher; no new mechanism.
+6. **v1 simplifications that keep function A complete.**
+   - No own authorization server: a managed identity provider; CROT is the
+     resource server.
+   - Relay v1 terminates TLS, never stores or logs payloads, does not parse
+     MCP beyond routing; end-to-end encryption is post-v1 (§26 question 7).
+   - No local licensing: no local feature is paid or checked; entitlements
+     are checked only by the relay (§26 question 8; §23 unchanged).
+   - The static local token stays for local clients; device credentials are
+     for remote mode (§26 question 9).
+   - Confinement uses one fixed profile; network for confined commands is
+     on/off only.
+   - Approval policy: built-in rules and a few presets, no rule editor.
+   - Chromium-based browsers only.
+7. **Post-v1 (none of this is part of function A).** External MCP gateway
+   (function B, §18); OS-level egress allowlists (§16 item 23); confinement
+   level L2 (read-deny of common user secrets) on Windows; relay end-to-end
+   encryption; Firefox/Safari; team features; a rule editor; dedicated Git
+   network and Docker build/pull capabilities (usable through confined shell).
+8. **v1 order.** Phase 0: this decision. Phase 1 (local foundation):
+   supervised service with stdio shim and local control channel; tray v1 with
+   the approval provider; child-process environment allowlist and a protected
+   location for CROT secrets. Phase 2 (in parallel with phase 3): command
+   confinement L1 on Linux, macOS and Windows. Phase 3 (remote access):
+   identity and device binding; Cloud Relay and the device tunnel adapter
+   with MCP authorization; remote permission profile and end-to-end tests
+   "Notion -> relay -> CROT -> project + browser" plus at least two other
+   MCP clients; external security review. Phase 4 (commercial):
+   installers, signing, updates, extension publication; entitlements at the
+   relay; hardening, documentation and legal. Phases 1–4 are all v1;
+   function A is complete only when phases 1–3 are done, and v1 is released
+   only after phase 4.
+
+**Scope and limits.**
+
+- This decision fixes the release scope; each component still needs its own
+  work package and, where boundaries change, its own decision.
+- It resolves §26 questions 1, 2, 7, 8 and 9 and partially question 3
+  (remote principals get the profile of point 5; capability naming for the
+  external MCP gateway stays open with function B).
+- Residual risks of function A in v1, accepted and to be stated to users:
+  confined commands can still read user files outside the workspace (except
+  CROT's state) and use the network (no egress allowlist in v1); browser
+  actions run in the user's real sessions and depend on the user's approvals;
+  dependency install scripts run inside L1; full control for remote
+  principals is remote code execution on the whole machine by the user's
+  explicit choice; the relay sees traffic in transit (TLS termination); a
+  compromised account is mitigated by the identity provider's MFA,
+  short-lived device-bound tokens and revocation.
