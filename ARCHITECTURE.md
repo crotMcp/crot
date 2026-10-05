@@ -16,6 +16,11 @@
 > are stable (they are referenced from those documents); new sections start at 18.
 > Open questions that need a separate architectural decision are listed in §26;
 > decisions taken for work packages are recorded in §27.
+>
+> The v1 work plan (phases, order, dependencies, status) is in
+> `docs/plan/crot-implementation-plan.md`; the individual work packages
+> (WP-17…WP-37) are in `docs/plan/crot-agent-work-packages.md`. `AGENTS.md`
+> lists what a new contributor or agent reads first.
 
 ## 1. Product
 
@@ -32,13 +37,27 @@ The product has three parts:
 | User's browser | the user's real browser session through the browser bridge and extension | **[Implemented]** Chromium browsers |
 | External MCP services | tools of external MCP-compatible servers, reached through CROT | **[Target]** (§18), **post-v1** (§27 AD-13) |
 
-**Remote access is mandatory in v1 (§27 AD-13).** CROT v1, the first
-commercial release, accepts connections from remote MCP clients and agents
-(Notion and other MCP clients that reach servers only over the internet) and
-gives them access to the local computer and the user's browser through CROT
-(§22). This is a release-blocking function of v1, not optional and not
-post-release. It is a different function from the external MCP gateway (CROT
-as an MCP client of external servers, §18), which is post-v1.
+**v1 goal (§27 AD-13, AD-14).** CROT v1, the first commercial release, is
+this chain:
+
+```text
+remote MCP client (any compatible type)
+  -> internet / CROT Cloud Relay
+  -> local CROT on the user's device
+  -> the user's computer (project files, commands, Git, Docker)
+     + the user's real browser, its tabs and the web services the user is logged in to
+```
+
+A remote agent must be able to carry out **real multi-step tasks** in the
+user's browser — navigate, find and operate controls, fill in forms, answer
+dialogs, upload and download files, work across tabs and pop-ups — combined
+with work on the local project, not only read pages and perform a few simple
+actions. Remote access (§22) and the browser contract v1 (§7.1) are
+release-blocking: v1 does not ship without them. Concrete clients (Notion,
+Claude, Cursor and others) are only compatibility examples, not a basis of the
+architecture (§11). Remote access is a different function from the external
+MCP gateway (CROT as an MCP client of external servers, §18), which is post-v1
+and is not mixed with v1 work.
 
 CROT is a **controlled layer** between AI agents and these resources, not a
 direct proxy: every operation passes CROT's permission, execution and audit
@@ -52,7 +71,7 @@ The goal is to let an AI agent work as a real developer/operator on the user's m
 - combine computer and browser operations in one workflow;
 - use external MCP services in the same controlled workflow (target).
 
-CROT is **not a Notion-specific product**. Notion is only one possible MCP client.
+CROT is **not specific to any MCP client**. No client is a design basis.
 
 ## 2. Architecture
 
@@ -68,7 +87,7 @@ external service, identity provider or commercial backend.
 ### 2.1 Implemented architecture
 
 ```text
-  MCP clients on the same machine (Notion via local bridge, Claude, Cursor, ...)
+  MCP clients on the same machine (any MCP client: stdio or loopback HTTP)
             |  stdio                |  Streamable HTTP, loopback only, bearer token
             v                       v
 +------------------------- crot-mcp process (user device) --------------------------+
@@ -163,7 +182,10 @@ All paths end in the same Core pipeline; no path bypasses it.
 4. **Remote operation** [Target, mandatory in v1, AD-13]: remote agent/client -> CROT Cloud Relay
    (client authentication, routing to the bound device) -> outbound tunnel ->
    local CROT remote-transport adapter -> token re-verification -> Principal
-   (`kind: remote`) -> the same paths 1–3 (§22).
+   (`kind: remote`, account and device ids) -> the same paths 1–3 (§22). The
+   remote session contract (principal kinds, exposure key without MCP
+   sessions, supported MCP protocol versions including stateless 2026-07-28
+   requests) is decided in AD-15 (required by §27 AD-14).
 5. **User confirmation** [Target]: ExecutionGuard -> confirmation request ->
    UI provider (tray) -> explicit user decision -> continue or deny -> audit (§21).
 
@@ -176,15 +198,15 @@ All paths end in the same Core pipeline; no path bypasses it.
 | Native Host (OS platform layer) | device, inside `crot-mcp` | OS-specific Platform implementations (Windows Job Objects, ACLs) | **[Implemented]** |
 | Browser bridge | device, inside `crot-mcp` | local IPC endpoint, handshake, request/response | **[Implemented]** |
 | `crot-browser-relay` | device, started by the browser | native-messaging host; forwards frames only | **[Implemented]** |
-| CROT Browser Extension | user's browser | fixed browser commands | **[Implemented]** (Chromium) |
+| CROT Browser Extension | user's browser | fixed browser commands | **[Implemented]** (Chromium), basic command set; browser contract v1 **[Target, v1]** (§7.1) |
 | MCP client connectors / external MCP gateway | device, outside Core | connections to external MCP servers | **[Target]**, post-v1 (AD-13) |
-| Confirmation mechanism | Core interface + UI provider | explicit user approval of sensitive operations | **[Target]** |
-| CROT local service (sidecar) | device, background | supervised long-running `crot-mcp` | **[Target]** (today: started manually / by the MCP client) |
-| CROT Tray app | device | user UI | **[Target]** |
-| Installer / packages | device | Linux, Windows, macOS installation | **[Target]** |
+| Confirmation mechanism | Core interface + UI provider | explicit user approval of sensitive operations | **[Partial]**: mechanism implemented (WP-15); tray provider **[Target, v1]** |
+| CROT local service (sidecar) | device, background | supervised long-running `crot-mcp` | **[Target]**, v1 (today: started manually / by the MCP client) |
+| CROT Tray app | device | user UI | **[Target]**, v1 |
+| Installer / packages | device | Linux, Windows, macOS installation | **[Target]**, v1 |
 | CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Target]**, v1 (AD-13) |
-| Identity provider (third party) | cloud | user authentication, tokens | **[Target]** |
-| Account & Commercial service | cloud | accounts, subscriptions, plans, licensing, entitlements, device limits | **[Target]** |
+| Identity provider (third party) | cloud | user authentication, tokens | **[Target]**, v1 |
+| Account & Commercial service | cloud | accounts, subscriptions, plans, licensing, entitlements, device limits | **[Target]** (v1: entitlements checked at the relay only, AD-13) |
 | User / device / account | identities | see §20 | **[Partial]**: only a local principal and a static local token exist |
 
 ## 3. CROT Core
@@ -312,6 +334,8 @@ authorization outcome (§21), and policy for remote principals (§22).
 ## 7. Browser Extension
 
 **[Implemented]** for Chrome, Edge and Brave (Chromium 120+). Firefox is not supported.
+The command set implemented today is basic (`docs/BROWSER_EXTENSION.md`); the
+browser contract v1 (§7.1) is **[Target]** and release-blocking (§27 AD-14).
 
 The extension provides browser integration:
 - tabs;
@@ -337,6 +361,77 @@ Architectural rules (details in `docs/BROWSER_EXTENSION.md`):
 - no host-supplied code is executed in the browser;
 - the browser is a separate trust boundary (§19) and **web page content is
   untrusted input**.
+
+### 7.1 Browser contract v1
+
+**[Target, v1, release-blocking]** (§27 AD-14). The technology
+(`chrome.debugger` / Chrome DevTools Protocol versus `chrome.scripting`) and the
+exact command list are decided in AD-16 after the spike WP-18. This section
+fixes *what* v1 must support, not how.
+
+Implemented today (`docs/BROWSER_EXTENSION.md`): `browser_status`,
+`browser_tabs_list`, `browser_page_read` (`innerText` / `outerHTML`),
+`browser_screenshot` (active tab only), `browser_tab_open`, `browser_navigate`,
+`browser_tab_activate`, `browser_tab_close`, `browser_click`
+(`element.click()`, synthetic) and `browser_type` (text fields only), all
+addressing elements with `querySelector` in the main frame. This supports
+"open and read" and simple actions, not multi-step tasks.
+
+Required for v1:
+
+1. **Page model for agents.** A compact snapshot of a tab's interactive
+   elements (role, accessible name, state, value, position) with element
+   references, so that the agent does not have to derive CSS selectors from
+   up to 10 MiB of HTML. Actions accept an element reference (selectors stay
+   available). A reference is valid only in one tab and one document and
+   becomes invalid after navigation or document replacement (a stale reference
+   is an error, never a guess). The snapshot is an exposure source (AD-12
+   point 3).
+2. **Input.** Click, double click, context click, hover, scroll, drag and drop;
+   text input into any editable element; keys and shortcuts (Enter, Tab,
+   Escape, arrows, Ctrl/Cmd combinations); selecting options in native and
+   custom drop-down lists; checkboxes and radio buttons. Input must be accepted
+   by web applications that ignore synthetic events (trusted browser input
+   events; still not OS-level input, §22).
+3. **Frames and shadow DOM.** Elements inside frames (including cross-origin
+   frames) and open shadow roots can be read and addressed.
+4. **Waiting and history.** Wait for an element or state, for navigation and
+   load; back, forward, reload.
+5. **Dialogs.** `alert`, `confirm`, `prompt` and `beforeunload` are reported to
+   the agent and answered by an explicit command; they never block a tab
+   indefinitely.
+6. **Files.** Upload a workspace file into a file input (requires
+   `filesystem.read` and `browser.control`; the path is checked by the
+   workspace rules like any file read) and download into the workspace
+   (requires `filesystem.write` and `browser.control`). Example: publishing a
+   video from the local project through a web service (§9).
+7. **Tabs and windows.** `tabs_list` reports `openerTabId`, so the agent finds
+   tabs and pop-ups (for example OAuth windows) opened by its own actions;
+   screenshots of background tabs without activating them (the user keeps the
+   focus); remote principals must name an explicit `tabId` for page operations
+   and never act on "the active tab" implicitly; tabs opened by agents are
+   visible to the user (for example a "CROT" tab group).
+8. **Concurrency.** Commands to one tab are serialized; several agents do not
+   interfere with each other or with the user's own tabs; there is one bridge
+   owner (the supervised service, §24).
+
+Invariants that stay unchanged for every new command:
+
+- every command is a fixed Core operation through `BrowserService` and the
+  ExecutionGuard, gated by `browser.read` / `browser.control` (plus the file
+  capabilities of point 6);
+- no host- or agent-supplied code runs in the browser (no `eval`, no
+  agent-controlled `Runtime.evaluate`), even if CDP is chosen;
+- approval binding of AD-6, AD-8, AD-9 and AD-11 (tab, origin,
+  `connectionId`, expected browser subject) applies to every new control
+  command; new read commands are added to the exposure source list (AD-12);
+- audit never records page content, screenshots, typed text or file contents;
+- page content is untrusted input (§19).
+
+Browser profile and session: in v1 the extension connects one browser profile
+(the one it is installed in); the tray shows which profile is connected. After a
+browser restart the extension gets a new `connectionId` and earlier `tabId`s are
+invalid; this is intended (AD-9).
 
 ## 8. Native Host
 
@@ -375,8 +470,11 @@ AI Agent
 
 Example workflows include software development, web testing, and content workflows such as preparing and publishing a video through a web service using local project files.
 
-The building blocks are implemented (§5, §7); combined workflows run as
-separate tool calls through the same Core. Data read from the browser never
+The local building blocks are implemented (§5); the browser offers only a
+basic command set today. Real multi-step browser tasks, including the upload
+example above, need the browser contract v1 (§7.1), which is release-blocking
+(§27 AD-14). Combined workflows run as separate tool calls through the same
+Core. Data read from the browser never
 triggers local operations by itself (§19).
 
 Specific service integrations must not be hard-coded into CROT Core unless necessary.
@@ -400,7 +498,7 @@ Select project
 Choose permissions
         |
         v
-Connect AI Agent (local, or remote such as Notion through the Cloud Relay
+Connect AI Agent (local, or any remote MCP client through the Cloud Relay
 with an account; both in v1, §22, §27 AD-13)
         |
         v
@@ -417,13 +515,14 @@ A true one-click experience is a product goal subject to browser/OS security res
 
 CROT must remain client-neutral.
 
-Potential clients:
-- Notion;
-- Claude;
-- Cursor;
-- other MCP-compatible applications.
+Any MCP-compatible client — local (stdio, loopback HTTP) or remote (through the
+Cloud Relay, §22) — uses the same tools and the same Core pipeline. No client is
+a design basis: there is no client-specific code in Core, the adapters or the
+relay. Compatibility follows from implementing the MCP specification
+(transport, authorization, supported protocol versions; §27 AD-14, AD-15).
 
-Notion is only the first real integration.
+Concrete clients (for example Notion, Claude, Cursor) are compatibility test
+targets of the v1 acceptance suite (§14), not integrations or milestones.
 
 ## 12. Security and Privacy
 
@@ -476,43 +575,34 @@ Commercial functionality must remain separate from the local execution engine. T
 
 The commercial layer is **[Target]**; its boundaries are defined in §23.
 
-## 14. First Real Milestone
+## 14. v1 Acceptance Milestone
 
-The first real user is the developer building CROT.
+> Replaced by §27 AD-14. The earlier milestone (one specific client -> CROT MCP
+> -> one specific local project) is withdrawn: it tied the milestone to one
+> client and one project.
 
-The first real project is:
+The v1 milestone is the client-independent end-to-end acceptance suite
+(work package WP-32, `docs/plan/crot-agent-work-packages.md`):
 
-```text
-/home/kos/telegram-stream
-```
+1. **Automated:** an MCP SDK client -> Cloud Relay -> local CROT -> a fixture
+   project (files, commands under command confinement L1, Git, Docker) -> a
+   real Chromium with the CROT extension, running a multi-step scenario across
+   several tabs (navigation, a form, a dialog, a file upload and a download,
+   §7.1).
+2. **Manual compatibility run:** at least four different remote MCP clients
+   (for example Notion, Claude, Cursor and one more) over every supported MCP
+   protocol version (AD-15).
 
-The first usable milestone is:
-
-```text
-Notion Agent
-      |
-      v
-CROT MCP
-      |
-      v
-telegram-stream
-```
-
-The agent must be able to perform real development work.
+The agent must be able to perform real development and browser work.
 
 The MVP must be part of the final architecture, not disposable prototype code.
-
-Status: the local MCP side is implemented; completion of this milestone is not
-recorded in the repository. A Notion Agent reaches servers only over the
-internet, so this milestone needs remote access (§22); decided in §27 AD-13
-(§26, question 1).
 
 ## 15. Development Principles
 
 Build the smallest working implementation of the final architecture.
 
 Do not:
-- build Notion-specific core logic;
+- build client-specific logic (for any MCP client) into Core, the adapters or the relay;
 - create disposable MCP code;
 - duplicate permission systems;
 - hard-code browser integrations into the core;
@@ -535,8 +625,8 @@ Approximate order (status in brackets):
 5. Shell/process capabilities                     [Implemented]
 6. MCP interface                                  [Implemented]
 7. Local MCP connectivity                         [Partial: stdio + loopback HTTP; no remote]
-8. Notion integration as first client             [not recorded in repository]
-9. Real telegram-stream workflow                  [not recorded in repository]
+8. (withdrawn) client-specific first integration  [Superseded by §14 / WP-32, AD-14]
+9. (withdrawn) project-specific first workflow    [Superseded by §14 / WP-32, AD-14]
 10. Native Host                                   [Implemented]
 11. Browser Extension                             [Implemented]
 12. Unified browser + PC workflows                [Partial: building blocks implemented]
@@ -545,9 +635,12 @@ Approximate order (status in brackets):
 15. Commercial account/licensing layer            [Target, §23]
 ```
 
-Further target work. The v1 scope and order are fixed by §27 AD-13: items
-13–18 and 20 are required for v1 (remote access is mandatory in v1); item 19
-and item 23 are post-v1.
+Further target work. The v1 scope is fixed by §27 AD-13 and AD-14: items
+13–18, 20, 24 and 25 are required for v1 (remote access and the browser
+contract v1 are mandatory in v1); item 19 and item 23 are post-v1. Item
+numbers are kept stable because other documents refer to them; the v1 work
+packages, their order and dependencies are in
+`docs/plan/crot-implementation-plan.md` (WP-17…WP-37).
 
 ```text
 16. User confirmations                            [Partial: mechanism WP-15; tray provider v1, §21]
@@ -559,13 +652,14 @@ and item 23 are post-v1.
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
 24. Command confinement L1 (Linux, macOS, Windows) [Target, v1, §27 AD-13]
+25. Browser contract v1                           [Target, v1, §7.1, §27 AD-14]
 ```
 
 The order may change when technically justified, but architectural boundaries must remain intact.
 
 ## 17. Non-Negotiable Principle
 
-**CROT is not a Notion MCP.**
+**CROT is not an MCP server for one particular client.**
 
 CROT is a universal local AI-agent bridge and MCP gateway:
 
@@ -628,7 +722,7 @@ Boundaries:
 | Repository contents (`git.write`) | Core + Git on `PATH` | repository files, repository Git configuration, hooks, agent-supplied messages and names | §27 AD-2: AD-1 checks plus hooks/editors/signing/maintenance disabled, fixed non-destructive commands, exclusive metadata lock, protected paths | **[Implemented]** |
 | Docker (`docker.use`) | Core + Docker CLI on `PATH` | Compose files, env files, container labels and logs, the Docker daemon | §27 AD-3: fixed operations, Compose policy and host-path checks, canonical private model file, no build/pull, environment allowlist | **[Implemented]** |
 | Local transports | Core | other local programs | stdio parent only; loopback HTTP with bearer token, Host/Origin checks | **[Implemented]** |
-| Browser | Core | bridge, relay, extension, browser, web pages | token-authenticated IPC, browser cannot initiate, fixed commands, result validation; page content untrusted | **[Implemented]** |
+| Browser | Core | bridge, relay, extension, browser, web pages | token-authenticated IPC, browser cannot initiate, fixed commands, result validation; page content untrusted | **[Implemented]** (basic commands; the browser contract v1, §7.1, keeps the same enforcement) |
 | External MCP | Core | external servers, their tools and data | §18 | **[Target]** (post-v1, AD-13) |
 | Remote access | local CROT | relay, remote clients, network | §22, §27 AD-13 (incl. command confinement L1) | **[Target]** (mandatory in v1) |
 | User tokens | identity provider + local verifier | token holders | short-lived, revocable, audience-bound tokens; Core sees only a Principal | **[Target]** (today: static local token) |
@@ -693,6 +787,20 @@ Which operations require confirmation is a policy question (§26, question 6).
 §27 AD-12 decides one part of it: in a session that has read untrusted content
 (exposure), operations with effects require confirmation by default.
 
+**Presets (v1, §27 AD-14).** Approval policy in v1 is chosen from fixed
+presets, built only from the existing matchers (`principalKinds`, `exposed`,
+capabilities, operations); there is no rule editor:
+
+- **Ask for every action** (default): the `untrusted-content` rule as in AD-12.
+- **Autonomous browser**: `browser.control` operations in an exposed session
+  run without approval; `shell.execute`, `filesystem.write`, `git.write`,
+  `network.access` and `docker.compose_up` / `docker.compose_down` still
+  require approval.
+
+Without such a preset, remote multi-step browser tasks are not possible unless
+the user is at the device. The exact rule set and its configuration key are
+fixed in AD-16 together with the browser contract.
+
 The mechanism (approval gates: placement, approval subject, request
 lifecycle, queue, provider interface, audit, threat model) is designed in
 `docs/design/approval-gates.md` (WP-14) and decided in §27 AD-5, AD-6
@@ -706,7 +814,7 @@ the bridge `connectionId` and the extension's expected browser subject check.
 ## 22. Remote Mode and CROT Cloud Relay
 
 **[Target]** — not implemented; **mandatory in v1** (§27 AD-13). Today HTTP
-binds to loopback only. Remote MCP clients and agents (Notion and others)
+binds to loopback only. Remote MCP clients and agents of any compatible type
 connect to CROT and, through it, use the local computer and the user's browser
 with the same tools, permissions, confirmations, exposure and audit as local
 clients.
@@ -740,7 +848,20 @@ Boundaries:
   the same permissions — no screen streaming, no OS-level input, no hidden
   access.
 - **Separate trust boundary.** Remote principals are distinguishable from
-  local ones in authorization and audit (`kind: remote`).
+  local ones in authorization and audit (`kind: remote`). Today loopback HTTP
+  principals also carry `kind: remote`; AD-15 fixes this (loopback ->
+  `local`, relay -> `remote`) before remote mode ships (§27 AD-14).
+- **Session and exposure.** MCP 2026-07-28 removed the `initialize` handshake
+  and protocol sessions, and with older versions a client can always open a
+  new session. Exposure of remote principals (AD-12) is therefore keyed by the
+  token grant (account, device, client), not by an MCP session, and is reset
+  only by an explicit user action or revocation. The HTTP pipeline accepts
+  stateless requests as well as session-based ones (AD-15, §27 AD-14).
+- **Standard MCP authorization.** The device's MCP endpoint at the relay
+  publishes Protected Resource Metadata (RFC 9728); tokens are requested with
+  a resource indicator (RFC 8707) and are audience-bound to CROT; the identity
+  provider supports CIMD and DCR with PKCE. The device verifies the same token
+  again as part of the same logical resource server (AD-15).
 - Remote mode requires an account, device binding and the corresponding
   entitlement (§23).
 
@@ -796,9 +917,11 @@ The tray app is a UI; control logic stays in Core/service.
 | Local MCP tools over stdio | **[Implemented]** |
 | Streamable HTTP, loopback, local token | **[Implemented]** |
 | Native Host (OS platform layer) | **[Implemented]** |
-| Browser bridge, relay, extension (Chromium) | **[Implemented]** |
+| Browser bridge, relay, extension (Chromium), basic commands | **[Implemented]** |
+| Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | **[Target]** (v1, AD-14; technology AD-16) |
+| Remote session contract (principal kinds, exposure key, stateless MCP) | **[Target]** (v1, AD-14; decision AD-15) |
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
-| User confirmations | **[Partial]** (mechanism implemented: WP-15, §27 AD-5…AD-11; no approval provider yet) |
+| User confirmations | **[Partial]** (mechanism implemented: WP-15, §27 AD-5…AD-11; no approval provider yet; tray provider and presets v1, AD-14) |
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | **[Target]** (v1, AD-13) |
 | Remote mode, Cloud Relay | **[Target]** (mandatory in v1, AD-13) |
@@ -810,12 +933,9 @@ The tray app is a UI; control logic stays in Core/service.
 
 These need explicit decisions before the corresponding work packages.
 
-1. **First milestone vs remote mode.** *Decided in §27 AD-13: remote mode is
-   mandatory in v1; the Notion milestone uses it.* §14 targets a Notion Agent as the first
-   client, but clients that only reach servers on the internet need remote
-   exposure (README), which is placed after the local steps (§16, steps 14,
-   18). Decide whether the first Notion milestone needs remote mode or a local
-   bridge.
+1. **First milestone vs remote mode.** *Decided in §27 AD-13 (remote mode is
+   mandatory in v1); the client-specific first milestone is withdrawn by
+   AD-14 and replaced by the client-independent acceptance suite (§14).*
 2. **Single service vs per-client processes.** *Decided in §27 AD-13: one
    supervised service; stdio clients attach through a thin shim.* Today each stdio MCP client
    starts its own `crot-mcp`, and only one instance can own the browser bridge
@@ -833,7 +953,8 @@ These need explicit decisions before the corresponding work packages.
 6. **Confirmation policy.** Which operations require confirmation, and the
    behaviour without an available UI (headless use). WP-14 (§27 AD-5) fixes
    the mechanism and the headless behaviour (deny); §27 AD-12 adds the
-   built-in `untrusted-content` rule for exposed sessions. The general list
+   built-in `untrusted-content` rule for exposed sessions; §27 AD-14 adds two
+   v1 presets (§21), whose exact rule set is fixed in AD-16. The general list
    of gated operations remains open.
 7. **Relay encryption model.** *Decided for v1 in §27 AD-13: TLS terminates
    at the relay, no payload storage or logging; end-to-end encryption post-v1.*
@@ -847,6 +968,20 @@ These need explicit decisions before the corresponding work packages.
 9. **Local HTTP credentials.** *Decided in §27 AD-13: the local token stays
    for local clients; device credentials are used for remote mode.* Whether the static local token is replaced by
    device credentials for local HTTP clients too, or only for remote mode.
+10. **Remote session contract.** *Required by §27 AD-14; to be decided in
+    AD-15 (WP-17) before WP-19, WP-20 and WP-28…WP-30.* Principal kind of
+    loopback HTTP and relay principals and the migration of existing rules
+    that match `principalKinds: ["remote"]`; the exposure key of remote
+    principals without MCP sessions and how the user resets it; supported MCP
+    protocol versions (2025-06-18, 2025-11-25, 2026-07-28) and the SDK
+    version; stateless requests in the HTTP pipeline; the relay–device tunnel
+    shape (multiplexing, streaming responses, routing by `Mcp-Method` headers
+    without parsing bodies); identity-provider selection criteria.
+11. **Browser technology and command set.** *Required by §27 AD-14; to be
+    decided in AD-16 after the spike WP-18.* `chrome.debugger` (CDP) versus
+    `chrome.scripting`; the final command list and element-reference model;
+    the rule set of the approval presets; explicit `tabId` for remote
+    principals; the store-review justification of extension permissions.
 
 ## 27. Architectural Decisions
 
@@ -1744,3 +1879,135 @@ scope and removes that ambiguity.
   explicit choice; the relay sees traffic in transit (TLS termination); a
   compromised account is mitigated by the identity provider's MFA,
   short-lived device-bound tokens and revocation.
+- Amended by AD-14: the browser contract v1 (§7.1) is added to the
+  release-blocking components of point 3; the point 3 bullet "one MCP session
+  of a remote client is one CROT session" is replaced by the exposure key of
+  AD-14 point 3; the presets of point 6 are made concrete (AD-14 point 4); the
+  order and the client-specific end-to-end test of point 8 are replaced by
+  AD-14 points 5 and 6.
+
+### AD-14. v1 scope after the Remote MCP v1 review: the browser contract v1 is release-blocking, acceptance is client-independent, and the remote session contract is decided before implementation
+
+**Context.** A review of `main` at `0f0634c` against the v1 goal of AD-13
+found that the local part is largely ready, but no link of the remote chain
+exists yet and several parts of this document contradict each other or the
+current MCP specification:
+
+- **Browser.** The bridge works end to end, but its ten tools (tab list, open,
+  navigate, activate, close; page read as `innerText` / `outerHTML`; screenshot
+  of the active tab; `element.click()`; typing into text fields; elements found
+  with `querySelector` in the main frame) support "open and read" and simple
+  actions, not real multi-step tasks. AD-13 point 3 does not list any browser
+  work as release-blocking.
+- **Principal kind.** HTTP principals always get `kind: "remote"`
+  (`src/adapters/http/context.ts`), also on loopback. AD-13 point 5 builds the
+  remote profile on `principalKinds: ["remote"]`, so local HTTP clients would
+  get the remote profile and real remote clients would not be distinguishable
+  from local HTTP clients.
+- **Sessions.** AD-12 point 2 and AD-13 point 3 bind exposure to the MCP
+  session. MCP 2026-07-28 removes the `initialize` handshake, `Mcp-Session-Id`
+  and protocol sessions. The current HTTP pipeline creates a session only
+  through `initialize` and rejects other requests without one, so clients
+  speaking only 2026-07-28 cannot use CROT at all; with older versions a
+  remote client can open a new session and start with clean exposure.
+- **Autonomy.** The `untrusted-content` rule is on by default and approvals
+  are given only in the tray, so after the first page read every browser
+  action waits for the user at the device. AD-13 point 6 mentions "a few
+  presets" without defining them.
+- **Order.** AD-13 point 8 tests client compatibility (OAuth with DCR or CIMD,
+  streaming through the tunnel) only in phase 3, although the relay is the
+  longest and riskiest branch.
+- **Client-centric milestones.** §11, §14 and §16 defined the first milestone
+  around one specific client and one specific local project.
+
+**Decision.**
+
+1. **Goal.** v1 is: any compatible remote MCP client -> internet / CROT Cloud
+   Relay -> local CROT -> the user's computer and the user's real browser,
+   tabs and web services, with real multi-step browser tasks (§1). Concrete
+   clients are compatibility examples; no client-specific milestone, code or
+   test is a basis of the architecture (§11, §14). The external MCP gateway
+   (function B of AD-13) stays post-v1 and separate.
+2. **The browser contract v1 is release-blocking.** It is added to the
+   release-blocking components of AD-13 point 3. Its requirements are fixed
+   in §7.1. The technology (`chrome.debugger` / CDP or `chrome.scripting`) and
+   the exact command list are decided in AD-16 after the spike WP-18. The
+   invariants of §7 and of AD-6, AD-8, AD-9, AD-11 and AD-12 are unchanged and
+   apply to every new command.
+3. **The remote session contract is decided before code (AD-15).** Before
+   WP-19, WP-20 and WP-28…WP-30 start, AD-15 (WP-17) decides the details
+   under these constraints:
+   - loopback HTTP principals are `kind: "local"`; principals that arrive
+     through the relay are `kind: "remote"`. AD-15 states the migration of
+     existing rules that use `principalKinds: ["remote"]` for loopback HTTP
+     clients;
+   - exposure of a remote principal is keyed by its token grant (account,
+     device, client id). A new MCP session, a repeated `initialize` or a
+     stateless request does not reset it; only an explicit user action through
+     the approval provider or revocation of the grant resets it. This amends
+     AD-12 points 2 and 7 for remote principals and replaces the AD-13 point 3
+     bullet "one MCP session of a remote client is one CROT session". Local
+     principals keep the AD-12 behaviour;
+   - the HTTP pipeline accepts stateless 2026-07-28 requests in addition to
+     the session-based versions; AD-15 fixes the supported protocol versions
+     (at least 2025-06-18, 2025-11-25 and 2026-07-28) and the SDK version;
+   - MCP authorization follows the specification: Protected Resource Metadata
+     (RFC 9728) per device URL at the relay, resource indicators (RFC 8707),
+     audience-bound JWT access tokens, an identity provider with CIMD and DCR
+     and PKCE; no token issued for another resource is accepted or forwarded.
+     The device re-verifies the same token as part of the same logical
+     resource server;
+   - AD-15 also fixes the relay–device tunnel shape (outbound, multiplexed,
+     streaming responses, routing without parsing bodies) and the
+     identity-provider selection criteria.
+   AD-15 may choose details; weakening these constraints needs a new decision.
+4. **Approval presets.** The "few presets" of AD-13 point 6 are two v1
+   presets built only from the existing matchers (§21): *ask for every action*
+   (default) and *autonomous browser* (`browser.control` without approval in
+   an exposed session; shell, file writes, `git.write`, `network.access` and
+   Docker compose operations still need approval). They are chosen in the
+   tray, apply per device and are reported by `crot_status`. The exact rule set
+   and configuration key are fixed in AD-16.
+5. **Client-independent acceptance.** The end-to-end test "a specific client
+   -> relay -> CROT -> project + browser" of AD-13 point 8 is replaced by the
+   acceptance suite of §14 (WP-32): an automated SDK-client run through the
+   relay to a fixture project and a real Chromium, and a manual run with at
+   least four different remote MCP clients over all supported protocol
+   versions.
+6. **Order (amends AD-13 point 8).**
+   - Phase 0 (documents and a spike): AD-15 (WP-17) and, in parallel, the
+     browser spike with AD-16 (WP-18).
+   - Phase 1 (local foundation): principal and session fixes (WP-19),
+     supervised service with stdio shim and control channel (WP-20), secret
+     storage and environment allowlist (WP-21), tray with the approval provider
+     (WP-22).
+   - Phase 2 (command confinement L1, WP-23a/b/c) and phase 2B (browser v1,
+     WP-24…WP-27) run in parallel with phase 1 and phase 3.
+   - Phase 3 (remote access): identity and device binding (WP-28) and the
+     Cloud Relay (WP-29) start right after AD-15, in parallel with phase 1;
+     then the device tunnel adapter (WP-30), the remote profile and presets
+     (WP-31), the acceptance suite (WP-32) and an external security review
+     (WP-33).
+   - Phase 4 (commercial release): installers, signing and updates (WP-34),
+     extension publication (WP-35, submitted early), accounts, plans and the
+     relay entitlement check (WP-36), hardening, documentation and legal
+     (WP-37).
+   Phases 1–4 are all v1. The work packages, dependencies, sizes and
+   definitions of done are in `docs/plan/`.
+7. **Unchanged.** Everything implemented stays as it is: Core,
+   ExecutionGuard, PermissionEngine, the approval mechanism, the exposure
+   mechanism, the browser bridge protocol and all existing tools. AD-13 points
+   1, 2, 4, 5 and 7 and the simplifications of point 6 stay in force.
+
+**Scope and limits.**
+
+- Documentation only; no code is changed by this decision. Behaviour changes
+  (principal kind, exposure key, stateless HTTP) are made in WP-19 according
+  to AD-15; browser changes in WP-24…WP-27 according to AD-16.
+- It answers §26 question 6 partially (presets) and opens §26 questions 10
+  (→ AD-15) and 11 (→ AD-16).
+- Accepted residual risk: the *autonomous browser* preset lets an agent that
+  read injected page content act in the user's logged-in browser sessions
+  without asking; it is an explicit user choice, visible in the tray and in
+  `crot_status`, and does not extend to shell, file writes, Git writes,
+  network requests or Docker.

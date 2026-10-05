@@ -36,6 +36,12 @@ Not yet implemented: Docker operations beyond `docker.use` (build, pull, push, r
 exposure and MCP authorization (OAuth/OIDC), installer, account/licensing layer.
 Firefox is not supported.
 
+**Goal and plan.** The v1 goal (remote MCP clients reach the local computer and
+the user's real browser through CROT and the Cloud Relay), the architecture and
+the work plan are in `ARCHITECTURE.md` (§1, §27 AD-13 and AD-14) and
+[`docs/plan/crot-implementation-plan.md`](docs/plan/crot-implementation-plan.md).
+New contributors and agents start with [`AGENTS.md`](AGENTS.md).
+
 ## Requirements
 
 - Node.js 20 or newer
@@ -76,7 +82,8 @@ Register it in any MCP client that supports stdio servers, for example:
 
 Clients that speak Streamable HTTP can connect to the loopback endpoint (see
 [HTTP transport](#http-transport)). Clients that only reach servers on the
-internet need remote exposure, which is not part of this version.
+internet need remote exposure (the Cloud Relay, ARCHITECTURE.md §22), which
+is planned for v1 and not part of this version.
 
 **Browser.** To let the agent use Chrome, Edge or Brave, register the host with
 `crot-mcp browser install`, set `"browser": { "enabled": true }`, grant
@@ -196,6 +203,12 @@ server, the MCP tools, Core or the PermissionEngine.
 recorded in every audit event; stdio requests remain
 `{ id: "local-user", kind: "local", transport: "stdio" }`. Credentials never
 reach Core or the audit log.
+
+*Planned change (ARCHITECTURE.md §27 AD-14, AD-15; work package WP-19):*
+loopback HTTP principals will become `kind: "local"`, and `kind: "remote"`
+will be reserved for clients that connect through the Cloud Relay. Rules that
+use `principalKinds: ["remote"]` to gate loopback HTTP clients (such as the
+`remote-writes` example below) will need to be revised then.
 
 **Request pipeline.** Checked in order, before anything reaches the MCP server
 or Core:

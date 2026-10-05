@@ -1,0 +1,260 @@
+# CROT — Agent Work Packages (v1: Remote MCP)
+
+Detailed cards for WP-17…WP-37. Order, dependencies and status are in
+[`crot-implementation-plan.md`](crot-implementation-plan.md); architecture and
+decisions are in [`ARCHITECTURE.md`](../../ARCHITECTURE.md).
+
+## Common rules for every work package
+
+- **Read first:** `AGENTS.md`, ARCHITECTURE.md §1, §2, §19, §27 AD-13 and
+  AD-14, plus the sections listed in the card.
+- **Definition of done (applies to every card in addition to its own):**
+  `npm run check` passes; new behaviour is covered by tests; existing tools
+  and behaviour keep working unless the card states a change; ARCHITECTURE.md
+  status markers (§2.4, §25) and the affected user docs are updated; the
+  status in the plan is set to `Done`; one PR per work package.
+- **Do not:** add client-specific logic; bypass the ExecutionGuard /
+  PermissionEngine; add a second permission or approval mechanism; run host- or
+  agent-supplied code in the browser; work on the external MCP gateway or other
+  post-v1 items.
+
+---
+
+## Phase 0 — Contracts
+
+### WP-17 — AD-15 "Remote session contract"
+
+- **Type / size:** documents only, S. **Depends on:** —.
+- **Why:** closes the contradictions of AD-14 point 3 before code is written.
+- **Read:** §20, §22, §26 questions 9–10, AD-9, AD-10, AD-12, AD-13,
+  `src/adapters/http/` (`context.ts`, `auth.ts`, `server.ts`), README "HTTP
+  transport" and "Approval gates", `package.json` (MCP SDK version).
+- **Scope:** write AD-15 in ARCHITECTURE.md §27, covering:
+  - principal kinds: loopback HTTP -> `local`, relay -> `remote`; migration of
+    existing rules that use `principalKinds: ["remote"]` for loopback clients;
+  - exposure key for remote principals: token grant (account + device +
+    client id); survives new sessions, repeated `initialize` and stateless
+    requests; reset only by a user action in the approval provider or
+    revocation; local principals keep AD-12;
+  - supported MCP protocol versions (at least 2025-06-18, 2025-11-25,
+    2026-07-28), SDK version, stateless requests in the HTTP pipeline next to
+    session-based ones;
+  - authorization: PRM (RFC 9728) per device URL, RFC 8707, audience-bound JWT,
+    CIMD + DCR + PKCE, no token passthrough, re-verification on the device;
+  - relay–device tunnel shape (outbound, multiplexed, streaming, routing by
+    headers without parsing bodies, no payload logging);
+  - identity-provider selection criteria.
+- **Out of scope:** code; choosing a concrete identity provider (WP-28).
+- **Done when:** AD-15 merged; §26 question 10 marked decided; §22 and AD-12
+  cross-reference it.
+
+### WP-18 — Browser spike and AD-16 "Browser contract v1"
+
+- **Type / size:** spike + documents, S–M. **Depends on:** — (parallel to
+  WP-17).
+- **Read:** §7, §7.1, §21 (presets), §26 question 11, AD-6, AD-8, AD-9, AD-11,
+  AD-12, `docs/BROWSER_EXTENSION.md`, `extension/`, `src/core/browser*`,
+  `tests-e2e/`.
+- **Scope:** throwaway prototype (not merged as product code) of click, keys,
+  a cross-origin frame and a file upload on three real sites, with
+  `chrome.debugger` (CDP) and with `chrome.scripting`; then AD-16 fixing:
+  technology; command list and schemas; element-reference model and
+  invalidation; dialogs; explicit `tabId` for remote principals; per-tab
+  serialization; rule set and configuration key of the two approval presets;
+  exposure sources for new reads; extension permissions and their store
+  justification. CDP, if chosen, is used only through fixed commands (no
+  agent-controlled `Runtime.evaluate`).
+- **Done when:** AD-16 merged with the spike findings summarized; §26
+  question 11 decided; WP-24/WP-25 cards adjusted (merge them if CDP makes
+  that simpler).
+
+---
+
+## Phase 1 — Local foundation
+
+### WP-19 — Principal kinds, exposure key and stateless HTTP (per AD-15)
+
+- **Size:** M. **Depends on:** WP-17.
+- **Read:** AD-12, AD-15, `src/adapters/http/`, `src/core/approvals/`.
+- **Scope:** loopback HTTP principal `kind: "local"`; `AuthContext` carries the
+  exposure key defined by AD-15 for remote principals; HTTP pipeline accepts
+  stateless 2026-07-28 requests and the session-based versions; README
+  updated (principal, migration of `principalKinds: ["remote"]` rules).
+- **Done when:** tests for a session-less client, for the bypass "re-initialize
+  to get clean exposure", for each supported protocol version, and for the
+  unchanged stdio behaviour pass.
+
+### WP-20 — Supervised service, thin stdio shim, local control channel
+
+- **Size:** L. **Depends on:** WP-19.
+- **Read:** §24, AD-13 point 3, `src/bin/`, browser bridge sources.
+- **Scope:** one background service owns Core, the browser bridge, HTTP and
+  (later) the tunnel; stdio clients attach through a thin shim; an
+  owner-only, token-authenticated local IPC control channel for the tray.
+  **Reuse** the framing, token and endpoint handling of the browser bridge and
+  `createCrotMcpServer`.
+- **Done when:** several stdio clients work at the same time through the shim,
+  the browser state `in_use` no longer occurs in normal use, the control
+  channel rejects other users and unauthenticated peers.
+
+### WP-21 — Secret storage and child-process environment allowlist
+
+- **Size:** M. **Depends on:** WP-20.
+- **Scope:** CROT secrets (local token, device key, control-channel
+  credentials) in Keychain / DPAPI / libsecret or owner-only private files;
+  child processes get only an allowlisted environment.
+- **Done when:** secrets are not readable through CROT tools or inherited
+  environment; tests on all three OS.
+
+### WP-22 — Tray v1 and approval provider
+
+- **Size:** L. **Depends on:** WP-20.
+- **Read:** §21, AD-5…AD-11, `docs/design/approval-gates.md`.
+- **Scope:** tray UI over the control channel: approvals showing the subject
+  digest; remote mode on/off; active sessions; connected browser profile;
+  preset selection (§21, AD-16); device pairing screen (used by WP-28). The
+  provider implements the existing `ApprovalProvider` interface; the broker is
+  unchanged.
+- **Done when:** approvals work end to end for file, shell and browser
+  operations; dismissal/timeout deny; decisions audited.
+
+---
+
+## Phase 2 — Command confinement L1 (parallel)
+
+Why: a remote shell without confinement can read CROT's tokens and approve its
+own requests. Profile: AD-13 point 4.
+
+### WP-23a — L1 for Linux (bubblewrap, AppArmor profile)
+- **Size:** M. **Depends on:** WP-21.
+
+### WP-23b — L1 for macOS (Seatbelt, Keychain)
+- **Size:** M. **Depends on:** WP-21.
+
+### WP-23c — L1 for Windows (spike, then restricted / low-IL token + Job Object)
+- **Size:** L. **Depends on:** WP-21.
+
+- **Done when (each):** the AD-13 point 4 profile passes tests — no access to
+  tokens, configuration, audit log, Docker socket or the tray control channel;
+  writes only to the workspace, a private temp directory and the cache
+  allowlist. Where the mechanism is unavailable, `shell` and `process`
+  operations of `remote` principals are refused with the reason in
+  `crot_status`.
+
+---
+
+## Phase 2B — Browser v1 (parallel, required for v1)
+
+All commands go through `BrowserService` and the ExecutionGuard; AD-6, AD-8,
+AD-9 and AD-11 bind every new control command; new reads are exposure
+sources (AD-12); audit never records content. Requirements: §7.1; details:
+AD-16.
+
+### WP-24 — Element snapshot, references and core interaction
+- **Size:** L. **Depends on:** WP-18.
+- **Scope:** snapshot of interactive elements with references; click and type
+  by reference; keys and shortcuts; drop-downs; hover; scroll; wait for
+  element/state/navigation; back, forward, reload; `openerTabId` in the tab
+  list.
+- **Done when:** E2E on real Chromium covers a multi-step form flow by
+  references, including stale-reference errors after navigation.
+
+### WP-25 — Trusted input, frames, shadow DOM, dialogs, background screenshots
+- **Size:** L. **Depends on:** WP-24 (may be merged with it per AD-16).
+- **Done when:** E2E passes on a test site with a cross-origin frame, shadow
+  DOM and `confirm()` / `beforeunload`; screenshot of a background tab without
+  focus change.
+
+### WP-26 — File upload and download
+- **Size:** M. **Depends on:** WP-25.
+- **Scope:** upload a workspace file (`filesystem.read` + `browser.control`),
+  download into the workspace (`filesystem.write` + `browser.control`); paths
+  checked by the workspace rules.
+- **Done when:** E2E "upload a video fixture into a form" and a download into
+  the workspace pass; paths outside the workspace are denied in sandbox mode.
+
+### WP-27 — Multi-agent safety
+- **Size:** S–M. **Depends on:** WP-24, WP-19.
+- **Scope:** per-tab command queue; agent tabs in a visible "CROT" tab group;
+  explicit `tabId` required for `remote` principals.
+- **Done when:** two parallel agents do not interfere with each other or with
+  the user's tabs (E2E).
+
+---
+
+## Phase 3 — Remote MCP
+
+### WP-28 — Identity and device binding
+- **Size:** L. **Depends on:** WP-17, WP-21, WP-22 (pairing UI).
+- **Scope:** managed identity provider meeting AD-15 (DCR, CIMD, PKCE,
+  RFC 8707, JWT); device pairing from the tray; OAuth verifier behind the
+  existing `AccessTokenVerifier` (JWKS, `aud`, `exp`, device id); `Principal`
+  carries account and device ids; revocation.
+- **Done when:** a paired device verifies tokens locally, revocation ends
+  access, credentials never reach Core or the audit log.
+
+### WP-29 — Cloud Relay v1
+- **Size:** XL. **Depends on:** WP-17, WP-28.
+- **Scope:** `https://…/d/<device>/mcp`; PRM and 401 with `WWW-Authenticate`;
+  outbound multiplexed tunnel with streaming responses; routing without
+  parsing bodies (2026-07-28 `Mcp-Method` headers); no payload logging; hook
+  for the entitlement check (WP-36). The relay does not implement MCP.
+- **Done when:** an SDK client reaches a test device through the relay with
+  every supported protocol version; payloads never appear in relay logs.
+
+### WP-30 — Device tunnel adapter
+- **Size:** M–L. **Depends on:** WP-20, WP-28, WP-29.
+- **Scope:** tunnel requests enter the **existing** HTTP pipeline
+  (authentication -> session or stateless handling per WP-19 ->
+  `StreamableHTTPServerTransport`) without the loopback address check;
+  reconnect; remote mode on/off from the tray.
+- **Done when:** remote requests run through the unchanged Core pipeline as
+  `kind: "remote"`; turning remote mode off closes the tunnel.
+
+### WP-31 — Remote permission profile and presets
+- **Size:** M. **Depends on:** WP-19, WP-22, WP-23a/b/c, WP-30.
+- **Scope:** `remote` defaults to workspace mode with `untrusted-content` on;
+  full control for remote principals only as an explicit per-device opt-in;
+  the *autonomous browser* preset; all through `principalKinds` and `exposed`
+  matchers.
+- **Done when:** tests show the defaults, the opt-in and both presets;
+  `crot_status` and the tray show them.
+
+### WP-32 — Remote E2E acceptance suite and client compatibility
+- **Size:** L. **Depends on:** WP-30, WP-31, WP-24…WP-26.
+- **Scope:** ARCHITECTURE.md §14. Automated: SDK client -> relay -> CROT ->
+  fixture project (files, commands under L1, Git, Docker) -> real Chromium
+  (multi-step scenario across tabs, form, dialog, upload, download). Manual:
+  at least four different remote MCP clients (for example Notion, Claude,
+  Cursor and one more) over all supported protocol versions; results recorded
+  in the repository.
+- **Done when:** automated suite runs in CI; manual compatibility table
+  committed with no blocking failures.
+
+### WP-33 — External security review and fixes
+- **Size:** M. **Depends on:** WP-32.
+- **Done when:** no open critical or high findings.
+
+---
+
+## Phase 4 — Commercial release
+
+### WP-34 — Installers, signing, updates, native-host registration, autostart
+- **Size:** L. **Depends on:** WP-20, WP-22.
+- **Done when:** installation on all three OS without a terminal (§10, §24).
+
+### WP-35 — Extension publication (Chrome Web Store, Edge Add-ons)
+- **Size:** M. **Depends on:** WP-25. Submit early.
+- **Done when:** published; permission justification (including `debugger`
+  if chosen by AD-16) accepted.
+
+### WP-36 — Minimal accounts and plans, entitlement check at the relay
+- **Size:** M. **Depends on:** WP-29.
+- **Done when:** the relay admits only entitled devices; local mode works
+  offline without an account (§23).
+
+### WP-37 — Hardening, documentation, legal, release checklist
+- **Size:** M. **Depends on:** all above.
+- **Scope:** privacy policy, terms, disclosure of the residual risks of AD-13
+  and AD-14, user documentation, release checklist.
+- **Done when:** the release checklist is closed.
