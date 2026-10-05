@@ -104,6 +104,13 @@ async function runService(command: ServeCommand, launch: "on-demand" | "managed"
     );
   }
   const service = started;
+  // Every path of the configuration is absolute by now: the service does not keep the working
+  // directory of the shim or terminal that started it (it would pin that directory).
+  try {
+    process.chdir(os.homedir());
+  } catch {
+    // Keep the inherited directory; nothing depends on it.
+  }
   const lifecycle = installLifecycle({
     host: process,
     signals: service.core.platform.info.shutdownSignals,

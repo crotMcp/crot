@@ -3,7 +3,7 @@
  * AuthenticatedChannel frames. Pure data: no credentials, no policy.
  *
  * Shim channel (one stdio MCP connection per channel):
- *   shim -> service: hello { version, configDigest, pid }, mcp { line }, bye
+ *   shim -> service: hello { version, configDigest, pid, environment? }, mcp { line }, bye
  *   service -> shim: welcome { service, logs }, refused { reason, message },
  *                    mcp { data }, log { line }, bye { reason }
  * Control channel (owner tools: CLI today, tray / ApprovalProvider later):
@@ -12,13 +12,21 @@
  * The control channel carries no MCP traffic and exposes no tools.
  */
 import type { ServiceStatus } from "../core/service-status.js";
+import { parseEnvironmentFingerprint } from "./environment.js";
 
 export const SERVICE_PROTOCOL_VERSION = 1;
 
 export type RefusalReason = "config_mismatch" | "version_mismatch" | "shutting_down" | "restarting";
 
 export type ShimToService =
-  | { readonly t: "hello"; readonly version: number; readonly configDigest: string; readonly pid: number }
+  | {
+      readonly t: "hello";
+      readonly version: number;
+      readonly configDigest: string;
+      readonly pid: number;
+      /** Digests of the shim's platform-relevant environment variables (environment.ts). */
+      readonly environment?: Readonly<Record<string, string>>;
+    }
   | { readonly t: "mcp"; readonly line: string }
   | { readonly t: "bye" };
 
@@ -65,13 +73,24 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 export function parseShimMessage(value: unknown): ShimToService | undefined {
   if (!isRecord(value)) return undefined;
   switch (value.t) {
-    case "hello":
-      return typeof value.version === "number" &&
-        typeof value.configDigest === "string" &&
-        /^[0-9a-f]{64}$/.test(value.configDigest) &&
-        typeof value.pid === "number"
-        ? { t: "hello", version: value.version, configDigest: value.configDigest, pid: value.pid }
-        : undefined;
+    case "hello": {
+      if (
+        typeof value.version !== "number" ||
+        typeof value.configDigest !== "string" ||
+        !/^[0-9a-f]{64}$/.test(value.configDigest) ||
+        typeof value.pid !== "number"
+      )
+        return undefined;
+      const environment = value.environment === undefined ? undefined : parseEnvironmentFingerprint(value.environment);
+      if (value.environment !== undefined && !environment) return undefined;
+      return {
+        t: "hello",
+        version: value.version,
+        configDigest: value.configDigest,
+        pid: value.pid,
+        ...(environment ? { environment } : {}),
+      };
+    }
     case "mcp":
       return typeof value.line === "string" ? { t: "mcp", line: value.line } : undefined;
     case "bye":

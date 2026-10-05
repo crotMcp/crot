@@ -21,8 +21,10 @@ import { CrotError } from "../core/errors.js";
 import type { PrivateFileProtection } from "../core/platform/types.js";
 import { ChannelError, connectChannel, MAX_SERVER_FRAME_BYTES, type AuthenticatedChannel } from "./channel.js";
 import { configDigest } from "./config-digest.js";
+import { environmentFingerprint } from "./environment.js";
 import {
   acquireDirectoryLock,
+  refreshDirectoryLock,
   fileCredentialStore,
   releaseDirectoryLock,
   SERVICE_LOG_FILE_NAME,
@@ -53,6 +55,9 @@ export interface ShimOptions {
 
 type Welcome = Extract<ServiceToShim, { t: "welcome" }>;
 
+/** How often a held start lock is refreshed (well below the stale age of the lock). */
+const LOCK_REFRESH_MS = 2_000;
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Connect to the service, starting it on demand; resolves with the welcomed channel. */
@@ -71,9 +76,15 @@ export async function connectToService(
   let lastError: unknown;
   const lock = path.join(stateDir, SERVICE_START_LOCK_NAME);
   let lockHeld = false;
+  // A held start lock is kept fresh, so a slow service start never makes it look stale to another shim.
+  const heartbeat = setInterval(() => {
+    if (lockHeld) void refreshDirectoryLock(lock);
+  }, LOCK_REFRESH_MS);
+  heartbeat.unref();
   try {
     return await connectLoop();
   } finally {
+    clearInterval(heartbeat);
     if (lockHeld) await releaseDirectoryLock(lock);
   }
 
@@ -160,7 +171,13 @@ function hello(
       reject(new ChannelError("closed", "The CROT service closed the connection."));
     };
     channel.start();
-    channel.send({ t: "hello", version: SERVICE_PROTOCOL_VERSION, configDigest: digest, pid: process.pid });
+    channel.send({
+      t: "hello",
+      version: SERVICE_PROTOCOL_VERSION,
+      configDigest: digest,
+      pid: process.pid,
+      environment: environmentFingerprint(),
+    });
   });
 }
 

@@ -39,6 +39,7 @@ import type { PrivateFileProtection } from "../core/platform/types.js";
 import { NativeHost } from "../native-host/native-host.js";
 import { acceptChannel, MAX_CLIENT_FRAME_BYTES, type AuthenticatedChannel } from "./channel.js";
 import { configDigest } from "./config-digest.js";
+import { environmentDifferences, environmentFingerprint } from "./environment.js";
 import {
   fileCredentialStore,
   listenExclusive,
@@ -115,6 +116,8 @@ export class CrotService {
   private markReady!: () => void;
   private stopping: Promise<void> | undefined;
   private verifying = false;
+  /** Platform-relevant environment of this service process (environment.ts). */
+  private readonly environment = environmentFingerprint();
 
   private constructor(private readonly options: ServiceOptions) {
     this.ready = new Promise((resolve) => (this.markReady = resolve));
@@ -377,7 +380,11 @@ export class CrotService {
 
   private async welcome(
     shim: ShimClient,
-    hello: { readonly version: number; readonly configDigest: string },
+    hello: {
+      readonly version: number;
+      readonly configDigest: string;
+      readonly environment?: Readonly<Record<string, string>>;
+    },
   ): Promise<void> {
     if (hello.version !== SERVICE_PROTOCOL_VERSION) {
       return this.refuse(
@@ -416,8 +423,23 @@ export class CrotService {
     shim.channel.send({
       t: "welcome",
       service: { pid: process.pid, version: CORE_VERSION, launch: this.options.launch },
-      logs: [...this.startupLogs],
+      logs: [...this.startupLogs, ...this.environmentNote(hello.environment)],
     } satisfies ServiceToShim);
+  }
+
+  /**
+   * A client whose PATH, shell or home differs from the service's is told so
+   * (AD-17 point 5): commands run with the service's environment, which comes
+   * from the supervisor or the client that started the service.
+   */
+  private environmentNote(client: Readonly<Record<string, string>> | undefined): string[] {
+    const differing = environmentDifferences(this.environment, client);
+    if (differing.length === 0) return [];
+    return [
+      `note: this client's ${differing.join(", ")} differ${differing.length === 1 ? "s" : ""} from the running CROT service ` +
+        `(pid ${process.pid}, ${this.options.launch}); commands run with the service's environment. ` +
+        "Give every MCP client the same environment, or run the service managed (docs/SERVICE.md).",
+    ];
   }
 
   private activeShims(): number {

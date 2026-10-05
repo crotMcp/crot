@@ -47,9 +47,11 @@ crot-mcp service status|stop ──────────────┘ contr
 **On demand (default).** When a shim finds no running service it starts one:
 a detached `crot-mcp service run --on-demand` with the shim's own arguments
 and environment, output to `<state>/service.log`. Concurrent shims serialise
-the start with a lock (`<state>/service-start.lock`); if two services start
-anyway, the exclusive endpoint lets only one of them run and the other exits
-before touching the browser bridge. The startup messages of the service (the
+the start with a lock (`<state>/service-start.lock`, kept fresh while held, so
+a slow start never looks abandoned); if several services start anyway, the
+exclusive endpoint lets only one of them run and the others exit before
+touching the browser bridge. A socket file left by a crashed service is taken
+over under a separate lock; an abandoned lock is broken by one process only. The startup messages of the service (the
 banner) are shown on every shim's stderr. An on-demand service stops about
 1 s after its last stdio client has gone (30 s if no client ever connects).
 
@@ -164,7 +166,12 @@ The control channel is for the user's own tools: `crot-mcp service
 status|stop` today, the tray app and its approval provider later (WP-22). It
 carries **no MCP and no tools**; anything other than a known control request
 closes the connection. Requests: `ping`, `status`, `shutdown`. It makes no
-permission decision and cannot reach Core's tools.
+permission decision and cannot reach Core's tools. It is not an authorization
+mechanism: its credential only shows that the peer runs as the same OS user
+(who can stop the service anyway); it creates no principal, grant or scope and
+changes no mode or rule. When the tray arrives (WP-22) it carries approval
+prompts and answers between the approval broker and the tray's
+`ApprovalProvider`; the decisions stay in the PermissionEngine and the broker.
 
 ## Concurrency
 
@@ -187,9 +194,20 @@ permission decision and cannot reach Core's tools.
   connection.
 - All stdio clients of a user share one configuration (see above); per-client
   workspaces need separate OS users for now.
-- The service inherits the environment and the working directory of the shim
-  that started it on demand (relevant for `environment.path: inherited` and
-  relative paths in the configuration).
+- The service has one process environment: that of its supervisor (managed)
+  or of the shim that started it (on demand). Commands of every client run
+  with it, including variables set in one MCP client's configuration (`env`).
+  The CROT configuration itself never depends on it: the configuration file,
+  `CROT_CONFIG`, the flags and every path are resolved before the
+  configuration digest is taken, and a different state directory
+  (`XDG_STATE_HOME`, `LOCALAPPDATA`) is a different service. A client whose
+  `PATH`, shell (`SHELL`, `ComSpec`, `PATHEXT`) or home directory differs from
+  the service's gets a note on stderr when it connects (only digests of the
+  values are compared). For identical environments in every client, run the
+  service managed. The child-process environment allowlist is WP-21.
+- The working directory is not inherited in effect: the service resolves the
+  configuration first and then changes to the home directory; tools always
+  run in an explicit directory.
 - Sleep detection is a heuristic (clock-jump based); approval deadlines are not
   extended across sleep.
 - Windows named pipes keep Node's default security descriptor (no explicit

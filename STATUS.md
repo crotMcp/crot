@@ -48,8 +48,10 @@ Tests: `tests/service/channel.test.ts`, `tests/service/service.test.ts`,
 `tests/service/shim.test.ts` (multi-client through the built shim, CLI
 service commands, crash restart with persisted remote exposure, AD-7 shutdown
 audit, another OS user — runs when `CROT_TEST_OTHER_USER` names a second
-account; verified locally on Linux; the CI step that creates the account on
-Linux, macOS and Windows is still to be added, see open items),
+account, created in CI by `scripts/ci-other-user.mjs`; in GitHub Actions a
+missing account fails the run instead of skipping; concurrent service starts
+incl. stale-socket takeover; clients in different working directories),
+`tests/service/endpoints.test.ts` (lock and endpoint races),
 `tests/adapters/http-modern.test.ts` (concurrency limit); the stdio
 and browser-bridge E2E run through the shim; the former "second instance stays
 `in_use`" test is replaced by a shared-bridge test with per-connection
@@ -77,10 +79,10 @@ Previous: **WP-19 — Remote MCP request pipeline per AD-15** (PR #14,
 | Concurrency limit for the tunnel entry point (loopback has `http.maxConcurrentRequests` since WP-20) | WP-30 |
 | Background processes are owned by the service, not by the stdio client that started them (shared by all clients; they outlive that client until the service stops) | follow-up (AD-17 scope) |
 | Approval deadlines are not extended across system sleep; sleep detection is a clock-jump heuristic | follow-up / WP-22 |
-| All stdio clients of a user share one configuration; an on-demand service inherits the environment of the shim that started it | AD-17 residual risk; revisit with WP-22 / WP-34 |
+| All stdio clients of a user share one configuration and one process environment (supervisor's or starting shim's; differing PATH/shell/home is reported to the client, child environment allowlist in WP-21) | AD-17 residual risk; WP-21 / WP-34 |
 | Windows named pipes keep Node's default security descriptor (no explicit owner-only DACL) | WP-21 / WP-34 |
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
-| CI step creating a second OS account (sets `CROT_TEST_OTHER_USER`, on Windows also `CROT_TEST_OTHER_PASSWORD`) so the other-user endpoint test runs on Linux, macOS and Windows; prepared in the WP-20 PR description, needs a push with `workflow` permission | WP-20 follow-up (maintainer) |
+| **Before merging WP-20:** add `- run: node scripts/ci-other-user.mjs` before `- run: npm test` in `.github/workflows/ci.yml` (the PR's token cannot change workflows); until then CI fails on purpose | WP-20 (maintainer) |
 | Exposure reset and revocation of remote clients; persistence write failures are only logged | WP-22 |
 | Which token claims carry `clientId` and the device id | WP-28 (depends on the identity provider) |
 | Exact device resource URI form and PRM location | WP-29 |

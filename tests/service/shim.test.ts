@@ -40,11 +40,15 @@ interface Shim {
   closed: Promise<void>;
 }
 
-async function shim(args: readonly string[] = ["--workspace", dirs.workspace, "--no-audit"]): Promise<Shim> {
+async function shim(
+  args: readonly string[] = ["--workspace", dirs.workspace, "--no-audit"],
+  cwd?: string,
+): Promise<Shim> {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [bin, ...args],
     env: host.env,
+    ...(cwd ? { cwd } : {}),
     stderr: "pipe",
   });
   let stderr = "";
@@ -288,6 +292,52 @@ describe("stdio shim and CROT service (built, WP-20)", () => {
   );
 
   it(
+    "concurrent service starts of one user leave exactly one owner, also when taking over after a crash",
+    async () => {
+      const args = ["--on-demand", "--workspace", dirs.workspace, "--no-audit"];
+      // A crashed service (kill -9) leaves its endpoint behind (POSIX: a stale socket file).
+      const crashed = managed(["--workspace", dirs.workspace, "--no-audit"]);
+      await waitFor(() => crashed.stderr().includes("service: managed"), 30_000);
+      crashed.child.kill("SIGKILL");
+      await crashed.exited;
+      // Several services start at the same moment, bypassing the shims' start lock.
+      const starts = Array.from({ length: 4 }, () => managed(args));
+      let stdout = "";
+      await waitFor(async () => {
+        const r = await run(["service", "status"]);
+        stdout = r.stdout;
+        return r.code === 0;
+      }, 30_000);
+      const owner = Number(/pid (\d+)/.exec(stdout)?.[1]);
+      // Every other one gave up silently before touching the bridge or Core.
+      const exits = await Promise.all(starts.filter((p) => p.child.pid !== owner).map((p) => p.exited));
+      expect(exits).toEqual([0, 0, 0]);
+      expect(starts.some((p) => p.child.pid === owner)).toBe(true);
+      expect(isAlive(owner)).toBe(true);
+      // Clients reach that owner.
+      const s = await shim();
+      expect((await s.status()).service.pid).toBe(owner);
+      await s.close();
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "clients started in different working directories share the service; it does not keep the first one's",
+    async () => {
+      const a = await shim(undefined, dirs.workspace);
+      const b = await shim(undefined, dirs.outside);
+      const [sa, sb] = await Promise.all([a.status(), b.status()]);
+      expect(sb.service.pid).toBe(sa.service.pid);
+      if (process.platform === "linux") {
+        const { readlink } = await import("node:fs/promises");
+        expect(await readlink(`/proc/${sa.service.pid}/cwd`)).not.toBe(dirs.workspace);
+      }
+    },
+    TIMEOUT,
+  );
+
+  it(
     "a managed service refuses to start twice",
     async () => {
       const first = managed(["--workspace", dirs.workspace, "--no-audit"]);
@@ -308,6 +358,15 @@ describe("stdio shim and CROT service (built, WP-20)", () => {
  * step for a second OS account; otherwise it is skipped.
  */
 const otherUser = process.env.CROT_TEST_OTHER_USER;
+
+// The roadmap requires this test in CI on every OS: in GitHub Actions a missing second account is an error, not a skip.
+describe.runIf(process.env.GITHUB_ACTIONS === "true" && !otherUser)("CI setup (WP-20)", () => {
+  it("CI provides a second OS account for the endpoint test", () => {
+    expect.fail(
+      "CROT_TEST_OTHER_USER is not set: add the step 'node scripts/ci-other-user.mjs' before 'npm test' in .github/workflows/ci.yml (STATUS.md, WP-20).",
+    );
+  });
+});
 describe.runIf(Boolean(otherUser))("endpoints and another OS user (WP-20)", () => {
   it(
     "another OS user cannot connect to the shim or control endpoint",

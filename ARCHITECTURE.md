@@ -3078,7 +3078,9 @@ tunnel (WP-30) and the installer (WP-34) build on this decision.
 3. **Singleton.** Exclusive ownership of the shim endpoint is the singleton:
    a service that cannot obtain it exits before touching the browser bridge or
    Core (on demand: silently; managed: with an error). A start lock serialises
-   concurrent on-demand starts. On shutdown the shim endpoint is released
+   concurrent on-demand starts (refreshed while held); taking over a socket
+   file left by a crashed service happens under a takeover lock, and an
+   abandoned lock is broken by exactly one process (moved aside and checked). On shutdown the shim endpoint is released
    last, after the bridge, so a successor never finds the bridge owned.
 4. **Thin shim.** In stdio mode `crot-mcp` is a shim: it forwards stdin lines
    unchanged to the service, writes the service's MCP output to stdout and the
@@ -3095,6 +3097,12 @@ tunnel (WP-30) and the installer (WP-34) build on this decision.
    parsed settings except `http`, CROT version); a different digest is refused
    with an explanation while the service is in use; an idle on-demand service
    steps aside for it. Configuration is never taken from the shim's messages.
+   The process environment is not configuration: the service has one (the
+   supervisor's, or the starting shim's); everything the configuration depends
+   on (file, `CROT_CONFIG`, flags, paths) is resolved into the digest, a
+   different state directory is a different service, and the service then
+   leaves the inherited working directory. A shim whose PATH, shell or home
+   directory differs is told so on stderr (only value digests are exchanged).
 6. **Endpoints and authentication.** Two local endpoints in the user's
    private state directory: the shim endpoint and the control endpoint (Unix
    sockets `0600` in the `0700` state directory; Windows named pipes whose
@@ -3112,7 +3120,10 @@ tunnel (WP-30) and the installer (WP-34) build on this decision.
 7. **Control channel.** The control channel is for the user's own tools
    (`crot-mcp service status|stop`; later the tray and its ApprovalProvider,
    WP-22). It carries no MCP and no tools and makes no permission decision; in
-   WP-20 its requests are `ping`, `status` and `shutdown`. Approval and
+   WP-20 its requests are `ping`, `status` and `shutdown`. It is not an
+   authorization mechanism: its credential proves only the same OS user,
+   it creates no principal, grant or scope, and policy and approval
+   decisions stay in the PermissionEngine and the broker (AD-5). Approval and
    exposure-reset requests (AD-15 C5) are added by WP-22 on this channel and
    remain the only path for them.
 8. **Lifecycle.** Graceful shutdown keeps AD-7: endpoints and connections,

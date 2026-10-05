@@ -15,6 +15,7 @@ import {
   type AuthenticatedChannel,
 } from "../../src/service/channel.js";
 import { configDigest } from "../../src/service/config-digest.js";
+import { environmentFingerprint } from "../../src/service/environment.js";
 import { ControlClient } from "../../src/service/control-client.js";
 import {
   credentialFile,
@@ -112,6 +113,7 @@ class ShimTransport implements Transport {
 /** Connect like the shim: authenticate, hello, wait for the answer. */
 async function shimConnect(
   config: Record<string, unknown> = {},
+  environment?: Record<string, string>,
 ): Promise<{ channel: AuthenticatedChannel; answer: ServiceToShim }> {
   const credential = (await store().read("service"))!;
   const channel = await connectChannel(serviceEndpoint(stateDir, "service", credential).path, {
@@ -134,6 +136,7 @@ async function shimConnect(
       version: SERVICE_PROTOCOL_VERSION,
       configDigest: configDigest(command.configFile ?? "", command.config),
       pid: process.pid,
+      ...(environment ? { environment } : {}),
     });
   });
   return { channel, answer };
@@ -187,6 +190,27 @@ describe("CROT service (WP-20)", () => {
     await clients[0]!.close();
     await waitFor(async () => (await crotStatus(clients[1]!)).service.clients.stdio === 2);
     for (const c of clients.slice(1)) await c.close();
+  });
+
+  it("tells a client whose PATH, shell or home differs that commands use the service's environment", async () => {
+    await startService();
+    const same = await shimConnect({}, environmentFingerprint());
+    expect(same.answer.t).toBe("welcome");
+    expect((same.answer as Extract<ServiceToShim, { t: "welcome" }>).logs.join("\n")).not.toMatch(/note: this client/);
+    const differentPath = environmentFingerprint({ ...process.env, PATH: "/elsewhere/bin", Path: "C:\\elsewhere" });
+    const other = await shimConnect({}, differentPath);
+    expect(other.answer.t).toBe("welcome");
+    const logs = (other.answer as Extract<ServiceToShim, { t: "welcome" }>).logs.join("\n");
+    expect(logs).toMatch(/note: this client's PATH differs from the running CROT service/);
+    // Only digests travel: the value itself is never in the answer.
+    expect(logs).not.toContain("elsewhere");
+    await same.channel.close();
+    await other.channel.close();
+  });
+
+  it("rejects a hello with a malformed environment fingerprint", async () => {
+    await startService();
+    await expect(shimConnect({}, { PATH: "not a digest" })).rejects.toThrow(/closed/);
   });
 
   it("refuses a client with another configuration while it is in use", async () => {
