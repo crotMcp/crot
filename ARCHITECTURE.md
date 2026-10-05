@@ -182,10 +182,11 @@ All paths end in the same Core pipeline; no path bypasses it.
 4. **Remote operation** [Target, mandatory in v1, AD-13]: remote agent/client -> CROT Cloud Relay
    (client authentication, routing to the bound device) -> outbound tunnel ->
    local CROT remote-transport adapter -> token re-verification -> Principal
-   (`kind: remote`, account and device ids) -> the same paths 1–3 (§22). The
-   remote session contract (principal kinds, exposure key without MCP
-   sessions, supported MCP protocol versions including stateless 2026-07-28
-   requests) is decided in AD-15 (required by §27 AD-14).
+   (`kind: remote`, account, device and client ids) -> request-scoped
+   execution context -> the same paths 1–3 (§22). The remote MCP request
+   contract (sessionless requests, principal kinds by entry point, exposure
+   scopes, resource and audience, relay and device responsibilities) is §27
+   AD-15.
 5. **User confirmation** [Target]: ExecutionGuard -> confirmation request ->
    UI provider (tray) -> explicit user decision -> continue or deny -> audit (§21).
 
@@ -919,7 +920,7 @@ The tray app is a UI; control logic stays in Core/service.
 | Native Host (OS platform layer) | **[Implemented]** |
 | Browser bridge, relay, extension (Chromium), basic commands | **[Implemented]** |
 | Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | **[Target]** (v1, AD-14; technology AD-16) |
-| Remote session contract (principal kinds, exposure key, stateless MCP) | **[Target]** (v1, AD-14; decision AD-15) |
+| Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); implementation **[Target]** (v1: WP-19, WP-28…WP-30) |
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
 | User confirmations | **[Partial]** (mechanism implemented: WP-15, §27 AD-5…AD-11; no approval provider yet; tray provider and presets v1, AD-14) |
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
@@ -968,20 +969,29 @@ These need explicit decisions before the corresponding work packages.
 9. **Local HTTP credentials.** *Decided in §27 AD-13: the local token stays
    for local clients; device credentials are used for remote mode.* Whether the static local token is replaced by
    device credentials for local HTTP clients too, or only for remote mode.
-10. **Remote session contract.** *Required by §27 AD-14; to be decided in
-    AD-15 (WP-17) before WP-19, WP-20 and WP-28…WP-30.* Principal kind of
-    loopback HTTP and relay principals and the migration of existing rules
-    that match `principalKinds: ["remote"]`; the exposure key of remote
-    principals without MCP sessions and how the user resets it; supported MCP
-    protocol versions (2025-06-18, 2025-11-25, 2026-07-28) and the SDK
-    version; stateless requests in the HTTP pipeline; the relay–device tunnel
-    shape (multiplexing, streaming responses, routing by `Mcp-Method` headers
-    without parsing bodies); identity-provider selection criteria.
+10. **Remote session contract.** *Decided in §27 AD-15 (WP-17): sessionless
+    request model, entry-point-based principal kinds, request-scoped execution
+    context, exposure scopes (remote: account, device, client; persistent),
+    supported versions 2026-07-28, 2025-11-25 and 2025-06-18, resource and
+    audience rules, relay and device responsibilities.* Remaining details are
+    assigned to WP-19 (SDK line), WP-28 (token claims) and WP-29 (device URI
+    form), and to questions 12 and 13.
 11. **Browser technology and command set.** *Required by §27 AD-14; to be
     decided in AD-16 after the spike WP-18.* `chrome.debugger` (CDP) versus
     `chrome.scripting`; the final command list and element-reference model;
     the rule set of the approval presets; explicit `tabId` for remote
     principals; the store-review justification of extension permissions.
+12. **Transport matcher.** *Opened by §27 AD-15.* After loopback HTTP
+    principals become `local` (AD-15 point 6), approval rules can no longer
+    tell loopback HTTP clients from stdio clients. Decide whether a
+    `transports` matcher is added (additive, like `exposed` in AD-12). Not
+    required for v1.
+13. **Long-running gated requests through the relay.** *Opened by §27 AD-15.*
+    A gated operation waits for its approval (up to 300 s, AD-10) within one
+    request (AD-15 point 3). Decide the relay and tunnel timeouts and the
+    behaviour towards clients with shorter timeouts; whether the Tasks
+    extension or Multi Round-Trip Requests are used later is post-v1. To be
+    settled in WP-29 / WP-30.
 
 ## 27. Architectural Decisions
 
@@ -1740,6 +1750,11 @@ against the current code showed that this cannot be done per value:
 - File contents, repository data, process output and Docker logs are also
   untrusted (§19) but are not sources: marking them would expose almost every
   session and make approvals meaningless (design T9). Residual risk, accepted.
+- Points 2 and 7 are amended by AD-15 for remote principals and for
+  sessionless loopback HTTP requests: exposure is recorded per exposure scope;
+  remote scopes are keyed by account, device and client, persist across
+  restarts and are reset only by the user. stdio and legacy local sessions
+  keep this decision unchanged.
 - Browser workflows that alternate reading and acting ask for approval for
   every action after the first read. Users who need autonomous browsing can
   turn the rule off or write narrower rules; the trade-off is theirs and is
@@ -2001,7 +2016,8 @@ current MCP specification:
 
 **Scope and limits.**
 
-- Documentation only; no code is changed by this decision. Behaviour changes
+- Documentation only; no code is changed by this decision. Point 3 is decided
+  by AD-15 (WP-17). Behaviour changes
   (principal kind, exposure key, stateless HTTP) are made in WP-19 according
   to AD-15; browser changes in WP-24…WP-27 according to AD-16.
 - It answers §26 question 6 partially (presets) and opens §26 questions 10
@@ -2011,3 +2027,341 @@ current MCP specification:
   without asking; it is an explicit user choice, visible in the tray and in
   `crot_status`, and does not extend to shell, file writes, Git writes,
   network requests or Docker.
+
+### AD-15. Remote MCP request contract v1: every request gets a request-scoped execution context from verified facts; no MCP session is required; exposure belongs to an exposure scope, not to a transport session (WP-17)
+
+**Context.** AD-14 point 3 requires this decision before WP-19, WP-20 and
+WP-28…WP-30 and fixes its constraints. The current implementation (`main` at
+`72b3b25`) works as follows:
+
+- **Principal.** `principalFromAuthInfo` (`src/adapters/http/context.ts`)
+  returns `kind: "remote"` for every HTTP request, including loopback; the id
+  is `AuthInfo.extra.subject` (local token: `local-token:<fingerprint>`).
+  stdio uses `localPrincipal` (`local-user`, `kind: "local"`).
+  `Principal.client` is the self-reported MCP client info and is never used
+  for authorization (`src/core/auth/principal.ts`).
+- **Execution context.** Core receives an `AuthContext` per tool call:
+  `principal`, optional `session` (`SessionRef`), `requestId` (the JSON-RPC
+  id) and `signal`. It is built by the adapter's `ContextResolver`
+  (`src/adapters/mcp/context.ts`, `server.ts`).
+- **Session and exposure.** `createCrotMcpServer` creates one `SessionRef` per
+  `McpServer` instance. stdio has one instance per connection; HTTP creates
+  one instance per MCP session in `CrotHttpServer.openSession`.
+  `ExposureTracker` (`src/core/approvals/exposure.ts`) keeps exposure in memory
+  in a `WeakSet<SessionRef>`; a context without a session falls back to one
+  process-wide session.
+- **HTTP pipeline.** `CrotHttpServer.route` (`src/adapters/http/server.ts`)
+  checks Host (loopback only), path `/mcp`, Origin, method (POST, GET,
+  DELETE), the bearer token, body size and JSON. A request without
+  `Mcp-Session-Id` is accepted only if it is `initialize`, otherwise it is
+  rejected with 400. A session is usable only by the `clientId` that opened it;
+  sessions are limited (`maxSessions`) and expire when idle.
+- **Authentication seam.** `AccessTokenVerifier` returns the SDK's `AuthInfo`
+  or rejects; the token itself never reaches Core.
+- **SDK.** `@modelcontextprotocol/sdk` `^1.31.0` (the v1 line).
+
+MCP 2026-07-28 changes the transport underneath this design:
+
+- the `initialize` / `initialized` handshake and `Mcp-Session-Id` are removed;
+  protocol version, client info and client capabilities travel in `_meta` of
+  every request;
+- every POST carries `MCP-Protocol-Version` (which must match `_meta`),
+  `Mcp-Method` and, for `tools/call`, `Mcp-Name`; a server that processes the
+  body must reject header–body mismatches (`HeaderMismatch`, `-32020`) and
+  unsupported versions (`UnsupportedProtocolVersionError`, 400);
+- the GET stream is removed (GET and DELETE answer 405); a response is a
+  single JSON object or an SSE stream scoped to that request;
+- server-to-client requests may only be issued while a client request is
+  being processed;
+- Dynamic Client Registration is deprecated in favour of Client ID Metadata
+  Documents, and issuer identification (RFC 9207) is expected.
+
+Legacy versions (2025-06-18, 2025-11-25) still use `initialize` and
+`Mcp-Session-Id`, and a client can open a new session at any time. Keying
+exposure by the MCP session is therefore either impossible (2026-07-28) or
+bypassable (legacy versions).
+
+**Decision.**
+
+1. **Terms (normative).**
+   - **MCP request** — one JSON-RPC request or notification: one HTTP POST, or
+     one stdio message.
+   - **Transport session** — the stdio connection, or the protocol session of
+     legacy versions (`Mcp-Session-Id`). It is a transport mechanism for
+     correlating messages and limiting resources. It carries no authority and
+     is never the key of security state for remote principals.
+   - **Authentication result** — the facts a verifier established from a
+     credential presented with the request.
+   - **Principal** — who the request runs for. It is derived only from the
+     authentication result and the entry point the request arrived on.
+   - **Execution context** — the Core `AuthContext` of one request: principal,
+     exposure scope, request id and cancellation signal. It is built by the
+     adapter for every request.
+   - **Exposure scope** — the key under which AD-12 exposure is recorded. It
+     generalizes today's `SessionRef`.
+   - **Entry point** — where a request enters CROT: stdio, the loopback HTTP
+     endpoint, or the relay tunnel (WP-30).
+
+2. **Request pipeline (normative, all entry points).** Each request passes
+   these steps in this order, and none of them may be skipped:
+   1. **Transport validation:** method, path, Host and Origin (loopback),
+      body size, JSON, a supported protocol version, and, for 2026-07-28, the
+      `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` headers matching
+      the body;
+   2. **Authentication** (point 4);
+   3. **Principal derivation** (point 6);
+   4. **Execution context construction** (point 7);
+   5. **MCP dispatch** through the handlers of `createCrotMcpServer`;
+   6. **Core pipeline:** ExecutionGuard (input validation, path resolution) ->
+      `PermissionEngine.authorize()` -> approval gate (user rules, the
+      `untrusted-content` rule using the context's exposure scope, the remote
+      profile of WP-31) -> re-authorization and revalidation -> mandatory
+      approval audit record (AD-7) -> `execute()` -> exposure marking (AD-12
+      point 3) -> audit.
+
+   A request that fails any of steps 1–4 is answered by the adapter and never
+   reaches the MCP server or Core. For stdio, steps 1 and 2 are given by the
+   transport: the parent process is the local user.
+
+3. **No session is required.**
+   - Every request is processed from the request itself and the entry point.
+     Processing never requires an earlier `initialize`, an `Mcp-Session-Id` or
+     any state from earlier requests. This is the base model for every entry
+     point that speaks 2026-07-28.
+   - **2026-07-28:** CROT does not mint, echo or require session ids; it
+     ignores a received `Mcp-Session-Id` and `Last-Event-ID`; it answers GET
+     and DELETE with 405; it serves `server/discover`. Client info and client
+     capabilities in `_meta` are informational, like `Principal.client` today.
+   - **Legacy versions (2025-06-18, 2025-11-25):** supported for
+     compatibility. `initialize` and `Mcp-Session-Id` remain transport
+     mechanics only: sessions stay bound to the principal that opened them
+     (the existing owner check), limited and expiring. Every request of a
+     session is still fully authenticated. For remote principals a session
+     never defines the principal, authorization or the exposure scope.
+   - **Supported versions in v1:** 2026-07-28, 2025-11-25 and 2025-06-18.
+     Requests without `MCP-Protocol-Version` (versions before 2025-06-18) and
+     the HTTP+SSE transport of 2024-11-05 are not supported and are rejected
+     as the specification prescribes. Adding or removing a version is a change
+     of this list, not of the contract.
+   - CROT tools need neither a protocol session nor server-to-client requests
+     (elicitation, sampling, roots). CROT issues no server-to-client requests
+     in v1. In particular, approvals are **never** requested through MCP
+     elicitation or any other path of the remote request: the approval channel
+     stays independent of the request path (AD-5, design §4.1 I4, §13.3).
+   - A gated operation waits for its approval within its own request. The
+     response may be streamed as an SSE stream scoped to that request. The
+     Tasks extension and Multi Round-Trip Requests are not used in v1.
+
+4. **Authentication and authorization boundary.**
+   - Authentication establishes the principal and nothing else. Token
+     contents (scopes, roles, claims) never grant capabilities, permission
+     modes, paths, network destinations or approvals. Authorization is decided
+     only by the PermissionEngine and the approval gates from the device's
+     local configuration (AD-5 I1, AD-13 point 1).
+   - **Credential per entry point.** The loopback HTTP endpoint accepts only
+     the local token (AD-13 point 6). The relay tunnel accepts only OAuth
+     access tokens issued for this device (point 5); the local token is never
+     accepted through the tunnel. stdio has no credential.
+   - **Remote token verification on the device** (behind
+     `AccessTokenVerifier`; implementation WP-28): a JWT signed by the
+     configured issuer (JWKS) with matching `iss`; `aud` equal to this
+     device's resource URI (point 5); valid `exp` and `nbf`; a device claim
+     equal to the local device id from device binding; the grant is not
+     revoked. Any failure returns 401 with `WWW-Authenticate` that points to
+     the Protected Resource Metadata.
+   - The relay's check of the same token (point 10) only admits and routes the
+     request. It never replaces the device's verification.
+   - Credentials never reach Core, the audit log, logs, the browser, child
+     processes or outbound requests, and they are never forwarded to any other
+     service.
+
+5. **Resource and audience.**
+   - Each device has exactly one canonical **resource URI**, its MCP endpoint
+     at the relay (form `https://<relay-host>/d/<deviceId>/mcp`; the exact
+     form is fixed in WP-29). It is at the same time the URL clients connect
+     to, the `resource` of the Protected Resource Metadata (RFC 9728) the
+     relay serves for it, and the required token audience.
+   - Clients request tokens with the resource indicator (RFC 8707) set to that
+     URI. A token for another device or another resource is rejected, even if
+     it belongs to the same account.
+   - Relay and device are one logical resource server for that URI. That the
+     relay verifies the token and the device verifies it again is not token
+     passthrough; the relay never mints, exchanges or replaces tokens for the
+     device.
+   - **Identity-provider criteria** (selection in WP-28): OAuth 2.1 with PKCE
+     (S256); CIMD, plus DCR for clients of older versions (DCR is deprecated
+     in 2026-07-28 but still used); resource indicators (RFC 8707);
+     audience-bound JWT access tokens with a custom device claim; issuer
+     identification (RFC 9207); revocation of grants; MFA for accounts.
+
+6. **Principal and `local` / `remote`.**
+   - The principal kind is set only by the entry point, never by token
+     contents, client info, headers or tool arguments:
+
+     | Entry point | `kind` | `id` | `transport` | `authMethod` |
+     | --- | --- | --- | --- | --- |
+     | stdio | `local` | `local-user` | `stdio` | — |
+     | loopback HTTP + local token | `local` (changed; today `remote`) | `local-token:<fingerprint>` | `http` | `local-token` |
+     | relay tunnel + OAuth token | `remote` | stable subject of the grant | `relay` | `oauth` |
+
+   - A `remote` principal additionally carries the verified `accountId`,
+     `deviceId` and `clientId` (the client identifier from the token, not the
+     self-reported client name). This is an additive change of `Principal`.
+     `client` stays self-reported and informational.
+   - **`local`** means that the request comes from the user's own machine
+     through a channel only local programs can reach. **`remote`** means that
+     it arrives from the internet through the relay. Rules with
+     `principalKinds`, the remote permission profile (AD-13 point 5, WP-31),
+     command confinement fallbacks (AD-13 point 4) and audit distinguish
+     exactly these two.
+   - **Migration.** After WP-19, rules with `principalKinds: ["remote"]` no
+     longer match loopback HTTP clients (for example the `remote-writes`
+     example in README). There is no compatibility alias. WP-19 documents the
+     change in README; until a transport matcher exists (§26 question 12),
+     loopback HTTP clients can be gated only together with stdio
+     (`principalKinds: ["local"]`).
+
+7. **Execution context.**
+   - The adapter builds the execution context for **every request** from
+     steps 2–3 and the entry point. It is immutable and is not taken over from
+     an earlier request; only the exposure state behind its scope is shared.
+   - It contains the principal, the exposure scope (point 8), a request id and
+     the cancellation signal. No transport object (session, socket, tunnel
+     stream) reaches Core as an authority.
+   - The request id is unique per CROT process: the adapter generates it and
+     may record the JSON-RPC id next to it. It correlates audit events only.
+   - The signal is aborted when the request's HTTP response or stream closes,
+     the tunnel stream closes, the stdio connection closes, or a legacy
+     `notifications/cancelled` arrives. A pending approval is then cancelled
+     (existing behaviour).
+   - The difference between a transport session and the execution context:
+     the transport session may correlate several requests for transport
+     purposes. The execution context belongs to one request and determines,
+     together with the PermissionEngine, everything Core does.
+
+8. **Exposure and its lifecycle.**
+   - Exposure (AD-12) is recorded per **exposure scope**, which the adapter
+     derives from the entry point and the principal:
+
+     | Entry point / version | Exposure scope |
+     | --- | --- |
+     | stdio | the connection (unchanged, AD-12) |
+     | loopback HTTP, legacy session | the MCP session (unchanged, AD-12) |
+     | loopback HTTP, 2026-07-28 (sessionless) | the local-token principal for the lifetime of the CROT process |
+     | relay tunnel, any version | the triple (`accountId`, `deviceId`, `clientId`) |
+
+   - For remote principals the scope does not depend on sessions, protocol
+     versions or individual tokens. Opening a new session, sending
+     `initialize` again, refreshing or re-issuing a token, or reconnecting the
+     tunnel does not create a clean scope.
+   - The state changes only from `clean` to `exposed`. Sources and the gate
+     are unchanged (AD-12 points 3–6).
+   - **Reset (remote scopes only):** exclusively (a) an explicit user action
+     in an approval provider ("reset exposure" for one client on this
+     device), recorded in the audit log, or (b) revocation of the client's
+     access to the device, also a user action. No tool, request, token claim,
+     relay message, browser message or configuration value can reset it.
+   - **Persistence (remote scopes):** remote exposure survives CROT restarts.
+     It is stored in CROT's private state (a protected path). If the stored
+     state cannot be read, every remote scope is treated as exposed (fail
+     closed). Local scopes stay in memory as in AD-12.
+   - Accepted over-application: all agents that a platform runs behind one
+     `clientId` for the same account share one scope.
+
+9. **Mandatory security boundaries before local execution.** No remote request
+   reaches an OS resource, the browser or the network without passing, in
+   addition to point 2:
+   - the PermissionEngine (mode, capabilities, workspace boundary, protected
+     paths, network policy) and the approval gates, with the exposure of its
+     scope;
+   - the ExecutionGuard (validation, path resolution, re-authorization,
+     revalidation, mandatory audit, AD-7);
+   - command confinement L1 for shell and process operations of `remote`
+     principals, or their refusal where L1 is unavailable (AD-13 point 4);
+   - the browser approval binding (AD-6, AD-8, AD-9, AD-11).
+
+   There is no shortcut for "trusted" relays, clients or accounts. When remote
+   mode is off on the device, the tunnel is closed and no remote request is
+   processed.
+
+10. **Responsibilities of the Cloud Relay.**
+    - **Must:** terminate TLS; serve the Protected Resource Metadata and 401
+      challenges for each device URI; check the token (signature, `iss`,
+      `aud`, expiry) and the device's entitlement (WP-36) before admitting a
+      request; route by the device id in the path to that device's tunnel;
+      forward the request unchanged (method, all headers including
+      `Authorization`, `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`,
+      `Mcp-Param-*`, `Mcp-Session-Id`, and the body); stream the response back
+      unchanged; enforce size and rate limits; refuse requests for offline
+      devices or devices with remote mode off.
+    - **Must not:** authorize CROT operations; parse, change or store bodies;
+      log payloads; keep MCP sessions or protocol state; approve or present
+      approvals; mint or exchange tokens for the device; assert identity to the
+      device through its own headers (the device takes identity only from the
+      token and ignores any identity headers added by the relay). It may route
+      or rate-limit by `Mcp-Method` only for versions with header–body
+      validation (2026-07-28); the device performs that validation.
+    - The tunnel is authenticated with the device credential (WP-28). This
+      credential proves to the relay which device holds the tunnel. It never
+      authenticates a request: every request carries its own client token.
+
+11. **Responsibilities of the local CROT.** Everything authoritative: full
+    token verification (point 4), principal (point 6), execution context
+    (point 7), exposure (point 8), authorization, approvals, confinement and
+    audit (point 9); the device credential and the outbound tunnel; turning
+    remote mode on and off (user action in the tray). The local CROT trusts
+    nothing the relay asserts beyond delivering bytes.
+
+12. **Client independence.** The contract contains no client-specific
+    behaviour. Self-reported client info is informational. The verified
+    `clientId` is used only for the exposure scope and for audit.
+    Compatibility follows from the MCP specification and the supported
+    version list (point 3), verified by WP-32.
+
+13. **Constraints on the implementation (WP-19, WP-20, WP-22, WP-28…WP-31).**
+    - C1: Core interfaces change only additively: the exposure scope replaces
+      `SessionRef` as the key of `ExposureTracker`, with stdio and legacy
+      local sessions mapped as before, and `Principal` gets the remote
+      fields. The PermissionEngine, the ExecutionGuard, the approval broker
+      and the tools are not changed by this decision.
+    - C2: No code path builds an execution context without authentication
+      (except stdio), and none takes `kind`, ids or the exposure scope from
+      request content.
+    - C3: The HTTP pipeline accepts 2026-07-28 sessionless requests and legacy
+      session-based requests on the same endpoint and distinguishes them by
+      the protocol version, as the specification's backward-compatibility
+      rules describe.
+    - C4: The tunnel entry point (WP-30) reuses that pipeline and differs only
+      in: no loopback Host check, OAuth verifier instead of the local token,
+      `transport: "relay"` and `kind: "remote"`.
+    - C5: Remote exposure is persistent and fails closed (point 8); its reset
+      exists only on the approval-provider channel (WP-22).
+    - C6: No server-to-client requests and no approvals through MCP
+      (point 3).
+    - C7: The relay implements point 10 and nothing more; it contains no
+      CROT authorization logic and no MCP implementation (AD-13 point 6).
+    - C8: Tests cover: a sessionless client; repeated `initialize` and new
+      sessions not clearing remote exposure; header–body mismatch; unsupported
+      versions; a token for another device; the local token rejected on the
+      tunnel; unchanged stdio behaviour.
+
+**Scope and limits.**
+
+- This decision is the contract of WP-17. It is documentation only;
+  implementation follows in WP-19 (principal kind, exposure scope and
+  persistence, sessionless HTTP), WP-22 (exposure reset and revocation UI),
+  WP-28 (verifier, remote principal fields, identity provider), WP-29 (relay)
+  and WP-30 (tunnel entry point).
+- It amends AD-12 points 2 and 7 for remote principals and for sessionless
+  loopback HTTP requests (point 8). For stdio and legacy local sessions AD-12
+  is unchanged. It decides AD-14 point 3 within its constraints and does not
+  change AD-13.
+- It resolves §26 question 10. Left open: §26 questions 12 (transport matcher)
+  and 13 (long-running gated requests through the relay); the choice between
+  the SDK v1 line and SDK v2 for 2026-07-28 support (WP-19); which token claim
+  carries `clientId` and the device id (WP-28, depends on the identity
+  provider); the exact device URI form (WP-29).
+- Residual risks, accepted: exposure is shared by all agents behind one
+  `clientId`; a user who resets exposure or revokes and re-grants access
+  starts that client clean, while the model may still hold earlier untrusted
+  content (as in AD-12); the relay sees traffic in transit (AD-13 point 6).
