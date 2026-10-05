@@ -47,8 +47,10 @@ package PR updates this file.
 Tests: `tests/service/channel.test.ts`, `tests/service/service.test.ts`,
 `tests/service/shim.test.ts` (multi-client through the built shim, CLI
 service commands, crash restart with persisted remote exposure, AD-7 shutdown
-audit, another OS user — CI creates a second account on Linux, macOS and
-Windows), `tests/adapters/http-modern.test.ts` (concurrency limit); the stdio
+audit, another OS user — runs when `CROT_TEST_OTHER_USER` names a second
+account; verified locally on Linux; the CI step that creates the account on
+Linux, macOS and Windows is still to be added, see open items),
+`tests/adapters/http-modern.test.ts` (concurrency limit); the stdio
 and browser-bridge E2E run through the shim; the former "second instance stays
 `in_use`" test is replaced by a shared-bridge test with per-connection
 exposure.
@@ -78,6 +80,7 @@ Previous: **WP-19 — Remote MCP request pipeline per AD-15** (PR #14,
 | All stdio clients of a user share one configuration; an on-demand service inherits the environment of the shim that started it | AD-17 residual risk; revisit with WP-22 / WP-34 |
 | Windows named pipes keep Node's default security descriptor (no explicit owner-only DACL) | WP-21 / WP-34 |
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
+| CI step creating a second OS account (sets `CROT_TEST_OTHER_USER`, on Windows also `CROT_TEST_OTHER_PASSWORD`) so the other-user endpoint test runs on Linux, macOS and Windows; prepared in the WP-20 PR description, needs a push with `workflow` permission | WP-20 follow-up (maintainer) |
 | Exposure reset and revocation of remote clients; persistence write failures are only logged | WP-22 |
 | Which token claims carry `clientId` and the device id | WP-28 (depends on the identity provider) |
 | Exact device resource URI form and PRM location | WP-29 |

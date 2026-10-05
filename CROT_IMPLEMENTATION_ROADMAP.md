@@ -88,7 +88,8 @@ Non-negotiables used throughout this roadmap:
 - `crot_status.service`; `http.maxConcurrentRequests` for sessionless
   requests (`src/adapters/http/server.ts`).
 - Tests: `tests/service/*.test.ts` (channel negatives incl. replay, service and
-  control channel, built shim end to end incl. other OS user in CI, crash
+  control channel, built shim end to end incl. another OS user (enabled by
+  `CROT_TEST_OTHER_USER`; CI step pending, STATUS.md), crash
   restart with persisted remote exposure, AD-7 shutdown audit),
   `tests/adapters/http-modern.test.ts` (concurrency limit), the existing stdio
   and browser E2E through the shim. User docs: `docs/SERVICE.md`.

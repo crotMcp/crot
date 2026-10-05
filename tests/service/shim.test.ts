@@ -302,9 +302,10 @@ describe("stdio shim and CROT service (built, WP-20)", () => {
 
 /**
  * Another OS user must not reach the endpoints, even when given the endpoint
- * name and the credential. CI creates a second account and sets
- * CROT_TEST_OTHER_USER (and, on Windows, CROT_TEST_OTHER_PASSWORD); locally
- * the test is skipped.
+ * name and the credential. The test runs when CROT_TEST_OTHER_USER names a
+ * second account (on Windows also CROT_TEST_OTHER_PASSWORD; on POSIX the
+ * current user needs passwordless sudo to that account), as set up by the CI
+ * step for a second OS account; otherwise it is skipped.
  */
 const otherUser = process.env.CROT_TEST_OTHER_USER;
 describe.runIf(Boolean(otherUser))("endpoints and another OS user (WP-20)", () => {
