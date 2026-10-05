@@ -58,7 +58,7 @@ status in the same PR that completes a work package.
 
 | WP | Phase | Title | Depends on | Size | Status |
 | --- | --- | --- | --- | --- | --- |
-| WP-17 | 0 | AD-15 "Remote session contract" (documents only) | — | S | Not started |
+| WP-17 | 0 | AD-15 "Remote MCP request contract" (documents only) | — | S | Done (AD-15) |
 | WP-18 | 0 | Browser spike CDP vs scripting, AD-16 "Browser contract v1" | — (parallel to WP-17) | S–M | Not started |
 | WP-19 | 1 | Principal kinds, exposure key, stateless HTTP per AD-15 | WP-17 | M | Not started |
 | WP-20 | 1 | Supervised service, thin stdio shim, local control channel | WP-19 | L | Not started |
@@ -139,31 +139,29 @@ earlier than AD-13 originally planned (AD-14 point 6).
   encryption in v1** (AD-13 point 6).
 - **No client-specific milestones**; WP-32 replaces them.
 
-## 7. Next work package
+## 7. Next work packages
 
-**WP-17 — AD-15 "Remote session contract"** (documents only, S), started
-together with **WP-18** (browser spike and AD-16), which does not depend on it.
+WP-17 is done: AD-15 fixes the remote MCP request contract. The current
+snapshot (last completed, next, open questions) is in
+[`STATUS.md`](../../STATUS.md).
 
-Why WP-17 first:
+Now unblocked, in parallel:
 
-1. It closes the contradictions found by the review (loopback principal kind,
-   exposure without MCP sessions and the re-initialization bypass, protocol
-   and SDK versions, stateless requests). Without it WP-19, WP-20 and
-   WP-28…WP-30 would have to be redone.
-2. It is the cheapest step: 1–2 days, no code.
-3. It unblocks the parallel branches: phase 1, identity and relay, and (with
-   WP-18) the browser.
-4. It follows the project's order "decision first, then implementation"
-   (WP-14 -> WP-15, WP-16a -> WP-16b).
+1. **WP-19** — principal kinds, exposure scope and sessionless HTTP per AD-15
+   (critical path; starts with the SDK decision, see STATUS.md).
+2. **WP-18** — browser spike and AD-16 (browser branch; independent of
+   WP-17).
+3. **WP-28** (identity-provider selection and verifier) and then **WP-29**
+   (relay), which AD-14 point 6 starts right after AD-15.
 
 ## 8. Working rules
 
 - Decision before code: a work package that changes an architectural
   boundary starts with an AD in ARCHITECTURE.md §27 (its own PR or the first
   commit of the WP PR, as the card says).
-- One work package — one PR. The PR updates this plan's status column, the
-  status markers in ARCHITECTURE.md (§2.4, §25) and the user-facing docs
-  (`README.md`, `docs/*`) it affects.
+- One work package — one PR. The PR updates this plan's status column,
+  `STATUS.md`, the status markers in ARCHITECTURE.md (§2.4, §25) and the
+  user-facing docs (`README.md`, `docs/*`) it affects.
 - `npm run check` passes; nothing that already works is broken. Behaviour
   changes are stated in the PR and in the docs.
 - No client-specific code or tests in Core, adapters or the relay; clients
