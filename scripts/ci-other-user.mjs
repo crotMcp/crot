@@ -35,7 +35,8 @@ if (process.platform === "linux") {
   // Meets the default complexity policy; never printed.
   const password = `Crot-${randomBytes(12).toString("hex")}-a1`;
   console.log(`::add-mask::${password}`);
-  run("net", ["user", user, password, "/add"]);
+  // /Y answers net's prompt for passwords longer than 14 characters (CI has no console input).
+  run("net", ["user", user, password, "/add", "/Y"]);
   exportEnv("CROT_TEST_OTHER_PASSWORD", password);
 } else {
   console.error(`ci-other-user: unsupported platform ${process.platform}`);
