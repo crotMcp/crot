@@ -51,6 +51,10 @@ decisions are in [`ARCHITECTURE.md`](../../ARCHITECTURE.md).
 
 ### WP-18 — Browser spike and AD-16 "Browser contract v1"
 
+- **Status:** Done — ARCHITECTURE.md §27 AD-16. Spike (throwaway, not merged):
+  Chrome for Testing 153, headless, local cross-origin fixtures; the three
+  real sites could not be run (no internet in the work environment) and moved
+  to WP-24.
 - **Type / size:** spike + documents, S–M. **Depends on:** — (parallel to
   WP-17).
 - **Read:** §7, §7.1, §21 (presets), §26 question 11, AD-6, AD-8, AD-9, AD-11,
@@ -163,36 +167,57 @@ own requests. Profile: AD-13 point 4.
 
 All commands go through `BrowserService` and the ExecutionGuard; AD-6, AD-8,
 AD-9 and AD-11 bind every new control command; new reads are exposure
-sources (AD-12); audit never records content. Requirements: §7.1; details:
-AD-16.
+sources (AD-12); audit never records content. Requirements: §7.1; normative
+contract: AD-16 (CDP backend with its fixed surface, command table point 20,
+tests point 19). The cards below implement it and must not weaken it.
 
-### WP-24 — Element snapshot, references and core interaction
+### WP-24 — CDP backend, snapshot, references, trusted input, frames, shadow DOM
 - **Size:** L. **Depends on:** WP-18.
-- **Scope:** snapshot of interactive elements with references; click and type
-  by reference; keys and shortcuts; drop-downs; hover; scroll; wait for
-  element/state/navigation; back, forward, reload; `openerTabId` in the tab
-  list.
+- **Scope (AD-16 points 3, 5, 6, 7, 10):** `debugger` permission and the fixed
+  CDP allowlist (no `Runtime.evaluate` with non-built-in text); attach on
+  demand; `browser_snapshot` with document-bound references and
+  `BROWSER_STALE_REF`; trusted click, hover, scroll, drag, type, keys,
+  select, checked by `ref` or selector; actionability checks; frames
+  (including cross-origin) and open shadow roots; control results with
+  `navigated` and `newTabs`; `browser_wait`, `browser_history`, `waitUntil`;
+  `openerTabId` in the tab list; new operation names and the exposure source
+  `browser.snapshot`; legacy selector forms unchanged.
 - **Done when:** E2E on real Chromium covers a multi-step form flow by
-  references, including stale-reference errors after navigation.
+  references, stale-reference errors after navigation, reload, removal and
+  detach, `isTrusted` events, a cross-origin frame and an open shadow root;
+  a forbidden CDP method cannot be sent; manual run on at least three real
+  sites recorded (carried over from the WP-18 spike).
 
-### WP-25 — Trusted input, frames, shadow DOM, dialogs, background screenshots
-- **Size:** L. **Depends on:** WP-24 (may be merged with it per AD-16).
-- **Done when:** E2E passes on a test site with a cross-origin frame, shadow
-  DOM and `confirm()` / `beforeunload`; screenshot of a background tab without
-  focus change.
+### WP-25 — Dialogs, file choosers, background screenshots, debugger lifecycle
+- **Size:** M. **Depends on:** WP-24 (trusted input, frames and shadow DOM
+  moved to WP-24 by AD-16).
+- **Scope (AD-16 points 3, 4, 9, 13):** pending dialogs, `browser_dialog_handle`,
+  `BROWSER_DIALOG_OPEN`, 60 s dismissal; file chooser interception;
+  background screenshots (`ref`, `fullPage`, viewport metadata); debugger
+  detach handling and CDP availability in `browser_status`; the "CROT" tab
+  group (`tabGroups`).
+- **Done when:** E2E passes for `alert`, `confirm`, `prompt`, `beforeunload`
+  and the dialog timeout; screenshot of a background tab without focus
+  change; the debugger notice checked manually in headed Chrome, Edge and
+  Brave.
 
 ### WP-26 — File upload and download
-- **Size:** M. **Depends on:** WP-25.
-- **Scope:** upload a workspace file (`filesystem.read` + `browser.control`),
-  download into the workspace (`filesystem.write` + `browser.control`); paths
-  checked by the workspace rules.
+- **Size:** M. **Depends on:** WP-24.
+- **Scope (AD-16 points 11, 12):** `browser_file_upload` from an immutable
+  private copy of a workspace file (`filesystem.read` + `browser.control`);
+  `browser_download` of exactly the download the command started, saved
+  atomically (`filesystem.write` + `browser.control`; `downloads`
+  permission); choice of the download hand-over mechanism; paths checked by
+  the workspace rules.
 - **Done when:** E2E "upload a video fixture into a form" and a download into
   the workspace pass; paths outside the workspace are denied in sandbox mode.
 
 ### WP-27 — Multi-agent safety
 - **Size:** S–M. **Depends on:** WP-24, WP-19.
-- **Scope:** per-tab command queue; agent tabs in a visible "CROT" tab group;
-  explicit `tabId` required for `remote` principals.
+- **Scope (AD-16 points 4, 8, 14):** per-tab FIFO queue in Core after the
+  approval gate (bounded, `RESOURCE_BUSY`), mirrored in the extension;
+  explicit `tabId` required for `remote` principals; `openedBy` in the tab
+  list.
 - **Done when:** two parallel agents do not interfere with each other or with
   the user's tabs (E2E).
 
@@ -231,8 +256,11 @@ AD-16.
 - **Size:** M. **Depends on:** WP-19, WP-22, WP-23a/b/c, WP-30.
 - **Scope:** `remote` defaults to workspace mode with `untrusted-content` on;
   full control for remote principals only as an explicit per-device opt-in;
-  the *autonomous browser* preset; all through `principalKinds` and `exposed`
-  matchers.
+  the *autonomous browser* preset as
+  `permissions.approvals.untrustedContent: "autonomous-browser"` with the
+  rule set of AD-16 point 17 (including `browser.file_upload`); how the
+  service applies a preset change; all through `principalKinds` and
+  `exposed` matchers.
 - **Done when:** tests show the defaults, the opt-in and both presets;
   `crot_status` and the tray show them.
 
@@ -261,8 +289,8 @@ AD-16.
 
 ### WP-35 — Extension publication (Chrome Web Store, Edge Add-ons)
 - **Size:** M. **Depends on:** WP-25. Submit early.
-- **Done when:** published; permission justification (including `debugger`
-  if chosen by AD-16) accepted.
+- **Done when:** published; permission justification of AD-16 point 3
+  (`debugger`, `downloads`, `tabGroups`) accepted.
 
 ### WP-36 — Minimal accounts and plans, entitlement check at the relay
 - **Size:** M. **Depends on:** WP-29.
