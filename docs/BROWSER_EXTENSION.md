@@ -377,6 +377,10 @@ CROT again.
 - The relay's stderr is not shown in the browser UI; use the extension's
   service worker console and CROT's own log.
 - No frames, shadow DOM, file uploads, downloads, OS-level input or arbitrary
-  JavaScript.
+  JavaScript. Element references, real (trusted) browser input events, frames,
+  shadow DOM, dialogs, file upload and download, background-tab screenshots
+  and explicit tab targeting are required for v1 (browser contract v1,
+  ARCHITECTURE.md §7.1, §27 AD-14; work packages WP-24…WP-27); arbitrary
+  JavaScript and OS-level input stay excluded.
 - Setup is manual. A one-click installer for the extension and the host is a
-  later step (ARCHITECTURE.md §16, step 13).
+  later step (ARCHITECTURE.md §16, step 13; work package WP-34).
