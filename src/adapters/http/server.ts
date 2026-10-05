@@ -5,15 +5,46 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import {
+  createMcpHandler,
+  isLegacyRequest,
+  PROTOCOL_VERSION_META_KEY,
+  type McpHttpHandler,
+} from "@modelcontextprotocol/server";
+import type { Principal } from "../../core/auth/principal.js";
 import type { HttpConfig } from "../../core/config/schema.js";
 import type { CrotCore } from "../../core/crot-core.js";
 import { CrotError } from "../../core/errors.js";
+import { createCrotModernMcpServer, MODERN_PROTOCOL_VERSIONS } from "../mcp/modern.js";
 import { createCrotMcpServer } from "../mcp/server.js";
 import type { AccessTokenVerifier } from "./auth.js";
-import { HTTP_TRANSPORT, httpContextResolver } from "./context.js";
+import {
+  exposureScopeFor,
+  httpContextResolver,
+  LocalPrincipalScopes,
+  principalFromAuthInfo,
+  sessionOwnerKey,
+  type HttpEntryPoint,
+} from "./context.js";
 
 /** The only path served. */
 export const MCP_HTTP_PATH = "/mcp";
+
+/** Session-based protocol versions served for compatibility (AD-15 point 3). */
+export const LEGACY_PROTOCOL_VERSIONS: readonly string[] = Object.freeze(["2025-11-25", "2025-06-18"]);
+
+/**
+ * Every protocol version served on the endpoint (AD-15 point 3). Requests that
+ * name another version, and session requests that name none (versions before
+ * 2025-06-18), are rejected with UnsupportedProtocolVersion.
+ */
+export const SUPPORTED_PROTOCOL_VERSIONS: readonly string[] = Object.freeze([
+  ...MODERN_PROTOCOL_VERSIONS,
+  ...LEGACY_PROTOCOL_VERSIONS,
+]);
+
+/** JSON-RPC error code of an unsupported protocol version (MCP 2026-07-28). */
+export const UNSUPPORTED_PROTOCOL_VERSION_CODE = -32022;
 
 export type CrotHttpServerConfig = Pick<
   HttpConfig,
@@ -26,6 +57,14 @@ export interface CrotHttpServerOptions {
   readonly verifier: AccessTokenVerifier;
   /** Operator diagnostics (stderr in the CLI). Never receives credentials, bodies or results. */
   readonly log?: (message: string) => void;
+  /**
+   * Entry point served (AD-15 points 1 and 6); decides the principal kind.
+   * Default `loopback` (the local token, `kind: "local"`). `relay` is the
+   * pipeline of the relay tunnel (WP-30): it accepts only verifiers that
+   * establish a remote principal (account, device, client) and never the
+   * local token. Not configurable through the configuration file.
+   */
+  readonly entryPoint?: HttpEntryPoint;
 }
 
 /** Whether `host` is a loopback address or name. */
@@ -42,16 +81,113 @@ interface Session {
   readonly id: string;
   readonly transport: StreamableHTTPServerTransport;
   readonly server: McpServer;
-  /** clientId of the principal that opened the session. */
+  /** Identity key of the principal that opened the session (sessionOwnerKey). */
   readonly owner: string;
   lastSeen: number;
 }
 
-type Rejection = { status: number; code: number; message: string; headers?: Record<string, string> };
+type Rejection = {
+  status: number;
+  code: number;
+  message: string;
+  headers?: Record<string, string>;
+  data?: Record<string, unknown>;
+};
 
 function sendError(res: ServerResponse, rejection: Rejection): void {
   res.writeHead(rejection.status, { "Content-Type": "application/json", ...(rejection.headers ?? {}) });
-  res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: rejection.code, message: rejection.message }, id: null }));
+  const error = {
+    code: rejection.code,
+    message: rejection.message,
+    ...(rejection.data ? { data: rejection.data } : {}),
+  };
+  res.end(JSON.stringify({ jsonrpc: "2.0", error, id: null }));
+}
+
+/** UnsupportedProtocolVersion (400, -32022) naming the supported versions and, when known, the requested one. */
+function unsupportedVersion(requested: string | undefined): Rejection {
+  return {
+    status: 400,
+    code: UNSUPPORTED_PROTOCOL_VERSION_CODE,
+    message:
+      requested === undefined
+        ? "Unsupported protocol version: the request did not name a protocol version"
+        : `Unsupported protocol version: ${requested}`,
+    data: { supported: [...SUPPORTED_PROTOCOL_VERSIONS], ...(requested !== undefined ? { requested } : {}) },
+  };
+}
+
+const METHOD_NOT_ALLOWED_SESSIONLESS: Rejection = {
+  status: 405,
+  code: -32000,
+  message: "Method not allowed",
+  headers: { Allow: "POST" },
+};
+
+/** The single value of a request header, undefined when absent or repeated. */
+function headerValue(req: IncomingMessage, name: string): string | undefined {
+  const value = req.headers[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+/** The protocol version a request body claims in its `_meta` envelope (2026-07-28), if any. */
+function envelopeVersion(body: unknown): unknown {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return undefined;
+  const params = (body as { params?: unknown }).params;
+  if (typeof params !== "object" || params === null) return undefined;
+  const meta = (params as { _meta?: unknown })._meta;
+  if (typeof meta !== "object" || meta === null) return undefined;
+  return (meta as Record<string, unknown>)[PROTOCOL_VERSION_META_KEY];
+}
+
+/** The protocolVersion a legacy initialize request asks for. */
+function initializeVersion(body: unknown): unknown {
+  return (body as { params?: { protocolVersion?: unknown } }).params?.protocolVersion;
+}
+
+/** A web-standard Request with the same method, URL and headers, for the MCP SDK v2 handler. */
+function toWebRequest(req: IncomingMessage, raw: Buffer, signal: AbortSignal): Request {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (value === undefined) continue;
+    headers.set(name, Array.isArray(value) ? value.join(", ") : value);
+  }
+  const url = new URL(req.url ?? MCP_HTTP_PATH, `http://${req.headers.host ?? "localhost"}`);
+  return new Request(url, { method: "POST", headers, body: new Uint8Array(raw), signal });
+}
+
+/** Stream a web-standard Response (a JSON body or an SSE stream scoped to the request) to the client. */
+async function sendWebResponse(res: ServerResponse, response: Response): Promise<void> {
+  const headers: Record<string, string> = {};
+  response.headers.forEach((value, name) => {
+    headers[name] = value;
+  });
+  res.writeHead(response.status, headers);
+  if (!response.body) {
+    res.end();
+    return;
+  }
+  const reader = response.body.getReader();
+  const cancel = () => void reader.cancel().catch(() => undefined);
+  res.once("close", cancel);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!res.write(value)) {
+        await new Promise<void>((resolve) => {
+          res.once("drain", resolve);
+          res.once("close", resolve);
+        });
+        if (res.destroyed) return;
+      }
+    }
+    res.end();
+  } catch {
+    res.destroy();
+  } finally {
+    res.off("close", cancel);
+  }
 }
 
 /** Read a request body up to `limit` bytes; undefined when it is larger. */
@@ -105,22 +241,43 @@ const INVALID_TOKEN: Rejection = {
 /**
  * CROT MCP over Streamable HTTP (loopback only).
  *
- * A transport adapter: every MCP session gets its own McpServer created by
- * createCrotMcpServer, all bound to the same CrotCore, so HTTP requests use
- * exactly the Core services, PermissionEngine and audit path of stdio. The
- * McpServer instance is also the session for session exposure (AD-12), and a
- * session is bound to the principal that opened it.
+ * A transport adapter bound to one CrotCore, so HTTP requests use exactly the
+ * Core services, PermissionEngine, ExecutionGuard and audit path of stdio.
+ * One endpoint serves both protocol eras (ARCHITECTURE.md §27, AD-15 C3),
+ * distinguished by the protocol version as the specification's
+ * backward-compatibility rules describe:
  *
- * Every request passes, in order: Host check, path check, Origin check,
- * method check, bearer authentication, body limit, JSON parsing and session
- * lookup. Requests failing any step are answered here and never reach the
- * MCP server or Core.
+ * - 2026-07-28, sessionless: every request is processed from the request
+ *   itself — no `initialize`, no `Mcp-Session-Id` (ignored), GET and DELETE
+ *   answer 405, `server/discover` is served. One MCP server instance
+ *   (MCP SDK v2) per request; header–body validation (`MCP-Protocol-Version`,
+ *   `Mcp-Method`, `Mcp-Name`) happens before dispatch.
+ * - 2025-11-25 and 2025-06-18, session-based: `initialize` opens a session
+ *   (MCP SDK v1) bound to the principal that opened it, limited and expiring.
+ *   A session is a transport mechanism only; every request is authenticated.
+ *
+ * Every request passes, in order (AD-15 point 2): Host, path, Origin and
+ * method checks, the protocol-version header, bearer authentication and
+ * principal derivation from the entry point, body limit, JSON parsing,
+ * protocol classification and the version, session or header–body checks of
+ * its era, then execution-context construction and dispatch. Requests failing
+ * any step are answered here and never reach the MCP server or Core.
+ *
+ * Exposure scope (AD-15 point 8): legacy loopback sessions keep the session
+ * (unchanged, AD-12); sessionless loopback requests use the local-token
+ * principal for the lifetime of the process; remote principals always use
+ * (accountId, deviceId, clientId), never a session.
  */
 export class CrotHttpServer {
   private readonly http: Server;
   private readonly sessions = new Map<string, Session>();
   private readonly allowedHosts = new Set<string>();
   private readonly log: (message: string) => void;
+  private readonly entryPoint: HttpEntryPoint;
+  private readonly localScopes = new LocalPrincipalScopes();
+  /** Principals of in-flight 2026-07-28 requests, keyed by the AuthInfo object handed to the SDK. */
+  private readonly modernPrincipals = new WeakMap<AuthInfo, Principal>();
+  private readonly modern: McpHttpHandler;
   private sweeper: NodeJS.Timeout | undefined;
   private closing: Promise<void> | undefined;
   private pendingSessions = 0;
@@ -131,8 +288,15 @@ export class CrotHttpServer {
     private readonly config: CrotHttpServerConfig,
     private readonly verifier: AccessTokenVerifier,
     log: ((message: string) => void) | undefined,
+    entryPoint: HttpEntryPoint,
   ) {
     this.log = log ?? (() => undefined);
+    this.entryPoint = entryPoint;
+    this.modern = createMcpHandler((ctx) => this.modernServer(ctx.authInfo), {
+      // Legacy traffic never reaches this handler: route() serves it with sessions.
+      legacy: "reject",
+      onerror: (error) => this.log(`http: ${error.message}`),
+    });
     this.http = createServer((req, res) => this.handle(req, res));
     this.http.headersTimeout = 30_000;
     this.http.requestTimeout = 60_000;
@@ -147,7 +311,7 @@ export class CrotHttpServer {
         `HTTP host '${config.host}' is not a loopback address. This version of CROT serves HTTP only on loopback (127.0.0.1, ::1, localhost).`,
       );
     }
-    const server = new CrotHttpServer(core, config, options.verifier, options.log);
+    const server = new CrotHttpServer(core, config, options.verifier, options.log, options.entryPoint ?? "loopback");
     await server.listen();
     return server;
   }
@@ -242,41 +406,123 @@ export class CrotHttpServer {
       });
     }
 
+    // A named protocol version must be one this endpoint serves (AD-15 point 3).
+    const headerVersion = headerValue(req, "mcp-protocol-version");
+    if (req.headers["mcp-protocol-version"] !== undefined && headerVersion === undefined)
+      return sendError(res, unsupportedVersion(undefined));
+    if (headerVersion !== undefined && !SUPPORTED_PROTOCOL_VERSIONS.includes(headerVersion))
+      return sendError(res, unsupportedVersion(headerVersion));
+    const modernHeader = headerVersion !== undefined && MODERN_PROTOCOL_VERSIONS.includes(headerVersion);
+
     const auth = await this.authenticate(req);
     if (auth === "missing") return sendError(res, UNAUTHORIZED);
     if (auth === "invalid") return sendError(res, INVALID_TOKEN);
-
-    let body: unknown;
-    if (req.method === "POST") {
-      const raw = await readBody(req, this.config.maxRequestBytes);
-      if (raw === undefined)
-        return sendError(res, {
-          status: 413,
-          code: -32600,
-          message: "Request body too large",
-          headers: { Connection: "close" },
-        });
-      try {
-        body = JSON.parse(raw.toString("utf8"));
-      } catch {
-        return sendError(res, { status: 400, code: -32700, message: "Parse error" });
-      }
+    // The principal comes only from the verified facts and the entry point (AD-15 point 6).
+    const principal = principalFromAuthInfo(this.entryPoint, auth);
+    if (!principal) {
+      this.log("http: rejected a credential that does not establish a principal for this entry point");
+      return sendError(res, INVALID_TOKEN);
     }
 
-    const header = req.headers["mcp-session-id"];
-    const sessionId = typeof header === "string" ? header : undefined;
-    if (sessionId === undefined) {
-      if (req.method === "POST" && isInitializeRequest(body)) return this.openSession(req, res, body, auth);
+    if (req.method !== "POST") {
+      // 2026-07-28 has no GET stream and no session to delete; only legacy sessions use GET and DELETE.
+      const sessionId = headerValue(req, "mcp-session-id");
+      if (modernHeader || sessionId === undefined) return sendError(res, METHOD_NOT_ALLOWED_SESSIONLESS);
+      return this.serveSession(req, res, undefined, auth, principal, sessionId, headerVersion);
+    }
+
+    const raw = await readBody(req, this.config.maxRequestBytes);
+    if (raw === undefined)
+      return sendError(res, {
+        status: 413,
+        code: -32600,
+        message: "Request body too large",
+        headers: { Connection: "close" },
+      });
+    let body: unknown;
+    try {
+      body = JSON.parse(raw.toString("utf8"));
+    } catch {
+      return sendError(res, { status: 400, code: -32700, message: "Parse error" });
+    }
+
+    const claimed = envelopeVersion(body);
+    if (typeof claimed === "string" && !SUPPORTED_PROTOCOL_VERSIONS.includes(claimed))
+      return sendError(res, unsupportedVersion(claimed));
+
+    const controller = new AbortController();
+    const abort = () => {
+      if (!res.writableFinished) controller.abort();
+    };
+    res.once("close", abort);
+    try {
+      const request = toWebRequest(req, raw, controller.signal);
+      if (!(await isLegacyRequest(request, body))) return await this.serveModern(res, request, body, auth, principal);
+    } finally {
+      res.off("close", abort);
+    }
+
+    // Legacy (session-based) traffic.
+    const sessionId = headerValue(req, "mcp-session-id");
+    if (sessionId !== undefined) return this.serveSession(req, res, body, auth, principal, sessionId, headerVersion);
+    if (!isInitializeRequest(body))
       return sendError(res, {
         status: 400,
         code: -32000,
         message: "Bad Request: no session; send an initialize request first",
       });
-    }
+    const requested = initializeVersion(body);
+    if (typeof requested !== "string" || !LEGACY_PROTOCOL_VERSIONS.includes(requested))
+      return sendError(res, unsupportedVersion(typeof requested === "string" ? requested : undefined));
+    return this.openSession(req, res, body, auth, principal);
+  }
+
+  /**
+   * Serve one 2026-07-28 request: the SDK validates the headers against the
+   * body (HeaderMismatch -32020), serves server/discover and dispatches to a
+   * per-request CROT MCP server built for exactly this principal. A received
+   * Mcp-Session-Id is ignored.
+   */
+  private async serveModern(
+    res: ServerResponse,
+    request: Request,
+    body: unknown,
+    auth: AuthInfo,
+    principal: Principal,
+  ): Promise<void> {
+    // A fresh object per request: the key under which the factory finds this request's principal.
+    const authInfo: AuthInfo = { ...auth };
+    this.modernPrincipals.set(authInfo, principal);
+    const response = await this.modern.fetch(request, { authInfo, parsedBody: body });
+    await sendWebResponse(res, response);
+  }
+
+  /** The per-request MCP server of a 2026-07-28 request (factory of the SDK v2 handler). */
+  private modernServer(authInfo: AuthInfo | undefined) {
+    const principal = authInfo ? this.modernPrincipals.get(authInfo) : undefined;
+    // Only route() hands AuthInfo to the handler; anything else is a programming error and fails closed.
+    if (!principal) throw new Error("2026-07-28 request without an authenticated principal");
+    const scope = exposureScopeFor(principal, "sessionless", this.localScopes);
+    return createCrotModernMcpServer(this.core, { resolveContext: httpContextResolver(principal, scope) });
+  }
+
+  /** A request of an existing legacy session (POST, GET stream or DELETE). */
+  private async serveSession(
+    req: IncomingMessage,
+    res: ServerResponse,
+    body: unknown,
+    auth: AuthInfo,
+    principal: Principal,
+    sessionId: string,
+    headerVersion: string | undefined,
+  ): Promise<void> {
     const session = this.sessions.get(sessionId);
     // A session is usable only by the principal that opened it.
-    if (!session || session.owner !== auth.clientId)
+    if (!session || session.owner !== sessionOwnerKey(principal))
       return sendError(res, { status: 404, code: -32001, message: "Session not found" });
+    // Session requests of 2025-06-18 and later always name their version.
+    if (headerVersion === undefined || !LEGACY_PROTOCOL_VERSIONS.includes(headerVersion))
+      return sendError(res, unsupportedVersion(headerVersion));
     session.lastSeen = Date.now();
     await session.transport.handleRequest(withAuth(req, auth), res, body);
   }
@@ -302,16 +548,25 @@ export class CrotHttpServer {
     return info;
   }
 
-  private async openSession(req: IncomingMessage, res: ServerResponse, body: unknown, auth: AuthInfo): Promise<void> {
+  private async openSession(
+    req: IncomingMessage,
+    res: ServerResponse,
+    body: unknown,
+    auth: AuthInfo,
+    principal: Principal,
+  ): Promise<void> {
     if (this.sessions.size + this.pendingSessions >= this.config.maxSessions) {
       return sendError(res, { status: 503, code: -32000, message: "Too many sessions" });
     }
     this.pendingSessions++;
-    const server = createCrotMcpServer(this.core, { resolveContext: httpContextResolver(auth, HTTP_TRANSPORT) });
+    // Loopback: the session is the exposure scope (AD-12). Remote: (account, device, client), never the session.
+    const scope = exposureScopeFor(principal, "session", this.localScopes);
+    const server = createCrotMcpServer(this.core, { resolveContext: httpContextResolver(principal, scope) });
+    const owner = sessionOwnerKey(principal);
     const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
-        this.sessions.set(id, { id, transport, server, owner: auth.clientId, lastSeen: Date.now() });
+        this.sessions.set(id, { id, transport, server, owner, lastSeen: Date.now() });
       },
       onsessionclosed: (id) => {
         this.sessions.delete(id);
@@ -353,7 +608,10 @@ export class CrotHttpServer {
       const stopped = new Promise<void>((resolve) => this.http.close(() => resolve()));
       const sessions = [...this.sessions.values()];
       this.sessions.clear();
-      await Promise.all(sessions.map((s) => s.server.close().catch(() => undefined)));
+      await Promise.all([
+        ...sessions.map((s) => s.server.close().catch(() => undefined)),
+        this.modern.close().catch(() => undefined),
+      ]);
       this.http.closeAllConnections();
       await stopped;
     })();

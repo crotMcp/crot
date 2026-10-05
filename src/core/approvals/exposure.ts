@@ -1,5 +1,6 @@
-import type { AuthContext, SessionRef } from "../auth/principal.js";
+import { remoteExposureScope, type AuthContext, type ExposureScope } from "../auth/principal.js";
 import { KNOWN_OPERATIONS } from "./operations.js";
+import { RemoteExposureStore } from "./remote-exposure.js";
 import type { ApprovalRule } from "./types.js";
 
 /**
@@ -58,32 +59,83 @@ export const UNTRUSTED_CONTENT_MESSAGE =
 
 const SOURCES: ReadonlySet<string> = new Set(EXPOSURE_SOURCES);
 
+export interface ExposureTrackerOptions {
+  /**
+   * Persistent state of remote scopes (AD-15 point 8). Without a store every
+   * remote scope is treated as exposed (fail closed).
+   */
+  readonly remote?: RemoteExposureStore;
+}
+
 /**
- * Keeps the exposure state of sessions, in memory only. There is deliberately
- * no way to clear it: an exposed session stays exposed until it ends (its
- * SessionRef is dropped by the adapter).
+ * Keeps the exposure state per exposure scope (AD-15 point 8). There is
+ * deliberately no way to clear it:
+ *
+ * - local scopes (stdio connection, legacy loopback session, sessionless
+ *   loopback principal) are kept in memory, keyed by identity, and stay
+ *   exposed until the adapter drops the scope;
+ * - remote scopes are keyed by (accountId, deviceId, clientId), independent of
+ *   sessions and tokens, and persisted by the RemoteExposureStore.
  */
 export class ExposureTracker {
-  private readonly exposed = new WeakSet<SessionRef>();
-  /** The session of contexts without one: the whole process (AD-12 point 2). */
-  private readonly processSession: SessionRef = Object.freeze({ id: "process" });
+  private readonly exposed = new WeakSet<ExposureScope>();
+  /** The scope of contexts without one: the whole process (AD-12 point 2). */
+  private readonly processScope: ExposureScope = Object.freeze({ id: "process" });
+  private readonly remote: RemoteExposureStore | undefined;
 
-  constructor() {
+  constructor(options: ExposureTrackerOptions = {}) {
     const known = new Set(KNOWN_OPERATIONS);
     const unknown = EXPOSURE_SOURCES.filter((op) => !known.has(op));
     if (unknown.length > 0) throw new Error(`Unknown exposure source operation(s): ${unknown.join(", ")}`);
+    this.remote = options.remote;
   }
 
   static isSource(operation: string): boolean {
     return SOURCES.has(operation);
   }
 
+  /**
+   * A remote principal without an identifiable remote scope: always exposed,
+   * never shared (fail closed).
+   */
+  private readonly unidentifiedRemote: ExposureScope = Object.freeze({ id: "remote-unidentified" });
+
+  /**
+   * The exposure scope of a context: its exposure scope, else its session,
+   * else the process. A remote principal is never placed in a local scope:
+   * without a remote scope it gets one from its (accountId, deviceId,
+   * clientId), and without those identifiers it is always exposed.
+   */
+  scopeOf(context: AuthContext): ExposureScope {
+    const scope = context.exposureScope ?? context.session;
+    if (context.principal.kind !== "remote") return scope ?? this.processScope;
+    if (scope?.remoteKey !== undefined) return scope;
+    const { accountId, deviceId, clientId } = context.principal;
+    if (accountId && deviceId && clientId) return remoteExposureScope(accountId, deviceId, clientId);
+    return this.unidentifiedRemote;
+  }
+
+  /** Whether two contexts share one exposure scope. */
+  sameScope(a: AuthContext, b: AuthContext): boolean {
+    const x = this.scopeOf(a);
+    const y = this.scopeOf(b);
+    if (x.remoteKey !== undefined || y.remoteKey !== undefined) return x.remoteKey === y.remoteKey;
+    return x === y;
+  }
+
   isExposed(context: AuthContext): boolean {
-    return this.exposed.has(context.session ?? this.processSession);
+    const scope = this.scopeOf(context);
+    if (scope === this.unidentifiedRemote) return true;
+    if (scope.remoteKey !== undefined) return this.remote ? this.remote.isExposed(scope.remoteKey) : true;
+    return this.exposed.has(scope);
   }
 
   /** Called by the guard after execute() of an operation succeeded, before its result is returned. */
   recordSuccess(context: AuthContext, operation: string): void {
-    if (SOURCES.has(operation)) this.exposed.add(context.session ?? this.processSession);
+    if (!SOURCES.has(operation)) return;
+    const scope = this.scopeOf(context);
+    if (scope === this.unidentifiedRemote) return;
+    if (scope.remoteKey !== undefined) this.remote?.markExposed(scope.remoteKey);
+    else this.exposed.add(scope);
   }
 }

@@ -4,3 +4,4 @@ export * from "./operations.js";
 export * from "./rules.js";
 export * from "./broker.js";
 export * from "./exposure.js";
+export * from "./remote-exposure.js";

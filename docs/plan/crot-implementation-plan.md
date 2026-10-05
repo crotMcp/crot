@@ -36,7 +36,7 @@ listed by content.
 | Old WP / item | What | Status |
 | --- | --- | --- |
 | Foundation (unnumbered) | Core, PermissionEngine, ExecutionGuard, audit, files, processes and shell, platform layer Linux/macOS/Windows, MCP over stdio | Done |
-| Same | Streamable HTTP, loopback only, local token | Done; **needs change** in WP-19: HTTP principal is always `kind: "remote"`, no stateless 2026-07-28 requests |
+| Same | Streamable HTTP, loopback only, local token | Done; changed in WP-19: loopback principal `kind: "local"`, sessionless 2026-07-28 requests next to legacy sessions |
 | Same | Native Host (Job Objects, ACLs) | Done |
 | Same | Browser bridge, native-messaging relay, MV3 extension, `browser install`, E2E on real Chromium | **Partial**: chain works, command set too small for v1 (WP-24…WP-27) |
 | WP-04 | ESLint, Prettier, `npm run check` | Done |
@@ -45,7 +45,7 @@ listed by content.
 | WP-13 | `network.access` (AD-4); OS-level egress is post-v1 | Done |
 | WP-14 | Approval gates design (AD-5…AD-7) | Done |
 | WP-15 | Approval gates mechanism, tab/origin/connection binding (AD-8…AD-11) | Done as mechanism; no UI provider (→ WP-22) |
-| WP-16a / WP-16b | Session exposure and the `untrusted-content` rule (AD-12) | Done; **needs change** for remote principals without sessions (AD-15, WP-19) |
+| WP-16a / WP-16b | Session exposure and the `untrusted-content` rule (AD-12) | Done; extended in WP-19 to exposure scopes (sessionless loopback, persisted remote scopes; AD-15) |
 | PR #10, AD-13 | v1 scope | Done; amended by AD-14 (browser contract v1, order, acceptance) |
 | §16 items 8–9 | Client-specific and project-specific first milestones | **Withdrawn**, replaced by WP-32 |
 | §16 items 19, 23; Git network / Docker build | External MCP gateway, OS egress, Git/Docker extensions | **Post-v1**, do not touch |
@@ -60,7 +60,7 @@ status in the same PR that completes a work package.
 | --- | --- | --- | --- | --- | --- |
 | WP-17 | 0 | AD-15 "Remote MCP request contract" (documents only) | — | S | Done (AD-15) |
 | WP-18 | 0 | Browser spike CDP vs scripting, AD-16 "Browser contract v1" | — (parallel to WP-17) | S–M | Done (AD-16) |
-| WP-19 | 1 | Principal kinds, exposure key, stateless HTTP per AD-15 | WP-17 | M | Not started |
+| WP-19 | 1 | Principal kinds, exposure key, stateless HTTP per AD-15 | WP-17 | M | Done |
 | WP-20 | 1 | Supervised service, thin stdio shim, local control channel | WP-19 | L | Not started |
 | WP-21 | 1 | Secret storage, child-process environment allowlist | WP-20 | M | Not started |
 | WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | Not started |
@@ -144,13 +144,14 @@ earlier than AD-13 originally planned (AD-14 point 6).
 ## 7. Next work packages
 
 WP-17 and WP-18 are done: AD-15 fixes the remote MCP request contract, AD-16
-the browser contract v1. The current snapshot (last completed, next, open
-questions) is in [`STATUS.md`](../../STATUS.md).
+the browser contract v1. WP-19 implemented the AD-15 request pipeline. The
+current snapshot (last completed, next, open questions) is in
+[`STATUS.md`](../../STATUS.md).
 
 Now unblocked, in parallel:
 
-1. **WP-19** — principal kinds, exposure scope and sessionless HTTP per AD-15
-   (critical path; starts with the SDK decision, see STATUS.md).
+1. **WP-20** — supervised service, thin stdio shim, local control channel
+   (critical path, after WP-19).
 2. **WP-24** — browser v1 on the CDP backend per AD-16 (browser branch),
    then WP-25, WP-26 and WP-27; **WP-35** can be submitted early with the
    AD-16 permission justification.

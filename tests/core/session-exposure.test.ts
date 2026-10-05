@@ -21,7 +21,7 @@ import {
 import { KNOWN_OPERATIONS } from "../../src/core/approvals/operations.js";
 import type { ApprovalRule } from "../../src/core/approvals/types.js";
 import { MemoryAuditSink, type AuditEvent, type AuditRecord, type AuditSink } from "../../src/core/audit/audit.js";
-import { localPrincipal, newSession, type AuthContext } from "../../src/core/auth/principal.js";
+import { localPrincipal, newLocalExposureScope, newSession, type AuthContext } from "../../src/core/auth/principal.js";
 import type { BrowserCommand, BrowserConnection } from "../../src/core/capabilities/browser/connection.js";
 import { NetworkService } from "../../src/core/capabilities/network/service.js";
 import { HttpConfigSchema, LimitsSchema } from "../../src/core/config/schema.js";
@@ -142,6 +142,8 @@ describe("session exposure: definitions", () => {
       "constructor",
       "isExposed",
       "recordSuccess",
+      "sameScope",
+      "scopeOf",
     ]);
   });
 });
@@ -444,6 +446,28 @@ describe("session exposure: network.request redirects (AD-12 point 10)", () => {
         ["denied", "untrusted-content", "rejected"],
       ]);
     });
+  });
+
+  it("sessionless requests (AD-15): one exposure scope, one session per request; snapshots stay in their request", async () => {
+    const t = setup();
+    const scope = newLocalExposureScope();
+    // As built by invokeTool for two sessionless requests of one principal.
+    const requestA: AuthContext = { principal: localPrincipal("http"), exposureScope: scope, session: newSession() };
+    const requestB: AuthContext = { principal: localPrincipal("http"), exposureScope: scope, session: newSession() };
+    const snapshot = t.guard.exposureSnapshot(requestA);
+    await t.run(requestB, "browser.page_read", "browser.read");
+    // The scope is exposed for every request of it ...
+    expect(await exposed(t, requestA)).toBe(true);
+    const hop = (context: AuthContext) =>
+      t.guard.run(
+        context,
+        { operation: "network.request", capability: "network.access", exposure: snapshot },
+        async () => "hop",
+      );
+    // ... the hops of A's call keep the state at its start (AD-12 point 10) ...
+    await expect(hop(requestA)).resolves.toBe("hop");
+    // ... and no other request, even of the same scope, can use A's snapshot.
+    await denial(hop(requestB));
   });
 
   it("a snapshot is honoured only for network.resolve / network.request, for its session, until it ends", async () => {

@@ -10,9 +10,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { newSession } from "../../core/auth/principal.js";
 import type { CrotCore } from "../../core/crot-core.js";
-import { parseInput } from "../../core/errors.js";
 import type { ContextResolver } from "./context.js";
-import { toToolError, toToolResult } from "./results.js";
+import { invokeTool } from "./invoke.js";
 import { TOOLS, type ToolDefinition } from "./tools.js";
 
 export const MCP_SERVER_NAME = "crot";
@@ -22,15 +21,15 @@ export interface CrotMcpServerOptions {
   readonly resolveContext: ContextResolver;
 }
 
-type CallExtra = Pick<
-  RequestHandlerExtra<ServerRequest, ServerNotification>,
-  "requestId" | "sessionId" | "authInfo" | "signal"
->;
+type CallExtra = Pick<RequestHandlerExtra<ServerRequest, ServerNotification>, "sessionId" | "authInfo" | "signal">;
 
 /**
- * Create the CROT MCP server: a thin, transport-independent adapter that
- * exposes CROT Core operations as MCP tools. Connect it to any MCP transport
- * (stdio today).
+ * Create the CROT MCP server for the session-based protocol versions
+ * (2025-11-25, 2025-06-18; MCP SDK v1): a thin, transport-independent adapter
+ * that exposes CROT Core operations as MCP tools. Used for stdio and for
+ * legacy sessions on the loopback HTTP endpoint. The sessionless 2026-07-28
+ * revision is served by createCrotModernMcpServer with the same tools and the
+ * same path into Core (invokeTool).
  */
 export function createCrotMcpServer(core: CrotCore, options: CrotMcpServerOptions): McpServer {
   const status = core.status();
@@ -41,29 +40,22 @@ export function createCrotMcpServer(core: CrotCore, options: CrotMcpServerOption
     { capabilities: { tools: {} }, instructions: instructions(core) },
   );
 
-  /** Validate the arguments with Core's schema, resolve the context and delegate to Core; errors use CROT's format. */
-  async function run(definition: ToolDefinition, args: unknown, extra: CallExtra): Promise<CallToolResult> {
-    try {
-      const clientInfo = server.server.getClientVersion();
-      const resolved = options.resolveContext({
-        requestId: String(extra.requestId),
+  /** Build the request's context and delegate to Core (shared with the 2026-07-28 server). */
+  function run(definition: ToolDefinition, args: unknown, extra: CallExtra): Promise<CallToolResult> {
+    const clientInfo = server.server.getClientVersion();
+    return invokeTool(core, options.resolveContext, {
+      definition,
+      args,
+      request: {
         ...(extra.sessionId !== undefined ? { sessionId: extra.sessionId } : {}),
         ...(extra.authInfo !== undefined ? { authInfo: extra.authInfo } : {}),
         ...(clientInfo ? { client: { name: clientInfo.name, version: clientInfo.version } } : {}),
-      });
-      // AD-12: the session is the server instance (stdio: the connection; HTTP: one instance per MCP session).
-      // Cancellation (notifications/cancelled, closed transport) cancels a pending approval request.
-      const context = {
-        ...resolved,
-        session: resolved.session ?? session,
-        ...(extra.signal !== undefined ? { signal: extra.signal } : {}),
-      };
-      const input = parseInput(definition.inputSchema, args);
-      const result = await definition.call(core, context, input);
-      return definition.encode ? definition.encode(result) : toToolResult(result);
-    } catch (error) {
-      return toToolError(error);
-    }
+      },
+      // AD-12: without a scope from the resolver, the session is the server instance
+      // (stdio: the connection; HTTP: one instance per legacy MCP session).
+      session,
+      ...(extra.signal !== undefined ? { signal: extra.signal } : {}),
+    });
   }
 
   // Registration publishes each tool and its Core input schema through tools/list.
@@ -98,7 +90,8 @@ export function createCrotMcpServer(core: CrotCore, options: CrotMcpServerOption
   return server;
 }
 
-function instructions(core: CrotCore): string {
+/** Server instructions, identical for every transport and protocol era. */
+export function instructions(core: CrotCore): string {
   const s = core.status();
   const granted = s.capabilities.filter((c) => c.granted).map((c) => c.capability);
   const p = s.platform;

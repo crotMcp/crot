@@ -175,12 +175,29 @@ defaulted.
 ## HTTP transport
 
 `--http` (or `http.enabled: true`) serves the same CROT MCP server over the MCP
-Streamable HTTP transport of the official SDK (`StreamableHTTPServerTransport`)
-at `http://127.0.0.1:7337/mcp`. HTTP is only another adapter: every session gets
-its own MCP server instance created by the same `createCrotMcpServer`, bound to
-the same `CrotCore`, so tools, Core services, the PermissionEngine and audit are
+Streamable HTTP transport at `http://127.0.0.1:7337/mcp`. HTTP is only another
+adapter: tools, Core services, the PermissionEngine, approvals and audit are
 identical to stdio. There is no HTTP-specific filesystem, process or permission
 logic.
+
+**Protocol versions (ARCHITECTURE.md §27 AD-15).** One endpoint serves:
+
+- **`2026-07-28`, sessionless** (official SDK v2, `createMcpHandler`). Every
+  request is self-contained: no `initialize`, no `Mcp-Session-Id` (a sent one is
+  ignored), version and client info in `_meta`, `MCP-Protocol-Version` /
+  `Mcp-Method` / `Mcp-Name` headers that must match the body (otherwise `400`,
+  `-32020`). `server/discover` is answered. `GET` and `DELETE` are `405`. Each
+  request gets its own MCP server instance and execution context, built from
+  this request alone; cancelling the request (closing the connection) cancels
+  a pending approval and the running operation.
+- **`2025-11-25` and `2025-06-18`, with sessions** (official SDK v1,
+  `StreamableHTTPServerTransport`): `initialize` opens a session, every session
+  gets its own MCP server instance from `createCrotMcpServer`.
+
+Any other version — in the `MCP-Protocol-Version` header, in `_meta`, or
+requested by a legacy `initialize` (for example `2025-03-26`) — is rejected
+with `400` and JSON-RPC error `-32022` listing the supported versions. stdio is
+unchanged.
 
 **Authentication.** Every request needs `Authorization: Bearer <token>`, also on
 loopback. With `local-token`, CROT creates a random 256-bit token in the token
@@ -198,17 +215,27 @@ PermissionEngine. A future OAuth/OIDC resource-server verifier (user/device
 identity, accounts) replaces the provisional token without changes to the HTTP
 server, the MCP tools, Core or the PermissionEngine.
 
-**Principal.** HTTP requests run as
-`{ id: "local-token:<fingerprint>", kind: "remote", transport: "http", authMethod: "local-token", client }`,
-recorded in every audit event; stdio requests remain
-`{ id: "local-user", kind: "local", transport: "stdio" }`. Credentials never
-reach Core or the audit log.
+**Principal (AD-15 point 6).** The entry point alone decides the principal
+kind:
 
-*Planned change (ARCHITECTURE.md §27 AD-14, AD-15; work package WP-19):*
-loopback HTTP principals will become `kind: "local"`, and `kind: "remote"`
-will be reserved for clients that connect through the Cloud Relay. Rules that
-use `principalKinds: ["remote"]` to gate loopback HTTP clients (such as the
-`remote-writes` example below) will need to be revised then.
+| Entry point | Principal |
+| --- | --- |
+| stdio | `{ id: "local-user", kind: "local", transport: "stdio" }` |
+| loopback HTTP (local token) | `{ id: "local-token:<fingerprint>", kind: "local", transport: "http", authMethod: "local-token", client }` |
+| Cloud Relay (planned, WP-28/WP-30) | `{ kind: "remote", transport: "relay", accountId, deviceId, clientId, … }` |
+
+The principal is recorded in every audit event. Credentials never reach Core or
+the audit log. `kind: "remote"` is reserved for relay clients, identified by
+account, device and client from a verified access token; the local token is
+never accepted through the relay.
+
+**Migration (WP-19).** Before WP-19, loopback HTTP principals had
+`kind: "remote"`. They are now `kind: "local"`, so rules with
+`principalKinds: ["remote"]` (such as the `remote-writes` example below) **no
+longer match loopback HTTP clients**; they only match future relay clients. To
+keep gating loopback HTTP clients, use `principalKinds: ["local"]` — this also
+matches stdio (a transport matcher is an open question, ARCHITECTURE.md §26
+question 12) — or match on operations/capabilities without `principalKinds`.
 
 **Request pipeline.** Checked in order, before anything reaches the MCP server
 or Core:
@@ -219,11 +246,15 @@ or Core:
 | path is `/mcp` | 404 |
 | `Origin`, if present, is in `http.allowedOrigins` (empty by default) | 403 |
 | method is `POST`, `GET` or `DELETE` | 405 |
-| valid bearer credential | 401 with `WWW-Authenticate: Bearer` |
+| `MCP-Protocol-Version` header, if present, is a supported version | 400 (`-32022`) |
+| valid bearer credential establishing a principal for this entry point | 401 with `WWW-Authenticate: Bearer` |
+| `2026-07-28` requests: `GET` / `DELETE` | 405 |
 | body ≤ `http.maxRequestBytes` | 413 |
 | body is JSON | 400 (`-32700`) |
-| session: a new one only via `initialize`; existing ones only for the principal that opened them | 400 / 404 |
-| session count ≤ `http.maxSessions` | 503 |
+| version claimed in `_meta` is supported | 400 (`-32022`) |
+| `2026-07-28` requests: headers match the body, `_meta` envelope present | 400 (`-32020` / `-32602`) |
+| legacy: a new session only via `initialize` with a supported version; existing ones only for the principal that opened them | 400 / 404 |
+| legacy session count ≤ `http.maxSessions` | 503 |
 
 Rejections are JSON-RPC error objects without internal details or stack traces;
 unexpected failures return a generic `500 Internal error`. Core errors (for
@@ -500,6 +531,9 @@ outcome other than an explicit approval denies it with `PERMISSION_DENIED`
 - A rule matches when every condition holds: `operations`, `capabilities`
   (any), `principalKinds`, `modes`, `outsideWorkspace`, `exposed`. Unknown operations and
   rules that can never match stop CROT with a configuration error.
+- `principalKinds: ["remote"]` matches only clients that connect through the
+  Cloud Relay; stdio and loopback HTTP clients are `local` (see
+  [HTTP transport](#http-transport), migration since WP-19).
 - **No approval UI exists yet.** Until the tray app provides one, operations
   matched by a rule are denied (`crot_status` shows a note). Without user
   rules only the built-in `untrusted-content` rule below applies.
@@ -511,13 +545,19 @@ outcome other than an explicit approval denies it with `PERMISSION_DENIED`
   connection; if any of them changes before the action, it is not performed.
 - **Untrusted content (§27 AD-12).** After a session successfully ran
   `browser_page_read`, `browser_screenshot`, `browser_tabs_list` or
-  `network_request`, it is *exposed* until it ends (stdio: the connection;
-  HTTP: the MCP session). In an exposed session the built-in rule
+  `network_request`, its *exposure scope* is exposed (AD-15 point 8). The
+  scope is independent of MCP transport sessions: stdio — the connection;
+  loopback HTTP `2026-07-28` — the authenticated principal, across its
+  requests, for the lifetime of the CROT process; loopback HTTP legacy — the
+  MCP session; relay clients — the (account, device, client) triple,
+  persisted in `<state>/remote-exposure.json` (only digests) so that new
+  tokens, new sessions or a CROT restart do not clear it; if that file cannot
+  be read, every remote client is treated as exposed. In an exposed scope the built-in rule
   `untrusted-content` requires approval for operations needing
   `shell.execute`, `filesystem.write`, `git.write`, `network.access` or
   `browser.control`, and for `docker_compose_up` / `docker_compose_down`;
   reads are not affected. Without an approval UI these operations are denied
-  for the rest of the session. Content is never inspected, and nothing clears
+  while the scope is exposed. Content is never inspected, and nothing clears
   the exposure. `"untrustedContent": "off"` turns the rule off; `crot_status`
   reports the setting. The rule is evaluated before your rules, so a matching
   operation is recorded with `approval.rule: "untrusted-content"`. The redirect

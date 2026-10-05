@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApprovalBroker } from "../../src/core/approvals/broker.js";
 import type { ApprovalRule } from "../../src/core/approvals/types.js";
 import { MemoryAuditSink, type AuditRecord, type AuditSink } from "../../src/core/audit/audit.js";
-import { localPrincipal, type AuthContext } from "../../src/core/auth/principal.js";
+import { RemoteExposureStore } from "../../src/core/approvals/remote-exposure.js";
+import { localPrincipal, remotePrincipal, type AuthContext } from "../../src/core/auth/principal.js";
 import type { CrotCore } from "../../src/core/crot-core.js";
 import { CrotError } from "../../src/core/errors.js";
 import { ApprovalBindingError, ExecutionGuard } from "../../src/core/execution/guard.js";
@@ -305,7 +306,8 @@ describe("approval gates: pipeline", () => {
         "full_control",
       ),
       audit,
-      { approvalProviders: [ui] },
+      // A clean remote scope (without a store every remote scope is exposed).
+      { approvalProviders: [ui], remoteExposure: RemoteExposureStore.inMemory() },
     );
     // Local principal: not matched by remote-writes.
     await core.filesystem.writeFile(ctx, { path: "a.txt", content: "x" });
@@ -314,8 +316,16 @@ describe("approval gates: pipeline", () => {
     await core.filesystem.readFile(ctx, { path: "a.txt" });
     expect(ui.shown).toHaveLength(0);
 
+    // AD-15: only relay principals are remote (loopback HTTP is local).
     const remote: AuthContext = {
-      principal: { id: "token-subject", kind: "remote", transport: "http", authMethod: "local-token" },
+      principal: remotePrincipal({
+        id: "acct-1",
+        transport: "relay",
+        authMethod: "oauth",
+        accountId: "acct-1",
+        deviceId: "device-1",
+        clientId: "client-1",
+      }),
     };
     const writing = core.filesystem.writeFile(remote, { path: "b.txt", content: "x" });
     expect((await ui.next()).request.subject.rule).toBe("remote-writes");

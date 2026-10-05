@@ -17,9 +17,12 @@ import type { PrivateFileProtection } from "../../core/platform/types.js";
  * replace the provisional local token without changes to the HTTP server,
  * the MCP tools, Core or the PermissionEngine.
  *
- * Conventions for AuthInfo.extra (read by httpContextResolver):
+ * Conventions for AuthInfo.extra (read by principalFromAuthInfo, AD-15):
  * - subject: stable principal id (falls back to clientId)
  * - authMethod: how the principal was authenticated
+ * - accountId, deviceId: remote identity, required on the relay entry point
+ *   (together with AuthInfo.clientId); a "local-token" credential is never
+ *   accepted there.
  */
 export interface AccessTokenVerifier {
   /** Authentication method recorded on the principal, e.g. "local-token". */
