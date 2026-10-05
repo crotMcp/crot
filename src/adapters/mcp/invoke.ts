@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import type { AuthContext, ExposureScope, SessionRef } from "../../core/auth/principal.js";
+import { newSession, type AuthContext, type SessionRef } from "../../core/auth/principal.js";
 import type { CrotCore } from "../../core/crot-core.js";
 import { parseInput } from "../../core/errors.js";
 import type { ContextResolver, McpRequestInfo } from "./context.js";
@@ -17,8 +17,12 @@ export interface ToolInvocation {
   readonly args: unknown;
   /** Transport facts of the request; `requestId` is generated here. */
   readonly request: Omit<McpRequestInfo, "requestId">;
-  /** The scope used when the resolver supplies none (stdio connection, legacy session). */
-  readonly fallbackScope?: ExposureScope & SessionRef;
+  /**
+   * The transport session of the request (stdio connection, legacy HTTP
+   * session). Absent for sessionless requests: the request is then its own
+   * session.
+   */
+  readonly session?: SessionRef;
   readonly signal?: AbortSignal;
 }
 
@@ -37,14 +41,16 @@ export async function invokeTool(
   const { definition } = invocation;
   try {
     const resolved = resolveContext({ ...invocation.request, requestId: newRequestId() });
-    // AD-12/AD-15: the exposure scope comes from the resolver (remote and sessionless requests)
-    // or is the server instance's session (stdio connection, legacy HTTP session).
+    // AD-12/AD-15: the exposure scope comes from the resolver (remote and sessionless
+    // requests) or is the session (stdio connection, legacy HTTP session).
+    // Every context gets a session: the transport session, or for a sessionless request a
+    // new one for this request alone. A session never spans more than one exposure scope,
+    // so the ExecutionGuard's per-session exposure snapshots (AD-12 point 10) stay within
+    // one scope and one session (C1: the guard is unchanged).
     // Cancellation (closed request, closed transport) cancels a pending approval request.
     const context: AuthContext = {
       ...resolved,
-      ...(resolved.session === undefined && invocation.fallbackScope !== undefined
-        ? { session: invocation.fallbackScope }
-        : {}),
+      session: resolved.session ?? invocation.session ?? newSession(),
       ...(invocation.signal !== undefined ? { signal: invocation.signal } : {}),
     };
     const input = parseInput(definition.inputSchema, invocation.args);

@@ -110,6 +110,11 @@ export interface AuthContext {
    * The session the request belongs to (AD-12), supplied by the adapter; used
    * as the exposure scope when `exposureScope` is absent. Absent as well
    * (embedding, tests): Core treats the whole process as one scope.
+   *
+   * MCP adapters always supply it: the stdio connection, the legacy HTTP
+   * session, or — for a sessionless 2026-07-28 request — a session of this
+   * request alone. Invariant: a session never spans more than one exposure
+   * scope (the ExecutionGuard keys exposure snapshots by session).
    */
   readonly session?: SessionRef;
   /**

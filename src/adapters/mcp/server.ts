@@ -53,7 +53,7 @@ export function createCrotMcpServer(core: CrotCore, options: CrotMcpServerOption
       },
       // AD-12: without a scope from the resolver, the session is the server instance
       // (stdio: the connection; HTTP: one instance per legacy MCP session).
-      fallbackScope: session,
+      session,
       ...(extra.signal !== undefined ? { signal: extra.signal } : {}),
     });
   }
