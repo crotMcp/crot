@@ -118,7 +118,7 @@ const INITIALIZE = JSON.stringify({
   jsonrpc: "2.0",
   id: 1,
   method: "initialize",
-  params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "raw", version: "1" } },
+  params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "raw", version: "1" } },
 });
 const LIST_TOOLS = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
 const auth = (t: string = token) => ({ Authorization: `Bearer ${t}` });
@@ -235,14 +235,14 @@ describe("HTTP transport: MCP over HTTP", () => {
     expect((await call(client, "crot_status")).body.workspace.root).toBe(dirs.workspace);
   });
 
-  it("passes the authenticated remote principal to Core and audits it without the token", async () => {
+  it("passes the authenticated loopback (local) principal to Core and audits it without the token", async () => {
     const { client } = await connect();
     await call(client, "fs_write_file", { path: "secret-content.txt", content: "TOP-SECRET-CONTENT" });
     const event = audit.events.at(-1)!;
     expect(event.outcome).not.toBe("denied");
     expect(event.principal).toEqual({
       id: `local-token:${(verifier as LocalTokenVerifier).fingerprint}`,
-      kind: "remote",
+      kind: "local",
       transport: "http",
       authMethod: "local-token",
       client: { name: "http-test-client", version: "0.0.1" },
@@ -261,7 +261,7 @@ describe("HTTP transport: MCP over HTTP", () => {
     expect(JSON.stringify(body)).not.toMatch(/\bat .+:\d+:\d+/); // no stack trace
     const event = audit.events.at(-1)!;
     expect(event.outcome).toBe("denied");
-    expect(event.principal).toMatchObject({ kind: "remote", transport: "http" });
+    expect(event.principal).toMatchObject({ kind: "local", transport: "http" });
   });
 
   it("rejects unauthenticated requests before they reach Core", async () => {
@@ -330,7 +330,7 @@ describe("HTTP transport: limits and identity", () => {
     await call(b.client, "fs_write_file", { path: "b.txt", content: "b" });
     expect(audit.events.at(-1)!.principal).toEqual({
       id: "user-b",
-      kind: "remote",
+      kind: "local",
       transport: "http",
       authMethod: "test-verifier",
       client: { name: "client-b", version: "0.0.1" },

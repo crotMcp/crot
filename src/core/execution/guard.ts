@@ -331,7 +331,7 @@ export class ExecutionGuard {
   private exposedFor(context: AuthContext, op: OperationDescriptor): boolean {
     const snapshot = SNAPSHOT_OPERATIONS.has(op.operation) ? op.exposure : undefined;
     const taken = snapshot !== undefined ? this.snapshots.get(snapshot) : undefined;
-    if (taken !== undefined && taken.context.session === context.session) return taken.exposed;
+    if (taken !== undefined && this.exposure.sameScope(taken.context, context)) return taken.exposed;
     return this.exposure.isExposed(context);
   }
 

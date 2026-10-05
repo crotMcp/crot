@@ -623,7 +623,9 @@ mitigation is *exposure*, decided by **AD-12** (implementation: WP-16b).
 ### 13.3 Remote FULL CONTROL
 
 Remote principals (`kind: remote`, §22) are distinguishable in the rule
-matcher (`principalKinds`). A remote FULL CONTROL profile can require approval
+matcher (`principalKinds`). Since WP-19 (ARCHITECTURE.md §27 AD-15 point 6)
+only relay clients are `remote`; loopback HTTP clients are `local`, like
+stdio. A remote FULL CONTROL profile can require approval
 for every mutating capability. Two invariants carry over:
 
 - approvals for remote requests come from a provider on a channel independent

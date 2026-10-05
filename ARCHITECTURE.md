@@ -856,15 +856,18 @@ Boundaries:
   the same permissions — no screen streaming, no OS-level input, no hidden
   access.
 - **Separate trust boundary.** Remote principals are distinguishable from
-  local ones in authorization and audit (`kind: remote`). Today loopback HTTP
-  principals also carry `kind: remote`; AD-15 fixes this (loopback ->
-  `local`, relay -> `remote`) before remote mode ships (§27 AD-14).
+  local ones in authorization and audit (`kind: remote`). Since WP-19
+  (AD-15 point 6) loopback HTTP principals are `local` and only the relay
+  entry point produces `remote` principals **[Implemented]** (the tunnel
+  itself is WP-30).
 - **Session and exposure.** MCP 2026-07-28 removed the `initialize` handshake
   and protocol sessions, and with older versions a client can always open a
   new session. Exposure of remote principals (AD-12) is therefore keyed by the
   token grant (account, device, client), not by an MCP session, and is reset
   only by an explicit user action or revocation. The HTTP pipeline accepts
   stateless requests as well as session-based ones (AD-15, §27 AD-14).
+  **[Implemented]** in WP-19 (sessionless 2026-07-28 and legacy sessions on
+  one endpoint, persisted remote exposure); reset and revocation: WP-22.
 - **Standard MCP authorization.** The device's MCP endpoint at the relay
   publishes Protected Resource Metadata (RFC 9728); tokens are requested with
   a resource indicator (RFC 8707) and are audience-bound to CROT; the identity
@@ -927,7 +930,7 @@ The tray app is a UI; control logic stays in Core/service.
 | Native Host (OS platform layer) | **[Implemented]** |
 | Browser bridge, relay, extension (Chromium), basic commands | **[Implemented]** |
 | Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | Contract decided (AD-16, WP-18: CDP); implementation **[Target]** (v1: WP-24…WP-27) |
-| Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); implementation **[Target]** (v1: WP-19, WP-28…WP-30) |
+| Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); request pipeline **[Implemented]** (WP-19: sessionless 2026-07-28, supported versions, principal kinds by entry point, exposure scopes, persisted remote exposure); verifier, relay, tunnel **[Target]** (v1: WP-28…WP-30) |
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
 | User confirmations | **[Partial]** (mechanism implemented: WP-15, §27 AD-5…AD-11; no approval provider yet; tray provider and presets v1, AD-14) |
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
@@ -981,8 +984,10 @@ These need explicit decisions before the corresponding work packages.
     context, exposure scopes (remote: account, device, client; persistent),
     supported versions 2026-07-28, 2025-11-25 and 2025-06-18, resource and
     audience rules, relay and device responsibilities.* Remaining details are
-    assigned to WP-19 (SDK line), WP-28 (token claims) and WP-29 (device URI
-    form), and to questions 12 and 13.
+    assigned to WP-28 (token claims) and WP-29 (device URI form), and to
+    questions 12 and 13. The SDK line was settled in WP-19: SDK v1 for stdio
+    and the legacy session versions, SDK v2 (`@modelcontextprotocol/server`)
+    for sessionless 2026-07-28 requests, until a full move to SDK v2.
 11. **Browser technology and command set.** *Decided in §27 AD-16 (WP-18):
     `chrome.debugger` (CDP) through a fixed command surface; command list,
     document-bound element references, explicit `tabId` for remote
@@ -993,12 +998,15 @@ These need explicit decisions before the corresponding work packages.
     `chrome.scripting`; the final command list and element-reference model;
     the rule set of the approval presets; explicit `tabId` for remote
     principals; the store-review justification of extension permissions.
-12. **Transport matcher.** *Opened by §27 AD-15.* After loopback HTTP
-    principals become `local` (AD-15 point 6), approval rules can no longer
+12. **Transport matcher.** *Opened by §27 AD-15; still open after WP-19.*
+    Since loopback HTTP principals are `local` (AD-15 point 6, WP-19), approval
+    rules can no longer
     tell loopback HTTP clients from stdio clients. Decide whether a
     `transports` matcher is added (additive, like `exposed` in AD-12). Not
     required for v1.
-13. **Long-running gated requests through the relay.** *Opened by §27 AD-15.*
+13. **Long-running gated requests through the relay.** *Opened by §27 AD-15;
+    still open after WP-19 (locally a gated request waits within its HTTP
+    request and is cancelled when the request closes).*
     A gated operation waits for its approval (up to 300 s, AD-10) within one
     request (AD-15 point 3). Decide the relay and tunnel timeouts and the
     behaviour towards clients with shorter timeouts; whether the Tasks
@@ -2226,7 +2234,7 @@ bypassable (legacy versions).
      | Entry point | `kind` | `id` | `transport` | `authMethod` |
      | --- | --- | --- | --- | --- |
      | stdio | `local` | `local-user` | `stdio` | — |
-     | loopback HTTP + local token | `local` (changed; today `remote`) | `local-token:<fingerprint>` | `http` | `local-token` |
+     | loopback HTTP + local token | `local` (changed in WP-19; before: `remote`) | `local-token:<fingerprint>` | `http` | `local-token` |
      | relay tunnel + OAuth token | `remote` | stable subject of the grant | `relay` | `oauth` |
 
    - A `remote` principal additionally carries the verified `accountId`,
@@ -2383,7 +2391,8 @@ bypassable (legacy versions).
   change AD-13.
 - It resolves §26 question 10. Left open: §26 questions 12 (transport matcher)
   and 13 (long-running gated requests through the relay); the choice between
-  the SDK v1 line and SDK v2 for 2026-07-28 support (WP-19); which token claim
+  the SDK v1 line and SDK v2 for 2026-07-28 support (WP-19; settled there:
+  SDK v1 for stdio and legacy sessions, SDK v2 for 2026-07-28); which token claim
   carries `clientId` and the device id (WP-28, depends on the identity
   provider); the exact device URI form (WP-29).
 - Residual risks, accepted: exposure is shared by all agents behind one

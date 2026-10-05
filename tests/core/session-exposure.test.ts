@@ -142,6 +142,8 @@ describe("session exposure: definitions", () => {
       "constructor",
       "isExposed",
       "recordSuccess",
+      "sameScope",
+      "scopeOf",
     ]);
   });
 });

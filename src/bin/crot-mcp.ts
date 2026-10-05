@@ -4,7 +4,8 @@
  *
  * Wires configuration -> Native Host -> browser bridge (optional) -> CrotCore -> MCP adapter -> transport.
  * The transport is stdio (default, local user) or Streamable HTTP (--http,
- * loopback, authenticated remote principal); both use the same Core.
+ * loopback, authenticated local principal; 2026-07-28 sessionless and legacy
+ * sessions); both use the same Core.
  * The browser bridge is only a transport for the CROT Browser Extension: every
  * browser tool call is authorized by Core's PermissionEngine.
  * In stdio mode stdout is reserved for the MCP protocol; all diagnostics go to stderr.
@@ -23,6 +24,7 @@ import { browserProtectedPaths, startBrowserBridge } from "../cli/browser.js";
 import { formatInstallResult, installBrowserHost, regExeWriter } from "../cli/browser-install.js";
 import { flushStream, installLifecycle } from "../cli/lifecycle.js";
 import { parseCli, USAGE } from "../cli/options.js";
+import { REMOTE_EXPOSURE_FILE_NAME } from "../core/approvals/index.js";
 import { parseConfig } from "../core/config/load.js";
 import { expandHome } from "../core/config/paths.js";
 import { CORE_VERSION, CrotCore } from "../core/crot-core.js";
@@ -60,6 +62,8 @@ async function main(): Promise<void> {
   const tokenFile = http.enabled
     ? path.resolve(expandHome(http.auth.tokenFile ?? path.join(stateDir, DEFAULT_HTTP_TOKEN_FILE_NAME)))
     : undefined;
+  // Persisted exposure of remote principals (AD-15): only HTTP can carry remote principals.
+  const remoteExposureFile = http.enabled ? path.join(stateDir, REMOTE_EXPOSURE_FILE_NAME) : undefined;
   // The configuration, the HTTP token file and the browser bridge token file can never be modified through CROT tools.
   const protectedPaths = [
     command.configFile,
@@ -81,6 +85,7 @@ async function main(): Promise<void> {
   try {
     core = await CrotCore.create(command.config, {
       ...(protectedPaths.length > 0 ? { protectedPaths } : {}),
+      ...(remoteExposureFile ? { remoteExposureFile } : {}),
       platform: native.platform,
       ...(bridge ? { browser: bridge } : {}),
     });

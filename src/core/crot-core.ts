@@ -1,6 +1,7 @@
 import path from "node:path";
 import { ApprovalBroker } from "./approvals/broker.js";
 import { ExposureTracker, type UntrustedContentSetting } from "./approvals/exposure.js";
+import { RemoteExposureStore } from "./approvals/remote-exposure.js";
 import type { ApprovalProvider, ApprovalRuleId } from "./approvals/types.js";
 import { JsonlFileAuditSink, NullAuditSink, StreamAuditSink, type AuditSink } from "./audit/audit.js";
 import type { BrowserConnection } from "./capabilities/browser/connection.js";
@@ -83,6 +84,18 @@ export interface CrotCoreOptions {
    * operation matched by a permissions.approvals rule is denied.
    */
   readonly approvalProviders?: readonly ApprovalProvider[];
+  /**
+   * File in CROT's private state that keeps the exposure of remote scopes
+   * across restarts (ARCHITECTURE.md §27, AD-15 point 8). It becomes a
+   * protected path. When it cannot be read, every remote scope is exposed.
+   */
+  readonly remoteExposureFile?: string;
+  /**
+   * A ready remote exposure store (tests, embedding); takes precedence over
+   * remoteExposureFile. Without either, every remote scope is treated as
+   * exposed (fail closed).
+   */
+  readonly remoteExposure?: RemoteExposureStore;
 }
 
 /**
@@ -143,8 +156,10 @@ export class CrotCore {
     const auditFile =
       audit instanceof JsonlFileAuditSink ? audit.file : config.audit.sink === "file" ? config.audit.path : undefined;
     const auditProtection = auditFile ? await platform.privateFiles.inspect(auditFile) : undefined;
+    const remoteExposureFile = options.remoteExposureFile ? path.resolve(options.remoteExposureFile) : undefined;
     const guarded = [
       ...(options.protectedPaths ?? []),
+      ...(remoteExposureFile ? [remoteExposureFile] : []),
       ...(config.audit.sink === "file" && config.audit.path ? [config.audit.path] : []),
       ...(audit instanceof JsonlFileAuditSink ? [audit.file] : []),
     ];
@@ -161,11 +176,19 @@ export class CrotCore {
         untrustedContent: config.permissions.approvals.untrustedContent,
       },
     });
+    const remoteExposure =
+      options.remoteExposure ??
+      (remoteExposureFile
+        ? await RemoteExposureStore.open(remoteExposureFile, platform.privateFiles, {
+            onError: (e) =>
+              process.stderr.write(`crot: remote exposure state: ${e instanceof Error ? e.message : String(e)}\n`),
+          })
+        : undefined);
     const approvalBroker = new ApprovalBroker({ maxPending: config.permissions.approvals.maxPending });
     for (const provider of options.approvalProviders ?? []) approvalBroker.register(provider);
     const guard = new ExecutionGuard(permissions, audit, {
       approvals: approvalBroker,
-      exposure: new ExposureTracker(),
+      exposure: new ExposureTracker(remoteExposure ? { remote: remoteExposure } : {}),
       // Step 4 of a gated operation: every path must still resolve to the same place.
       revalidatePath: async (p) => {
         const again = await workspace.resolve(p.absolute, { followFinalSymlink: false });
