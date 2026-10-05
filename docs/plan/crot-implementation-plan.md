@@ -59,7 +59,7 @@ status in the same PR that completes a work package.
 | WP | Phase | Title | Depends on | Size | Status |
 | --- | --- | --- | --- | --- | --- |
 | WP-17 | 0 | AD-15 "Remote MCP request contract" (documents only) | — | S | Done (AD-15) |
-| WP-18 | 0 | Browser spike CDP vs scripting, AD-16 "Browser contract v1" | — (parallel to WP-17) | S–M | Not started |
+| WP-18 | 0 | Browser spike CDP vs scripting, AD-16 "Browser contract v1" | — (parallel to WP-17) | S–M | Done (AD-16) |
 | WP-19 | 1 | Principal kinds, exposure key, stateless HTTP per AD-15 | WP-17 | M | Not started |
 | WP-20 | 1 | Supervised service, thin stdio shim, local control channel | WP-19 | L | Not started |
 | WP-21 | 1 | Secret storage, child-process environment allowlist | WP-20 | M | Not started |
@@ -67,10 +67,10 @@ status in the same PR that completes a work package.
 | WP-23a | 2 | Command confinement L1: Linux (bubblewrap, AppArmor) | WP-21 | M | Not started |
 | WP-23b | 2 | Command confinement L1: macOS (Seatbelt, Keychain) | WP-21 | M | Not started |
 | WP-23c | 2 | Command confinement L1: Windows (spike, then restricted / low-IL token + Job Object) | WP-21 | L | Not started |
-| WP-24 | 2B | Browser v1: element snapshot and references, input, keys, waiting, history, `openerTabId` | WP-18 | L | Not started |
-| WP-25 | 2B | Browser v1: trusted input, frames, shadow DOM, dialogs, background screenshots | WP-24 | L | Not started |
-| WP-26 | 2B | Browser v1: file upload from and download to the workspace | WP-25 | M | Not started |
-| WP-27 | 2B | Browser v1: multi-agent safety (per-tab queue, CROT tab group, explicit `tabId` for remote) | WP-24, WP-19 | S–M | Not started |
+| WP-24 | 2B | Browser v1 (AD-16): CDP backend, snapshot and references, trusted input, keys, frames, shadow DOM, waiting, history, `openerTabId` | WP-18 | L | Not started |
+| WP-25 | 2B | Browser v1 (AD-16): dialogs and file choosers, background screenshots, debugger lifecycle, CROT tab group | WP-24 | M | Not started |
+| WP-26 | 2B | Browser v1 (AD-16): file upload from and download to the workspace | WP-24 | M | Not started |
+| WP-27 | 2B | Browser v1 (AD-16): multi-agent safety (per-tab queue, explicit `tabId` for remote, `openedBy`) | WP-24, WP-19 | S–M | Not started |
 | WP-28 | 3 | Identity and device binding | WP-17, WP-21, WP-22 (pairing UI) | L | Not started |
 | WP-29 | 3 | Cloud Relay v1 | WP-17, WP-28 | XL | Not started |
 | WP-30 | 3 | Device tunnel adapter | WP-20, WP-28, WP-29 | M–L | Not started |
@@ -108,7 +108,7 @@ WP-17 -> WP-19 -> WP-20 -> WP-22 -> WP-30 -> WP-31 -> WP-32 -> WP-33 -> WP-34 + 
 ```
 
 - Relay branch, merges into WP-30: `WP-17 -> WP-28 -> WP-29`.
-- Browser branch, merges into WP-32: `WP-18 -> WP-24 -> WP-25 -> WP-26` (and WP-27).
+- Browser branch, merges into WP-32: `WP-18 -> WP-24 -> WP-25` and `WP-24 -> WP-26` (and WP-27).
 
 In parallel:
 
@@ -119,7 +119,7 @@ In parallel:
 - WP-35 early (store review takes long);
 - WP-36.
 
-The longest branches are the relay (XL) and the browser (2×L + M); they start
+The longest branches are the relay (XL) and the browser (L + 2×M, AD-16); they start
 earlier than AD-13 originally planned (AD-14 point 6).
 
 ## 6. Simplifications that keep v1 complete
@@ -132,25 +132,28 @@ earlier than AD-13 originally planned (AD-14 point 6).
   interface; broker, digest and audit stay unchanged.
 - **Remote profile and presets** are configuration on the existing matchers
   (`principalKinds`, `exposed`, capabilities); no second mechanism.
-- **If the spike chooses CDP**, one mechanism covers snapshot, input, frames,
-  file inputs, dialogs and background screenshots; WP-24 and WP-25 may then be
-  merged.
+- **The spike chose CDP (AD-16)**: one mechanism covers snapshot, input,
+  frames, file inputs, dialogs and background screenshots. WP-24 therefore
+  takes trusted input, frames and shadow DOM; WP-25 shrinks to dialogs,
+  background screenshots and the debugger lifecycle; WP-26 depends only on
+  WP-24.
 - **No own authorization server, no local licensing, no relay end-to-end
   encryption in v1** (AD-13 point 6).
 - **No client-specific milestones**; WP-32 replaces them.
 
 ## 7. Next work packages
 
-WP-17 is done: AD-15 fixes the remote MCP request contract. The current
-snapshot (last completed, next, open questions) is in
-[`STATUS.md`](../../STATUS.md).
+WP-17 and WP-18 are done: AD-15 fixes the remote MCP request contract, AD-16
+the browser contract v1. The current snapshot (last completed, next, open
+questions) is in [`STATUS.md`](../../STATUS.md).
 
 Now unblocked, in parallel:
 
 1. **WP-19** — principal kinds, exposure scope and sessionless HTTP per AD-15
    (critical path; starts with the SDK decision, see STATUS.md).
-2. **WP-18** — browser spike and AD-16 (browser branch; independent of
-   WP-17).
+2. **WP-24** — browser v1 on the CDP backend per AD-16 (browser branch),
+   then WP-25, WP-26 and WP-27; **WP-35** can be submitted early with the
+   AD-16 permission justification.
 3. **WP-28** (identity-provider selection and verifier) and then **WP-29**
    (relay), which AD-14 point 6 starts right after AD-15.
 

@@ -199,7 +199,7 @@ All paths end in the same Core pipeline; no path bypasses it.
 | Native Host (OS platform layer) | device, inside `crot-mcp` | OS-specific Platform implementations (Windows Job Objects, ACLs) | **[Implemented]** |
 | Browser bridge | device, inside `crot-mcp` | local IPC endpoint, handshake, request/response | **[Implemented]** |
 | `crot-browser-relay` | device, started by the browser | native-messaging host; forwards frames only | **[Implemented]** |
-| CROT Browser Extension | user's browser | fixed browser commands | **[Implemented]** (Chromium), basic command set; browser contract v1 **[Target, v1]** (§7.1) |
+| CROT Browser Extension | user's browser | fixed browser commands | **[Implemented]** (Chromium), basic command set; browser contract v1 decided (§27 AD-16), implementation **[Target, v1]** (§7.1) |
 | MCP client connectors / external MCP gateway | device, outside Core | connections to external MCP servers | **[Target]**, post-v1 (AD-13) |
 | Confirmation mechanism | Core interface + UI provider | explicit user approval of sensitive operations | **[Partial]**: mechanism implemented (WP-15); tray provider **[Target, v1]** |
 | CROT local service (sidecar) | device, background | supervised long-running `crot-mcp` | **[Target]**, v1 (today: started manually / by the MCP client) |
@@ -336,7 +336,8 @@ authorization outcome (§21), and policy for remote principals (§22).
 
 **[Implemented]** for Chrome, Edge and Brave (Chromium 120+). Firefox is not supported.
 The command set implemented today is basic (`docs/BROWSER_EXTENSION.md`); the
-browser contract v1 (§7.1) is **[Target]** and release-blocking (§27 AD-14).
+browser contract v1 (§7.1) is **[Target]** and release-blocking (§27 AD-14);
+its normative contract is §27 AD-16.
 
 The extension provides browser integration:
 - tabs;
@@ -365,10 +366,13 @@ Architectural rules (details in `docs/BROWSER_EXTENSION.md`):
 
 ### 7.1 Browser contract v1
 
-**[Target, v1, release-blocking]** (§27 AD-14). The technology
-(`chrome.debugger` / Chrome DevTools Protocol versus `chrome.scripting`) and the
-exact command list are decided in AD-16 after the spike WP-18. This section
-fixes *what* v1 must support, not how.
+**[Target, v1, release-blocking]** (§27 AD-14). **Contract decided in §27
+AD-16 (WP-18):** the page backend is `chrome.debugger` (Chrome DevTools
+Protocol) used only through a fixed, extension-built command surface; AD-16
+fixes the command list, element references and their invalidation, tab
+identity and explicit `tabId`, per-tab sequencing, dialogs, files, screenshots,
+isolation, approvals and the two presets. This section lists the requirements;
+AD-16 is the normative contract that implements them.
 
 Implemented today (`docs/BROWSER_EXTENSION.md`): `browser_status`,
 `browser_tabs_list`, `browser_page_read` (`innerText` / `outerHTML`),
@@ -653,7 +657,7 @@ packages, their order and dependencies are in
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
 24. Command confinement L1 (Linux, macOS, Windows) [Target, v1, §27 AD-13]
-25. Browser contract v1                           [Target, v1, §7.1, §27 AD-14]
+25. Browser contract v1                           [Target, v1, §7.1, §27 AD-14; contract AD-16]
 ```
 
 The order may change when technically justified, but architectural boundaries must remain intact.
@@ -800,7 +804,10 @@ capabilities, operations); there is no rule editor:
 
 Without such a preset, remote multi-step browser tasks are not possible unless
 the user is at the device. The exact rule set and its configuration key are
-fixed in AD-16 together with the browser contract.
+fixed in §27 AD-16 point 17: `permissions.approvals.untrustedContent` is
+`"require-approval"` (*Ask for every action*, default), `"autonomous-browser"`
+or `"off"`; *Autonomous browser* also keeps `browser.file_upload` gated,
+because it sends local files to a web page.
 
 The mechanism (approval gates: placement, approval subject, request
 lifecycle, queue, provider interface, audit, threat model) is designed in
@@ -919,7 +926,7 @@ The tray app is a UI; control logic stays in Core/service.
 | Streamable HTTP, loopback, local token | **[Implemented]** |
 | Native Host (OS platform layer) | **[Implemented]** |
 | Browser bridge, relay, extension (Chromium), basic commands | **[Implemented]** |
-| Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | **[Target]** (v1, AD-14; technology AD-16) |
+| Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | Contract decided (AD-16, WP-18: CDP); implementation **[Target]** (v1: WP-24…WP-27) |
 | Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); implementation **[Target]** (v1: WP-19, WP-28…WP-30) |
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
 | User confirmations | **[Partial]** (mechanism implemented: WP-15, §27 AD-5…AD-11; no approval provider yet; tray provider and presets v1, AD-14) |
@@ -955,8 +962,8 @@ These need explicit decisions before the corresponding work packages.
    behaviour without an available UI (headless use). WP-14 (§27 AD-5) fixes
    the mechanism and the headless behaviour (deny); §27 AD-12 adds the
    built-in `untrusted-content` rule for exposed sessions; §27 AD-14 adds two
-   v1 presets (§21), whose exact rule set is fixed in AD-16. The general list
-   of gated operations remains open.
+   v1 presets (§21), whose exact rule set and configuration key are fixed in
+   AD-16 point 17. The general list of gated operations remains open.
 7. **Relay encryption model.** *Decided for v1 in §27 AD-13: TLS terminates
    at the relay, no payload storage or logging; end-to-end encryption post-v1.*
    Whether traffic is end-to-end encrypted between
@@ -976,8 +983,13 @@ These need explicit decisions before the corresponding work packages.
     audience rules, relay and device responsibilities.* Remaining details are
     assigned to WP-19 (SDK line), WP-28 (token claims) and WP-29 (device URI
     form), and to questions 12 and 13.
-11. **Browser technology and command set.** *Required by §27 AD-14; to be
-    decided in AD-16 after the spike WP-18.* `chrome.debugger` (CDP) versus
+11. **Browser technology and command set.** *Decided in §27 AD-16 (WP-18):
+    `chrome.debugger` (CDP) through a fixed command surface; command list,
+    document-bound element references, explicit `tabId` for remote
+    principals, per-tab sequencing, preset rule set
+    (`permissions.approvals.untrustedContent`), store justification of
+    `debugger`, `downloads` and `tabGroups`. Remaining details are assigned
+    to WP-24…WP-27 and WP-35.* Originally: `chrome.debugger` (CDP) versus
     `chrome.scripting`; the final command list and element-reference model;
     the rule set of the approval presets; explicit `tabId` for remote
     principals; the store-review justification of extension permissions.
@@ -991,7 +1003,13 @@ These need explicit decisions before the corresponding work packages.
     request (AD-15 point 3). Decide the relay and tunnel timeouts and the
     behaviour towards clients with shorter timeouts; whether the Tasks
     extension or Multi Round-Trip Requests are used later is post-v1. To be
-    settled in WP-29 / WP-30.
+    settled in WP-29 / WP-30. AD-16 adds bounded browser waits (at most 60 s
+    plus a margin) that run within one request as well.
+14. **Tab scope for remote agents.** *Opened by §27 AD-16.* In v1 every agent
+    context with `browser.control` may act on every `http(s)` tab of the
+    connected profile; `openedBy` in the tab list is information only.
+    Decide whether a policy matcher limits remote contexts to tabs they
+    opened (additive, like `exposed`). Not required for v1.
 
 ## 27. Architectural Decisions
 
@@ -1560,6 +1578,8 @@ so Core cannot tell two connections apart. Found while planning WP-15.
 - Point 2 is amended by AD-12: besides user rules (none by default), the
   built-in `untrusted-content` rule for exposed sessions is active by default
   and can be turned off with `permissions.approvals.untrustedContent: "off"`.
+  AD-16 point 17 adds the value `"autonomous-browser"` (the *Autonomous
+  browser* preset).
 
 ### AD-11. A gated browser command carries an expected browser subject that must match right before the action (WP-15 contract)
 
@@ -1755,6 +1775,10 @@ against the current code showed that this cannot be done per value:
   remote scopes are keyed by account, device and client, persist across
   restarts and are reset only by the user. stdio and legacy local sessions
   keep this decision unchanged.
+- Point 3 is amended by AD-16: `browser.snapshot` is an exposure source.
+  Point 5 is amended by AD-16 point 17: `untrustedContent` also accepts
+  `"autonomous-browser"`, which keeps the rule set of point 4 without
+  `browser.control` but with `browser.file_upload`.
 - Browser workflows that alternate reading and acting ask for approval for
   every action after the first read. Users who need autonomous browsing can
   turn the rule off or write narrower rules; the trade-off is theirs and is
@@ -2021,7 +2045,8 @@ current MCP specification:
   (principal kind, exposure key, stateless HTTP) are made in WP-19 according
   to AD-15; browser changes in WP-24…WP-27 according to AD-16.
 - It answers §26 question 6 partially (presets) and opens §26 questions 10
-  (→ AD-15) and 11 (→ AD-16).
+  (→ AD-15) and 11 (→ AD-16). Point 2 (technology, command list) and point 4
+  (rule set and key of the presets) are decided by AD-16.
 - Accepted residual risk: the *autonomous browser* preset lets an agent that
   read injected page content act in the user's logged-in browser sessions
   without asking; it is an explicit user choice, visible in the tray and in
@@ -2365,3 +2390,638 @@ bypassable (legacy versions).
   `clientId`; a user who resets exposure or revokes and re-grants access
   starts that client clean, while the model may still hold earlier untrusted
   content (as in AD-12); the relay sees traffic in transit (AD-13 point 6).
+
+### AD-16. Browser contract v1: a fixed command set over `chrome.debugger` (CDP) with tab- and document-bound element references, explicit tabs, per-tab serialization and the two approval presets (WP-18)
+
+**Context.** AD-14 point 2 makes the browser contract v1 (§7.1) release-blocking
+and leaves the technology, the command list and the element-reference model to
+this decision; AD-14 point 4 leaves the exact rule set and configuration key of
+the two approval presets to it; §26 question 11 lists the open points. The
+current implementation (`main` at `93c774f`) works as follows:
+
+- **Commands.** Ten tools (`docs/BROWSER_EXTENSION.md`). Page functions run
+  through `chrome.scripting.executeScript` in the extension's isolated world of
+  the main frame only and find elements with `document.querySelector`.
+  `browser_click` calls `element.click()`; `browser_type` sets values through
+  the native setter and dispatches `input` / `change`. `browser_screenshot`
+  uses `captureVisibleTab` and refuses every tab that is not visible.
+- **Targeting.** `tabId` is optional everywhere; without it the extension acts
+  on the active tab of the last focused window (AD-8). `tabs.list` reports no
+  `openerTabId`.
+- **Concurrency.** `BrowserService` sends requests as they come (bridge limit
+  16 pending, extension limit 32 in flight); nothing orders commands to one
+  tab.
+- **Binding and approvals.** Gated operations are bound to tab, normalized
+  origin and `connectionId` and re-checked by the extension right before the
+  action (AD-6, AD-8, AD-9, AD-11). Exposure sources are `browser.page_read`,
+  `browser.screenshot`, `browser.tabs_list` and `network.request` (AD-12).
+- **Permissions.** `nativeMessaging`, `tabs`, `scripting`, `alarms`, host
+  permissions `<all_urls>`; no `debugger`, `downloads` or `tabGroups`.
+
+**Spike (WP-18).** A throwaway MV3 extension (not merged) was driven only
+through its service worker, so the harness itself never handled pages or
+dialogs. Environment: Chrome for Testing 153 on Linux, `--headless=new`, two
+local origins (`http://127.0.0.1:<p1>` with a cross-origin iframe from
+`http://localhost:<p2>`, which Chrome ran as an out-of-process frame), an open
+shadow root, a file input, a `confirm()` and a download link. Findings:
+
+| Requirement (§7.1) | `chrome.scripting` | `chrome.debugger` (CDP 1.3) |
+| --- | --- | --- |
+| Click, Enter, text input | works, but every event has `isTrusted: false` | `Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`, `Input.insertText`: `isTrusted: true` |
+| Open shadow DOM | reachable through `shadowRoot` (synthetic events) | `DOM.getDocument({ pierce: true })` and the accessibility tree reach it; trusted click |
+| Cross-origin frame | reachable with `allFrames` / `frameIds` (synthetic events) | a mouse event at the frame's coordinates on the top-level target reaches the OOPIF, trusted; `Target.setAutoAttach({ flatten: true })` yields a child session whose accessibility tree lists the frame's elements |
+| Page model | only through own page functions | `Accessibility.getFullAXTree` gives role, name and `backendDOMNodeId` per element |
+| File upload | only by building a `File` from bytes sent over native messaging (`isTrusted: false` `change`) | `DOM.setFileInputFiles` with a local path; the page sees the file and a trusted `change` |
+| `confirm()` | **blocks**: the injecting call does not return and every later injection into the tab hangs | `Page.javascriptDialogOpening` reports type and message; `Page.handleJavaScriptDialog` answers it |
+| Background-tab screenshot | `captureVisibleTab` only captures the visible tab | `Page.captureScreenshot` captured a tab that was not active, without activating it |
+| Download into a chosen directory | not possible | `Browser.setDownloadBehavior` does not exist for extensions and `Page.setDownloadBehavior` is refused ("Cannot access browser-level commands"); `Page.downloadWillBegin` / `downloadProgress` attribute a download to the frame that started it; `chrome.downloads` reports the file in the default download directory |
+| Stale element | — | after a navigation a `backendNodeId` taken before it **still resolved** to a node of the new document; `DOM.resolveNode` refused it ("does not belong to the document"); the top frame's `loaderId` changed |
+| Code execution | page functions only | `Runtime.evaluate` with arbitrary text is available to the extension and must therefore be excluded by the contract |
+
+Not covered by the spike: real third-party sites (the work environment had no
+internet access), headed mode and the debugger infobar, Windows and macOS,
+Edge and Brave, input into background tabs, `beforeunload`, HTTP
+authentication and permission prompts. These are open items for WP-24…WP-26
+(see Scope and limits).
+
+**Decision.**
+
+1. **Contract, not implementation (normative scope).** This decision fixes the
+   observable behaviour that a consumer of the browser capability (any MCP
+   client, local or remote) can rely on: tool and operation names, parameters
+   and results at the level of fields and meaning, capabilities, approval and
+   exposure behaviour, error codes, ordering, isolation and limits. It does not
+   depend on any MCP client, on Notion, Telegram, `telegram-stream` or any
+   other product; every rule is stated in terms of tabs, documents, frames,
+   elements and CROT facts. Point 19 lists what is left to the
+   implementation.
+
+2. **Terms (normative).**
+   - **Browser connection** — one accepted bridge connection with its
+     `connectionId` (AD-9). It ends when the extension disconnects, the browser
+     restarts or CROT restarts.
+   - **Tab identity** — the pair (`connectionId`, `tabId`). A `tabId` is
+     meaningful only within its connection; after a reconnect every earlier
+     `tabId`, reference and pending dialog is invalid (§7.1, AD-9). Agents see
+     only `tabId`; the connection is checked by Core.
+   - **Document** — one loaded document of one frame. A new document starts
+     with every cross-document navigation of that frame (link, form,
+     `navigate`, reload, back/forward that loads a document, including
+     restores from the back/forward cache). Same-document navigations
+     (`pushState`, `replaceState`, fragment changes) do not start a new
+     document.
+   - **Frame** — the top-level frame of a tab or a child frame (`iframe`,
+     `frame`) at any depth, same- or cross-origin.
+   - **Element reference (`ref`)** — an opaque string issued by
+     `browser_snapshot` that denotes one element of one document of one frame
+     of one tab of one connection (point 5).
+   - **Command** — one browser tool call (one guard operation, possibly
+     several bridge requests).
+   - **Agent context** — the exposure scope of the request (AD-15 point 8):
+     the stdio connection, the legacy session, the local-token principal or
+     the remote triple (`accountId`, `deviceId`, `clientId`).
+
+3. **Technology: `chrome.debugger` (CDP) as the page backend of v1.**
+   - The extension performs page reading for the snapshot, all page input,
+     frame and shadow-DOM access, dialogs, file inputs, background screenshots
+     and download attribution through `chrome.debugger` (protocol 1.3).
+     Rationale (spike): `chrome.scripting` cannot produce trusted input,
+     blocks on `alert` / `confirm` / `prompt`, cannot set files from disk and
+     cannot capture background tabs; one mechanism covers all of §7.1 point
+     2–7.
+   - `chrome.tabs`, `chrome.windows` and `chrome.tabGroups` stay the tab-level
+     backend; `chrome.downloads` handles downloads (point 12), because CDP
+     download control is not available to extensions.
+   - `chrome.scripting` stays only for the existing built-in page functions of
+     `browser_page_read` and of the legacy selector forms of `browser_click` /
+     `browser_type` (point 20); new commands do not use it.
+   - **Fixed CDP surface.** The extension sends only CDP methods from a fixed,
+     Core-reviewed allowlist compiled into the extension, with parameters it
+     builds itself from validated command parameters. The allowlist covers the
+     domains `Accessibility`, `DOM` (read, box model, focus, scroll into view,
+     `setFileInputFiles`, `resolveNode` / `describeNode`), `DOMSnapshot`,
+     `Input`, `Page` (lifecycle, navigation history, dialogs, file chooser
+     interception, `captureScreenshot`, frame tree, download events), `Target`
+     (auto-attach to child frames only) and event-only use of `Network` for
+     load-state counting (no bodies, headers or cookies). Forbidden in every
+     case: `Runtime.evaluate`, `Runtime.compileScript`,
+     `Runtime.callFunctionOn` or `Page.addScriptToEvaluateOnNewDocument` with
+     any text that did not ship in the extension, the `Debugger`, `Fetch`,
+     `Storage`, `Browser`, `SystemInfo` and `Emulation` permission and
+     override methods, `Network.getCookies` / `getResponseBody` /
+     interception, `Target.createTarget`, `Target.createBrowserContext` and
+     attaching to anything other than `http:` / `https:` pages of the
+     connected profile and their frames. The only page-world code is the
+     extension's built-in functions (§7 rule: no host- or agent-supplied code
+     in the browser).
+   - **Attach lifecycle.** The extension attaches to a tab on the first
+     command that needs CDP and detaches when the tab closes, when the
+     connection ends or after an idle period. It never attaches to tabs no
+     command targeted. While attached, the browser shows its own "debugging
+     this browser" notice; CROT never suppresses it (no
+     `--silent-debugger-extension-api`, no policy changes by the installer).
+     If the user or the browser detaches the debugger, commands in flight fail
+     with `OPERATION_FAILED`, every reference of the tab becomes stale and the
+     next command re-attaches.
+   - **No fallback that weakens the contract.** If `chrome.debugger` is
+     unavailable (for example blocked by enterprise policy), `browser_status`
+     reports it and the commands that need CDP fail with `OPERATION_FAILED`
+     and a fixed message. They never fall back to synthetic events or to
+     another tab.
+   - **Extension permissions (store justification).** Added: `debugger`
+     (trusted input, frames, dialogs, file inputs and background screenshots
+     for agent-driven browsing that the user enabled in CROT; no network
+     interception, no code from outside the extension), `downloads` (saving a
+     file the agent asked for into the user's project) and `tabGroups` (making
+     agent tabs visible as a "CROT" group). Unchanged: `nativeMessaging`,
+     `tabs`, `scripting`, `alarms`, `<all_urls>`, `"incognito": "not_allowed"`,
+     no content scripts, no `externally_connectable`, no web-accessible
+     resources.
+
+4. **Tabs, explicit `tabId` and `openerTabId`.**
+   - **Explicit tab for remote principals.** For principals of
+     `kind: "remote"` (AD-15 point 6) every command that targets a tab (all
+     page commands, `navigate`, `history`, `tab_activate`, `tab_close`,
+     dialogs, files, screenshots, snapshot, wait) requires `tabId`. A missing
+     `tabId` is `INVALID_INPUT` during input validation, before authorization;
+     no "active tab" is ever resolved for a remote principal. This is input
+     validation of a Core fact (principal kind), not a second permission
+     system.
+   - **Explicit tab for every reference command.** Commands that take a `ref`
+     require `tabId` for every principal; a `ref` from another tab is
+     `BROWSER_STALE_REF`. For local principals the existing tools keep the
+     optional `tabId` with the AD-8 default.
+   - **`browser_tabs_list`** reports per tab, in addition to today's fields:
+     `openerTabId` (the tab whose page or CROT command opened it, as the
+     browser reports it, also for pop-up windows; absent when unknown or the
+     opener is closed), `groupedByCrot` (in a CROT tab group), `openedBy`
+     (`"this-context"`, `"crot"` or `"other"`: whether a CROT command of the
+     calling agent context, of another context, or nobody known to CROT
+     opened it; this is information, not authority), `discarded`, and
+     `dialog` (the pending dialog of point 9, if any). Tab titles and URLs
+     stay untrusted, and the operation stays an exposure source.
+   - **New tabs in results.** Every control command reports `newTabs`: the
+     tabs (id and URL) that were created with the target tab as opener while
+     the command and its settle phase (point 7) ran. This lets an agent follow
+     pop-ups and OAuth windows its own action opened without scanning all
+     tabs.
+   - **Visibility.** Tabs opened by `browser_tab_open` are added to a tab group
+     named "CROT" in their window (created when needed); tabs opened from a
+     CROT-grouped tab are added to the same group when the browser allows it
+     (pop-up windows cannot be grouped and are reported through
+     `openerTabId`). Group membership is a visibility aid. The user may move
+     tabs in or out; it never grants or limits access.
+   - **Focus.** No command activates a tab or focuses a window except
+     `browser_tab_activate` and `browser_tab_open` with `active: true`. Reads,
+     input, waits, dialogs, files and screenshots work on background tabs and
+     leave the user's focus where it is.
+
+5. **Page model: snapshot and element references.**
+   - **`browser_snapshot`** (`browser.read`) returns for one tab: `tabId`,
+     `url`, `title`, the frame list (`frameRef`, parent, `url`, normalized
+     origin, `restricted` for frames CROT cannot read) and the interactive
+     and landmark elements of all frames in document order, each with `ref`,
+     `frameRef`, `role`, accessible `name`, `value` (bounded), states
+     (`disabled`, `checked`, `selected`, `expanded`, `pressed`, `focused`,
+     `readonly`, `required`, `editable`), `bounds` in CSS pixels of the
+     top-level viewport and `inViewport`. Optional parameters: `frameRef`
+     (one frame only), `includeText` (adds visible text nodes, bounded) and
+     `maxElements`. Results are bounded (element count, string lengths, total
+     bytes) and report `truncated`.
+   - **Secrets.** The snapshot never returns the value of password fields;
+     they report `hasValue` only.
+   - **References.** A `ref` is created by the extension, is unique within its
+     connection, and is valid only for its (connection, tab, frame, document).
+     The same element keeps the same `ref` across snapshots of the same
+     document. A `ref` is not a secret and not an authority: it only names an
+     element; every command with a `ref` is authorized and approved like any
+     other.
+   - **Invalidation.** A `ref` becomes stale, permanently, when its document is
+     replaced (point 2), when its element is removed from the document, when
+     its frame is detached, when the tab closes, when the debugger is detached
+     from the tab, or when the connection changes.
+   - **Check before acting.** Immediately before acting on a `ref`, as part of
+     the same command, the extension verifies that the `ref` belongs to the
+     named tab, that its frame still shows the same document (not only the
+     same node id; the spike showed node ids resolving into a new document)
+     and that the element is still connected. Otherwise the command fails with
+     `BROWSER_STALE_REF` and does nothing. CROT never re-resolves a stale
+     `ref` by role, name, text, position or selector, never retries with
+     another element, and never acts on "the closest match". The agent takes a
+     new snapshot.
+   - **Selectors.** Commands that accept a `ref` also accept
+     `{ selector, frameRef? }` (CSS, light DOM of one frame document, first
+     match). A selector is resolved at execution time and is not a reference;
+     it gives no staleness guarantee beyond the tab binding.
+   - **Exposure.** `browser.snapshot` is an exposure source (AD-12 point 3,
+     §7.1 point 1).
+
+6. **Input.** All input is CDP input of the browser (trusted DOM events), not
+   OS-level input (§22). Commands (all `browser.control`):
+   - `browser_click` — target (`ref` or selector), `button`
+     (`left` / `right` / `middle`), `clickCount` (1 or 2), `modifiers`; double
+     and context click are `clickCount: 2` and `button: "right"`.
+   - `browser_hover`, `browser_scroll` (an element into view, or the page or
+     a scroll container by `deltaX` / `deltaY`), `browser_drag` (from one
+     target to another target or to an offset).
+   - `browser_type` — target, `text` (at most 100 000 characters), `clear`,
+     optional `submit` (press Enter afterwards); inserts text as browser input
+     into any editable element (inputs, textareas, `contenteditable`).
+   - `browser_press_key` — optional target to focus first, `keys`: one key or
+     a combination in a fixed notation (`Enter`, `Tab`, `Escape`, arrows,
+     `Home`, `End`, `PageUp`, `PageDown`, `Backspace`, `Delete`, `F1`–`F12`,
+     printable characters, modifiers `Shift`, `Control`, `Alt`, `Meta` and
+     `ControlOrMeta` for the platform's shortcut modifier); a sequence of at
+     most 32 combinations.
+   - `browser_select_option` — a native `select` by option values or labels;
+     custom drop-down lists are operated with click, keys and snapshot.
+   - `browser_set_checked` — checkbox, radio button or switch: acts only when
+     the state differs and reports the resulting state.
+   - **Actionability.** Before pointer input the extension scrolls the element
+     into view, requires a non-empty box, an enabled element and a hit test at
+     the click point that lands on the element or its descendant. Otherwise
+     the command fails with `INVALID_INPUT` (with a fixed reason such as
+     "obscured", "disabled", "not visible") and nothing is dispatched. There
+     is no "force" option.
+   - Input to an element inside a frame or a shadow root is dispatched at its
+     top-level viewport coordinates (spike: trusted, reaches cross-origin
+     frames).
+   - Typed text and key sequences are never audited (length and key count
+     only) and are shown in approvals only as length (existing
+     `secret_size_only` flag).
+
+7. **Results, navigation, waiting and history.**
+   - **Control results.** Every control command answers, after its settle
+     phase, with `tabId`, the committed `url`, `navigated` (a new top-level
+     document was committed), `newTabs` (point 4) and `dialog` (`{ type }`
+     only, when a dialog is pending; point 9). The settle phase ends when no
+     top-level navigation started by the action is pending (it then waits for
+     the load state of `waitUntil`) or after a short fixed quiet period. The
+     result never contains page text.
+   - **Navigation.** `browser_navigate` and `browser_tab_open` keep their
+     tools and gain `waitUntil` (`commit`, `domcontentloaded`, `load`
+     (default), `networkidle`) and `timeoutMs`. `browser_history` performs
+     `back`, `forward` or `reload` with the same waiting parameters. Only
+     `http:` / `https:` URLs; a navigation of a tab to another origin is
+     allowed (it is `browser.control`) and the approval binding is checked
+     against the origin before the action (AD-6, AD-11).
+   - **Waiting.** `browser_wait` (`browser.read`) waits on one tab for exactly
+     one condition: a `ref` or selector becoming `visible`, `hidden`,
+     `enabled` or `detached`; a text appearing or disappearing; the URL
+     matching a given URL prefix; a load state; a new document (navigation);
+     or a new tab opened from this tab. It answers `{ satisfied: true, url }`
+     or fails with `TIMEOUT`. It returns no page content and is not an
+     exposure source.
+   - **Timeouts.** Every waiting parameter is bounded: `timeoutMs` at most
+     60 000 ms (default 20 000 ms, as today's load wait). Core's request
+     timeout for such a command is its `timeoutMs` plus a fixed margin, so a
+     wait never outlives the request. How long gated requests may stay open
+     through the relay remains §26 question 13.
+   - **No hidden retries.** CROT never repeats an action. A command that
+     failed may or may not have had an effect (for example a click whose
+     result timed out); the agent observes the page again.
+
+8. **Per-tab sequencing (normative).**
+   - Commands that target a tab enter a FIFO queue of that tab identity in
+     Core (`BrowserService`) after authorization, after the approval gate
+     (an approval wait never holds the tab) and immediately before their first
+     bridge request. They run one at a time in queue order; a command
+     completes, including its settle phase, before the next one starts, so
+     the next command observes its effects. The extension serializes commands
+     per tab as well (defence in depth); its order never differs from Core's.
+   - Commands to different tabs, and tab-less commands (`browser_status`,
+     `browser_tabs_list`, `browser_tab_open`), run concurrently.
+   - The queue per tab is bounded (16); a command that does not fit fails with
+     `RESOURCE_BUSY`. A command cancelled before it started leaves the queue
+     without effect; one cancelled while running ends at its next safe point
+     and its effect is unknown.
+   - The AD-6 / AD-11 binding of a gated command is checked when it reaches
+     the front of the queue, immediately before the action, not when it was
+     enqueued.
+   - The user may use the same tab at the same time. CROT does not lock tabs.
+     A user action that replaces the document or changes the origin makes
+     references stale and bindings fail; it never makes CROT act on another
+     document.
+
+9. **Dialogs and choosers.**
+   - When a tab that CROT is attached to opens `alert`, `confirm`, `prompt` or
+     a `beforeunload` dialog, the extension records it as the tab's pending
+     dialog: `type`, `message` (bounded), `defaultPrompt`. At most one dialog
+     is pending per tab.
+   - Control results report only `dialog: { type }`; the message (page
+     content) is returned by `browser_snapshot` and `browser_tabs_list`, which
+     are exposure sources.
+   - `browser_dialog_handle` (`browser.control`, bound like every control
+     command) answers it: `accept` (`true` / `false`) and, for `prompt`,
+     `promptText`. A `beforeunload` accept leaves the page.
+   - While a dialog is pending, other page commands on that tab fail at once
+     with `BROWSER_DIALOG_OPEN`; `browser_snapshot`, `browser_tabs_list`,
+     `browser_dialog_handle` and `browser_tab_close` still work. No command
+     hangs on a dialog.
+   - **Never indefinitely.** A dialog that is not handled within the dialog
+     timeout (fixed, 60 s) is dismissed (`accept: false`; for `beforeunload`
+     the page stays) and the dismissal is audited. Dismissing is the safe
+     answer: it never confirms an action.
+   - **File choosers.** While attached, the extension intercepts file chooser
+     requests, so no OS file dialog opens. A pending chooser is reported like
+     a dialog (`type: "file_chooser"`) and is answered only by
+     `browser_file_upload` or dismissed.
+   - Dialogs in tabs CROT is not attached to are not touched. HTTP
+     authentication prompts, permission prompts (camera, location,
+     notifications), print and external-protocol dialogs are not handled in v1:
+     a command that runs into one ends with `TIMEOUT` or `OPERATION_FAILED`.
+
+10. **Frames and shadow DOM.**
+    - The snapshot covers the top-level frame and all child frames, including
+      cross-origin and out-of-process frames, up to a fixed depth; every
+      element carries its `frameRef`, and every frame its URL and normalized
+      origin. Frames whose document is not `http:` / `https:` (or is blocked
+      by the browser) are listed as `restricted` without content;
+      `about:blank` and `srcdoc` frames count as their parent's origin.
+    - Elements in **open** shadow roots are part of the snapshot and
+      addressable by `ref` (guaranteed). Elements in closed shadow roots may
+      appear because the snapshot follows the accessibility tree; this is not
+      guaranteed. Selectors do not pierce shadow roots.
+    - **Binding.** The AD-6 / AD-11 binding stays the tab and its top-level
+      origin. For a command whose target is in a child frame, the approval
+      subject additionally shows the frame's origin (and the element's role
+      and name, point 16), and the audit records it. Because a `ref` is valid
+      only for one document, the frame cannot change origin between approval
+      and action without the command failing.
+
+11. **File upload.**
+    - `browser_file_upload` (`browser.control` + `filesystem.read`) sets one or
+      more workspace files on a file input (`ref`) or answers a pending file
+      chooser. Paths are resolved and checked by the ExecutionGuard exactly as
+      for `filesystem.read_file` (workspace boundary in sandbox mode,
+      protected paths, symlink resolution); the operation needs both
+      capabilities.
+    - The browser never receives the agent's path. Core places an immutable
+      copy of each resolved file in a CROT-private staging directory and gives
+      the browser that path (spike: `DOM.setFileInputFiles` takes a path). The
+      copy is kept until the tab's document is replaced, the tab closes, or
+      CROT restarts, because the page reads the file lazily. This closes the
+      race in which a path checked in the workspace is swapped for another
+      file before the browser reads it.
+    - Limits: a fixed maximum number of files per command and a configured
+      maximum total size; the result reports names and sizes. Audit records
+      workspace-relative paths and sizes, never contents.
+    - Upload sends local data to a web page. It is therefore gated in both
+      presets in an exposed context (point 17).
+
+12. **File download.**
+    - `browser_download` (`browser.control` + `filesystem.write`) saves exactly
+      one download into the workspace: `tabId`, a trigger (a target to click,
+      or an `http:` / `https:` URL that the browser downloads with the
+      profile's session), `savePath` (a workspace path checked like
+      `filesystem.write_file`), `overwrite` (default `false`) and `timeoutMs`.
+    - Only the download that starts in that tab (any of its frames) during the
+      command is captured; it is attributed through the browser's download
+      events, never by guessing from file names or times. Downloads not
+      started by a CROT command are never moved, read or reported.
+    - The file appears at `savePath` atomically and only when the download
+      completed; partial, interrupted or browser-flagged dangerous downloads
+      leave nothing in the workspace and fail the command. The result reports
+      size and MIME type, not contents and not the page-suggested file name.
+    - Core takes the file over from the browser only from a staging location
+      it created for this command (an unguessable name in the browser's
+      download directory, or a stream over the bridge; chosen in WP-26). It
+      never reads a path just because the browser reported it: the file must be
+      a regular file at the expected staging location, opened without
+      following symlinks; the staging copy is removed afterwards.
+    - Downloads need `filesystem.write` and are therefore gated in both
+      presets in an exposed context.
+
+13. **Screenshots and background observation.**
+    - `browser_screenshot` captures any `http:` / `https:` tab, also when it is
+      in the background, without activating it or focusing its window
+      (replaces today's `INVALID_INPUT` for non-visible tabs; additive for
+      agents). Options: format and quality as today, `ref` (clip to one
+      element) and `fullPage`. The result adds the viewport size and the
+      device pixel ratio, so that images map to snapshot `bounds`. Limit
+      16 MiB as today. It stays an exposure source.
+    - Discarded tabs (`discarded: true`) are not reloaded implicitly; page
+      commands on them fail with `INVALID_INPUT` until the agent navigates or
+      reloads.
+    - Snapshot, read, wait, dialogs, files and screenshots never change the
+      visible state of the browser except through the debugger notice
+      (point 3).
+
+14. **Isolation between agent contexts.**
+    - All agent contexts share the one connected browser profile with the
+      user (cookies, logins, storage): CROT does not partition the profile in
+      v1 (accepted, AD-13 residual risks). Isolation is about not interfering:
+      explicit tab identity (point 4), per-tab serialization (point 8),
+      document-bound references (point 5) and no focus changes (point 4).
+    - Exposure from a browser read marks only the agent context that made the
+      read (AD-12, AD-15). Approvals stay per operation (AD-5) and are never
+      shared between contexts.
+    - `openedBy` (point 4) lets an agent tell its own tabs from the user's and
+      other agents' tabs. It is not an access restriction: with
+      `browser.control`, every context may act on every `http:` / `https:` tab
+      of the profile, as today. Restricting remote contexts to the tabs they
+      opened would be a new policy matcher and is left to §26 question 14.
+    - Pending dialogs, file choosers and downloads belong to their tab; their
+      details are returned only to the command that handles or captures them
+      and through the exposure sources.
+
+15. **Security invariants (unchanged and extended).**
+    - Every command is a fixed Core operation through `BrowserService` and the
+      ExecutionGuard; the PermissionEngine is the only authority; the bridge,
+      the relay and the extension stay dumb transports; the browser side never
+      initiates operations (§7).
+    - No host- or agent-supplied code runs in the browser; CDP is used only
+      through the fixed surface of point 3. Selectors, keys, text and URLs are
+      data.
+    - Every result is validated against Core's schemas and bounds; browser
+      error codes pass only through Core's allowlist, extended by
+      `BROWSER_STALE_REF` and `BROWSER_DIALOG_OPEN` (both reported by the
+      extension, both mean "nothing was done"). `PERMISSION_DENIED` from the
+      extension stays reserved for the expected-subject check (AD-11).
+    - Page content, accessible names, values, dialog messages, tab titles and
+      URLs are untrusted input (§19); tool descriptions say so. Nothing a page
+      contains triggers a command.
+    - Audit records operation, tab id, top-level and frame origins, `ref`
+      (opaque), element role, input kind, text length and key count, file
+      paths and sizes for uploads and downloads. It never records page
+      content, accessible names, values, typed text, dialog messages,
+      screenshots or file contents, and never full URLs.
+    - Restricted pages stay restricted (`chrome:`, extension pages, the web
+      store, `file:`, other schemes; incognito not allowed).
+    - Typing into password fields is allowed (logins are a v1 workflow), but
+      their values are never returned.
+
+16. **Approval model.**
+    - Every new command with effects is a `browser.control` operation and is
+      bound by AD-6, AD-8, AD-9 and AD-11 (tab, normalized top-level origin,
+      `connectionId`; `tabs.resolve` before the approval request). For
+      `browser_download` with a URL trigger the URL's origin is shown as an
+      effect; the binding remains the tab.
+    - The approval subject of a target command contains the `ref` (or
+      selector), the element's role, its accessible name marked as
+      page-supplied text, and the frame origin when the target is in a child
+      frame. The digest covers them. Together with the document check of
+      point 5 this binds the approval to the element the user saw described:
+      a different element, document or origin fails without acting.
+    - `browser_snapshot` and `browser_wait` are `browser.read`;
+      `browser_snapshot` is an exposure source, `browser_wait` is not.
+    - A gated command waits for its approval within its own request (AD-15
+      point 3) and enters the tab queue only after the approval (point 8).
+
+17. **The two approval presets (rule set and configuration key; decides AD-14
+    point 4).**
+    - **Key.** The existing `permissions.approvals.untrustedContent` gets a
+      third value. The values are:
+      - `"require-approval"` — preset **Ask for every action** (default,
+        unchanged AD-12 rules);
+      - `"autonomous-browser"` — preset **Autonomous browser**;
+      - `"off"` — no built-in rule (unchanged).
+      `crot_status` reports the value. The built-in rules keep the reserved id
+      `untrusted-content` in both presets, so the approval subject and the
+      audit name them the same way; `crot_status` tells the preset.
+    - **Ask for every action** — in an exposed context, any operation that
+      requires `shell.execute`, `filesystem.write`, `git.write`,
+      `network.access` or `browser.control`, and the operations
+      `docker.compose_up` and `docker.compose_down`. Every new browser control
+      command is covered through `browser.control`.
+    - **Autonomous browser** — in an exposed context, any operation that
+      requires `shell.execute`, `filesystem.write`, `git.write` or
+      `network.access`, and the operations `docker.compose_up`,
+      `docker.compose_down` and `browser.file_upload`. All other
+      `browser.control` operations (navigation, input, dialogs, tab
+      management) run without approval. `browser.download` stays gated
+      through `filesystem.write`; `browser.file_upload` is gated explicitly
+      because it moves local data to a web page and its `filesystem.read`
+      capability alone would not match.
+    - Both presets are ordinary `ApprovalRule`s with the `exposed` matcher,
+      evaluated before user rules (AD-12 point 10); user rules still add gates
+      (any match gates). They apply to every principal kind, per device.
+    - The preset is chosen by the user in the tray (WP-22) and is part of the
+      immutable policy (AD-5 point 2, AD-10): changing it is a configuration
+      change applied by the user through the local control channel, never by a
+      tool, an agent, a page or the relay. How the supervised service applies
+      it (reload or restart) is decided in WP-31.
+    - The residual risk of AD-14 point 4 is unchanged: with *Autonomous
+      browser* an agent that read injected content can act in the user's
+      logged-in sessions without asking; it cannot upload files, download into
+      the workspace, run commands, write files or Git, or make network
+      requests without approval.
+
+18. **What a multi-step browser task can rely on (summary of guarantees).**
+    - G1 Observe: a structured snapshot of every frame, with references,
+      without reading HTML; screenshots of any tab.
+    - G2 Act: trusted input on a named element of a named tab; nothing is
+      done when the element, document, tab, origin or connection is not the
+      one named or approved.
+    - G3 Follow: every control result tells whether a new document was
+      committed, which tabs the action opened and whether a dialog is pending;
+      `browser_wait` covers everything that happens later.
+    - G4 Order: commands to one tab run in order, each after the previous
+      one's effects settled.
+    - G5 Never stuck: every command ends within its bounded timeout; dialogs
+      never block a tab indefinitely; no OS dialogs open.
+    - G6 Files: workspace files can be uploaded and downloads saved into the
+      workspace, under the workspace rules.
+    - G7 No guessing: stale references, missing tabs and binding mismatches
+      are errors; CROT never retries, re-resolves or re-targets.
+    - G8 Same security everywhere: the same tools, permissions, approvals,
+      exposure and audit for local and remote principals; remote principals
+      always name the tab.
+
+19. **Boundary between this contract and its implementation.**
+    - **Fixed here:** points 1–18 and the command table of point 20 (names,
+      operations, capabilities, parameters and results at field level, error
+      codes, exposure sources, ordering, limits stated here), the choice of
+      CDP and its fixed surface, the presets and their key.
+    - **Left to WP-24…WP-27 (must not weaken points 1–18):** the bridge
+      message format and internal field names; the `ref` string format; which
+      accessibility roles count as interactive; the exact numeric limits not
+      stated here (element count, string lengths, staging lifetime details,
+      upload size default and its configuration key); key-to-CDP mapping; the
+      attach idle timeout; the download hand-over mechanism of point 12; how
+      Core and the extension share the per-tab queue state; zod schemas and
+      tool descriptions.
+    - **Tests the implementation must provide (E2E on real Chromium, plus unit
+      tests):** a multi-step form flow by references; stale references after
+      navigation, reload, element removal and debugger detach; trusted events
+      (`isTrusted`) for click, keys and text; a cross-origin frame and an open
+      shadow root; `alert`, `confirm`, `prompt`, `beforeunload` and the dialog
+      timeout; a file chooser; upload of a workspace fixture and denial of a
+      path outside the workspace in sandbox mode; a download into the
+      workspace and a refused overwrite; a background screenshot without a
+      focus change; `openerTabId` and `newTabs` for a pop-up; per-tab ordering
+      with two concurrent agents; `INVALID_INPUT` for a remote principal
+      without `tabId`; both presets; that a forbidden CDP method cannot be
+      sent; audit without content. Real third-party sites (at least three) are
+      exercised manually in WP-24 and recorded, as the spike could not.
+
+20. **Command list v1 (normative).**
+
+    | Tool | Operation | Capabilities | Exposure source | Notes |
+    | --- | --- | --- | --- | --- |
+    | `browser_status` | `browser.status` | `browser.read` | no | adds CDP availability |
+    | `browser_tabs_list` | `browser.tabs_list` | `browser.read` | yes | adds `openerTabId`, `groupedByCrot`, `openedBy`, `discarded`, `dialog` |
+    | `browser_snapshot` | `browser.snapshot` | `browser.read` | yes | new (point 5) |
+    | `browser_page_read` | `browser.page_read` | `browser.read` | yes | unchanged |
+    | `browser_screenshot` | `browser.screenshot` | `browser.read` | yes | background tabs, `ref`, `fullPage` |
+    | `browser_wait` | `browser.wait` | `browser.read` | no | new (point 7) |
+    | `browser_tab_open` | `browser.tab_open` | `browser.control` | no | `waitUntil`, `timeoutMs`; CROT tab group |
+    | `browser_navigate` | `browser.navigate` | `browser.control` | no | `waitUntil`, `timeoutMs` |
+    | `browser_history` | `browser.history` | `browser.control` | no | new: back, forward, reload |
+    | `browser_tab_activate` | `browser.tab_activate` | `browser.control` | no | unchanged |
+    | `browser_tab_close` | `browser.tab_close` | `browser.control` | no | unchanged |
+    | `browser_click` | `browser.click` | `browser.control` | no | `ref` or selector, button, count, modifiers; trusted |
+    | `browser_hover` | `browser.hover` | `browser.control` | no | new |
+    | `browser_scroll` | `browser.scroll` | `browser.control` | no | new |
+    | `browser_drag` | `browser.drag` | `browser.control` | no | new |
+    | `browser_type` | `browser.type` | `browser.control` | no | `ref` or selector, any editable element, `submit`; trusted |
+    | `browser_press_key` | `browser.press_key` | `browser.control` | no | new |
+    | `browser_select_option` | `browser.select_option` | `browser.control` | no | new |
+    | `browser_set_checked` | `browser.set_checked` | `browser.control` | no | new |
+    | `browser_dialog_handle` | `browser.dialog_handle` | `browser.control` | no | new (point 9) |
+    | `browser_file_upload` | `browser.file_upload` | `browser.control`, `filesystem.read` | no | new (point 11) |
+    | `browser_download` | `browser.download` | `browser.control`, `filesystem.write` | no | new (point 12) |
+
+    - New operation names are added to `KNOWN_OPERATIONS`; `browser.snapshot`
+      is added to `EXPOSURE_SOURCES` (amends AD-12 point 3).
+    - **Compatibility of existing tools.** Every existing tool keeps its name,
+      operation, capability and current parameters. `browser_click` and
+      `browser_type` called with exactly today's parameters keep today's
+      behaviour and `chrome.scripting` backend and are documented as legacy;
+      the `ref` forms, `frameRef` and every new parameter use CDP. Behaviour changes visible to agents:
+      `browser_screenshot` no longer refuses background tabs; remote principals
+      must pass `tabId` (they do not exist before WP-30); results gain fields.
+    - Tools are client-independent: they need neither MCP sessions nor
+      server-to-client requests (AD-15 point 3).
+
+**Scope and limits.**
+
+- This decision is the contract of WP-18. It is documentation only; no
+  product code changes. Implementation: WP-24 (CDP backend, snapshot and
+  references, trusted input, frames and shadow DOM, waiting, history,
+  `openerTabId`, `newTabs`), WP-25 (dialogs and file choosers, background
+  screenshots, debugger lifecycle and status, CROT tab group), WP-26 (upload
+  and download), WP-27 (per-tab queue, explicit `tabId` for remote
+  principals, `openedBy`), WP-22 and WP-31 (preset selection and rule set),
+  WP-35 (store justification of `debugger`, `downloads`, `tabGroups`).
+- It resolves §26 question 11 and decides AD-14 point 4 (presets). It amends
+  AD-12 point 3 (new source `browser.snapshot`) and AD-12 point 5 / AD-10
+  point 2 (third value of `untrustedContent`). AD-6, AD-8, AD-9, AD-11, AD-13,
+  AD-14 and AD-15 are unchanged and apply to every new command; it is
+  consistent with AD-15 (explicit `tabId` keyed on `kind: "remote"`, waits
+  within one request, exposure per agent context, no server-to-client
+  requests).
+- Open for the implementation work packages: behaviour of input into and
+  screenshots of background tabs in headed browsers on real sites
+  (focus-dependent widgets, throttled or occluded rendering); the debugger
+  notice in headed Chrome, Edge and Brave on all three OS; enterprise
+  policies that block `chrome.debugger`; acceptance of the `debugger`
+  permission by the stores (WP-35); the download hand-over mechanism; HTTP
+  authentication and permission prompts (post-v1 unless a v1 scenario needs
+  them); validation on at least three real sites.
+- Residual risks, accepted: the browser shows a debugging notice while CROT
+  is attached; agents share the user's profile and sessions; page-supplied
+  names in approval subjects can be misleading (they are marked as page
+  text, and the binding still prevents acting on another element, document or
+  origin); `chrome.debugger` gives the extension powerful access, which is
+  limited only by the extension's fixed CDP surface and code review.

@@ -380,7 +380,11 @@ CROT again.
   JavaScript. Element references, real (trusted) browser input events, frames,
   shadow DOM, dialogs, file upload and download, background-tab screenshots
   and explicit tab targeting are required for v1 (browser contract v1,
-  ARCHITECTURE.md §7.1, §27 AD-14; work packages WP-24…WP-27); arbitrary
-  JavaScript and OS-level input stay excluded.
+  ARCHITECTURE.md §7.1, §27 AD-14). Their contract is ARCHITECTURE.md §27
+  AD-16: a `chrome.debugger` (CDP) backend with a fixed command surface and
+  the additional permissions `debugger`, `downloads` and `tabGroups`;
+  implementation in WP-24…WP-27. This document describes the current
+  implementation until then. Arbitrary JavaScript and OS-level input stay
+  excluded.
 - Setup is manual. A one-click installer for the extension and the host is a
   later step (ARCHITECTURE.md §16, step 13; work package WP-34).

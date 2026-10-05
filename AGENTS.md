@@ -16,7 +16,8 @@ post-v1 and not part of current work.
 1. [`ARCHITECTURE.md`](ARCHITECTURE.md) — the source of truth: §1 (goal), §2
    (architecture and status), §7.1 (browser contract v1), §19 (trust
    boundaries), §21–22 (confirmations, remote mode), §26 (open questions) and
-   §27 decisions, especially **AD-12, AD-13, AD-14 and AD-15**.
+   §27 decisions, especially **AD-12, AD-13, AD-14, AD-15 and AD-16** (browser
+   contract v1).
 2. [`STATUS.md`](STATUS.md) — current snapshot: last completed work
    package, what is next, open questions.
 3. [`docs/plan/crot-implementation-plan.md`](docs/plan/crot-implementation-plan.md)
