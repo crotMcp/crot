@@ -153,7 +153,7 @@ corresponding private key is not part of the repository.
 | `disabled` | `browser.enabled` is `false`, or the bridge could not start |
 | `waiting` | the bridge is listening; no extension is connected |
 | `connected` | an extension completed the handshake |
-| `in_use` | another CROT instance owns the bridge endpoint |
+| `in_use` | another process owns the bridge endpoint (not in normal use since WP-20, see below) |
 
 On startup CROT logs either `browser bridge: waiting …` with the endpoint path
 or `browser bridge: in use by another CROT instance …`. The `browser_status`
@@ -306,12 +306,16 @@ Limits:
   refused.
 - When the extension disconnects, pending requests fail with
   `BROWSER_NOT_CONNECTED`.
-- **Multiple CROT instances.** Only one CROT instance can own the bridge
-  endpoint. A second instance stays `in_use` for its whole lifetime, even if
-  the first one exits: its other tools work normally, only browser tools fail
-  with `BROWSER_BRIDGE_IN_USE`. Restart it to take over the bridge.
-- Shutdown order: transport → Core (aborts browser requests) → bridge → Native
-  Host platform layer.
+- **Several MCP clients.** Since WP-20 the bridge belongs to the per-user CROT
+  service (see [`SERVICE.md`](SERVICE.md)): every stdio client attaches to
+  that service through the `crot-mcp` shim, so all clients share one bridge
+  and one connected extension, and `in_use` no longer occurs in normal use.
+  It remains possible only when an unrelated process (for example an older
+  CROT version run separately) owns the endpoint: the CROT service then stays
+  `in_use` for its whole lifetime; its other tools work
+  normally, only browser tools fail with `BROWSER_BRIDGE_IN_USE`.
+- Shutdown order: MCP connections and HTTP → Core (aborts browser requests) →
+  bridge → Native Host platform layer.
 
 ## Extension permissions
 

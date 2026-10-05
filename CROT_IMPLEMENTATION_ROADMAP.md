@@ -74,7 +74,26 @@ Non-negotiables used throughout this roadmap:
 
 ### 2.1 Last completed work package
 
-**WP-19 — Remote MCP request pipeline per AD-15**, merged in PR #14
+**WP-20 — Supervised service, thin stdio shim, local control channel**
+(§27 AD-17, decides OD-1). In the tree:
+
+- `src/service/`: one CROT service per OS user (`service.ts`) owning Native
+  Host, browser bridge, Core and HTTP; the thin stdio shim (`shim.ts`) that
+  `crot-mcp` is on stdio, starting the service on demand; the authenticated
+  channel (`channel.ts`: mutual HMAC challenge–response, per-message sequence
+  numbers and HMACs) on two owner-only endpoints with separate credentials
+  (`endpoints.ts`); the control channel (`control-client.ts`,
+  `crot-mcp service status|stop`); sleep/wake detection
+  (`resume-detector.ts`).
+- `crot_status.service`; `http.maxConcurrentRequests` for sessionless
+  requests (`src/adapters/http/server.ts`).
+- Tests: `tests/service/*.test.ts` (channel negatives incl. replay, service and
+  control channel, built shim end to end incl. other OS user in CI, crash
+  restart with persisted remote exposure, AD-7 shutdown audit),
+  `tests/adapters/http-modern.test.ts` (concurrency limit), the existing stdio
+  and browser E2E through the shim. User docs: `docs/SERVICE.md`.
+
+Previous: **WP-19 — Remote MCP request pipeline per AD-15**, merged in PR #14
 (`8169b1f`). Verified in the tree:
 
 - `src/adapters/mcp/modern.ts` and `@modelcontextprotocol/server` (SDK v2)
@@ -89,7 +108,7 @@ Non-negotiables used throughout this roadmap:
   exposure (`<state>/remote-exposure.json`).
 - Tests: `tests/adapters/http-modern.test.ts`, `tests/core/remote-exposure.test.ts`,
   `tests/adapters/invoke.test.ts`.
-- No open PRs. No tunnel, verifier, relay or service code exists yet.
+- No tunnel, verifier or relay code exists yet.
 
 ### 2.2 Complete (verified)
 
@@ -99,6 +118,7 @@ Non-negotiables used throughout this roadmap:
 | Filesystem, shell, managed processes | `src/core/capabilities/{filesystem,process}` | — |
 | Platform layer Linux/macOS/Windows; Native Host (Windows Job Objects, owner-only ACLs) | `src/core/platform`, `src/native-host`, `docs/NATIVE_HOST.md` | — |
 | MCP over stdio; Streamable HTTP on loopback with local token | `src/adapters/mcp`, `src/adapters/http` | AD-13 p.6 |
+| Per-user CROT service, thin stdio shim, authenticated owner-only control channel, sessionless concurrency limit | `src/service`, `docs/SERVICE.md` | AD-17 |
 | `git.read`, `git.write` | `src/core/capabilities/git` | AD-1, AD-2 |
 | `docker.use` (ps, logs, compose up/down) | `src/core/capabilities/docker` | AD-3 |
 | `network.access` host policy for CROT's own requests | `src/core/capabilities/network` | AD-4 |
@@ -119,7 +139,7 @@ Non-negotiables used throughout this roadmap:
 | Identity | `Principal` with remote fields; `AccessTokenVerifier` seam; static local token | No OAuth verifier, identity provider, device identity, pairing or revocation (WP-28) |
 | Relay entry point | HTTP pipeline accepts a `relay` entry point (tests only) | No tunnel (WP-30), no relay (WP-29) |
 | Remote exposure lifecycle | Persisted, fail-closed | No user reset or revocation path (WP-22, WP-28); persistence write failures are only logged |
-| Process lifecycle | Started by each MCP client; one bridge owner, others `in_use` | No supervised service, shim or control channel (WP-20) |
+| Process lifecycle | One per-user service (on demand from the shim, or managed by an OS supervisor), shim, control channel (WP-20, AD-17) | No autostart registration / supervisor files (WP-34); background processes are owned by the service, not by the client that started them (follow-up) |
 | Child-process environment | Overrides; Docker and Git have allowlists | No general allowlist for `shell.execute` / `process.manage` (WP-21) |
 | Secrets | Owner-only private files (0600 / ACL) | Not in OS secure storage; readable by unconfined commands (WP-21, WP-23) |
 | Cross-OS browser validation | Linux E2E only | macOS / Windows browser chain unverified end to end (WP-25, WP-40) |
@@ -186,6 +206,7 @@ readiness = Gates 7 and 8. Both are required for v1.
 | AD-13 | v1 scope: remote access mandatory; external gateway post-v1; L1 required on all OS with refusal-only fallback; remote profile; managed IdP; relay TLS-terminating, no payload storage; no local licensing; local token stays for local clients |
 | AD-14 | Browser contract v1 release-blocking; client-independent acceptance (§14); two presets; phase order |
 | AD-15 | Sessionless request model; principal kind by entry point; request-scoped execution context; exposure scopes; supported versions 2026-07-28, 2025-11-25, 2025-06-18; PRM/RFC 8707/audience-bound JWT; relay and device responsibilities; constraints C1–C8 |
+| AD-17 | One per-user CROT service (never a system service), on demand from the stdio shim or managed by an OS supervisor; thin shim without policy, one exposure scope per stdio connection, no silent reconnect; one configuration per service; authenticated owner-only shim and control endpoints (mutual HMAC, replay protection); control channel without MCP/tools; shutdown keeps AD-7 |
 | AD-16 | CDP backend with fixed allowlist; command list v1; document-bound refs; explicit `tabId` for remote; per-tab FIFO; dialogs, files, screenshots; presets key `permissions.approvals.untrustedContent` = `require-approval` / `autonomous-browser` / `off`; store justification; required tests (point 19) |
 
 ### 4.2 Still open
@@ -195,7 +216,7 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 
 | ID | Question | Why it matters | Blocks | Decide by |
 | --- | --- | --- | --- | --- |
-| OD-1 | How the supervised service is run per OS (per-user service vs system service; launchd / systemd user unit / Windows per-user mechanism) and what the stdio shim does when the service is not running (start it, or fail with a clear error) | Owner-only control channel, browser-bridge ownership and secret access all assume the service runs as the user; affects installer and autostart | WP-20, WP-34 | Start of WP-20 (AD if it changes §24 boundaries) |
+| OD-1 | **Decided in ARCHITECTURE.md §27 AD-17 (WP-20):** per-user service, never a system service; managed by a systemd user unit / LaunchAgent / per-user Task Scheduler logon task (registered by WP-34) or started on demand by the stdio shim, which fails with a clear error only when the service cannot be started or runs another configuration | — | (WP-34 registers autostart) | Decided |
 | OD-2 | Concrete identity provider and the token claims carrying `clientId` and device id (AD-15 open item) | Verifier, PRM metadata, relay token check, DCR/CIMD support | WP-28, WP-29, WP-38 | Start of WP-28 (selection against AD-15 point 5 criteria; record in AD or WP-28 PR) |
 | OD-3 | Exact device resource URI form and PRM location (AD-15 open item) | Token audience, client configuration UX, relay routing | WP-29, WP-30, WP-28 tests | Start of WP-29 |
 | OD-4 | Relay–device tunnel wire protocol within the AD-15 shape (framing, multiplexing, flow control, keep-alive, versioning) | A long-lived contract between independently deployed relay and installed devices; version skew after release | WP-29, WP-30, WP-34 (updates) | Start of WP-29 — **AD required** (new boundary) |
@@ -254,7 +275,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-18 | 0 | Browser spike, AD-16 browser contract v1 | — | S–M | yes | — | **Done** |
 | WP-19 | 1 | Remote request pipeline per AD-15 | WP-17 | M | yes | — | **Done** (`8169b1f`) |
 | WP-19b | 1 | MCP SDK consolidation | WP-19 | S–M | no | any time | Not started |
-| WP-20 | 1 | Supervised service, stdio shim, local control channel | WP-19, OD-1 | L | yes | with 2B, WP-28/29 | Not started |
+| WP-20 | 1 | Supervised service, stdio shim, local control channel | WP-19, OD-1 | L | yes | with 2B, WP-28/29 | **Done** (AD-17) |
 | WP-21 | 1 | Secret storage, child-process environment allowlist | WP-20 | M | yes | with WP-22 | Not started |
 | WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | yes | with WP-21 | Not started |
 | WP-23a | 2 | L1 Linux | WP-21, OD-9 | M | yes | with 23b/c | Not started |
@@ -764,9 +785,10 @@ finish before WP-32.
    decision (docs-only PR or first commit of the WP).
 2. Otherwise choose, in order: an unblocked WP on chain A or B; then WP-23x;
    then WP-24…WP-27; then phase-4 WPs whose dependencies are done.
-3. **Right now (at `8169b1f`):** WP-20 (decide OD-1 first) and WP-28 (decide
-   OD-2 first) on the critical path; WP-24 on the browser branch; WP-35
-   preparation and WP-37 drafting may run in the background.
+3. **Right now (after WP-20):** WP-22 (tray v1 and approval provider on the
+   control channel) and WP-21 on chain A, WP-28 (decide OD-2 first) on the
+   critical path; WP-24 on the browser branch; WP-35 preparation and WP-37
+   drafting may run in the background.
 
 ---
 
@@ -777,7 +799,7 @@ recorded in `STATUS.md`.
 
 | Gate | Name | Criteria |
 | --- | --- | --- |
-| G1 | Architecture/foundation ready | AD-1…AD-16 merged (met); OD-1, OD-2, OD-9 decided; WP-19 done (met); OD-4 recorded as an AD before WP-29 implementation |
+| G1 | Architecture/foundation ready | AD-1…AD-16 merged (met); OD-1 (met: AD-17), OD-2, OD-9 decided; WP-19 done (met); OD-4 recorded as an AD before WP-29 implementation |
 | G2 | Local supervised product ready | WP-20, WP-21, WP-22 done: multiple stdio clients via shim; no `in_use`; approvals work end to end in the tray for every capability; secrets not readable by tools/children; CI green on all OS |
 | G3 | Browser v1 ready | WP-24…WP-27 done; every AD-16 point 19 test passes in real-Chromium E2E; three real sites recorded; debugger notice checked in Chrome/Edge/Brave on all three OS |
 | G4 | Remote chain ready | WP-23a/b/c, WP-28, WP-29, WP-30, WP-31, WP-38 done; AD-15 C8 tests pass over a real tunnel; OD-5 and OD-6 decided; relay log-scrubbing verified |

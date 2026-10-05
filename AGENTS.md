@@ -26,7 +26,7 @@ post-v1 and not part of current work.
 4. [`docs/plan/crot-agent-work-packages.md`](docs/plan/crot-agent-work-packages.md)
    — the card of the work package you are doing.
 5. [`README.md`](README.md), [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md),
-   [`docs/NATIVE_HOST.md`](docs/NATIVE_HOST.md),
+   [`docs/NATIVE_HOST.md`](docs/NATIVE_HOST.md), [`docs/SERVICE.md`](docs/SERVICE.md),
    [`docs/design/approval-gates.md`](docs/design/approval-gates.md) — how the
    current implementation behaves.
 
