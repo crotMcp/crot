@@ -39,7 +39,7 @@ Firefox is not supported.
 **Goal and plan.** The v1 goal (remote MCP clients reach the local computer and
 the user's real browser through CROT and the Cloud Relay), the architecture and
 the work plan are in `ARCHITECTURE.md` (§1, §27 AD-13 and AD-14) and
-[`docs/plan/crot-implementation-plan.md`](docs/plan/crot-implementation-plan.md).
+[`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md).
 New contributors and agents start with [`AGENTS.md`](AGENTS.md).
 
 ## Requirements

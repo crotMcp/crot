@@ -17,8 +17,8 @@
 > Open questions that need a separate architectural decision are listed in §26;
 > decisions taken for work packages are recorded in §27.
 >
-> The v1 work plan (phases, order, dependencies, status) is in
-> `docs/plan/crot-implementation-plan.md`; the individual work packages
+> The v1 implementation roadmap (phases, order, dependencies, status) is
+> `CROT_IMPLEMENTATION_ROADMAP.md`; the individual work packages
 > (WP-17…WP-37) are in `docs/plan/crot-agent-work-packages.md`. `AGENTS.md`
 > lists what a new contributor or agent reads first.
 
@@ -645,7 +645,7 @@ Further target work. The v1 scope is fixed by §27 AD-13 and AD-14: items
 contract v1 are mandatory in v1); item 19 and item 23 are post-v1. Item
 numbers are kept stable because other documents refer to them; the v1 work
 packages, their order and dependencies are in
-`docs/plan/crot-implementation-plan.md` (WP-17…WP-37).
+`CROT_IMPLEMENTATION_ROADMAP.md`.
 
 ```text
 16. User confirmations                            [Partial: mechanism WP-15; tray provider v1, §21]

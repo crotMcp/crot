@@ -20,8 +20,9 @@ post-v1 and not part of current work.
    contract v1).
 2. [`STATUS.md`](STATUS.md) — current snapshot: last completed work
    package, what is next, open questions.
-3. [`docs/plan/crot-implementation-plan.md`](docs/plan/crot-implementation-plan.md)
-   — phases, critical path, status of every work package, the next WP.
+3. [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md)
+   — the authoritative implementation roadmap: phases, critical path, status
+   of every work package, the next WP.
 4. [`docs/plan/crot-agent-work-packages.md`](docs/plan/crot-agent-work-packages.md)
    — the card of the work package you are doing.
 5. [`README.md`](README.md), [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md),
@@ -33,7 +34,7 @@ post-v1 and not part of current work.
 
 - Decision before code: changes to architectural boundaries need an AD in
   ARCHITECTURE.md §27 first.
-- One work package — one PR; update `STATUS.md`, the plan status and the
+- One work package — one PR; update `STATUS.md`, the roadmap status and the
   ARCHITECTURE.md status markers in that PR.
 - `npm run check` must pass; do not break implemented behaviour.
 - Every operation goes through the ExecutionGuard / PermissionEngine; no
