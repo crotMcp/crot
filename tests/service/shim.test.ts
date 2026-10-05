@@ -186,7 +186,7 @@ describe("stdio shim and CROT service (built, WP-20)", () => {
       const stop = await run(["service", "stop"]);
       expect(stop.code).toBe(0);
       expect(stop.stdout).toContain(`stopped (pid ${servicePid})`);
-      expect(isAlive(servicePid)).toBe(false);
+      await waitFor(() => !isAlive(servicePid));
       // The shim learns that the service stopped and exits.
       await s.closed;
       expect(s.stderr()).toContain("the CROT service stopped");
