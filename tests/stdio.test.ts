@@ -4,23 +4,38 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, beforeEach, describe, expect, inject, it } from "vitest";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { isAlive, isWindows, makeTempDirs, waitFor, type TempDirs } from "./helpers.js";
+import {
+  isAlive,
+  isWindows,
+  makeServiceHost,
+  makeTempDirs,
+  waitFor,
+  type ServiceHost,
+  type TempDirs,
+} from "./helpers.js";
 
 // Built from the current sources by tests/global-setup.ts.
 const bin = inject("crotMcpBin");
 
 let dirs: TempDirs;
+// Each test has its own per-user state, so its stdio clients attach to their own CROT service (WP-20).
+let host: ServiceHost;
 beforeEach(async () => {
   dirs = await makeTempDirs();
+  host = await makeServiceHost(dirs.outside);
 });
-afterEach(() => dirs.cleanup());
+afterEach(async () => {
+  await host.cleanup(bin);
+  await dirs.cleanup();
+});
 
-// End-to-end check of the built stdio server.
+// End-to-end check of the built stdio server (a shim of the CROT service since WP-20).
 describe("crot-mcp stdio server (built)", () => {
   it("serves tools over stdio", async () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [bin, "--workspace", dirs.workspace, "--no-audit"],
+      env: host.env,
       stderr: "pipe",
     });
     const client = new Client({ name: "stdio-test", version: "0.0.0" });
@@ -44,6 +59,7 @@ describe("crot-mcp stdio server (built)", () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [bin, "--workspace", dirs.workspace, "--mode", "full-control", "--no-audit"],
+      env: host.env,
       stderr: "pipe",
     });
     const client = new Client({ name: "stdio-invalid-input-test", version: "0.0.0" });
@@ -89,6 +105,7 @@ describe("crot-mcp shutdown (built)", () => {
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [bin, "--workspace", dirs.workspace, "--audit-log", auditFile],
+      env: host.env,
       stderr: "pipe",
     });
     let stderr = "";
@@ -147,19 +164,15 @@ describe("crot-mcp shutdown (built)", () => {
 // Browser bridge wiring (Linux: the state directory follows XDG_STATE_HOME).
 describe.runIf(process.platform === "linux")("crot-mcp browser bridge (built)", () => {
   async function serve(browser: { enabled: boolean } | undefined, mode = "sandbox") {
-    const stateHome = path.join(dirs.outside, "xdg");
     const configFile = path.join(dirs.outside, "crot.json");
     await writeFile(
       configFile,
       JSON.stringify({ workspace: { root: dirs.workspace }, ...(browser ? { browser } : {}) }),
     );
-    const env = Object.fromEntries(
-      Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined),
-    );
     const transport = new StdioClientTransport({
       command: process.execPath,
       args: [bin, "--config", configFile, "--mode", mode, "--no-audit"],
-      env: { ...env, XDG_STATE_HOME: stateHome },
+      env: host.env,
       stderr: "pipe",
     });
     let stderr = "";
@@ -171,7 +184,7 @@ describe.runIf(process.platform === "linux")("crot-mcp browser bridge (built)", 
       const first = result.content[0];
       return first?.type === "text" ? (JSON.parse(first.text) as { browser: { state: string } }) : undefined;
     };
-    return { client, status, stateDir: path.join(stateHome, "crot"), stderr: () => stderr };
+    return { client, status, stateDir: host.stateDir, stderr: () => stderr };
   }
 
   it("is disabled by default and creates no bridge files", async () => {
@@ -209,7 +222,7 @@ describe.runIf(process.platform === "linux")("crot-mcp browser bridge (built)", 
   });
 
   it("a bridge that cannot start does not stop CROT", async () => {
-    const stateDir = path.join(dirs.outside, "xdg", "crot");
+    const stateDir = host.stateDir;
     await mkdir(stateDir, { recursive: true, mode: 0o700 });
     await writeFile(path.join(stateDir, "browser.sock"), "not a socket");
     const s = await serve({ enabled: true });

@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { ServiceStatus } from "./service-status.js";
 import { ApprovalBroker } from "./approvals/broker.js";
 import { ExposureTracker, type UntrustedContentSetting } from "./approvals/exposure.js";
 import { RemoteExposureStore } from "./approvals/remote-exposure.js";
@@ -55,6 +56,8 @@ export interface CrotStatus {
     readonly untrustedContent: UntrustedContentSetting;
     readonly note?: string;
   };
+  /** The supervised service running this Core (WP-20); absent when Core is embedded without a service. */
+  readonly service?: ServiceStatus;
 }
 
 export const CORE_VERSION = "0.1.0";
@@ -96,6 +99,11 @@ export interface CrotCoreOptions {
    * exposed (fail closed).
    */
   readonly remoteExposure?: RemoteExposureStore;
+  /**
+   * State of the hosting service for crot_status (WP-20). Read-only
+   * information supplied by the host; Core never acts on it.
+   */
+  readonly serviceStatus?: () => ServiceStatus;
 }
 
 /**
@@ -121,6 +129,7 @@ export class CrotCore {
     private readonly approvalBroker: ApprovalBroker,
     private readonly audit: AuditSink,
     private readonly auditProtection: PrivateFileStatus | undefined,
+    private readonly serviceStatus: (() => ServiceStatus) | undefined,
   ) {}
 
   private shuttingDown: Promise<void> | undefined;
@@ -225,6 +234,7 @@ export class CrotCore {
       approvalBroker,
       audit,
       auditProtection,
+      options.serviceStatus,
     );
   }
 
@@ -284,6 +294,7 @@ export class CrotCore {
       browser: { state: this.browser.state() },
       network: this.permissions.network.summary(),
       approvals: this.approvalStatus(),
+      ...(this.serviceStatus ? { service: this.serviceStatus() } : {}),
     };
   }
 

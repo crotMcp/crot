@@ -2,166 +2,184 @@
 /**
  * CROT MCP entry point.
  *
- * Wires configuration -> Native Host -> browser bridge (optional) -> CrotCore -> MCP adapter -> transport.
- * The transport is stdio (default, local user) or Streamable HTTP (--http,
- * loopback, authenticated local principal; 2026-07-28 sessionless and legacy
- * sessions); both use the same Core.
+ * One CROT service per OS user (WP-20, ARCHITECTURE.md §27 AD-17) owns
+ * configuration -> Native Host -> browser bridge (optional) -> CrotCore ->
+ * MCP adapters (stdio connections from shims; Streamable HTTP on loopback).
+ *
+ * - `crot-mcp [options]` (stdio): a thin shim. It connects to the service
+ *   (starting it on demand) and carries stdio MCP to it; it holds no Core and
+ *   no policy. stdout is reserved for the MCP protocol; diagnostics go to stderr.
+ * - `crot-mcp --http [options]` and `crot-mcp service run [options]`: run the
+ *   service in the foreground (terminal, systemd user unit, launchd agent,
+ *   Task Scheduler). Stdio shims of the same user attach to it.
+ * - `crot-mcp service status|stop`: the authenticated local control channel.
+ * - `crot-mcp browser install` registers the CROT Host with Chromium browsers and exits.
  * The browser bridge is only a transport for the CROT Browser Extension: every
  * browser tool call is authorized by Core's PermissionEngine.
- * In stdio mode stdout is reserved for the MCP protocol; all diagnostics go to stderr.
- * `crot-mcp browser install` registers the CROT Host with Chromium browsers and exits.
  */
 import os from "node:os";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { DEFAULT_HTTP_TOKEN_FILE_NAME, LocalTokenVerifier, loadOrCreateLocalToken } from "../adapters/http/auth.js";
-import { CrotHttpServer } from "../adapters/http/server.js";
-import { localContextResolver } from "../adapters/mcp/context.js";
-import { createCrotMcpServer } from "../adapters/mcp/server.js";
-import type { BrowserBridge } from "../browser-bridge/server.js";
-import { browserProtectedPaths, startBrowserBridge } from "../cli/browser.js";
 import { formatInstallResult, installBrowserHost, regExeWriter } from "../cli/browser-install.js";
 import { flushStream, installLifecycle } from "../cli/lifecycle.js";
-import { parseCli, USAGE } from "../cli/options.js";
-import { REMOTE_EXPOSURE_FILE_NAME } from "../core/approvals/index.js";
+import { parseCli, USAGE, type ServeCommand } from "../cli/options.js";
 import { parseConfig } from "../core/config/load.js";
-import { expandHome } from "../core/config/paths.js";
-import { CORE_VERSION, CrotCore } from "../core/crot-core.js";
+import { CORE_VERSION } from "../core/crot-core.js";
 import { CrotError } from "../core/errors.js";
 import { hostDirectories, osFamily } from "../core/platform/node-platform.js";
 import { createPrivateFileProtection } from "../core/platform/private-files.js";
-import { NativeHost } from "../native-host/native-host.js";
+import { ControlClient, waitForServiceExit } from "../service/control-client.js";
+import { fileCredentialStore } from "../service/endpoints.js";
+import type { ControlStatus } from "../service/protocol.js";
+import { CrotService } from "../service/service.js";
+import { runShim } from "../service/shim.js";
 
 const log = (message: string) => process.stderr.write(`crot: ${message}\n`);
 
 /** Deadline for a graceful shutdown (Windows terminates a closed console's processes after about 5-10 s). */
 const SHUTDOWN_TIMEOUT_MS = 5_000;
+const windows = process.platform === "win32";
+/** Signals that stop CROT gracefully (the Core platform reports the same set). */
+const SHUTDOWN_SIGNALS = windows ? ["SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"] : ["SIGINT", "SIGTERM", "SIGHUP"];
 
 async function main(): Promise<void> {
-  const command = await parseCli(process.argv.slice(2));
-  if (command.kind === "help") {
-    process.stdout.write(USAGE);
-    return;
+  const argv = process.argv.slice(2);
+  const command = await parseCli(argv);
+  switch (command.kind) {
+    case "help":
+      process.stdout.write(USAGE);
+      return;
+    case "version":
+      process.stdout.write(`${CORE_VERSION}\n`);
+      return;
+    case "browser-install":
+      return installBrowser();
+    case "service-status":
+      return serviceStatus();
+    case "service-stop":
+      return serviceStop();
+    case "service-run":
+      return runService(command.serve, command.onDemand ? "on-demand" : "managed");
+    case "serve":
+      // With HTTP this process is the service; on stdio it is a shim of the service.
+      if (parseConfig(command.config).http.enabled) return runService(command, "managed");
+      return shim(command, argv);
   }
-  if (command.kind === "version") {
-    process.stdout.write(`${CORE_VERSION}\n`);
-    return;
-  }
-  if (command.kind === "browser-install") {
-    await installBrowser();
-    return;
-  }
+}
 
+function startupNotes(command: ServeCommand): void {
   for (const warning of command.warnings) log(`warning: ${warning}`);
   if (command.configSource === "default") log(`config: ${command.configFile} (default location)`);
+}
 
-  const parsed = parseConfig(command.config);
-  const http = parsed.http;
-  const stateDir = hostDirectories(process.env).state;
-  const tokenFile = http.enabled
-    ? path.resolve(expandHome(http.auth.tokenFile ?? path.join(stateDir, DEFAULT_HTTP_TOKEN_FILE_NAME)))
-    : undefined;
-  // Persisted exposure of remote principals (AD-15): only HTTP can carry remote principals.
-  const remoteExposureFile = http.enabled ? path.join(stateDir, REMOTE_EXPOSURE_FILE_NAME) : undefined;
-  // The configuration, the HTTP token file and the browser bridge token file can never be modified through CROT tools.
-  const protectedPaths = [
-    command.configFile,
-    tokenFile,
-    ...browserProtectedPaths(parsed.browser.enabled, stateDir),
-  ].filter((p): p is string => p !== undefined);
-
-  // Native resources first; Core is built on the Native Host platform (same startup PATH policy as Core's own platform).
-  const native = await NativeHost.start({ startupPath: parsed.environment.path });
-  for (const note of native.status().notes) log(`note: native host: ${note}`);
-  // The browser bridge never stops CROT: when it cannot start, CROT runs without it (warning on stderr).
-  const bridge = await startBrowserBridge({
-    enabled: parsed.browser.enabled,
-    stateDir,
-    privateFiles: native.platform.privateFiles,
+async function shim(command: ServeCommand, argv: readonly string[]): Promise<void> {
+  startupNotes(command);
+  await runShim({
+    command,
+    argv,
+    entry: fileURLToPath(import.meta.url),
+    stateDir: hostDirectories(process.env).state,
+    privateFiles: createPrivateFileProtection(windows),
     log,
+    signals: SHUTDOWN_SIGNALS,
   });
-  let core: CrotCore;
-  try {
-    core = await CrotCore.create(command.config, {
-      ...(protectedPaths.length > 0 ? { protectedPaths } : {}),
-      ...(remoteExposureFile ? { remoteExposureFile } : {}),
-      platform: native.platform,
-      ...(bridge ? { browser: bridge } : {}),
-    });
-  } catch (error) {
-    await bridge?.close();
-    await native.close();
-    throw error;
-  }
-  const status = core.status();
-  log(`CROT ${status.version} — mode: ${status.mode}, workspace: ${status.workspace.root}`);
-  log(
-    `platform: ${status.platform.os} ${status.platform.arch}, shells: ${status.platform.shells.map((s) => s.id).join(", ")}`,
-  );
-  const control = core.platform.info.processControl;
-  log(
-    `native host: process trees ${control.treeTermination}, private files ${core.platform.info.privateFiles.mechanism}`,
-  );
-  const startupPath = status.platform.startupPath;
-  if (startupPath.source === "login-shell" || startupPath.added.length > 0) {
-    log(
-      `PATH: ${startupPath.source === "login-shell" ? `from login shell ${startupPath.shell}` : "inherited"}, ${startupPath.added.length} entries added`,
+}
+
+async function runService(command: ServeCommand, launch: "on-demand" | "managed"): Promise<void> {
+  startupNotes(command);
+  let stop: (reason: string) => void = () => undefined;
+  const started = await CrotService.start({
+    command,
+    launch,
+    stateDir: hostDirectories(process.env).state,
+    privateFiles: createPrivateFileProtection(windows),
+    log,
+    requestStop: (reason) => stop(reason),
+  });
+  if (started === "already_running") {
+    // Two shims started a service at the same time: the other one serves them both.
+    if (launch === "on-demand") return;
+    throw new CrotError(
+      "OPERATION_FAILED",
+      "A CROT service is already running for this user (see 'crot-mcp service status'); stop it with 'crot-mcp service stop' first.",
     );
   }
-  if (startupPath.note) log(`warning: PATH: ${startupPath.note}; using the inherited PATH`);
-  if (status.mode === "full_control") {
-    log("WARNING: FULL CONTROL mode — the connected agent can access everything this process can.");
-  }
-  log(`audit: ${status.audit.sink}${status.audit.path ? ` (${status.audit.path})` : ""}`);
-  const protection = status.audit.protection;
-  if (protection && protection.ownerOnly === false) log(`warning: audit log ${protection.detail}`);
-  if (protection && protection.ownerOnly === null) log(`note: audit log ${protection.detail}`);
-  log(`browser: ${status.browser.state}`);
-
-  if (tokenFile !== undefined) {
-    await serveHttp(core, native, bridge, http, tokenFile);
-    return;
-  }
-
-  const server = createCrotMcpServer(core, { resolveContext: localContextResolver("stdio") });
-  const transport = new StdioServerTransport();
-
+  const service = started;
   const lifecycle = installLifecycle({
     host: process,
-    signals: status.platform.shutdownSignals,
+    signals: service.core.platform.info.shutdownSignals,
     timeoutMs: SHUTDOWN_TIMEOUT_MS,
     log,
-    // One shutdown path: transport -> Core (terminates process trees, aborts browser requests) -> browser bridge -> Native Host -> flush.
+    // One shutdown path (AD-7): endpoints and connections -> HTTP -> Core -> browser bridge -> Native Host -> flush.
     shutdown: async (reason) => {
       log(`shutting down (${reason})`);
-      try {
-        await server.close();
-      } catch {
-        // Transport may already be closed.
-      }
-      await core.shutdown();
-      await bridge?.close();
-      await native.close();
+      await service.shutdown(reason);
       await Promise.all([flushStream(process.stdout), flushStream(process.stderr)]);
     },
-    emergency: () => {
-      core.terminateProcessesSync();
-      native.closeSync();
-    },
+    emergency: () => service.emergency(),
     exit: (code) => process.exit(code),
   });
-  transport.onclose = () => lifecycle.stop("transport closed", 0);
-  process.stdin.on("end", () => lifecycle.stop("stdin closed", 0));
-  // The client went away: writing to stdout fails with EPIPE.
-  process.stdout.on("error", () => lifecycle.stop("stdout closed", 0));
+  stop = (reason) => lifecycle.stop(reason, 0);
+  if (launch === "on-demand") {
+    // Detached from any terminal: a closed stdout/stderr (log file) never stops the service.
+    process.stdout.on("error", () => undefined);
+    process.stderr.on("error", () => undefined);
+  }
+}
 
-  await server.connect(transport);
+async function controlClient(): Promise<ControlClient | undefined> {
+  return ControlClient.connect({
+    stateDir: hostDirectories(process.env).state,
+    privateFiles: createPrivateFileProtection(windows),
+  });
+}
+
+/** `crot-mcp service status`: exit 0 when running, 3 when not running. */
+async function serviceStatus(): Promise<void> {
+  const client = await controlClient();
+  if (!client) {
+    process.stdout.write("CROT service: not running\n");
+    process.exitCode = 3;
+    return;
+  }
+  try {
+    const status = (await client.request("status")) as ControlStatus;
+    const s = status.service;
+    const lines = [
+      `CROT service: ${s.state} (pid ${s.pid}, ${s.launch}, up ${Math.round(s.uptimeMs / 1000)} s)`,
+      `version: ${status.version}, mode: ${status.mode}, workspace: ${status.workspace}`,
+      `clients: ${s.clients.stdio} stdio, ${s.clients.control} control; endpoints: ${s.endpoints.kind}`,
+      `http: ${s.http.enabled ? `${s.http.url ?? ""}${s.http.sessionless ? ` (sessionless ${s.http.sessionless.inFlight}/${s.http.sessionless.limit} in flight, ${s.http.sessionless.rejected} rejected)` : ""}` : "disabled"}`,
+      `browser: ${status.browser}`,
+      `resumes detected: ${s.power.resumes}${s.power.lastResumeAt ? ` (last ${s.power.lastResumeAt})` : ""}`,
+    ];
+    process.stdout.write(lines.join("\n") + "\n");
+  } finally {
+    client.close();
+  }
+}
+
+/** `crot-mcp service stop`: graceful shutdown through the control channel; waits until it has exited. */
+async function serviceStop(): Promise<void> {
+  const client = await controlClient();
+  if (!client) {
+    process.stdout.write("CROT service: not running\n");
+    return;
+  }
+  let pid: number | undefined;
+  try {
+    pid = ((await client.request("shutdown")) as { pid?: number }).pid;
+  } finally {
+    client.close();
+  }
+  const stateDir = hostDirectories(process.env).state;
+  const credential = await fileCredentialStore(stateDir, createPrivateFileProtection(windows)).read("service");
+  const stopped = await waitForServiceExit(stateDir, credential, 15_000);
+  if (!stopped) throw new CrotError("OPERATION_FAILED", `The CROT service (pid ${String(pid)}) did not stop in time.`);
+  process.stdout.write(`CROT service stopped (pid ${String(pid)})\n`);
 }
 
 /** `crot-mcp browser install`: register this CROT installation as the native-messaging host for the current user. */
 async function installBrowser(): Promise<void> {
-  const windows = process.platform === "win32";
   const result = await installBrowserHost({
     os: osFamily(process.platform),
     home: os.homedir(),
@@ -174,54 +192,6 @@ async function installBrowser(): Promise<void> {
     ...(windows ? { registry: regExeWriter(process.env.SystemRoot ?? "C:\\Windows") } : {}),
   });
   process.stdout.write(formatInstallResult(result));
-}
-
-async function serveHttp(
-  core: CrotCore,
-  native: NativeHost,
-  bridge: BrowserBridge | undefined,
-  http: ReturnType<typeof parseConfig>["http"],
-  tokenFile: string,
-): Promise<void> {
-  let server: CrotHttpServer;
-  try {
-    const { token, created } = await loadOrCreateLocalToken(tokenFile, core.platform.privateFiles);
-    const verifier = new LocalTokenVerifier(token);
-    log(
-      `http: access token ${created ? "created in" : "read from"} ${tokenFile} (fingerprint ${verifier.fingerprint})`,
-    );
-    const tokenProtection = await core.platform.privateFiles.inspect(tokenFile);
-    if (tokenProtection.ownerOnly === false) log(`warning: HTTP token file ${tokenProtection.detail}`);
-    if (tokenProtection.ownerOnly === null) log(`note: HTTP token file ${tokenProtection.detail}`);
-    server = await CrotHttpServer.start(core, { config: http, verifier, log });
-  } catch (error) {
-    await core.shutdown();
-    await bridge?.close();
-    await native.close();
-    throw error;
-  }
-
-  installLifecycle({
-    host: process,
-    signals: core.platform.info.shutdownSignals,
-    timeoutMs: SHUTDOWN_TIMEOUT_MS,
-    log,
-    // One shutdown path: stop HTTP (no new requests, sessions closed) -> Core -> browser bridge -> Native Host -> flush.
-    shutdown: async (reason) => {
-      log(`shutting down (${reason})`);
-      await server.close();
-      await core.shutdown();
-      await bridge?.close();
-      await native.close();
-      await Promise.all([flushStream(process.stdout), flushStream(process.stderr)]);
-    },
-    emergency: () => {
-      core.terminateProcessesSync();
-      native.closeSync();
-    },
-    exit: (code) => process.exit(code),
-  });
-  log(`http: listening on ${server.url} (loopback only; bearer token required)`);
 }
 
 main().catch((error: unknown) => {

@@ -97,6 +97,7 @@ interface StartOptions {
   readonly verifier?: AccessTokenVerifier;
   readonly approvals?: Record<string, unknown>;
   readonly coreOptions?: CrotCoreOptions;
+  readonly http?: Record<string, unknown>;
 }
 
 async function start(options: StartOptions = {}): Promise<void> {
@@ -109,7 +110,7 @@ async function start(options: StartOptions = {}): Promise<void> {
   const tokenFile = path.join(dirs.outside, "state", "http-token");
   token = (await loadOrCreateLocalToken(tokenFile, core.platform.privateFiles)).token;
   server = await CrotHttpServer.start(core, {
-    config: HttpConfigSchema.parse({ enabled: true, port: 0 }),
+    config: HttpConfigSchema.parse({ enabled: true, port: 0, ...options.http }),
     verifier: options.verifier ?? new LocalTokenVerifier(token),
     ...(options.entryPoint ? { entryPoint: options.entryPoint } : {}),
   });
@@ -586,5 +587,50 @@ describe("WP-19: exposure scopes (AD-15 point 8)", () => {
     const r = await call(client, "fs_write_file", { path: file, content: '{"version":1,"exposed":[]}' });
     expect(r.isError).toBe(true);
     expect(r.body.error?.code).toBe("PERMISSION_DENIED");
+  });
+});
+
+describe("WP-20: concurrency limit for sessionless requests", () => {
+  it("defaults to 32 concurrent 2026-07-28 requests", async () => {
+    expect(HttpConfigSchema.parse({}).maxConcurrentRequests).toBe(32);
+    expect(() => HttpConfigSchema.parse({ maxConcurrentRequests: 0 })).toThrow();
+    await start();
+    expect(server!.sessionlessLoad).toEqual({ inFlight: 0, limit: 32, rejected: 0 });
+  });
+
+  it("rejects requests beyond http.maxConcurrentRequests with 503 and Retry-After, before Core", async () => {
+    await start({ http: { maxConcurrentRequests: 2 } });
+    const slow = () =>
+      raw({
+        headers: modernHeaders("tools/call", "process_exec"),
+        body: modernBody(1, "tools/call", {
+          name: "process_exec",
+          arguments: { command: process.execPath, args: ["-e", "setTimeout(() => {}, 1500)"] },
+        }),
+      });
+    const running = [slow(), slow()];
+    await waitFor(() => server!.sessionlessLoad.inFlight === 2);
+    const before = events().length;
+    const rejected = await raw({ headers: modernHeaders("tools/list"), body: modernBody(2, "tools/list") });
+    expect(rejected.status).toBe(503);
+    expect(rejected.headers.get("retry-after")).toBe("1");
+    expect(rejected.json().error).toMatchObject({ code: -32000, message: "Too many concurrent requests" });
+    // Neither a policy decision nor an audited operation.
+    expect(events().length).toBe(before);
+    expect(server!.sessionlessLoad).toMatchObject({ inFlight: 2, limit: 2, rejected: 1 });
+
+    for (const r of await Promise.all(running)) expect(r.status).toBe(200);
+    await waitFor(() => server!.sessionlessLoad.inFlight === 0);
+    const after = await raw({ headers: modernHeaders("tools/list"), body: modernBody(3, "tools/list") });
+    expect(after.status).toBe(200);
+  });
+
+  it("does not count legacy session requests (they are bounded by http.maxSessions)", async () => {
+    await start({ http: { maxConcurrentRequests: 1 } });
+    const a = await legacy();
+    const b = await legacy();
+    const [x, y] = await Promise.all([call(a, "crot_status"), call(b, "crot_status")]);
+    expect(x.isError || y.isError).toBe(false);
+    expect(server!.sessionlessLoad.rejected).toBe(0);
   });
 });

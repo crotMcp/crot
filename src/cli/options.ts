@@ -10,9 +10,12 @@ import type { PlatformDirectories } from "../core/platform/types.js";
 import { CrotError } from "../core/errors.js";
 
 export const USAGE = `Usage: crot-mcp [options]
+       crot-mcp service run [options] | service status | service stop
        crot-mcp browser install
 
-Starts the CROT MCP server on stdio (default) or, with --http, on loopback HTTP.
+Serves CROT to an MCP client on stdio (default) or, with --http, on loopback HTTP.
+All clients of a user share one CROT service: on stdio, crot-mcp connects to it
+(and starts it when it is not running); with --http it runs the service itself.
 
 Options:
   -c, --config <file>      JSON configuration file (or set CROT_CONFIG; default:
@@ -29,6 +32,10 @@ Options:
   -v, --version            Show the version
 
 Commands:
+  service run [options]    Run the CROT service in the foreground (for systemd user
+                           units, launchd agents, Task Scheduler); same options as above
+  service status           Show the state of the running CROT service
+  service stop             Stop the running CROT service gracefully
   browser install          Register the CROT Host with Chrome, Edge and Brave (current
                            user) so the CROT Browser Extension can connect to it.
                            Grants no permissions; enable the bridge with
@@ -51,7 +58,22 @@ export interface ServeCommand {
   readonly warnings: readonly string[];
 }
 
-export type CliCommand = { kind: "help" } | { kind: "version" } | { kind: "browser-install" } | ServeCommand;
+/** `crot-mcp service run`: the service in the foreground (WP-20). */
+export interface ServiceRunCommand {
+  readonly kind: "service-run";
+  readonly serve: ServeCommand;
+  /** Started by a stdio shim: stops when the last stdio client has gone (internal flag). */
+  readonly onDemand: boolean;
+}
+
+export type CliCommand =
+  | { kind: "help" }
+  | { kind: "version" }
+  | { kind: "browser-install" }
+  | ServeCommand
+  | ServiceRunCommand
+  | { kind: "service-status" }
+  | { kind: "service-stop" };
 
 /** Parse command-line arguments into a configuration input. CLI flags override the config file. */
 export interface ParseCliOptions {
@@ -65,6 +87,7 @@ export async function parseCli(
   options: ParseCliOptions = {},
 ): Promise<CliCommand> {
   if (argv[0] === "browser") return parseBrowserCommand(argv.slice(1));
+  if (argv[0] === "service") return parseServiceCommand(argv.slice(1), env, options);
   let parsed;
   try {
     parsed = parseArgs({
@@ -168,6 +191,36 @@ function parseBrowserCommand(argv: readonly string[]): CliCommand {
     throw new CrotError("CONFIG_ERROR", `Unknown command ${given}. Use 'crot-mcp browser install'.\n\n${USAGE}`);
   }
   return { kind: "browser-install" };
+}
+
+/** `crot-mcp service <run|status|stop>`. */
+async function parseServiceCommand(
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv,
+  options: ParseCliOptions,
+): Promise<CliCommand> {
+  const [sub, ...rest] = argv;
+  if (sub === "run") {
+    const onDemand = rest.includes("--on-demand");
+    const command = await parseCli(
+      rest.filter((a) => a !== "--on-demand"),
+      env,
+      options,
+    );
+    if (command.kind !== "serve") return command;
+    return { kind: "service-run", serve: command, onDemand };
+  }
+  if (sub === "status" || sub === "stop") {
+    if (rest.length === 1 && (rest[0] === "--help" || rest[0] === "-h")) return { kind: "help" };
+    if (rest.length > 0) throw new CrotError("CONFIG_ERROR", `'crot-mcp service ${sub}' takes no options.\n\n${USAGE}`);
+    return { kind: sub === "status" ? "service-status" : "service-stop" };
+  }
+  if (sub === "--help" || sub === "-h") return { kind: "help" };
+  const given = sub === undefined ? "'service' without a command" : `'service ${sub}'`;
+  throw new CrotError(
+    "CONFIG_ERROR",
+    `Unknown command ${given}. Use 'crot-mcp service run', 'service status' or 'service stop'.\n\n${USAGE}`,
+  );
 }
 
 function parsePort(value: string): number {

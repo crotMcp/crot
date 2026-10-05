@@ -49,7 +49,19 @@ export const UNSUPPORTED_PROTOCOL_VERSION_CODE = -32022;
 export type CrotHttpServerConfig = Pick<
   HttpConfig,
   "host" | "port" | "allowedOrigins" | "maxRequestBytes" | "maxSessions" | "sessionIdleTimeoutMs"
->;
+> &
+  Partial<Pick<HttpConfig, "maxConcurrentRequests">>;
+
+/** Default of http.maxConcurrentRequests when a caller passes no value. */
+export const DEFAULT_MAX_CONCURRENT_REQUESTS = 32;
+
+/** Load of the sessionless (2026-07-28) path, reported in crot_status (WP-20). */
+export interface SessionlessLoad {
+  readonly inFlight: number;
+  readonly limit: number;
+  /** Requests rejected because the limit was reached, since start. */
+  readonly rejected: number;
+}
 
 export interface CrotHttpServerOptions {
   readonly config: CrotHttpServerConfig;
@@ -282,6 +294,8 @@ export class CrotHttpServer {
   private closing: Promise<void> | undefined;
   private pendingSessions = 0;
   private boundPort = 0;
+  private modernInFlight = 0;
+  private modernRejected = 0;
 
   private constructor(
     private readonly core: CrotCore,
@@ -329,6 +343,15 @@ export class CrotHttpServer {
 
   get listening(): boolean {
     return this.http.listening;
+  }
+
+  /** Sessionless requests in flight, their limit and the rejections so far. */
+  get sessionlessLoad(): SessionlessLoad {
+    return { inFlight: this.modernInFlight, limit: this.maxConcurrentRequests, rejected: this.modernRejected };
+  }
+
+  private get maxConcurrentRequests(): number {
+    return this.config.maxConcurrentRequests ?? DEFAULT_MAX_CONCURRENT_REQUESTS;
   }
 
   /** Number of open MCP sessions. */
@@ -490,11 +513,29 @@ export class CrotHttpServer {
     auth: AuthInfo,
     principal: Principal,
   ): Promise<void> {
-    // A fresh object per request: the key under which the factory finds this request's principal.
-    const authInfo: AuthInfo = { ...auth };
-    this.modernPrincipals.set(authInfo, principal);
-    const response = await this.modern.fetch(request, { authInfo, parsedBody: body });
-    await sendWebResponse(res, response);
+    // Sessionless requests have no session count to bound them (WP-20): a
+    // global in-flight limit protects the one service from a flood of
+    // parallel requests. The rejection happens before any MCP server or Core
+    // work, so it is neither a policy decision nor an audited event.
+    if (this.modernInFlight >= this.maxConcurrentRequests) {
+      this.modernRejected++;
+      return sendError(res, {
+        status: 503,
+        code: -32000,
+        message: "Too many concurrent requests",
+        headers: { "Retry-After": "1" },
+      });
+    }
+    this.modernInFlight++;
+    try {
+      // A fresh object per request: the key under which the factory finds this request's principal.
+      const authInfo: AuthInfo = { ...auth };
+      this.modernPrincipals.set(authInfo, principal);
+      const response = await this.modern.fetch(request, { authInfo, parsedBody: body });
+      await sendWebResponse(res, response);
+    } finally {
+      this.modernInFlight--;
+    }
   }
 
   /** The per-request MCP server of a 2026-07-28 request (factory of the SDK v2 handler). */
