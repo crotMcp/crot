@@ -1,7 +1,7 @@
 # CROT — Agent Work Packages (v1: Remote MCP)
 
 Detailed cards for WP-17…WP-37. Order, dependencies and status are in
-[`crot-implementation-plan.md`](crot-implementation-plan.md); architecture and
+[`CROT_IMPLEMENTATION_ROADMAP.md`](../../CROT_IMPLEMENTATION_ROADMAP.md); architecture and
 decisions are in [`ARCHITECTURE.md`](../../ARCHITECTURE.md).
 
 ## Common rules for every work package
@@ -12,7 +12,7 @@ decisions are in [`ARCHITECTURE.md`](../../ARCHITECTURE.md).
   `npm run check` passes; new behaviour is covered by tests; existing tools
   and behaviour keep working unless the card states a change; ARCHITECTURE.md
   status markers (§2.4, §25) and the affected user docs are updated; the
-  status in the plan is set to `Done`; one PR per work package.
+  status in `CROT_IMPLEMENTATION_ROADMAP.md` is set to `Done`; one PR per work package.
 - **Do not:** add client-specific logic; bypass the ExecutionGuard /
   PermissionEngine; add a second permission or approval mechanism; run host- or
   agent-supplied code in the browser; work on the external MCP gateway or other

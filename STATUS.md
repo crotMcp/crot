@@ -1,7 +1,7 @@
 # CROT — Status
 
 Current snapshot of the v1 work. Per-work-package status, dependencies and
-order are in [`docs/plan/crot-implementation-plan.md`](docs/plan/crot-implementation-plan.md);
+order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
