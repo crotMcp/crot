@@ -410,28 +410,59 @@ async function probeAsOtherUser(endpoint: string): Promise<string> {
     "s.on('error', (e) => { console.log(e.code || 'error'); process.exit(0); });",
   ].join("");
   if (process.platform === "win32") {
-    // Files the other account can read and write; PowerShell single-quoted strings.
+    // The probe reports through its exit code: no output handle or file has to cross into the other
+    // account's logon session.
+    const outcomes = ["connected", "closed", "EPERM", "EACCES", "ENOENT", "ECONNREFUSED", "EPIPE", "ECONNRESET"];
+    const probe = [
+      "const net = require('net');",
+      `const outcomes = ${JSON.stringify(outcomes)};`,
+      "const report = (r) => process.exit(outcomes.includes(r) ? 10 + outcomes.indexOf(r) : 99);",
+      `const s = net.connect(${JSON.stringify(endpoint)});`,
+      "s.on('connect', () => { s.write('x'); setTimeout(() => report(s.destroyed ? 'closed' : 'connected'), 300); });",
+      "s.on('error', (e) => report(e.code || 'error'));",
+    ].join("");
+    // Files the other account can read and run (C:\Users\Public); PowerShell single-quoted strings.
     const base = path.join(process.env.PUBLIC ?? "C:\\Users\\Public", `crot-probe-${process.pid}`);
-    await writeFile(`${base}.js`, script);
+    await writeFile(`${base}.js`, probe);
     // A copy of Node the other account can certainly read and run.
     await copyFile(process.execPath, `${base}.exe`);
     const q = (v: string) => `'${v.replace(/'/g, "''")}'`;
+    // Only .NET types and language constructs, no cmdlets: nothing depends on loading a PowerShell
+    // module. Process.Start with a user name and password is CreateProcessWithLogonW, i.e. a real logon
+    // of the other account. The password comes from the environment, not the command line.
     const ps = [
-      `$p = ConvertTo-SecureString ${q(process.env.CROT_TEST_OTHER_PASSWORD ?? "")} -AsPlainText -Force;`,
-      `$c = New-Object System.Management.Automation.PSCredential(${q(otherUser!)}, $p);`,
-      `Start-Process -FilePath ${q(`${base}.exe`)} -ArgumentList ${q(`"${base}.js"`)} -Credential $c`,
-      `-WorkingDirectory ${q(path.dirname(base))} -RedirectStandardOutput ${q(`${base}.out`)} -Wait -WindowStyle Hidden;`,
+      "$ErrorActionPreference = 'Stop';",
+      "$password = [System.Security.SecureString]::new();",
+      "foreach ($ch in $env:CROT_TEST_OTHER_PASSWORD.ToCharArray()) { $password.AppendChar($ch) };",
+      "$info = [System.Diagnostics.ProcessStartInfo]::new();",
+      `$info.FileName = ${q(`${base}.exe`)};`,
+      `$info.Arguments = ${q(`"${base}.js"`)};`,
+      `$info.WorkingDirectory = ${q(path.dirname(base))};`,
+      `$info.UserName = ${q(otherUser!)};`,
+      "$info.Domain = $env:COMPUTERNAME;",
+      "$info.Password = $password;",
+      "$info.LoadUserProfile = $true;",
+      "$info.UseShellExecute = $false;",
+      "$info.CreateNoWindow = $true;",
+      "$p = [System.Diagnostics.Process]::Start($info);",
+      "if (-not $p.WaitForExit(20000)) { $p.Kill(); throw 'the probe did not finish' };",
+      "[Console]::Out.Write($p.ExitCode)",
     ].join(" ");
+    // Windows PowerShell must not inherit the module path of a PowerShell 7 parent (the GitHub Actions
+    // default shell): with it, Windows PowerShell finds PowerShell 7's modules and cannot load them.
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toUpperCase() !== "PSMODULEPATH"));
     try {
-      await new Promise<void>((resolve, reject) =>
-        execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], { timeout: 30_000 }, (e) =>
-          e ? reject(e) : resolve(),
+      const code = await new Promise<number>((resolve, reject) =>
+        execFile(
+          "powershell.exe",
+          ["-NoProfile", "-NonInteractive", "-Command", ps],
+          { timeout: 30_000, env },
+          (e, stdout, stderr) => (e ? reject(new Error(`${e.message}\n${stderr}`)) : resolve(Number(stdout.trim()))),
         ),
       );
-      return (await readFile(`${base}.out`, "utf8")).trim();
+      return outcomes[code - 10] ?? `exit ${code}`;
     } finally {
       await rm(`${base}.js`, { force: true });
-      await rm(`${base}.out`, { force: true });
       await rm(`${base}.exe`, { force: true, maxRetries: 10, retryDelay: 100 });
     }
   }
