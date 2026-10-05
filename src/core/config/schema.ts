@@ -120,6 +120,11 @@ export const HttpConfigSchema = z
       .default(4 * 1024 * 1024),
     /** Maximum number of concurrent MCP sessions. */
     maxSessions: z.number().int().positive().default(16),
+    /**
+     * Maximum number of 2026-07-28 (sessionless) requests served at the same
+     * time; more get HTTP 503 with Retry-After (WP-20).
+     */
+    maxConcurrentRequests: z.number().int().positive().max(1024).default(32),
     /** Sessions without requests for this long are closed. */
     sessionIdleTimeoutMs: z
       .number()

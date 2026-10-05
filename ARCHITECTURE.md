@@ -202,7 +202,7 @@ All paths end in the same Core pipeline; no path bypasses it.
 | CROT Browser Extension | user's browser | fixed browser commands | **[Implemented]** (Chromium), basic command set; browser contract v1 decided (§27 AD-16), implementation **[Target, v1]** (§7.1) |
 | MCP client connectors / external MCP gateway | device, outside Core | connections to external MCP servers | **[Target]**, post-v1 (AD-13) |
 | Confirmation mechanism | Core interface + UI provider | explicit user approval of sensitive operations | **[Partial]**: mechanism implemented (WP-15); tray provider **[Target, v1]** |
-| CROT local service (sidecar) | device, background | supervised long-running `crot-mcp` | **[Target]**, v1 (today: started manually / by the MCP client) |
+| CROT local service (sidecar) | device, background | one long-running `crot-mcp` service per user; stdio clients attach through a thin shim; authenticated local control channel | **[Implemented]** (WP-20, §27 AD-17); autostart/installer registration **[Target]** (WP-34) |
 | CROT Tray app | device | user UI | **[Target]**, v1 |
 | Installer / packages | device | Linux, Windows, macOS installation | **[Target]**, v1 |
 | CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Target]**, v1 (AD-13) |
@@ -652,7 +652,7 @@ packages, their order and dependencies are in
 17. Identity, accounts and device binding         [Target, v1, §20]
 18. Remote mode and CROT Cloud Relay              [Target, v1 (mandatory), §22]
 19. External MCP gateway (CROT as MCP client)     [Target, post-v1, §18]
-20. Tray app and supervised local service         [Target, v1, §24]
+20. Tray app and supervised local service         [Partial: service, shim and control channel implemented (WP-20, §27 AD-17); tray and autostart Target, v1, §24]
 21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
@@ -897,8 +897,11 @@ Boundaries:
 
 ## 24. Installable Application
 
-**[Target]** — not implemented. Today CROT is run from a source checkout with CLI
-commands, and the extension is loaded unpacked.
+**[Partial]** — the local service, the stdio shim and the authenticated
+control channel are implemented (WP-20, §27 AD-17); tray, installer and
+autostart are not. Today CROT is run from a source checkout with CLI commands
+(`crot-mcp`, `crot-mcp service run|status|stop`), and the extension is loaded
+unpacked.
 
 Target for Linux, Windows and macOS:
 - **CROT local service (sidecar)** — the existing `crot-mcp` process (Core,
@@ -938,7 +941,8 @@ The tray app is a UI; control logic stays in Core/service.
 | Remote mode, Cloud Relay | **[Target]** (mandatory in v1, AD-13) |
 | Command confinement L1 (Linux, macOS, Windows) | **[Target]** (v1, AD-13) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
-| Installer, tray app, supervised service | **[Target]** (v1, AD-13) |
+| Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
+| Installer, tray app, autostart of the service | **[Target]** (v1, AD-13) |
 
 ## 26. Open Architectural Questions
 
@@ -948,10 +952,12 @@ These need explicit decisions before the corresponding work packages.
    mandatory in v1); the client-specific first milestone is withdrawn by
    AD-14 and replaced by the client-independent acceptance suite (§14).*
 2. **Single service vs per-client processes.** *Decided in §27 AD-13: one
-   supervised service; stdio clients attach through a thin shim.* Today each stdio MCP client
-   starts its own `crot-mcp`, and only one instance can own the browser bridge
-   (`in_use`). The target supervised service (§24) needs a decision on how
-   stdio clients attach to it.
+   supervised service; stdio clients attach through a thin shim. How it runs
+   and how the shim attaches is decided in §27 AD-17 (WP-20): one per-user
+   service (never a system service), started on demand by the shim or by an
+   OS supervisor, authenticated shim and control endpoints; implemented.*
+   Before WP-20 each stdio MCP client started its own `crot-mcp`, and only one
+   instance could own the browser bridge (`in_use`).
 3. **Capability naming for external MCP and remote principals.** Per-server /
    per-tool capabilities, and whether remote principals get a separate (e.g.
    stricter) capability profile.
@@ -3034,3 +3040,126 @@ authentication and permission prompts. These are open items for WP-24…WP-26
   text, and the binding still prevents acting on another element, document or
   origin); `chrome.debugger` gives the extension powerful access, which is
   limited only by the extension's fixed CDP surface and code review.
+
+### AD-17. One CROT service per OS user; stdio clients attach through a thin shim; an authenticated owner-only control channel (WP-20, roadmap OD-1)
+
+**Context.** AD-13 point 3 (§26 question 2) decides one supervised local
+service with a thin stdio shim but not how it runs per OS, and the roadmap
+(`CROT_IMPLEMENTATION_ROADMAP.md` §3.4, OD-1) asks, before WP-20: per-user or
+system service; launchd / systemd user unit / the Windows per-user mechanism;
+and what the shim does when the service is not running. Before WP-20 every
+stdio MCP client started its own `crot-mcp` with its own Core; only the first
+owned the browser bridge, the others stayed `in_use` (§26 question 2). The
+owner-only control channel, the browser-bridge ownership and the secrets
+(WP-21) all assume that the service runs as the user. The tray (WP-22), the
+tunnel (WP-30) and the installer (WP-34) build on this decision.
+
+**Decision.**
+
+1. **Per-user service, never a system service (OD-1).** The CROT service is a
+   `crot-mcp` process running as the user, one per OS user. It owns the Native
+   Host, the browser bridge, Core (PermissionEngine, ExecutionGuard, approval
+   broker, audit), the loopback HTTP adapter and, later, the device tunnel
+   (WP-30). A system service (root / LocalSystem) is excluded: it would hold
+   more privileges than the user, could not own the user's browser bridge and
+   private files, and would need its own cross-user authorization.
+2. **Two launch modes.** *Managed*: `crot-mcp service run [options]` (and
+   `crot-mcp --http`) runs in the foreground and keeps running; it is what OS
+   supervisors start at login and restart after a failure — a systemd user
+   unit (`Restart=on-failure`) on Linux, a LaunchAgent (`KeepAlive` on
+   unsuccessful exit) on macOS, a per-user Task Scheduler logon task with
+   restart on failure on Windows. Installing these is WP-34. *On demand*: when
+   a stdio shim finds no running service it starts one itself (detached, same
+   arguments and environment, output to `<state>/service.log`) and connects;
+   an on-demand service stops shortly after its last stdio client
+   disconnected. The shim therefore never fails merely because the service is
+   not running (OD-1, second question); it fails with a clear error only when
+   the service cannot be started or reached, or runs another configuration.
+3. **Singleton.** Exclusive ownership of the shim endpoint is the singleton:
+   a service that cannot obtain it exits before touching the browser bridge or
+   Core (on demand: silently; managed: with an error). A start lock serialises
+   concurrent on-demand starts (refreshed while held); taking over a socket
+   file left by a crashed service happens under a takeover lock, and an
+   abandoned lock is broken by exactly one process (moved aside and checked). On shutdown the shim endpoint is released
+   last, after the bridge, so a successor never finds the bridge owned.
+4. **Thin shim.** In stdio mode `crot-mcp` is a shim: it forwards stdin lines
+   unchanged to the service, writes the service's MCP output to stdout and the
+   service's diagnostics to stderr, and keeps the observable stdio behaviour
+   (same messages and line limit, same shutdown triggers and messages). It has
+   no Core, no permissions, no policy and no credential other than the shim
+   channel credential. Each shim connection is one MCP connection with its own
+   McpServer in the service and therefore its own exposure scope (AD-12,
+   AD-15 point 8); the shim never reconnects silently, because a new
+   connection would be a new, clean scope — if the service dies, the shim
+   exits with status 1 and the MCP client restarts it.
+5. **One configuration per service.** A service runs one configuration. A
+   shim presents a digest of its effective configuration (configuration file,
+   parsed settings except `http`, CROT version); a different digest is refused
+   with an explanation while the service is in use; an idle on-demand service
+   steps aside for it. Configuration is never taken from the shim's messages.
+   The process environment is not configuration: the service has one (the
+   supervisor's, or the starting shim's); everything the configuration depends
+   on (file, `CROT_CONFIG`, flags, paths) is resolved into the digest, a
+   different state directory is a different service, and the service then
+   leaves the inherited working directory. A shim whose PATH, shell or home
+   directory differs is told so on stderr (only value digests are exchanged).
+6. **Endpoints and authentication.** Two local endpoints in the user's
+   private state directory: the shim endpoint and the control endpoint (Unix
+   sockets `0600` in the `0700` state directory; Windows named pipes whose
+   names derive from the credentials). Each has its own 256-bit credential in
+   a private file (WP-21 moves them to OS secret storage behind the same
+   `CredentialStore` interface). Every connection performs a mutual
+   challenge–response (HMAC-SHA-256 over fresh nonces of both sides, channel
+   label bound in), then every message carries a per-direction sequence number
+   and an HMAC under a per-connection key. Other OS users are stopped by the
+   OS; peers without the credential, with a wrong credential, or replaying,
+   reordering or modifying frames are rejected and disconnected. Credentials
+   are never sent, logged, audited, given to Core, the browser or child
+   processes, or passed in arguments or environment variables; the credential
+   files and the service log are protected paths.
+7. **Control channel.** The control channel is for the user's own tools
+   (`crot-mcp service status|stop`; later the tray and its ApprovalProvider,
+   WP-22). It carries no MCP and no tools and makes no permission decision; in
+   WP-20 its requests are `ping`, `status` and `shutdown`. It is not an
+   authorization mechanism: its credential proves only the same OS user,
+   it creates no principal, grant or scope, and policy and approval
+   decisions stay in the PermissionEngine and the broker (AD-5). Approval and
+   exposure-reset requests (AD-15 C5) are added by WP-22 on this channel and
+   remain the only path for them.
+8. **Lifecycle.** Graceful shutdown keeps AD-7: endpoints and connections,
+   HTTP, then Core (terminates process trees, drains the guard so operations in
+   flight write their audit records, closes the audit log), bridge, Native
+   Host, shim endpoint; the existing deadline and emergency kill stay. Health
+   is reported by `crot_status` (`service`) and the control channel. Sleep and
+   wake are detected from wall-clock jumps; the service then re-checks its
+   endpoints (re-creating a missing socket file, stopping if another process
+   took it). Persisted remote exposure survives restarts and still fails
+   closed.
+9. **Sessionless concurrency.** 2026-07-28 requests are limited by
+   `http.maxConcurrentRequests` (default 32) in flight; excess requests get
+   HTTP 503 (`-32000`, `Retry-After: 1`) before any MCP or Core work.
+
+**Scope and limits.**
+
+- Implemented by WP-20. It decides roadmap OD-1 and the shim behaviour of
+  §26 question 2 within AD-13 point 3; AD-1…AD-16 are unchanged. Core changes
+  are additive (`crot_status.service`, read-only host information); the
+  PermissionEngine, the ExecutionGuard, the approval broker and the tools are
+  not changed. The §24 boundaries are kept: the service is the "CROT local
+  service (sidecar)", the control channel the tray's "authenticated local
+  control channel".
+- Background processes belong to the service: all clients of the service see
+  them, and they keep running after the client that started them
+  disconnected, until the service stops (before WP-20 they ended with that
+  client's process). Per-client process ownership is a follow-up.
+- Left to later work packages: autostart registration and supervisor files
+  (WP-34); OS secret storage and the child-process environment allowlist
+  (WP-21); tray, approval provider and exposure reset on the control channel
+  (WP-22); the tunnel adapter in the service (WP-30).
+- Residual risks, accepted: all stdio clients of a user share one
+  configuration; an on-demand service inherits the environment of the shim
+  that started it; sleep detection is a heuristic and approval deadlines are
+  not extended across sleep; on Windows the pipes keep Node's default security
+  descriptor (other users cannot open them for writing) and rely on the
+  authentication for everything else; in `full_control` mode an agent can read
+  the credential files (as the HTTP and bridge tokens) until WP-21.

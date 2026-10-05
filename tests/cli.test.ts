@@ -127,3 +127,34 @@ describe("parseCli default configuration", () => {
     });
   });
 });
+
+describe("parseCli: service commands (WP-20)", () => {
+  it("service run takes the serve options; --on-demand is internal", async () => {
+    const serve = await parse(["--workspace", dirs.workspace, "--no-audit"]);
+    expect(await parse(["service", "run", "--workspace", dirs.workspace, "--no-audit"])).toEqual({
+      kind: "service-run",
+      serve,
+      onDemand: false,
+    });
+    expect(await parse(["service", "run", "--on-demand", "--workspace", dirs.workspace, "--no-audit"])).toEqual({
+      kind: "service-run",
+      serve,
+      onDemand: true,
+    });
+    expect(await parse(["service", "run", "--help"])).toEqual({ kind: "help" });
+    await expect(parse(["service", "run"])).rejects.toMatchObject({ code: "CONFIG_ERROR" });
+  });
+
+  it("service status and service stop take no options", async () => {
+    expect(await parse(["service", "status"])).toEqual({ kind: "service-status" });
+    expect(await parse(["service", "stop"])).toEqual({ kind: "service-stop" });
+    expect(await parse(["service", "stop", "--help"])).toEqual({ kind: "help" });
+    await expect(parse(["service", "stop", "--force"])).rejects.toMatchObject({ code: "CONFIG_ERROR" });
+    await expect(parse(["service"])).rejects.toMatchObject({ code: "CONFIG_ERROR" });
+    await expect(parse(["service", "restart"])).rejects.toMatchObject({ code: "CONFIG_ERROR" });
+  });
+
+  it("--on-demand is not a serve option", async () => {
+    await expect(parse(["--on-demand", "--workspace", dirs.workspace])).rejects.toMatchObject({ code: "CONFIG_ERROR" });
+  });
+});

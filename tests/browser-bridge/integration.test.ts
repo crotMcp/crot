@@ -17,7 +17,7 @@ import {
   type HostRequest,
 } from "../../src/browser-bridge/protocol.js";
 import { CROT_EXTENSION_ORIGIN, CROT_NATIVE_HOST_NAME } from "../../src/cli/browser-install.js";
-import { isWindows, makeTempDirs, waitFor, type TempDirs } from "../helpers.js";
+import { isWindows, makeTempDirs, stopService, waitFor, type TempDirs } from "../helpers.js";
 
 /**
  * End-to-end tests of the browser chain with the built CROT (ARCHITECTURE.md §16):
@@ -171,6 +171,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await Promise.resolve(cleanup()).catch(() => undefined);
+  // The stdio clients attached to this test's CROT service (WP-20); stop it before its state is removed.
+  await stopService(bin, host.env);
   await dirs.cleanup();
 });
 
@@ -465,29 +467,46 @@ describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => 
   );
 
   it(
-    "a second CROT instance stays in_use for its lifetime; only its browser operations fail",
+    "several stdio clients share one CROT service and its browser bridge: no in_use (WP-20)",
     async () => {
-      const owner = await serve({ mode: "full_control", name: "owner" });
-      const second = await serve({ mode: "full_control", name: "second" });
-      expect(await owner.bridgeState()).toBe("waiting");
-      expect(await second.bridgeState()).toBe("in_use");
-      expect(await second.errorCode("browser_tabs_list")).toBe("BROWSER_BRIDGE_IN_USE");
-      expect((await second.call("browser_status")).body).toMatchObject({ state: "in_use" });
-      expect((await second.call("fs_write_file", { path: "second.txt", content: "ok" })).isError).toBe(false);
+      const first = await serve({ mode: "full_control" });
+      const second = await serve({ mode: "full_control" });
+      expect(await first.bridgeState()).toBe("waiting");
+      expect(await second.bridgeState()).toBe("waiting");
+      const servicePid = async (c: typeof first) => (await c.call("crot_status")).body?.service?.pid as number;
+      expect(await servicePid(second)).toBe(await servicePid(first));
 
-      // The extension connects to the owner.
+      // The extension connects once; both clients use it.
       const extension = startBuiltRelay();
       await extension.handshake();
-      await waitFor(async () => (await owner.bridgeState()) === "connected", 10_000);
-      expect((await owner.call("browser_tabs_list")).body).toEqual({ tabs: TABS });
-      expect(await second.errorCode("browser_tabs_list")).toBe("BROWSER_BRIDGE_IN_USE");
-      expect(extension.requests).toHaveLength(1);
+      await waitFor(async () => (await first.bridgeState()) === "connected", 10_000);
+      expect(await second.bridgeState()).toBe("connected");
+      expect((await first.call("browser_tabs_list")).body).toEqual({ tabs: TABS });
 
-      // No takeover: the second instance stays in_use after the owner has exited.
-      await owner.close();
-      await extension.exited;
-      expect(await second.bridgeState()).toBe("in_use");
-      expect(await second.errorCode("browser_tabs_list")).toBe("BROWSER_BRIDGE_IN_USE");
+      // Each stdio connection keeps its own exposure scope (AD-12, AD-15 point 8): the tab list exposed
+      // only the first client, whose write now needs an approval (none available: denied); the second is clean.
+      expect((await first.call("fs_write_file", { path: "first.txt", content: "x" })).isError).toBe(true);
+      expect((await second.call("fs_write_file", { path: "second.txt", content: "ok" })).isError).toBe(false);
+      expect((await second.call("browser_tabs_list")).body).toEqual({ tabs: TABS });
+      expect(extension.requests).toHaveLength(2);
+
+      // The first client leaving does not affect the second one or the bridge.
+      await first.close();
+      expect(await second.bridgeState()).toBe("connected");
+      expect((await second.call("browser_tabs_list")).body).toEqual({ tabs: TABS });
+      expect(second.stderr()).not.toContain("in use");
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "a client with another configuration is refused with an explanation while the service is in use",
+    async () => {
+      const owner = await serve({ mode: "full_control", name: "owner" });
+      expect(await owner.bridgeState()).toBe("waiting");
+      await expect(serve({ mode: "sandbox", name: "other" })).rejects.toThrow();
+      expect(await owner.bridgeState()).toBe("waiting");
+      expect((await owner.call("fs_write_file", { path: "owner.txt", content: "ok" })).isError).toBe(false);
     },
     TIMEOUT,
   );

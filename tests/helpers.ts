@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -25,7 +26,7 @@ export async function makeTempDirs(): Promise<TempDirs> {
   return {
     workspace,
     outside,
-    cleanup: () => rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+    cleanup: () => rm(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   };
 }
 
@@ -77,4 +78,55 @@ export function isAlive(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+}
+
+/**
+ * An isolated per-user CROT state for tests that run the built crot-mcp
+ * (WP-20: every stdio client attaches to the user's CROT service, which lives
+ * in the state directory). Linux $XDG_STATE_HOME/crot, macOS
+ * ~/Library/Application Support/CROT/State (a short HOME: Unix socket paths
+ * are limited to 103 bytes), Windows %LOCALAPPDATA%\CROT.
+ */
+export interface ServiceHost {
+  readonly env: Record<string, string>;
+  readonly stateDir: string;
+  /** Stop the service of this state (if running) and remove the temporary HOME. */
+  cleanup(bin: string): Promise<void>;
+}
+
+export async function makeServiceHost(base: string): Promise<ServiceHost> {
+  const inherited = Object.fromEntries(
+    Object.entries(process.env).filter((e): e is [string, string] => e[1] !== undefined),
+  );
+  let env: Record<string, string>;
+  let stateDir: string;
+  let removeHome: (() => Promise<void>) | undefined;
+  if (isWindows) {
+    const local = path.join(base, "local");
+    env = { ...inherited, LOCALAPPDATA: local, APPDATA: path.join(base, "roaming") };
+    stateDir = path.join(local, "CROT");
+  } else if (process.platform === "darwin") {
+    const home = await realpath(await mkdtemp("/tmp/crot-h-"));
+    env = { ...inherited, HOME: home };
+    stateDir = path.join(home, "Library", "Application Support", "CROT", "State");
+    removeHome = () => rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } else {
+    env = { ...inherited, XDG_STATE_HOME: path.join(base, "state"), XDG_CONFIG_HOME: path.join(base, "config") };
+    stateDir = path.join(base, "state", "crot");
+  }
+  return {
+    env,
+    stateDir,
+    cleanup: async (bin) => {
+      await stopService(bin, env);
+      await removeHome?.();
+    },
+  };
+}
+
+/** `crot-mcp service stop` for an environment; resolves when no service runs any more. */
+export function stopService(bin: string, env: Record<string, string>): Promise<void> {
+  return new Promise((resolve) => {
+    execFile(process.execPath, [bin, "service", "stop"], { env, timeout: 20_000 }, () => resolve());
+  });
 }

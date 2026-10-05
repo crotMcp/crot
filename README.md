@@ -31,9 +31,13 @@ steps 10–11 and step 21 — Git read and write):
   [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md))
 - HTTP(S) requests made by CROT itself, gated by `network.access` and a host
   allow/deny policy (see [Network access](#network-access))
+- One CROT service per user (WP-20): stdio clients attach through a thin shim,
+  so several MCP clients work at the same time and share one browser bridge;
+  an authenticated, owner-only local control channel (`crot-mcp service
+  status|stop`); see [`docs/SERVICE.md`](docs/SERVICE.md)
 
 Not yet implemented: Docker operations beyond `docker.use` (build, pull, push, run, exec), Git network operations (fetch, pull, push), OS-level network egress control for processes and containers, remote (non-loopback)
-exposure and MCP authorization (OAuth/OIDC), installer, account/licensing layer.
+exposure and MCP authorization (OAuth/OIDC), installer and autostart, tray app, account/licensing layer.
 Firefox is not supported.
 
 **Goal and plan.** The v1 goal (remote MCP clients reach the local computer and
@@ -65,7 +69,18 @@ node dist/bin/crot-mcp.js --workspace /path/to/project --http
 
 # Register the browser native-messaging host (grants no permissions).
 node dist/bin/crot-mcp.js browser install
+
+# The per-user CROT service behind every stdio client (see docs/SERVICE.md).
+node dist/bin/crot-mcp.js service status
+node dist/bin/crot-mcp.js service stop
 ```
+
+On stdio, `crot-mcp` is a thin shim: it connects to the user's CROT service and
+starts it when it is not running, so every MCP client uses the same Core,
+browser bridge and audit log. All stdio clients of a user must use the same
+configuration. `crot-mcp --http` and `crot-mcp service run` run the service in
+the foreground (for example under a systemd user unit, a launchd agent or a
+Task Scheduler task); see [`docs/SERVICE.md`](docs/SERVICE.md).
 
 Register it in any MCP client that supports stdio servers, for example:
 
@@ -106,6 +121,14 @@ is planned for v1 and not part of this version.
 Command: `crot-mcp browser install` registers the browser native-messaging host
 for the current user (see [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)).
 It grants no permissions.
+
+Service commands (see [`docs/SERVICE.md`](docs/SERVICE.md)):
+
+| Command | Description |
+| --- | --- |
+| `crot-mcp service run [options]` | Run the CROT service in the foreground (managed; for OS supervisors) |
+| `crot-mcp service status` | State of the running service (exit status 3 when not running) |
+| `crot-mcp service stop` | Stop the running service gracefully and wait for it |
 
 ### Configuration
 
@@ -149,6 +172,7 @@ directory (CROT warns when a relative path is resolved).
 | `http.allowedOrigins` | `[]` | Browser origins allowed; requests with any other `Origin` are rejected |
 | `http.maxRequestBytes` | 4 MiB | Maximum request body |
 | `http.maxSessions` | 16 | Concurrent MCP sessions |
+| `http.maxConcurrentRequests` | 32 | Sessionless (2026-07-28) requests served at the same time (1–1024); more get 503 |
 | `http.sessionIdleTimeoutMs` | 1 800 000 | Idle sessions are closed after this time |
 | `browser.enabled` | `false` | Start the browser bridge for the CROT Browser Extension; grants nothing |
 
@@ -170,6 +194,9 @@ defaulted.
   like any other configuration file.
 - `"audit": { "sink": "file" }` without a `path` writes to `<logs>/audit.jsonl`.
 - The HTTP token file defaults to `<state>/http-token`.
+- The CROT service keeps its endpoints, credentials and log in `<state>`
+  (`service.sock`, `control.sock`, `service-token`, `control-token`,
+  `service.log`; see [`docs/SERVICE.md`](docs/SERVICE.md)).
 - The directories are reported in `crot_status` (`platform.directories`).
 
 ## HTTP transport
@@ -255,6 +282,7 @@ or Core:
 | `2026-07-28` requests: headers match the body, `_meta` envelope present | 400 (`-32020` / `-32602`) |
 | legacy: a new session only via `initialize` with a supported version; existing ones only for the principal that opened them | 400 / 404 |
 | legacy session count ≤ `http.maxSessions` | 503 |
+| `2026-07-28` requests in flight < `http.maxConcurrentRequests` | 503 (`-32000`, `Retry-After: 1`) |
 
 Rejections are JSON-RPC error objects without internal details or stack traces;
 unexpected failures return a generic `500 Internal error`. Core errors (for
@@ -638,8 +666,12 @@ mksh, yash and fish; if the shell fails or times out, CROT keeps the inherited
 
 ### Shutdown
 
-The stdio server shuts down gracefully when the client closes stdin or stdout;
-both the stdio and the HTTP server shut down on the platform's shutdown signals:
+A stdio shim ends its client's connection when the client closes stdin or
+stdout or on a shutdown signal; the CROT service behind it stops (as described
+below) when its last stdio client has gone (on-demand service), on
+`crot-mcp service stop`, or on a shutdown signal (managed service, `--http`);
+see [`docs/SERVICE.md`](docs/SERVICE.md). The service shuts down on the
+platform's shutdown signals:
 `SIGINT`, `SIGTERM` and `SIGHUP` (POSIX
 terminal hang-up); on Windows also `SIGBREAK` (Ctrl+Break) and `SIGHUP` (console
 window closed). Shutdown closes the transport (for HTTP: stops listening, closes
@@ -702,7 +734,8 @@ its limitations). Not yet implemented:
 - OS-level sandboxing of commands (Core's sandbox confines paths and working
   directories, not what a command does).
 - Credential provisioning for the HTTP transport (device identity/registration
-  verifier, token rotation) and running CROT as a supervised service.
+  verifier, token rotation); installing the CROT service for autostart (the
+  service itself exists, see [`docs/SERVICE.md`](docs/SERVICE.md)).
 
 ## Security properties
 
@@ -715,7 +748,7 @@ its limitations). Not yet implemented:
   act on links, not their targets; the workspace root cannot be deleted or moved;
   FIFOs, sockets and devices are never opened as files.
 - Protected paths: the audit log, the configuration file in use, the HTTP
-  token file and (when `browser.enabled`) the browser bridge token file cannot be
+  token file, the CROT service credentials and log, and (when `browser.enabled`) the browser bridge token file cannot be
   modified, deleted or moved through CROT tools in any mode (enforced by the
   PermissionEngine; listed in `crot_status`). A command run with `shell.execute`
   is not restricted by this rule. Protection from other local users is
@@ -743,7 +776,10 @@ its limitations). Not yet implemented:
   it; the HTTP server listens on loopback only and requires authentication.
   The browser bridge uses local IPC only (Unix socket or named pipe,
   token-authenticated); browser tools do make the browser load the pages the
-  agent asks for.
+  agent asks for. The stdio shims and the control channel reach the CROT
+  service over owner-only local IPC with mutual challenge–response
+  authentication and per-message integrity (replays are rejected); the
+  control channel carries no MCP tools.
 
 ## MCP tools
 
@@ -795,7 +831,9 @@ src/
   native-host/             Native Host platform layer (see docs/NATIVE_HOST.md)
   cli/                     command-line option parsing, host shutdown lifecycle,
                            browser*.ts (`crot-mcp browser install`)
-  bin/crot-mcp.ts          entry point (stdio or --http)
+  service/                 CROT service (WP-20): authenticated local channel, endpoints and credentials,
+                           service (Core, bridge, HTTP, shim and control endpoints), stdio shim, control client
+  bin/crot-mcp.ts          entry point (stdio shim, service, service commands)
   bin/crot-browser-relay.ts  native-messaging relay started by the browser
 extension/                 CROT Browser Extension (MV3 sources and tests)
 tests/                     vitest suites (core, capabilities, MCP and HTTP adapters, CLI, stdio e2e,

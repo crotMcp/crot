@@ -32,5 +32,6 @@ jobs:
       # Verify the production builds; tests build their own copy of CROT for the stdio and browser end-to-end tests.
       - run: npm run build
       - run: npm run build:extension
+      - run: node scripts/ci-other-user.mjs
       - run: npm test
       - run: npm run test:extension
