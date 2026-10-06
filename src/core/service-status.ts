@@ -28,4 +28,16 @@ export interface ServiceStatus {
   };
   /** Detected system suspend/resume (or clock jumps) and the last endpoint re-check. */
   readonly power: { readonly resumes: number; readonly lastResumeAt?: string };
+  /**
+   * Secret store of the service (WP-21, AD-18): backend and location, never a
+   * value. store: keychain | dpapi | libsecret | file. httpToken: where the
+   * HTTP token is kept when HTTP is enabled ("token-file" is the plaintext
+   * compatibility mode).
+   */
+  readonly secrets: {
+    readonly store: string;
+    readonly location: string;
+    readonly fallbackReason?: string;
+    readonly httpToken?: "secret-store" | "token-file";
+  };
 }

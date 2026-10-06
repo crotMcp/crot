@@ -942,6 +942,7 @@ The tray app is a UI; control logic stays in Core/service.
 | Command confinement L1 (Linux, macOS, Windows) | **[Target]** (v1, AD-13) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
 | Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
+| CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children **[Target]** (L1, WP-23) |
 | Installer, tray app, autostart of the service | **[Target]** (v1, AD-13) |
 
 ## 26. Open Architectural Questions
@@ -3107,8 +3108,8 @@ tunnel (WP-30) and the installer (WP-34) build on this decision.
    private state directory: the shim endpoint and the control endpoint (Unix
    sockets `0600` in the `0700` state directory; Windows named pipes whose
    names derive from the credentials). Each has its own 256-bit credential in
-   a private file (WP-21 moves them to OS secret storage behind the same
-   `CredentialStore` interface). Every connection performs a mutual
+   the secret store behind the `CredentialStore` interface (OS secret storage
+   or the owner-only fallback, WP-21, AD-18). Every connection performs a mutual
    challenge–response (HMAC-SHA-256 over fresh nonces of both sides, channel
    label bound in), then every message carries a per-direction sequence number
    and an HMAC under a per-connection key. Other OS users are stopped by the
@@ -3153,13 +3154,117 @@ tunnel (WP-30) and the installer (WP-34) build on this decision.
   disconnected, until the service stops (before WP-20 they ended with that
   client's process). Per-client process ownership is a follow-up.
 - Left to later work packages: autostart registration and supervisor files
-  (WP-34); OS secret storage and the child-process environment allowlist
-  (WP-21); tray, approval provider and exposure reset on the control channel
+  (WP-34); tray, approval provider and exposure reset on the control channel
   (WP-22); the tunnel adapter in the service (WP-30).
 - Residual risks, accepted: all stdio clients of a user share one
   configuration; an on-demand service inherits the environment of the shim
   that started it; sleep detection is a heuristic and approval deadlines are
   not extended across sleep; on Windows the pipes keep Node's default security
   descriptor (other users cannot open them for writing) and rely on the
-  authentication for everything else; in `full_control` mode an agent can read
-  the credential files (as the HTTP and bridge tokens) until WP-21.
+  authentication for everything else. Secret storage and the child-process
+  environment allowlist were added by WP-21 (AD-18).
+
+### AD-18. CROT secrets live in an OS secret store behind one interface; children of process tools get an allowlisted environment; WP-21 closes leaks through CROT itself, not OS-level access by children (WP-21)
+
+**Context.** After WP-20 the service, control, HTTP and browser-bridge
+credentials were owner-only files in the state directory (AD-17 point 6), and
+`shell.execute` / `process.manage` passed the whole CROT process environment
+(the supervisor's or the starting shim's, AD-17 point 5) to their children.
+AD-13 point 8 puts "a protected location for CROT secrets" and "the
+child-process environment allowlist" into phase 1. AD-13 point 4 assigns the
+protection of CROT's state against commands to L1 confinement (WP-23a/b/c):
+an unconfined child runs as the same OS user and can, in principle, reach
+everything that user can reach, including the OS secret store. WP-21 therefore
+needs an explicit boundary.
+
+**Decision.**
+
+1. **Boundary (variant A).** WP-21 closes every path by which a secret leaves
+   through CROT itself: structured CROT tools (filesystem, Git, Docker, HTTP,
+   browser), the child-process environment, Core data and `crot_status`, the
+   audit log, the service log and diagnostics, the browser and outbound
+   requests. It does not protect the OS secret store against a child process
+   that uses the OS mechanisms itself as the same user: in `sandbox` mode that
+   is a residual risk until L1 (WP-23a/b/c, AD-13 point 4); `full_control`
+   stays unconfined by definition (§6, AD-13 point 4). The permission system,
+   AD-1…AD-17 and the WP-20 boundaries are not changed.
+2. **One secret store, chosen per state directory.** The four secrets
+   (`service-token`, `control-token`, `browser-token`, `http-token`) are read
+   and written through one `SecretStore` over a backend: macOS Keychain
+   (`/usr/bin/security`, service `crot-mcp:<state key>`), Windows DPAPI
+   (CryptProtectData, current user, through the bundled FFI already used by the
+   Native Host; files `secrets/<name>.dpapi`), Linux Secret Service
+   (`secret-tool`, attributes application / state key / secret name; only
+   with a session bus), or the documented fallback: owner-only files (`0600`
+   in the `0700` state directory, owner-only ACL on Windows). Values are never
+   passed in arguments or environment variables of the helper tools (stdin, or
+   hex through `security -i`); helper diagnostics are reduced to one line
+   without values. `secrets.store` is `auto` (OS store if a round-trip probe
+   succeeds, else the file fallback with the reason recorded), `os` (fail
+   instead of falling back) or `file`. The choice is recorded in an owner-only
+   marker `secrets.json` in the state directory; every reader (shim, control
+   client, relay, CLI) follows the marker, and only the service changes it.
+   `auto` keeps its first working choice; it does not silently switch later.
+3. **Migration: verify, then delete; never an insecure fallback.** When the
+   backend changes (including the WP-20 plaintext files), the service copies
+   every secret, reads each back and compares it, writes the marker and only
+   then deletes the old copies. A failed copy or verification rolls back
+   ("Nothing was changed"); an old file that cannot be removed, or that holds
+   a different value than the store, is a configuration error, never a
+   silent fallback. Invalid values are rejected, never repaired silently.
+4. **HTTP token.** By default (`http.auth.storage: "secret-store"`) the HTTP
+   token is the `http-token` secret; an existing `http.auth.tokenFile` is
+   migrated (imported, verified, then deleted) and the option is then
+   ignored. `"token-file"` is the explicit legacy compatibility mode: the token
+   stays in the owner-only file (for clients that read it), the service warns
+   at start, and the file is a secret path (point 6).
+5. **User commands.** `crot-mcp secrets status` (backend, location, fallback
+   reason; no values), `crot-mcp secrets show http-token` (the only secret a
+   user needs to configure a client), `crot-mcp secrets rotate [<name>|--all]`
+   (refused while the service runs; new values are written and verified like a
+   migration). Rotating the HTTP token requires updating the HTTP clients; the
+   other secrets are used only between CROT's own processes.
+6. **Secret paths are denied to all CROT tools.** The secret files of the state
+   directory (file fallback or not yet migrated), the DPAPI directory and the
+   configured token file are "secret paths": the PermissionEngine refuses
+   every capability for a path equal to or inside a secret path, in every
+   mode including `full_control`. They, the marker and the secrets lock are
+   also protected paths (no writes through CROT tools). `docker.use` refuses any mount, read-only or
+   not, of a path that contains or is inside a secret path. Secret values are
+   never part of `crot_status`, the audit log, the service log or errors.
+7. **Child-process environment allowlist.** Children of `shell.execute` and
+   `process.manage` start from an allowlisted copy of the CROT environment:
+   paths, home and identity, shell, locale, terminal, temporary directories,
+   proxies, toolchain homes, the Docker CLI connection, the Windows system
+   variables and the PowerShell module analysis cache location
+   (`PSModuleAnalysisCachePath`; case-insensitive on Windows), plus names or prefixes (`NAME*`)
+   listed in `environment.allow`. Session bus addresses
+   (`DBUS_SESSION_BUS_ADDRESS`) and `PSModulePath` are not on the list. The
+   `env` argument sets literal values or removes variables (`null`); it can
+   never copy a withheld variable into the child. `crot_status` reports the
+   policy, the passed names and the number of withheld variables (no values).
+   Git starts from the same allowlisted base and keeps its own rules on top
+   (AD-2); Docker keeps its narrower list (AD-3).
+
+**Scope and limits.**
+
+- Implemented by WP-21. It fixes WP-21's boundary within AD-13 points 4 and 8
+  and AD-17 point 6; it does not change the architecture. No new npm
+  dependency. The `CredentialStore` interface of AD-17 is kept; the shim,
+  control client and relay read through it.
+- Not part of WP-21: L1 confinement (WP-23), tray (WP-22), device keys
+  (WP-28), relay, tunnel and installer.
+- Residual risks, accepted:
+  - Until L1, an unconfined child in `sandbox` mode runs as the user and can
+    use the OS store itself (`security`, Secret Service over a bus address it
+    finds or guesses from `XDG_RUNTIME_DIR`, DPAPI) or read the file
+    fallback; `full_control` is unconfined by definition.
+  - The file fallback stores secrets in plaintext, owner-only; it is chosen
+    only when no OS store works (or explicitly) and is reported by
+    `secrets status` and `crot_status`.
+  - Administrators and root are not protected against.
+  - `auto` keeps its first choice: an OS store that becomes available later
+    is used only after the user sets `secrets.store: "os"` (which migrates).
+  - The allowlist is a default, not a sandbox: values on it (for example
+    proxy URLs with credentials) are passed, and `environment.allow` is the
+    owner's choice.

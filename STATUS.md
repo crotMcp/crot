@@ -7,65 +7,52 @@ package PR updates this file.
 
 ## Last completed
 
-**WP-20 — Supervised service, thin stdio shim, local control channel**
-(ARCHITECTURE.md §27 AD-17; decides roadmap OD-1). User docs:
-[`docs/SERVICE.md`](docs/SERVICE.md).
+**WP-21 — Secret storage and child-process environment allowlist**
+(ARCHITECTURE.md §27 AD-18). User docs: README (Security properties,
+`crot-mcp secrets`), [`docs/SERVICE.md`](docs/SERVICE.md).
 
-- **OD-1.** One CROT service per OS user, never a system service. Managed
-  mode (`crot-mcp service run`, `crot-mcp --http`) for OS supervisors
-  (systemd user unit, LaunchAgent, per-user Task Scheduler task; registration
-  is WP-34); on-demand mode: the stdio shim starts the service when it is not
-  running and the service stops after its last stdio client. Recorded as
-  AD-17 (§24 boundaries unchanged).
-- **Service.** Owns Native Host, browser bridge, Core and HTTP. Singleton by
-  exclusive endpoint ownership (a losing service exits before touching the
-  bridge); the shim endpoint is released last. Several stdio clients now share
-  one Core and one browser bridge: no `in_use` in normal use.
-- **Shim.** `crot-mcp` on stdio forwards stdio MCP unchanged, holds no Core,
-  permissions or policy; one MCP connection and one exposure scope per shim
-  (AD-12, AD-15 point 8); no silent reconnect (exit 1 if the service dies).
-  One configuration per service (digest check; idle on-demand services step
-  aside). The stdio behaviour seen by clients is unchanged (existing E2E pass
-  through the shim).
-- **Endpoints and control channel.** Owner-only Unix sockets / named pipes in
-  the private state directory, separate 256-bit credentials (private files
-  behind a `CredentialStore` interface for WP-21), mutual HMAC
-  challenge–response, per-direction sequence numbers and HMACs (replay,
-  reordering and tampering close the connection). Control channel: `ping`,
-  `status`, `shutdown`; no MCP and no tools.
-- **Lifecycle.** Graceful shutdown keeps AD-7 (Core drains and records
-  in-flight operations before the audit log closes); crash: shims exit,
-  stale endpoints are taken over, persisted remote exposure intact and fail
-  closed; sleep/wake via clock-jump detection with endpoint re-check;
-  `crot_status.service` and `crot-mcp service status` report the state.
-- **Sessionless concurrency.** `http.maxConcurrentRequests` (default 32):
-  excess 2026-07-28 requests get 503 / `-32000` / `Retry-After: 1` before MCP
-  or Core.
-- **Core.** Additive only: `crot_status.service` (host-supplied, read-only).
-  PermissionEngine, ExecutionGuard, approval broker and tools unchanged.
+- **Boundary (AD-18 point 1, variant A).** Closes secret leaks through CROT
+  itself: structured tools, child environment, Core data and `crot_status`,
+  audit, logs, browser, outbound requests. OS-level protection against
+  unconfined children stays with L1 (WP-23); `full_control` is unconfined by
+  definition. Permission system and WP-20 boundaries unchanged.
+- **Secret store.** Service, control, HTTP and bridge credentials behind one
+  `SecretStore`: macOS Keychain (`security`), Windows DPAPI (current user,
+  through the existing FFI), Linux Secret Service (`secret-tool`), documented
+  owner-only file fallback. `secrets.store: auto|os|file`; the choice is
+  recorded per state directory in `secrets.json` and followed by every
+  reader (shim, control client, relay, CLI). No new npm dependency.
+- **Migration.** Copy, read back, compare, switch the marker, then delete;
+  failures roll back; conflicting or undeletable plaintext files stop the
+  service with a clear message; never an insecure fallback.
+  `http.auth.tokenFile` is imported once; `http.auth.storage: "token-file"`
+  is the explicit legacy mode (warning at start).
+- **CLI.** `crot-mcp secrets status | show http-token | rotate <name>|--all`
+  (rotation refused while the service runs).
+- **Secret paths.** Denied to every capability in every mode (PermissionEngine)
+  and protected from writes; `docker.use` refuses mounts containing them.
+- **Child environment.** `shell.execute` / `process.manage` children get an
+  allowlist of the CROT environment plus `environment.allow`; overrides set
+  literals or remove, never copy a withheld variable; `crot_status`
+  reports `childEnvironment` (names and counts only). Git starts from the same
+  base and keeps its rules; Docker unchanged.
 
-Tests: `tests/service/channel.test.ts`, `tests/service/service.test.ts`,
-`tests/service/shim.test.ts` (multi-client through the built shim, CLI
-service commands, crash restart with persisted remote exposure, AD-7 shutdown
-audit, another OS user — runs when `CROT_TEST_OTHER_USER` names a second
-account, created in CI by `scripts/ci-other-user.mjs`; in GitHub Actions a
-missing account fails the run instead of skipping; concurrent service starts
-incl. stale-socket takeover; clients in different working directories),
-`tests/service/endpoints.test.ts` (lock and endpoint races),
-`tests/adapters/http-modern.test.ts` (concurrency limit); the stdio
-and browser-bridge E2E run through the shim; the former "second instance stays
-`in_use`" test is replaced by a shared-bridge test with per-connection
-exposure.
+Tests: `tests/service/secrets/` (store, migration and rollback, OS backends:
+real temp keychain on macOS, DPAPI on Windows, `secret-tool` where available,
+fake tools elsewhere; DPAPI FFI against a mock library),
+`tests/cli/secrets.test.ts`, `tests/core/secret-paths.test.ts`,
+`tests/capabilities/child-environment.test.ts`, Docker mount test, service
+tests for migration, token-file mode and status.
 
-Previous: **WP-19 — Remote MCP request pipeline per AD-15** (PR #14,
-`8169b1f`).
+Previous: **WP-20 — Supervised service, thin stdio shim, local control
+channel** (PR #16, `92cce3b`; AD-17, [`docs/SERVICE.md`](docs/SERVICE.md)).
 
 ## Next
 
 | WP | What | Why now |
 | --- | --- | --- |
 | WP-22 | Tray v1 and approval provider on the control channel | chain A; unblocked by WP-20 |
-| WP-21 | Secret storage (service, control, HTTP and bridge credentials behind `CredentialStore`), child-process environment allowlist | chain A; unblocked by WP-20 |
+| WP-23a/b/c | Command confinement L1 (Linux, macOS, Windows); also protects the OS secret store from children | unblocked by WP-21 |
 | WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | browser branch; unblocked by WP-18 |
 | WP-28 → WP-29 | Identity provider and verifier, then Cloud Relay | relay branch starts right after AD-15 (AD-14 point 6) |
 | WP-35 | Extension publication, submitted early | needs the AD-16 permission justification (`debugger`, `downloads`, `tabGroups`) |
@@ -79,10 +66,11 @@ Previous: **WP-19 — Remote MCP request pipeline per AD-15** (PR #14,
 | Concurrency limit for the tunnel entry point (loopback has `http.maxConcurrentRequests` since WP-20) | WP-30 |
 | Background processes are owned by the service, not by the stdio client that started them (shared by all clients; they outlive that client until the service stops) | follow-up (AD-17 scope) |
 | Approval deadlines are not extended across system sleep; sleep detection is a clock-jump heuristic | follow-up / WP-22 |
-| All stdio clients of a user share one configuration and one process environment (supervisor's or starting shim's; differing PATH/shell/home is reported to the client, child environment allowlist in WP-21) | AD-17 residual risk; WP-21 / WP-34 |
-| Windows named pipes keep Node's default security descriptor (no explicit owner-only DACL) | WP-21 / WP-34 |
+| All stdio clients of a user share one configuration and one process environment (supervisor's or starting shim's; differing PATH/shell/home is reported to the client; commands get only the allowlisted part since WP-21) | AD-17 residual risk; WP-34 |
+| Windows named pipes keep Node's default security descriptor (no explicit owner-only DACL) | WP-34 |
+| Unconfined children can use the OS secret store (or the file fallback) as the same user | AD-18 residual risk; WP-23a/b/c |
+| `secrets.store: "auto"` keeps the file fallback once chosen; switching needs `"os"` | AD-18 residual risk |
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
-| **Before merging WP-20:** add `- run: node scripts/ci-other-user.mjs` before `- run: npm test` in `.github/workflows/ci.yml` (the PR's token cannot change workflows); until then CI fails on purpose | WP-20 (maintainer) |
 | Exposure reset and revocation of remote clients; persistence write failures are only logged | WP-22 |
 | Which token claims carry `clientId` and the device id | WP-28 (depends on the identity provider) |
 | Exact device resource URI form and PRM location | WP-29 |

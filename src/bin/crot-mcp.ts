@@ -13,6 +13,7 @@
  *   service in the foreground (terminal, systemd user unit, launchd agent,
  *   Task Scheduler). Stdio shims of the same user attach to it.
  * - `crot-mcp service status|stop`: the authenticated local control channel.
+ * - `crot-mcp secrets status|show http-token|rotate`: the secret store (WP-21).
  * - `crot-mcp browser install` registers the CROT Host with Chromium browsers and exits.
  * The browser bridge is only a transport for the CROT Browser Extension: every
  * browser tool call is authorized by Core's PermissionEngine.
@@ -21,14 +22,15 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import { formatInstallResult, installBrowserHost, regExeWriter } from "../cli/browser-install.js";
 import { flushStream, installLifecycle } from "../cli/lifecycle.js";
-import { parseCli, USAGE, type ServeCommand } from "../cli/options.js";
+import { parseCli, USAGE, type SecretsCommand, type ServeCommand } from "../cli/options.js";
+import { rotateSecrets, secretsStatus, showHttpToken } from "../cli/secrets.js";
 import { parseConfig } from "../core/config/load.js";
 import { CORE_VERSION } from "../core/crot-core.js";
 import { CrotError } from "../core/errors.js";
 import { hostDirectories, osFamily } from "../core/platform/node-platform.js";
 import { createPrivateFileProtection } from "../core/platform/private-files.js";
 import { ControlClient, waitForServiceExit } from "../service/control-client.js";
-import { fileCredentialStore } from "../service/endpoints.js";
+import { secretCredentialStore } from "../service/endpoints.js";
 import type { ControlStatus } from "../service/protocol.js";
 import { CrotService } from "../service/service.js";
 import { runShim } from "../service/shim.js";
@@ -57,6 +59,8 @@ async function main(): Promise<void> {
       return serviceStatus();
     case "service-stop":
       return serviceStop();
+    case "secrets":
+      return secrets(command);
     case "service-run":
       return runService(command.serve, command.onDemand ? "on-demand" : "managed");
     case "serve":
@@ -157,6 +161,7 @@ async function serviceStatus(): Promise<void> {
       `clients: ${s.clients.stdio} stdio, ${s.clients.control} control; endpoints: ${s.endpoints.kind}`,
       `http: ${s.http.enabled ? `${s.http.url ?? ""}${s.http.sessionless ? ` (sessionless ${s.http.sessionless.inFlight}/${s.http.sessionless.limit} in flight, ${s.http.sessionless.rejected} rejected)` : ""}` : "disabled"}`,
       `browser: ${status.browser}`,
+      `secrets: ${s.secrets.store} (${s.secrets.location})${s.secrets.httpToken === "token-file" ? "; WARNING: HTTP token in a plaintext token file (compatibility mode)" : ""}`,
       `resumes detected: ${s.power.resumes}${s.power.lastResumeAt ? ` (last ${s.power.lastResumeAt})` : ""}`,
     ];
     process.stdout.write(lines.join("\n") + "\n");
@@ -179,10 +184,33 @@ async function serviceStop(): Promise<void> {
     client.close();
   }
   const stateDir = hostDirectories(process.env).state;
-  const credential = await fileCredentialStore(stateDir, createPrivateFileProtection(windows)).read("service");
+  const credential = await secretCredentialStore(stateDir, createPrivateFileProtection(windows)).read("service");
   const stopped = await waitForServiceExit(stateDir, credential, 15_000);
   if (!stopped) throw new CrotError("OPERATION_FAILED", `The CROT service (pid ${String(pid)}) did not stop in time.`);
   process.stdout.write(`CROT service stopped (pid ${String(pid)})\n`);
+}
+
+/** `crot-mcp secrets status | show http-token | rotate <name>...` (WP-21). */
+async function secrets(command: SecretsCommand): Promise<void> {
+  const options = {
+    stateDir: hostDirectories(process.env).state,
+    privateFiles: createPrivateFileProtection(windows),
+    ...(command.config ? { config: command.config } : {}),
+  };
+  switch (command.action) {
+    case "status":
+      process.stdout.write(await secretsStatus(options));
+      return;
+    case "show": {
+      const { token, note } = await showHttpToken(options);
+      if (note) log(`note: ${note}`);
+      process.stdout.write(`${token}\n`);
+      return;
+    }
+    case "rotate":
+      process.stdout.write(await rotateSecrets(options, command.names));
+      return;
+  }
 }
 
 /** `crot-mcp browser install`: register this CROT installation as the native-messaging host for the current user. */

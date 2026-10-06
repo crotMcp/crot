@@ -9,3 +9,4 @@ export * from "./startup-path.js";
 export * from "./windows-command.js";
 export * from "./node-launcher.js";
 export * from "./node-platform.js";
+export * from "./child-environment.js";

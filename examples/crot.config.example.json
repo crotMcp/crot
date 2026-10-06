@@ -23,6 +23,10 @@
     "path": "./crot-audit.jsonl"
   },
   "environment": {
-    "path": "auto"
+    "path": "auto",
+    "allow": []
+  },
+  "secrets": {
+    "store": "auto"
   }
 }

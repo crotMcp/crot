@@ -41,7 +41,7 @@ import { acceptChannel, MAX_CLIENT_FRAME_BYTES, type AuthenticatedChannel } from
 import { configDigest } from "./config-digest.js";
 import { environmentDifferences, environmentFingerprint } from "./environment.js";
 import {
-  fileCredentialStore,
+  secretCredentialStore,
   listenExclusive,
   serviceEndpoint,
   serviceProtectedPaths,
@@ -58,6 +58,14 @@ import {
   type ServiceToShim,
 } from "./protocol.js";
 import { ResumeDetector } from "./resume-detector.js";
+import {
+  prepareSecretStore,
+  secretStoreProtectedPaths,
+  stateSecretPaths,
+  type HttpTokenSource,
+  type PreparedSecretStore,
+  type SecretStoreHost,
+} from "./secrets/store.js";
 import { ChannelServerTransport } from "./transport.js";
 
 /** An on-demand service stops this long after its last stdio client disconnected. */
@@ -77,6 +85,8 @@ export interface ServiceOptions {
   /** Ask the host to stop the service (graceful shutdown through the host lifecycle). */
   readonly requestStop: (reason: string) => void;
   readonly credentials?: CredentialStore;
+  /** Platform inputs and seams of the secret store (tests). */
+  readonly secretsHost?: SecretStoreHost;
   readonly idleExitMs?: number;
   readonly firstClientTimeoutMs?: number;
   readonly windows?: boolean;
@@ -102,6 +112,8 @@ export class CrotService {
   private serviceSocketIno: number | undefined;
   private controlSocketIno: number | undefined;
   private credentials: { service: string; control: string } | undefined;
+  private secrets: PreparedSecretStore | undefined;
+  private httpTokenStorage: "secret-store" | "token-file" | undefined;
   private endpoints: { service: ServiceEndpoint; control: ServiceEndpoint } | undefined;
   private native: NativeHost | undefined;
   private bridge: BrowserBridge | undefined;
@@ -161,6 +173,14 @@ export class CrotService {
         ? { enabled: true, url: this.http.url, sessionless: this.http.sessionlessLoad }
         : { enabled: false },
       power: { resumes: this.resumes, ...(this.lastResumeAt ? { lastResumeAt: this.lastResumeAt } : {}) },
+      secrets: this.secrets
+        ? {
+            store: this.secrets.info.backend,
+            location: this.secrets.info.description,
+            ...(this.secrets.info.fallbackReason ? { fallbackReason: this.secrets.info.fallbackReason } : {}),
+            ...(this.httpTokenStorage ? { httpToken: this.httpTokenStorage } : {}),
+          }
+        : { store: "unknown", location: "not prepared" },
     };
   }
 
@@ -181,10 +201,21 @@ export class CrotService {
   /** Credentials and both endpoints. The shim endpoint first: it is the singleton lock. */
   private async claimEndpoints(): Promise<boolean> {
     const { stateDir, privateFiles } = this.options;
-    const store = this.options.credentials ?? fileCredentialStore(stateDir, privateFiles);
     await privateFiles.ensureDirectory(stateDir);
     const warning = await stateDirectoryWarning(stateDir);
     if (warning) this.log(`warning: ${warning}`);
+    // The secret store first (WP-21): it may migrate the credentials the endpoints are derived from.
+    const parsed = parseConfig(this.options.command.config);
+    this.secrets = await prepareSecretStore({
+      stateDir,
+      privateFiles,
+      preference: parsed.secrets.store,
+      httpToken: httpTokenSource(parsed.http.auth),
+      log: (m) => this.log(m),
+      ...(this.options.secretsHost ? { host: this.options.secretsHost } : {}),
+    });
+    const store =
+      this.options.credentials ?? secretCredentialStore(stateDir, privateFiles, { store: this.secrets.store });
     const service = await store.readOrCreate("service");
     const control = await store.readOrCreate("control");
     this.credentials = { service, control };
@@ -224,15 +255,27 @@ export class CrotService {
       const parsed = parseConfig(command.config);
       this.digest = configDigest(command.configFile ?? "", command.config);
       const http = parsed.http;
-      const tokenFile = http.enabled
-        ? path.resolve(expandHome(http.auth.tokenFile ?? path.join(stateDir, DEFAULT_HTTP_TOKEN_FILE_NAME)))
-        : undefined;
+      const secrets = this.secrets!;
+      const legacyTokenFile =
+        http.auth.storage === "token-file"
+          ? path.resolve(expandHome(http.auth.tokenFile ?? path.join(stateDir, DEFAULT_HTTP_TOKEN_FILE_NAME)))
+          : undefined;
+      const configuredTokenFile =
+        http.auth.tokenFile !== undefined ? path.resolve(expandHome(http.auth.tokenFile)) : undefined;
       // Persisted exposure of remote principals (AD-15): only HTTP (later the tunnel) carries remote principals.
       const remoteExposureFile = http.enabled ? path.join(stateDir, REMOTE_EXPOSURE_FILE_NAME) : undefined;
-      // Configuration, HTTP token, bridge token, service credentials and the service log are never modifiable through CROT tools.
+      // Secret material (AD-18): neither readable nor modifiable through CROT tools, in any mode.
+      const secretPaths = [
+        ...stateSecretPaths(stateDir),
+        ...secrets.store.backend.paths,
+        ...(configuredTokenFile ? [configuredTokenFile] : []),
+        ...(legacyTokenFile ? [legacyTokenFile] : []),
+      ];
+      // Configuration, secret store, bridge token, service credentials and the service log are never modifiable through CROT tools.
       const protectedPaths = [
         command.configFile,
-        tokenFile,
+        ...secretPaths,
+        ...secretStoreProtectedPaths(stateDir),
         ...browserProtectedPaths(parsed.browser.enabled, stateDir),
         ...serviceProtectedPaths(stateDir),
       ].filter((p): p is string => p !== undefined);
@@ -245,17 +288,19 @@ export class CrotService {
         enabled: parsed.browser.enabled,
         stateDir,
         privateFiles: this.native.platform.privateFiles,
+        token: () => secrets.store.readOrCreate("browser-token"),
         log,
       });
       this.coreInstance = await CrotCore.create(command.config, {
         protectedPaths,
+        secretPaths,
         ...(remoteExposureFile ? { remoteExposureFile } : {}),
         platform: this.native.platform,
         ...(this.bridge ? { browser: this.bridge } : {}),
         serviceStatus: () => this.status(),
       });
       this.banner();
-      if (tokenFile !== undefined) await this.startHttp(http, tokenFile);
+      if (http.enabled) await this.startHttp(http, legacyTokenFile);
       log(
         `service: ${this.options.launch}, pid ${process.pid}, local endpoints: ${this.endpoints!.service.kind} (owner only, authenticated)`,
       );
@@ -300,17 +345,37 @@ export class CrotService {
     log(`browser: ${status.browser.state}`);
   }
 
-  private async startHttp(http: ReturnType<typeof parseConfig>["http"], tokenFile: string): Promise<void> {
+  /**
+   * HTTP with the local token from the secret store, or (http.auth.storage
+   * "token-file", compatibility mode) from the plaintext token file.
+   */
+  private async startHttp(
+    http: ReturnType<typeof parseConfig>["http"],
+    legacyTokenFile: string | undefined,
+  ): Promise<void> {
     const core = this.core;
     const log = (m: string) => this.log(m);
-    const { token, created } = await loadOrCreateLocalToken(tokenFile, core.platform.privateFiles);
-    const verifier = new LocalTokenVerifier(token);
-    log(
-      `http: access token ${created ? "created in" : "read from"} ${tokenFile} (fingerprint ${verifier.fingerprint})`,
-    );
-    const tokenProtection = await core.platform.privateFiles.inspect(tokenFile);
-    if (tokenProtection.ownerOnly === false) log(`warning: HTTP token file ${tokenProtection.detail}`);
-    if (tokenProtection.ownerOnly === null) log(`note: HTTP token file ${tokenProtection.detail}`);
+    let verifier: LocalTokenVerifier;
+    if (legacyTokenFile !== undefined) {
+      this.httpTokenStorage = "token-file";
+      const { token, created } = await loadOrCreateLocalToken(legacyTokenFile, core.platform.privateFiles);
+      verifier = new LocalTokenVerifier(token);
+      log(
+        `warning: http: the access token is kept in the plaintext file ${legacyTokenFile} (http.auth.storage "token-file", compatibility mode); ` +
+          `remove that setting to move it into the secret store (fingerprint ${verifier.fingerprint}, ${created ? "created" : "read"})`,
+      );
+      const tokenProtection = await core.platform.privateFiles.inspect(legacyTokenFile);
+      if (tokenProtection.ownerOnly === false) log(`warning: HTTP token file ${tokenProtection.detail}`);
+      if (tokenProtection.ownerOnly === null) log(`note: HTTP token file ${tokenProtection.detail}`);
+    } else {
+      this.httpTokenStorage = "secret-store";
+      const store = this.secrets!.store;
+      const existing = await store.read("http-token");
+      verifier = new LocalTokenVerifier(existing ?? (await store.readOrCreate("http-token")));
+      log(
+        `http: access token ${existing ? "read from" : "created in"} ${store.backend.description} (fingerprint ${verifier.fingerprint}); show it with 'crot-mcp secrets show http-token'`,
+      );
+    }
     this.http = await CrotHttpServer.start(core, { config: http, verifier, log });
     log(`http: listening on ${this.http.url} (loopback only; bearer token required)`);
   }
@@ -634,6 +699,14 @@ export class CrotService {
     this.coreInstance?.terminateProcessesSync();
     this.native?.closeSync();
   }
+}
+
+/** How http.auth keeps the local token (WP-21). */
+function httpTokenSource(auth: ReturnType<typeof parseConfig>["http"]["auth"]): HttpTokenSource {
+  return {
+    storage: auth.storage,
+    ...(auth.tokenFile !== undefined ? { file: path.resolve(expandHome(auth.tokenFile)) } : {}),
+  };
 }
 
 /** Stop accepting and close; connections still open are destroyed by their owners. */

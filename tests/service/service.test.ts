@@ -19,7 +19,7 @@ import { environmentFingerprint } from "../../src/service/environment.js";
 import { ControlClient } from "../../src/service/control-client.js";
 import {
   credentialFile,
-  fileCredentialStore,
+  secretCredentialStore,
   serviceEndpoint,
   type CredentialStore,
 } from "../../src/service/endpoints.js";
@@ -52,6 +52,8 @@ function serveCommand(config: Record<string, unknown> = {}): ServeCommand {
       workspace: { root: dirs.workspace },
       audit: { sink: "none" },
       environment: { path: "inherited" },
+      // Owner-only files: these tests read the credential files; the OS stores are tested in tests/service/secrets.
+      secrets: { store: "file" },
       ...config,
     } as ServeCommand["config"],
     warnings: [],
@@ -86,7 +88,7 @@ async function startService(
   return Object.assign(started, { service });
 }
 
-const store = (): CredentialStore => fileCredentialStore(stateDir, privateFiles);
+const store = (): CredentialStore => secretCredentialStore(stateDir, privateFiles);
 
 /** MCP over a raw shim connection (what the built shim does with stdin/stdout). */
 class ShimTransport implements Transport {
@@ -142,8 +144,8 @@ async function shimConnect(
   return { channel, answer };
 }
 
-async function mcpClient(): Promise<Client> {
-  const { channel, answer } = await shimConnect();
+async function mcpClient(config: Record<string, unknown> = {}): Promise<Client> {
+  const { channel, answer } = await shimConnect(config);
   expect(answer.t).toBe("welcome");
   const client = new Client({ name: "shim-test", version: "0" });
   await client.connect(new ShimTransport(channel));
@@ -376,6 +378,134 @@ describe("sleep/wake (WP-20)", () => {
     expect(s.logs.some((l) => l.includes("resumed after"))).toBe(true);
     const client = await mcpClient();
     expect((await crotStatus(client)).service.power.resumes).toBe(1);
+    await client.close();
+  });
+});
+
+describe("CROT service secrets (WP-21)", () => {
+  const toolText = (r: CallToolResult) => (r.content[0]?.type === "text" ? r.content[0].text : "");
+  const allSecrets = async () => {
+    const values: string[] = [];
+    for (const name of ["service-token", "control-token", "browser-token", "http-token"]) {
+      const v = await readFile(path.join(stateDir, name), "utf8").catch(() => "");
+      if (v.trim()) values.push(v.trim());
+    }
+    return values;
+  };
+
+  it("reports the store, protects every secret path from CROT tools and never shows a value", async () => {
+    const audit = path.join(dirs.outside, "audit.jsonl");
+    const config = {
+      permissions: { mode: "full_control" },
+      audit: { sink: "file", path: audit },
+      http: { enabled: true, port: 0 },
+    };
+    const started = await startService({ config });
+    const client = await mcpClient(config);
+    try {
+      const status = await crotStatus(client);
+      expect(status.service.secrets).toMatchObject({ store: "file", httpToken: "secret-store" });
+      const secrets = await allSecrets();
+      expect(secrets.length).toBeGreaterThanOrEqual(3);
+      for (const name of ["service-token", "control-token", "http-token"]) {
+        const file = path.join(stateDir, name);
+        const read = (await client.callTool({ name: "fs_read_file", arguments: { path: file } })) as CallToolResult;
+        expect(read.isError).toBe(true);
+        expect(toolText(read)).toMatch(/CROT secrets/);
+        const stat = (await client.callTool({ name: "fs_stat", arguments: { path: file } })) as CallToolResult;
+        expect(stat.isError).toBe(true);
+      }
+      const marker = (await client.callTool({
+        name: "fs_write_file",
+        arguments: { path: path.join(stateDir, "secrets.json"), content: '{"version":1,"backend":"file"}' },
+      })) as CallToolResult;
+      expect(marker.isError).toBe(true);
+      const everything = JSON.stringify(await crotStatus(client)) + started.logs.join("\n");
+      for (const value of secrets) expect(everything).not.toContain(value);
+      await client.close();
+      await started.service.shutdown("test");
+      const auditText = await readFile(audit, "utf8");
+      expect(auditText).toContain("filesystem.read_file");
+      for (const value of secrets) expect(auditText).not.toContain(value);
+    } finally {
+      await client.close().catch(() => undefined);
+    }
+  });
+
+  it("migrates a configured http.auth.tokenFile into the store and serves HTTP with that token", async () => {
+    const tokenFile = path.join(dirs.outside, "legacy-http-token");
+    const legacy = randomBytes(32).toString("base64url");
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(tokenFile, `${legacy}\n`);
+    const started = await startService({ config: { http: { enabled: true, port: 0, auth: { tokenFile } } } });
+    await expect(stat(tokenFile)).rejects.toThrow();
+    expect((await readFile(path.join(stateDir, "http-token"), "utf8")).trim()).toBe(legacy);
+    expect(started.logs.join("\n")).toMatch(/http-token migrated from/);
+    expect(started.logs.join("\n")).not.toContain(legacy);
+    const url = started.service.httpUrl!;
+    const post = (token: string) =>
+      fetch(url, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } },
+        }),
+      });
+    expect((await post("wrong-token-0123456789-0123456789-0123")).status).toBe(401);
+    const ok = await post(legacy);
+    expect(ok.status).not.toBe(401);
+    await ok.body?.cancel();
+  });
+
+  it('keeps the plaintext token file in the "token-file" compatibility mode, with a warning', async () => {
+    const tokenFile = path.join(dirs.outside, "compat-token");
+    const started = await startService({
+      config: { http: { enabled: true, port: 0, auth: { storage: "token-file", tokenFile } } },
+    });
+    expect((await readFile(tokenFile, "utf8")).trim()).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(started.logs.join("\n")).toMatch(/warning: http: the access token is kept in the plaintext file/);
+    expect(started.service.status().secrets.httpToken).toBe("token-file");
+  });
+
+  it("refuses to start when a plaintext file and the store disagree (no insecure fallback)", async () => {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    const tokenFile = path.join(dirs.outside, "conflicting-token");
+    await mkdir(stateDir, { recursive: true });
+    await writeFile(path.join(stateDir, "http-token"), `${randomBytes(32).toString("base64url")}\n`);
+    await writeFile(tokenFile, `${randomBytes(32).toString("base64url")}\n`);
+    await expect(
+      startService({ config: { http: { enabled: true, port: 0, auth: { tokenFile } } } }),
+    ).rejects.toMatchObject({ code: "CONFIG_ERROR", message: expect.stringMatching(/holds a different http-token/) });
+    expect(await stat(tokenFile)).toBeTruthy();
+  });
+
+  it("rotation is refused while the service runs and replaces the secrets once it is stopped", async () => {
+    const { rotateSecrets } = await import("../../src/cli/secrets.js");
+    const started = await startService();
+    const before = (await store().read("service"))!;
+    await expect(rotateSecrets({ stateDir, privateFiles }, ["service-token"])).rejects.toMatchObject({
+      code: "OPERATION_FAILED",
+      message: expect.stringMatching(/running/),
+    });
+    await started.service.shutdown("test");
+    services.length = 0;
+    const out = await rotateSecrets({ stateDir, privateFiles }, ["service-token", "http-token"]);
+    expect(out).toMatch(/rotated service-token/);
+    expect(out).toMatch(/crot-mcp secrets show http-token/);
+    const after = (await store().read("service"))!;
+    expect(after).not.toBe(before);
+    expect(after).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    // The next service uses the new credential.
+    await startService();
+    const client = await mcpClient();
+    expect((await crotStatus(client)).service.state).toBe("running");
     await client.close();
   });
 });

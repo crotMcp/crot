@@ -33,6 +33,12 @@ export interface PermissionEngineOptions {
    * on them, or on any ancestor (delete/move of a parent), are always denied.
    */
   readonly protectedPaths?: readonly string[];
+  /**
+   * Paths holding CROT secrets (AD-18). No operation of any capability may
+   * touch them or anything inside them, in any mode; write operations on an
+   * ancestor are denied through protectedPaths.
+   */
+  readonly secretPaths?: readonly string[];
   /** Path containment using the workspace's platform semantics. */
   readonly contains?: (ancestor: string, candidate: string) => boolean;
   /** Host policy of network.access. Defaults to a policy that refuses every destination. */
@@ -74,7 +80,8 @@ const WRITE_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>(["filesy
  * 2. Any path outside the workspace additionally requires `filesystem.full`
  *    (never grantable in sandbox mode).
  * 3. Write operations never touch CROT's protected paths (audit log,
- *    configuration), in any mode.
+ *    configuration), in any mode; no operation at all touches a path holding
+ *    CROT secrets (AD-18), in any mode.
  * 4. Network destinations are only authorized for `network.access`
  *    operations, and every destination must pass the network policy (host
  *    allow/deny rules, non-public addresses only by explicit IP/CIDR rules;
@@ -82,6 +89,7 @@ const WRITE_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>(["filesy
  */
 export class PermissionEngine {
   private readonly protectedPaths: readonly string[];
+  private readonly secretPaths: readonly string[];
   private readonly contains: (ancestor: string, candidate: string) => boolean;
   private readonly networkPolicy: NetworkPolicy;
   private readonly approvalRules: readonly ApprovalRule[];
@@ -95,6 +103,7 @@ export class PermissionEngine {
     options: PermissionEngineOptions = {},
   ) {
     this.protectedPaths = options.protectedPaths ?? [];
+    this.secretPaths = options.secretPaths ?? [];
     this.contains = options.contains ?? ((a, c) => a === c || c.startsWith(a.endsWith("/") ? a : `${a}/`));
     this.networkPolicy = options.network ?? NetworkPolicy.denyAll();
     const rules = options.approvals?.rules ?? [];
@@ -146,6 +155,15 @@ export class PermissionEngine {
     return this.protectedPaths;
   }
 
+  get secrets(): readonly string[] {
+    return this.secretPaths;
+  }
+
+  /** The secret path that `absolute` is or lies inside, if any. */
+  secretPathOf(absolute: string): string | undefined {
+    return this.secretPaths.find((secret) => this.contains(secret, absolute));
+  }
+
   get mode() {
     return this.policy.mode;
   }
@@ -175,6 +193,16 @@ export class PermissionEngine {
           outside.map((p) => p.absolute).join(", "),
         missing: ["filesystem.full"],
       };
+    }
+    for (const p of request.paths ?? []) {
+      const secret = this.secretPathOf(p.absolute);
+      if (secret) {
+        return {
+          allowed: false,
+          reason: `Path holds CROT secrets and is not accessible through CROT tools: ${secret}`,
+          missing: [],
+        };
+      }
     }
     if (WRITE_CAPABILITIES.has(request.capability) && this.protectedPaths.length > 0) {
       for (const p of request.paths ?? []) {

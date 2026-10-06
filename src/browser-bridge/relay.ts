@@ -6,8 +6,10 @@
  *
  * The relay is a dumb transport. It performs no authorization and never
  * interprets the messages it carries:
- * - It reads the bridge token from <state>/browser-token, connects to the
- *   bridge endpoint derived from it and sends the `auth` frame first.
+ * - It reads the bridge token from the secret store of the state directory
+ *   (WP-21: OS secure storage, or the owner-only file <state>/browser-token),
+ *   connects to the bridge endpoint derived from it and sends the `auth`
+ *   frame first.
  * - It then copies frames in both directions, checking only the framing
  *   (non-empty, within the direction's size limit). Frames are never altered,
  *   merged or synthesized; any framing violation ends the relay.
@@ -31,7 +33,9 @@ import net from "node:net";
 import path from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { CrotError } from "../core/errors.js";
-import { bridgeEndpoint, bridgeTokenFile, readBridgeToken } from "./endpoint.js";
+import { createPrivateFileProtection } from "../core/platform/private-files.js";
+import { openSecretStore } from "../service/secrets/store.js";
+import { bridgeEndpoint } from "./endpoint.js";
 import {
   BRIDGE_PROTOCOL_VERSION,
   FrameReader,
@@ -105,13 +109,14 @@ export async function runRelay(options: RelayOptions): Promise<number> {
   let token: string | undefined;
   let endpoint: string;
   try {
-    const tokenFile = bridgeTokenFile(stateDir);
-    token = await readBridgeToken(tokenFile);
+    // The token is in the secret store of the state directory (WP-21), or in its owner-only token file.
+    const store = await openSecretStore(stateDir, createPrivateFileProtection(process.platform === "win32"));
+    token = await store.read("browser-token");
     if (token === undefined) {
       log(
-        "The browser bridge is not set up: " +
-          tokenFile +
-          " does not exist. Start CROT with the browser bridge enabled.",
+        "The browser bridge is not set up: no bridge token in " +
+          store.backend.description +
+          ". Start CROT with the browser bridge enabled.",
       );
       return 1;
     }

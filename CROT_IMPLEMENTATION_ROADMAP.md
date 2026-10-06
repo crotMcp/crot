@@ -142,8 +142,8 @@ Previous: **WP-19 — Remote MCP request pipeline per AD-15**, merged in PR #14
 | Relay entry point | HTTP pipeline accepts a `relay` entry point (tests only) | No tunnel (WP-30), no relay (WP-29) |
 | Remote exposure lifecycle | Persisted, fail-closed | No user reset or revocation path (WP-22, WP-28); persistence write failures are only logged |
 | Process lifecycle | One per-user service (on demand from the shim, or managed by an OS supervisor), shim, control channel (WP-20, AD-17) | No autostart registration / supervisor files (WP-34); background processes are owned by the service, not by the client that started them (follow-up) |
-| Child-process environment | Overrides; Docker and Git have allowlists | No general allowlist for `shell.execute` / `process.manage` (WP-21) |
-| Secrets | Owner-only private files (0600 / ACL) | Not in OS secure storage; readable by unconfined commands (WP-21, WP-23) |
+| Child-process environment | Allowlist for `shell.execute` / `process.manage` plus `environment.allow`; overrides cannot copy withheld variables; Docker and Git keep their rules (WP-21, AD-18) | — |
+| Secrets | OS secret store (Keychain, DPAPI, Secret Service) with owner-only file fallback; verified migration; denied to all CROT tools (WP-21, AD-18) | Unconfined commands can still use the OS store as the user (WP-23) |
 | Cross-OS browser validation | Linux E2E only | macOS / Windows browser chain unverified end to end (WP-25, WP-40) |
 
 ### 2.4 Missing for v1 (nothing in the repository yet)
@@ -180,7 +180,7 @@ No contradiction was found that requires changing an accepted AD.
 | Phase | Purpose | WPs |
 | --- | --- | --- |
 | 0 Contracts | Decide before code | WP-17, WP-18 — **Done** |
-| 1 Local foundation | Supervised product on one machine | WP-19 **Done**, WP-20, WP-21, WP-22, WP-19b (optional) |
+| 1 Local foundation | Supervised product on one machine | WP-19, WP-20, WP-21 **Done**, WP-22, WP-19b (optional) |
 | 2 Confinement | L1 on all three OS | WP-23a, WP-23b, WP-23c |
 | 2B Browser v1 | AD-16 contract | WP-24, WP-25, WP-26, WP-27 |
 | 3 Remote | Identity → relay → tunnel → profile → acceptance → review | WP-28, WP-29, WP-30, WP-31, WP-38, WP-32, WP-33 |
@@ -278,7 +278,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-19 | 1 | Remote request pipeline per AD-15 | WP-17 | M | yes | — | **Done** (`8169b1f`) |
 | WP-19b | 1 | MCP SDK consolidation | WP-19 | S–M | no | any time | Not started |
 | WP-20 | 1 | Supervised service, stdio shim, local control channel | WP-19, OD-1 | L | yes | with 2B, WP-28/29 | **Done** (AD-17) |
-| WP-21 | 1 | Secret storage, child-process environment allowlist | WP-20 | M | yes | with WP-22 | Not started |
+| WP-21 | 1 | Secret storage, child-process environment allowlist | WP-20 | M | yes | with WP-22 | **Done** (AD-18) |
 | WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | yes | with WP-21 | Not started |
 | WP-23a | 2 | L1 Linux | WP-21, OD-9 | M | yes | with 23b/c | Not started |
 | WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Not started |
@@ -361,6 +361,10 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
   **RB:** yes. **Parallel:** with WP-24…27, WP-28, WP-29.
 
 #### WP-21 — Secret storage and child-process environment allowlist
+
+**Status: Done** (ARCHITECTURE.md §27 AD-18). Boundary: leaks through CROT
+itself are closed; OS-level protection of the store against unconfined
+children is L1 (WP-23).
 
 - **Objective:** CROT secrets (local token, bridge token, control-channel
   credential, later device key) are protected from everything except the

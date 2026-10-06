@@ -15,6 +15,8 @@ export interface BrowserWiringOptions {
   /** CROT state directory (token file, POSIX socket). */
   readonly stateDir: string;
   readonly privateFiles: PrivateFileProtection;
+  /** Source of the bridge token (the service's secret store); default: the token file. */
+  readonly token?: () => Promise<string>;
   /** Diagnostics on stderr (never receives the token). */
   readonly log: (message: string) => void;
   /** Replace BrowserBridge.start (tests). */
@@ -42,7 +44,12 @@ export async function startBrowserBridge(options: BrowserWiringOptions): Promise
   const start = options.start ?? ((o: BrowserBridgeOptions) => BrowserBridge.start(o));
   let bridge: BrowserBridge;
   try {
-    bridge = await start({ stateDir: options.stateDir, privateFiles: options.privateFiles, log: options.log });
+    bridge = await start({
+      stateDir: options.stateDir,
+      privateFiles: options.privateFiles,
+      ...(options.token ? { token: options.token } : {}),
+      log: options.log,
+    });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     options.log(`warning: browser bridge unavailable: ${detail}; continuing without browser tools`);

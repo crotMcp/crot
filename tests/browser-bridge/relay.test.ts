@@ -291,7 +291,7 @@ describe("crot-browser-relay with the BrowserBridge", () => {
     await writeFile(path.join(invalid, "browser-token"), "short\n");
     const bad = startRelay(invalid);
     expect(await bad.exit).toBe(1);
-    expect(bad.logs.join("\n").includes("does not contain a valid token")).toBe(true);
+    expect(bad.logs.join("\n")).toMatch(/browser-token .* is not valid/);
 
     // A token but nobody listening: no retry, an immediate error exit.
     const { bridge, dir, token } = await startBridge();
