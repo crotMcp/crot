@@ -80,9 +80,39 @@ describe("RemoteExposureStore", () => {
     expect(store.isExposed(KEY)).toBe(true);
   });
 
-  it("has no way to clear exposure", () => {
+  it("the only way to clear exposure is reset(), used only by the service (AD-19 point 8)", () => {
     const methods = Object.getOwnPropertyNames(RemoteExposureStore.prototype).sort();
-    expect(methods).toEqual(["constructor", "isExposed", "markExposed"]);
+    expect(methods).toEqual(["constructor", "isExposed", "markExposed", "reset"]);
+    // The tracker Core and the guard use has no way to clear a scope.
+    expect(Object.getOwnPropertyNames(ExposureTracker.prototype).sort()).toEqual([
+      "constructor",
+      "isExposed",
+      "recordSuccess",
+      "sameScope",
+      "scopeOf",
+    ]);
+  });
+
+  it("reset: writes first, then clears one scope; refused while failed closed", async () => {
+    const file = path.join(dirs.outside, REMOTE_EXPOSURE_FILE_NAME);
+    const store = await RemoteExposureStore.open(file, privateFiles());
+    const OTHER = remoteExposureScope("acct", "device", "other").remoteKey!;
+    expect(store.reset(KEY)).toBe("already_clean");
+    store.markExposed(KEY);
+    store.markExposed(OTHER);
+    expect(store.reset(KEY)).toBe("reset");
+    expect(store.isExposed(KEY)).toBe(false);
+    expect(store.isExposed(OTHER)).toBe(true);
+    const reopened = await RemoteExposureStore.open(file, privateFiles());
+    expect(reopened.isExposed(KEY)).toBe(false);
+    expect(reopened.isExposed(OTHER)).toBe(true);
+
+    const broken = path.join(dirs.outside, "broken.json");
+    await writeFile(broken, "{not json");
+    const failed = await RemoteExposureStore.open(broken, privateFiles(), { onError: () => undefined });
+    expect(failed.reset(KEY)).toBe("failed_closed");
+    expect(failed.isExposed(KEY)).toBe(true);
+    expect(await readFile(broken, "utf8")).toBe("{not json");
   });
 });
 

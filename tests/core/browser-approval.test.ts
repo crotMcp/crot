@@ -136,7 +136,7 @@ describe("browser approvals (AD-6, AD-8, AD-9, AD-11)", () => {
     expect(request.subject.effects).toEqual(
       expect.arrayContaining([
         { label: "selector", value: "#buy" },
-        { label: "tab URL", value: "https://example.com/page" },
+        { label: "tab URL", value: "https://example.com/page", flag: "page_supplied" },
       ]),
     );
     expect(stub.sent).toEqual([{ command: "tabs.resolve", params: {}, connectionId: CONNECTION_A }]);

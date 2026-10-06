@@ -13,6 +13,7 @@ import {
   LEGACY_PROTOCOL_VERSIONS,
   SUPPORTED_PROTOCOL_VERSIONS,
   UNSUPPORTED_PROTOCOL_VERSION_CODE,
+  type RemoteAdmission,
 } from "../../src/adapters/http/server.js";
 import { MODERN_PROTOCOL_VERSIONS } from "../../src/adapters/mcp/modern.js";
 import { RemoteExposureStore, REMOTE_EXPOSURE_FILE_NAME } from "../../src/core/approvals/remote-exposure.js";
@@ -98,7 +99,10 @@ interface StartOptions {
   readonly approvals?: Record<string, unknown>;
   readonly coreOptions?: CrotCoreOptions;
   readonly http?: Record<string, unknown>;
+  readonly remoteAdmission?: RemoteAdmission;
 }
+
+const ADMIT_ALL: RemoteAdmission = { admit: () => ({ admitted: true }) };
 
 async function start(options: StartOptions = {}): Promise<void> {
   audit = new MemoryAuditSink();
@@ -113,6 +117,7 @@ async function start(options: StartOptions = {}): Promise<void> {
     config: HttpConfigSchema.parse({ enabled: true, port: 0, ...options.http }),
     verifier: options.verifier ?? new LocalTokenVerifier(token),
     ...(options.entryPoint ? { entryPoint: options.entryPoint } : {}),
+    ...(options.entryPoint === "relay" ? { remoteAdmission: options.remoteAdmission ?? ADMIT_ALL } : {}),
   });
 }
 

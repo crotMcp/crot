@@ -77,6 +77,45 @@ export interface CrotHttpServerOptions {
    * local token. Not configurable through the configuration file.
    */
   readonly entryPoint?: HttpEntryPoint;
+  /**
+   * Device-side admission of remote principals (AD-15 points 4 and 9, AD-19
+   * points 6 and 8): remote mode and client revocation, checked for every
+   * request of the relay entry point before any MCP or Core work. Required
+   * for the relay entry point (fail closed); ignored on loopback.
+   */
+  readonly remoteAdmission?: RemoteAdmission;
+}
+
+/** The remote client of a request: its exposure scope (AD-15 point 8). */
+export interface RemoteClientKey {
+  readonly accountId: string;
+  readonly deviceId: string;
+  readonly clientId: string;
+}
+
+export type RemoteAdmissionRefusal = "remote_mode_off" | "client_revoked" | "state_unavailable" | "invalid_client";
+
+export type RemoteAdmissionDecision =
+  { readonly admitted: true } | { readonly admitted: false; readonly reason: RemoteAdmissionRefusal };
+
+/**
+ * Admission of remote requests on this device (implemented by the service).
+ * It authorizes nothing: an admitted request still passes the
+ * PermissionEngine, the approval gates and the ExecutionGuard.
+ */
+export interface RemoteAdmission {
+  admit(client: RemoteClientKey): RemoteAdmissionDecision;
+}
+
+const ADMISSION_MESSAGES: Readonly<Record<RemoteAdmissionRefusal, string>> = {
+  remote_mode_off: "Forbidden: remote access is turned off on this device",
+  client_revoked: "Forbidden: this client's access to the device was revoked",
+  state_unavailable: "Forbidden: the device cannot read its remote access state",
+  invalid_client: "Forbidden: the client identifiers are not accepted by this device",
+};
+
+function remoteKeyOf(client: RemoteClientKey): string {
+  return JSON.stringify([client.accountId, client.deviceId, client.clientId]);
 }
 
 /** Whether `host` is a loopback address or name. */
@@ -95,6 +134,8 @@ interface Session {
   readonly server: McpServer;
   /** Identity key of the principal that opened the session (sessionOwnerKey). */
   readonly owner: string;
+  /** Remote client of a relay session (remoteKeyOf); ended by endRemoteClient(). */
+  readonly remote?: string;
   lastSeen: number;
 }
 
@@ -296,6 +337,9 @@ export class CrotHttpServer {
   private boundPort = 0;
   private modernInFlight = 0;
   private modernRejected = 0;
+  /** Responses of remote requests in flight, per remote client (endRemoteClient). */
+  private readonly remoteResponses = new Map<string, Set<ServerResponse>>();
+  private readonly remoteAdmission: RemoteAdmission | undefined;
 
   private constructor(
     private readonly core: CrotCore,
@@ -303,9 +347,11 @@ export class CrotHttpServer {
     private readonly verifier: AccessTokenVerifier,
     log: ((message: string) => void) | undefined,
     entryPoint: HttpEntryPoint,
+    remoteAdmission: RemoteAdmission | undefined,
   ) {
     this.log = log ?? (() => undefined);
     this.entryPoint = entryPoint;
+    this.remoteAdmission = remoteAdmission;
     this.modern = createMcpHandler((ctx) => this.modernServer(ctx.authInfo), {
       // Legacy traffic never reaches this handler: route() serves it with sessions.
       legacy: "reject",
@@ -325,7 +371,10 @@ export class CrotHttpServer {
         `HTTP host '${config.host}' is not a loopback address. This version of CROT serves HTTP only on loopback (127.0.0.1, ::1, localhost).`,
       );
     }
-    const server = new CrotHttpServer(core, config, options.verifier, options.log, options.entryPoint ?? "loopback");
+    const entryPoint = options.entryPoint ?? "loopback";
+    if (entryPoint === "relay" && !options.remoteAdmission)
+      throw new CrotError("CONFIG_ERROR", "The relay entry point requires the device's remote admission.");
+    const server = new CrotHttpServer(core, config, options.verifier, options.log, entryPoint, options.remoteAdmission);
     await server.listen();
     return server;
   }
@@ -445,6 +494,18 @@ export class CrotHttpServer {
     if (!principal) {
       this.log("http: rejected a credential that does not establish a principal for this entry point");
       return sendError(res, INVALID_TOKEN);
+    }
+    let remote: string | undefined;
+    if (principal.kind === "remote") {
+      // principalFromAuthInfo guarantees the fields of a remote principal.
+      const client = { accountId: principal.accountId!, deviceId: principal.deviceId!, clientId: principal.clientId! };
+      const decision: RemoteAdmissionDecision = this.remoteAdmission
+        ? this.remoteAdmission.admit(client)
+        : { admitted: false, reason: "state_unavailable" };
+      if (!decision.admitted)
+        return sendError(res, { status: 403, code: -32000, message: ADMISSION_MESSAGES[decision.reason] });
+      remote = remoteKeyOf(client);
+      this.trackRemote(remote, res);
     }
 
     if (req.method !== "POST") {
@@ -607,7 +668,22 @@ export class CrotHttpServer {
     const transport: StreamableHTTPServerTransport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
       onsessioninitialized: (id) => {
-        this.sessions.set(id, { id, transport, server, owner, lastSeen: Date.now() });
+        this.sessions.set(id, {
+          id,
+          transport,
+          server,
+          owner,
+          lastSeen: Date.now(),
+          ...(principal.kind === "remote"
+            ? {
+                remote: remoteKeyOf({
+                  accountId: principal.accountId!,
+                  deviceId: principal.deviceId!,
+                  clientId: principal.clientId!,
+                }),
+              }
+            : {}),
+        });
       },
       onsessionclosed: (id) => {
         this.sessions.delete(id);
@@ -636,6 +712,41 @@ export class CrotHttpServer {
       this.log("http: closed an idle session");
       void session.server.close().catch(() => undefined);
     }
+  }
+
+  private trackRemote(remote: string, res: ServerResponse): void {
+    let set = this.remoteResponses.get(remote);
+    if (!set) this.remoteResponses.set(remote, (set = new Set()));
+    set.add(res);
+    res.once("close", () => {
+      set.delete(res);
+      if (set.size === 0 && this.remoteResponses.get(remote) === set) this.remoteResponses.delete(remote);
+    });
+  }
+
+  /**
+   * End everything of one remote client on this device (revocation, AD-19
+   * point 8): its legacy sessions are closed and its requests in flight are
+   * aborted (their connections are closed, so their operations and approval
+   * requests are cancelled). Later requests are refused by the admission.
+   * Returns the number of sessions and requests ended.
+   */
+  async endRemoteClient(client: RemoteClientKey): Promise<{ sessions: number; requests: number }> {
+    const remote = remoteKeyOf(client);
+    const responses = [...(this.remoteResponses.get(remote) ?? [])];
+    this.remoteResponses.delete(remote);
+    for (const res of responses) {
+      if (!res.headersSent) sendError(res, { status: 403, code: -32000, message: ADMISSION_MESSAGES.client_revoked });
+      res.destroy();
+    }
+    const sessions = [...this.sessions.values()].filter((s) => s.remote === remote);
+    for (const session of sessions) this.sessions.delete(session.id);
+    await Promise.all(sessions.map((s) => s.server.close().catch(() => undefined)));
+    if (sessions.length + responses.length > 0)
+      this.log(
+        `http: ended ${sessions.length} session(s) and ${responses.length} request(s) of a revoked remote client`,
+      );
+    return { sessions: sessions.length, requests: responses.length };
   }
 
   /**

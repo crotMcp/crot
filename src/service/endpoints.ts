@@ -33,7 +33,9 @@ import net from "node:net";
 import path from "node:path";
 import { CrotError } from "../core/errors.js";
 import type { PrivateFileProtection } from "../core/platform/types.js";
+import { SERVICE_SETTINGS_FILE_NAME } from "./device-settings.js";
 import { acquireDirectoryLock, releaseDirectoryLock } from "./locks.js";
+import { REMOTE_CLIENTS_FILE_NAME } from "./remote-clients.js";
 import { openSecretStore, type SecretStore, type SecretStoreHost } from "./secrets/store.js";
 import type { SecretName } from "./secrets/types.js";
 
@@ -71,6 +73,9 @@ export function serviceProtectedPaths(stateDir: string): string[] {
     credentialFile(stateDir, "service"),
     credentialFile(stateDir, "control"),
     path.join(stateDir, SERVICE_LOG_FILE_NAME),
+    // Device state of the tray controls (AD-19): changed only through the control channel.
+    path.join(stateDir, SERVICE_SETTINGS_FILE_NAME),
+    path.join(stateDir, REMOTE_CLIENTS_FILE_NAME),
   ];
 }
 

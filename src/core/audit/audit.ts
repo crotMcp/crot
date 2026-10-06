@@ -56,12 +56,46 @@ export interface ApprovalAuditRecord extends Omit<AuditEvent, "outcome" | "error
   readonly approval: AuditApproval;
 }
 
-/** Everything an audit sink receives. */
+/** Device-side control actions audited by the service (ARCHITECTURE.md §27, AD-19 point 9). */
+export const CONTROL_AUDIT_ACTIONS = [
+  "preset",
+  "remote_mode",
+  "remote_full_control",
+  "exposure_reset",
+  "client_revoke",
+] as const;
+export type ControlAuditAction = (typeof CONTROL_AUDIT_ACTIONS)[number];
+
+/**
+ * A user action on the authenticated control channel (AD-19 point 9): preset
+ * change, remote mode, remote full-control opt-in, exposure reset, client
+ * revocation. The actor is the local user through the control channel; the
+ * control channel creates no principal (AD-17 point 7), so there is none here.
+ */
+export interface ControlAuditRecord {
+  readonly kind: "control";
+  readonly id: string;
+  readonly timestamp: string;
+  readonly action: ControlAuditAction;
+  readonly actor: { readonly channel: "control"; readonly ui?: string };
+  /** applied: the change took effect; refused: nothing changed (with reason); failed: an error, nothing changed. */
+  readonly outcome: "applied" | "refused" | "failed";
+  readonly reason?: string;
+  readonly previous?: string | boolean;
+  readonly value?: string | boolean;
+  /** Remote client of exposure_reset / client_revoke (its exposure scope, AD-15 point 8). */
+  readonly client?: { readonly accountId: string; readonly deviceId: string; readonly clientId: string };
+}
+
+/** Records of operations (an operation's event or its mandatory approval record). */
 export type AuditRecord = AuditEvent | ApprovalAuditRecord;
+
+/** Everything an audit sink receives. */
+export type AuditEntry = AuditRecord | ControlAuditRecord;
 
 /** Destination for audit events. Implementations must not transmit data off the machine. */
 export interface AuditSink {
-  record(event: AuditRecord): Promise<void>;
+  record(event: AuditEntry): Promise<void>;
   close?(): Promise<void>;
 }
 
@@ -76,8 +110,11 @@ export class NullAuditSink implements AuditSink {
 /** In-memory sink, useful for tests and embedding. */
 export class MemoryAuditSink implements AuditSink {
   readonly events: AuditRecord[] = [];
-  async record(event: AuditRecord): Promise<void> {
-    this.events.push(event);
+  /** Control actions (AD-19 point 9), kept apart from operation records. */
+  readonly controlEvents: ControlAuditRecord[] = [];
+  async record(event: AuditEntry): Promise<void> {
+    if ("kind" in event && event.kind === "control") this.controlEvents.push(event);
+    else this.events.push(event);
   }
 }
 
@@ -87,7 +124,7 @@ export class StreamAuditSink implements AuditSink {
     private readonly stream: NodeJS.WritableStream,
     private readonly flushTimeoutMs = 2_000,
   ) {}
-  async record(event: AuditRecord): Promise<void> {
+  async record(event: AuditEntry): Promise<void> {
     this.stream.write(`${JSON.stringify({ type: "crot.audit", ...event })}\n`);
   }
 
@@ -143,7 +180,7 @@ export class JsonlFileAuditSink implements AuditSink {
     private readonly protection: AuditFileProtection = POSIX_PRIVATE,
   ) {}
 
-  record(event: AuditRecord): Promise<void> {
+  record(event: AuditEntry): Promise<void> {
     this.ready ??= this.prepare();
     const options = this.protection.fileMode !== undefined ? { mode: this.protection.fileMode } : {};
     const write = this.queue

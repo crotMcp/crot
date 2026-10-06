@@ -398,7 +398,8 @@ export class ProcessService {
     return record;
   }
 
-  private runningCount(): number {
+  /** Background processes still running (they keep Core busy; AD-19 point 5). */
+  runningCount(): number {
     let n = 0;
     for (const p of this.processes.values()) if (!p.endedAt) n++;
     return n;

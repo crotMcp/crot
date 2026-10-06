@@ -68,14 +68,15 @@ export interface ExposureTrackerOptions {
 }
 
 /**
- * Keeps the exposure state per exposure scope (AD-15 point 8). There is
- * deliberately no way to clear it:
+ * Keeps the exposure state per exposure scope (AD-15 point 8). The tracker
+ * offers no way to clear it:
  *
  * - local scopes (stdio connection, legacy loopback session, sessionless
  *   loopback principal) are kept in memory, keyed by identity, and stay
  *   exposed until the adapter drops the scope;
  * - remote scopes are keyed by (accountId, deviceId, clientId), independent of
- *   sessions and tokens, and persisted by the RemoteExposureStore.
+ *   sessions and tokens, and persisted by the RemoteExposureStore; only the
+ *   service resets one, for a user action on the control channel (AD-19).
  */
 export class ExposureTracker {
   private readonly exposed = new WeakSet<ExposureScope>();

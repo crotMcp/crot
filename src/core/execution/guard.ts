@@ -143,6 +143,11 @@ export class ExecutionGuard {
     return running;
   }
 
+  /** Operations that have not finished yet (including their audit record). */
+  get inFlightCount(): number {
+    return this.inFlight.size;
+  }
+
   /**
    * Wait until operations in flight have finished and written their audit
    * records, or until `timeoutMs` elapses. Returns the number still running.
