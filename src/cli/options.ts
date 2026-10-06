@@ -8,9 +8,11 @@ import { DEFAULT_CONFIG_FILE_NAME } from "../core/platform/directories.js";
 import { hostDirectories } from "../core/platform/node-platform.js";
 import type { PlatformDirectories } from "../core/platform/types.js";
 import { CrotError } from "../core/errors.js";
+import { isSecretName, SECRET_NAMES, type SecretName } from "../service/secrets/types.js";
 
 export const USAGE = `Usage: crot-mcp [options]
        crot-mcp service run [options] | service status | service stop
+       crot-mcp secrets status | secrets show http-token | secrets rotate <name>... | secrets rotate --all
        crot-mcp browser install
 
 Serves CROT to an MCP client on stdio (default) or, with --http, on loopback HTTP.
@@ -36,6 +38,12 @@ Commands:
                            units, launchd agents, Task Scheduler); same options as above
   service status           Show the state of the running CROT service
   service stop             Stop the running CROT service gracefully
+  secrets status           Show where CROT keeps its secrets (OS secure storage or
+                           owner-only files); never prints a secret
+  secrets show http-token  Print the HTTP access token (for configuring an HTTP client)
+  secrets rotate <name>... Replace secrets with new random values (service stopped):
+                           http-token, browser-token, service-token, control-token, or --all
+                           (secrets commands accept -c/--config for http.auth settings)
   browser install          Register the CROT Host with Chrome, Edge and Brave (current
                            user) so the CROT Browser Extension can connect to it.
                            Grants no permissions; enable the bridge with
@@ -73,7 +81,19 @@ export type CliCommand =
   | ServeCommand
   | ServiceRunCommand
   | { kind: "service-status" }
-  | { kind: "service-stop" };
+  | { kind: "service-stop" }
+  | SecretsCommand;
+
+/** `crot-mcp secrets <status|show|rotate>` (WP-21). */
+export interface SecretsCommand {
+  readonly kind: "secrets";
+  readonly action: "status" | "show" | "rotate";
+  /** show: exactly one name; rotate: one or more. */
+  readonly names: readonly SecretName[];
+  /** The configuration file's content, if one is in use (only http.auth is read). */
+  readonly config?: CrotConfigInput;
+  readonly configFile?: string;
+}
 
 /** Parse command-line arguments into a configuration input. CLI flags override the config file. */
 export interface ParseCliOptions {
@@ -88,6 +108,7 @@ export async function parseCli(
 ): Promise<CliCommand> {
   if (argv[0] === "browser") return parseBrowserCommand(argv.slice(1));
   if (argv[0] === "service") return parseServiceCommand(argv.slice(1), env, options);
+  if (argv[0] === "secrets") return parseSecretsCommand(argv.slice(1), env, options);
   let parsed;
   try {
     parsed = parseArgs({
@@ -123,19 +144,7 @@ export async function parseCli(
     return absolute;
   };
 
-  const explicit = v.config ?? env.CROT_CONFIG;
-  let configFile =
-    explicit !== undefined ? toAbsolute(v.config !== undefined ? "--config" : "CROT_CONFIG", explicit) : undefined;
-  let configSource: ServeCommand["configSource"] =
-    explicit === undefined ? undefined : v.config !== undefined ? "flag" : "env";
-  if (configFile === undefined) {
-    // Optional per-user configuration in the OS-conventional location.
-    const candidate = path.join((options.directories ?? hostDirectories(env)).config, DEFAULT_CONFIG_FILE_NAME);
-    if ((await stat(candidate).catch(() => undefined))?.isFile()) {
-      configFile = candidate;
-      configSource = "default";
-    }
-  }
+  const { configFile, configSource } = await resolveConfigFile(v.config, env, options, toAbsolute);
   const base: Partial<CrotConfigInput> = configFile ? await loadConfigFile(configFile) : {};
   const config: Record<string, unknown> = { ...base };
 
@@ -168,6 +177,88 @@ export async function parseCli(
     config: config as CrotConfigInput,
     ...(configFile ? { configFile, configSource } : {}),
     warnings,
+  };
+}
+
+/** The configuration file in use: --config, CROT_CONFIG, or config.json in the default location if present. */
+async function resolveConfigFile(
+  flag: string | undefined,
+  env: NodeJS.ProcessEnv,
+  options: ParseCliOptions,
+  toAbsolute: (flag: string, value: string) => string,
+): Promise<{ configFile?: string; configSource?: ServeCommand["configSource"] }> {
+  const explicit = flag ?? env.CROT_CONFIG;
+  if (explicit !== undefined) {
+    return {
+      configFile: toAbsolute(flag !== undefined ? "--config" : "CROT_CONFIG", explicit),
+      configSource: flag !== undefined ? "flag" : "env",
+    };
+  }
+  // Optional per-user configuration in the OS-conventional location.
+  const candidate = path.join((options.directories ?? hostDirectories(env)).config, DEFAULT_CONFIG_FILE_NAME);
+  if ((await stat(candidate).catch(() => undefined))?.isFile())
+    return { configFile: candidate, configSource: "default" };
+  return {};
+}
+
+/** `crot-mcp secrets <status|show|rotate>`. */
+async function parseSecretsCommand(
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv,
+  options: ParseCliOptions,
+): Promise<CliCommand> {
+  let parsed;
+  try {
+    parsed = parseArgs({
+      args: [...argv],
+      allowPositionals: true,
+      strict: true,
+      options: {
+        config: { type: "string", short: "c" },
+        all: { type: "boolean" },
+        help: { type: "boolean", short: "h" },
+      },
+    });
+  } catch (error) {
+    throw new CrotError("CONFIG_ERROR", `${(error as Error).message}\n\n${USAGE}`);
+  }
+  if (parsed.values.help) return { kind: "help" };
+  const [action, ...rest] = parsed.positionals;
+  const usage = (message: string) => new CrotError("CONFIG_ERROR", `${message}\n\n${USAGE}`);
+  if (action !== "status" && action !== "show" && action !== "rotate") {
+    throw usage(
+      `Unknown command ${action === undefined ? "'secrets' without a command" : `'secrets ${action}'`}. Use 'crot-mcp secrets status', 'secrets show http-token' or 'secrets rotate <name>...'.`,
+    );
+  }
+  for (const name of rest) {
+    if (!isSecretName(name)) throw usage(`Unknown secret '${name}'. Secrets: ${SECRET_NAMES.join(", ")}.`);
+  }
+  let names = rest as SecretName[];
+  if (parsed.values.all && action !== "rotate") throw usage("--all is only accepted by 'secrets rotate'.");
+  if (action === "status" && names.length > 0) throw usage("'crot-mcp secrets status' takes no names.");
+  if (action === "show" && (names.length !== 1 || names[0] !== "http-token")) {
+    throw usage(
+      "Only the HTTP access token can be shown: 'crot-mcp secrets show http-token'. The other secrets never leave the CROT service.",
+    );
+  }
+  if (action === "rotate") {
+    if (parsed.values.all) {
+      if (names.length > 0) throw usage("Use either --all or names with 'secrets rotate'.");
+      names = [...SECRET_NAMES];
+    }
+    if (names.length === 0) throw usage("'crot-mcp secrets rotate' needs secret names or --all.");
+    names = [...new Set(names)];
+  }
+  const { configFile } = await resolveConfigFile(parsed.values.config, env, options, (_flag, value) =>
+    path.resolve(expandHome(value)),
+  );
+  const config = configFile ? await loadConfigFile(configFile) : undefined;
+  return {
+    kind: "secrets",
+    action,
+    names,
+    ...(config ? { config } : {}),
+    ...(configFile ? { configFile } : {}),
   };
 }
 

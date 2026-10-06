@@ -35,6 +35,11 @@ steps 10–11 and step 21 — Git read and write):
   so several MCP clients work at the same time and share one browser bridge;
   an authenticated, owner-only local control channel (`crot-mcp service
   status|stop`); see [`docs/SERVICE.md`](docs/SERVICE.md)
+- Secret storage (WP-21): the service, control, HTTP and browser-bridge
+  credentials are kept in the OS secret store (macOS Keychain, Windows DPAPI,
+  Linux Secret Service) with an owner-only file fallback (`crot-mcp secrets
+  status|show|rotate`); commands started by CROT get an allowlisted
+  environment (see [Security properties](#security-properties))
 
 Not yet implemented: Docker operations beyond `docker.use` (build, pull, push, run, exec), Git network operations (fetch, pull, push), OS-level network egress control for processes and containers, remote (non-loopback)
 exposure and MCP authorization (OAuth/OIDC), installer and autostart, tray app, account/licensing layer.
@@ -130,6 +135,15 @@ Service commands (see [`docs/SERVICE.md`](docs/SERVICE.md)):
 | `crot-mcp service status` | State of the running service (exit status 3 when not running) |
 | `crot-mcp service stop` | Stop the running service gracefully and wait for it |
 
+Secret commands (`-c, --config <file>` selects the configuration; they need no
+workspace):
+
+| Command | Description |
+| --- | --- |
+| `crot-mcp secrets status` | Where the CROT secrets are kept (backend, location, fallback reason); never prints values |
+| `crot-mcp secrets show http-token` | Print the HTTP bearer token (the only secret a client needs) |
+| `crot-mcp secrets rotate <name>\|--all` | Replace a secret (`service-token`, `control-token`, `browser-token`, `http-token`) with a new random value; refused while the service runs |
+
 ### Configuration
 
 See [`examples/crot.config.example.json`](examples/crot.config.example.json).
@@ -164,11 +178,14 @@ directory (CROT warns when a relative path is resolved).
 | `audit.sink` | `stderr` | `file`, `stderr` or `none` |
 | `audit.path` | `<logs>/audit.jsonl` | Audit file for the `file` sink (see [Default locations](#default-locations)) |
 | `environment.path` | `auto` | `PATH` for commands: `auto`, `login-shell` or `inherited` (see [Startup PATH](#startup-path)) |
+| `environment.allow` | `[]` | Extra variables passed to commands: names, or prefixes ending in `*` (at least two characters before it); see [Child environment](#security-properties) |
+| `secrets.store` | `auto` | Secret store: `auto` (OS secret store if usable at first start, otherwise owner-only files; the choice is kept), `os` (required; migrates owner-only files into it) or `file` |
 | `http.enabled` | `false` | Serve over Streamable HTTP instead of stdio |
 | `http.host` | `127.0.0.1` | Bind address; only loopback (`127.0.0.0/8`, `::1`, `localhost`) is accepted |
 | `http.port` | `7337` | TCP port (`0`: any free port) |
 | `http.auth.mode` | `local-token` | Authentication method (the only one in this version) |
-| `http.auth.tokenFile` | `<state>/http-token` | Bearer token file, created on first start |
+| `http.auth.storage` | `secret-store` | Where the bearer token is kept: `secret-store` (created on first start; read it with `crot-mcp secrets show http-token`) or `token-file` (legacy compatibility mode: plaintext owner-only file, warned about at start) |
+| `http.auth.tokenFile` | — | Legacy token file: with `secret-store` it is imported, verified and deleted once; with `token-file` it is the storage (default `<state>/http-token`) |
 | `http.allowedOrigins` | `[]` | Browser origins allowed; requests with any other `Origin` are rejected |
 | `http.maxRequestBytes` | 4 MiB | Maximum request body |
 | `http.maxSessions` | 16 | Concurrent MCP sessions |
@@ -193,10 +210,13 @@ defaulted.
   exists, it is loaded (command-line flags still override it) and protected
   like any other configuration file.
 - `"audit": { "sink": "file" }` without a `path` writes to `<logs>/audit.jsonl`.
-- The HTTP token file defaults to `<state>/http-token`.
-- The CROT service keeps its endpoints, credentials and log in `<state>`
-  (`service.sock`, `control.sock`, `service-token`, `control-token`,
-  `service.log`; see [`docs/SERVICE.md`](docs/SERVICE.md)).
+- The CROT service keeps its endpoints and log in `<state>` (`service.sock`,
+  `control.sock`, `service.log`; see [`docs/SERVICE.md`](docs/SERVICE.md)).
+- Secrets: `<state>/secrets.json` records the backend (no values). With the
+  file fallback the secrets are `<state>/service-token`, `control-token`,
+  `browser-token` and `http-token` (`0600`, owner-only ACL on Windows); with
+  DPAPI they are encrypted in `<state>/secrets/`; with the Keychain or Secret
+  Service they are entries labelled `crot-mcp` for this state directory.
 - The directories are reported in `crot_status` (`platform.directories`).
 
 ## HTTP transport
@@ -298,13 +318,19 @@ audit log. Idle sessions are closed after `http.sessionIdleTimeoutMs`.
 
 - Loopback only. Binding any other address is refused; remote exposure needs
   TLS and a real authorization server, which are future milestones.
-- The local token is a provisional, static, shared credential: no expiry,
-  rotation or per-device identity. Anyone who can read the token file can act
-  as the HTTP principal. Delete the file to rotate it (restart required).
+- The local token is a provisional, static, shared credential: no expiry or
+  per-device identity. It is kept in the CROT secret store; read it with
+  `crot-mcp secrets show http-token` and rotate it with `crot-mcp service
+  stop` then `crot-mcp secrets rotate http-token` (clients must be updated).
+  Anyone who can read it can act as the HTTP principal.
 - No TLS: traffic is plaintext on the loopback interface.
-- In `full_control` mode an agent can read the token file (writes are blocked
-  by the protected paths); in sandbox mode the token file is outside the
-  workspace unless configured otherwise.
+- CROT tools cannot read the token in any mode (secret paths are denied, see
+  [Security properties](#security-properties)). A command run with
+  `shell.execute` runs as the user and is not confined at the OS level: it can
+  reach the OS secret store or the file fallback itself (in `full_control` by
+  definition, in sandbox mode until command confinement, WP-23).
+- `http.auth.storage: "token-file"` keeps the token in a plaintext owner-only
+  file for clients that read it from there; CROT warns about it at start.
 - HTTP-level rejections (401, 403, ...) are logged to stderr, not to the audit
   log, which records Core operations only.
 - On Windows the token file is restricted to the CROT user with an owner-only
@@ -610,7 +636,7 @@ permission model. Platform code performs no authorization.
 | `EncodingSupport` | decoding of command output | UTF-8 | UTF-8; output that is not valid UTF-8 is decoded with the console (OEM) code page, detected from the registry; `cmd` scripts run in a `cmd.exe` started after the console is switched to UTF-8 (`chcp 65001`), so built-ins such as `echo` and `dir` write UTF-8 (see [Output encoding](#output-encoding)); PowerShell writes UTF-8 |
 | startup `PATH` | `PATH` for commands and shell detection | login shell `PATH` for desktop-launched clients, plus standard directories (see below) | inherited |
 | `PlatformDirectories` | default config/state/log locations | XDG (Linux), `~/Library` (macOS) | `%APPDATA%`, `%LOCALAPPDATA%` |
-| `PrivateFileProtection` | audit log, HTTP token file, browser bridge token file | created `0600` in `0700` directories; existing files checked | owner-only ACL set by the Native Host (inheritance removed, verified); Core fallback: inherited ACLs |
+| `PrivateFileProtection` | audit log, secret files of the file fallback and the store marker, token file of the compatibility mode | created `0600` in `0700` directories; existing files checked | owner-only ACL set by the Native Host (inheritance removed, verified); Core fallback: inherited ACLs |
 | `PlatformInfo` | reported in `crot_status` and the MCP instructions | OS, architecture, path style, shells, encodings, process-control guarantees, PATH source, directories | same |
 
 `ProcessLauncher.resolveCommand` also has a PATH-only mode
@@ -619,7 +645,9 @@ entries are not searched and relative command paths are refused. `git.read`
 always uses it; `process_exec`, `shell_run` and `process_start` keep the
 platform's usual lookup.
 
-Environment overrides may set a variable to `null` to remove it. A foreground
+Commands get an allowlisted environment (see Child environment under
+[Security properties](#security-properties)). Environment overrides set a
+variable to a literal value, or to `null` to remove it. A foreground
 command owns its process tree: descendants still running when it finishes or
 times out are terminated; use `process_start` for long-running processes.
 
@@ -732,9 +760,10 @@ its limitations). Not yet implemented:
 - Graceful termination of Windows console programs (`GenerateConsoleCtrlEvent`);
   graceful termination requests escalate to forced termination.
 - OS-level sandboxing of commands (Core's sandbox confines paths and working
-  directories, not what a command does).
+  directories, not what a command does); until then a command can use the OS
+  secret store as the user (WP-23).
 - Credential provisioning for the HTTP transport (device identity/registration
-  verifier, token rotation); installing the CROT service for autostart (the
+  verifier); installing the CROT service for autostart (the
   service itself exists, see [`docs/SERVICE.md`](docs/SERVICE.md)).
 
 ## Security properties
@@ -747,8 +776,34 @@ its limitations). Not yet implemented:
   recursive listing never follows symlinks; entry operations (stat, delete, move)
   act on links, not their targets; the workspace root cannot be deleted or moved;
   FIFOs, sockets and devices are never opened as files.
-- Protected paths: the audit log, the configuration file in use, the HTTP
-  token file, the CROT service credentials and log, and (when `browser.enabled`) the browser bridge token file cannot be
+- Secrets (WP-21, ARCHITECTURE.md §27 AD-18): the service, control, HTTP and
+  browser-bridge credentials are kept in the OS secret store (macOS Keychain,
+  Windows DPAPI for the current user, Linux Secret Service via `secret-tool`),
+  or, where none is usable or with `secrets.store: "file"`, in owner-only files
+  (`crot-mcp secrets status` and `crot_status` report which, and why).
+  Values never appear in arguments or environment variables of helper tools,
+  in `crot_status`, the audit log, the service log or errors. Migration from
+  older versions (and of `http.auth.tokenFile`) copies, reads back and
+  compares every value before the old file is deleted; a conflict or a file
+  that cannot be removed stops the service; nothing falls back to plaintext
+  silently. Secret files, the DPAPI directory and a configured token file are
+  denied to every CROT tool in every mode, and `docker_*` refuses mounts that
+  contain them. Not covered: a command started by CROT runs as the user and
+  can use the OS secret store itself (`full_control` is unconfined by
+  definition; sandbox mode until command confinement, WP-23); administrators.
+- Child environment: `shell_run`, `process_exec` and `process_start` children
+  get only an allowlist of the CROT environment (paths, home, user, shell,
+  locale, terminal, temporary directories, proxies, toolchain homes such as
+  `JAVA_HOME` or `CARGO_HOME`, the Docker CLI connection, the Windows system
+  variables) plus `environment.allow`; API keys and tokens in the environment
+  of the MCP client or supervisor are withheld, as is
+  `DBUS_SESSION_BUS_ADDRESS`. The `env` argument can set literal values or
+  remove variables but never copy a withheld one. `crot_status`
+  (`childEnvironment`) lists the passed names and the number withheld. Git
+  starts from the same base and keeps its own stricter rules; Docker keeps its
+  own list.
+- Protected paths: the audit log, the configuration file in use, the CROT
+  secrets (store marker and lock, secret files, token file), the service log, and (when `browser.enabled`) the browser bridge files cannot be
   modified, deleted or moved through CROT tools in any mode (enforced by the
   PermissionEngine; listed in `crot_status`). A command run with `shell.execute`
   is not restricted by this rule. Protection from other local users is
@@ -830,8 +885,9 @@ src/
   browser-bridge/          browser bridge: protocol, endpoint, server, relay
   native-host/             Native Host platform layer (see docs/NATIVE_HOST.md)
   cli/                     command-line option parsing, host shutdown lifecycle,
-                           browser*.ts (`crot-mcp browser install`)
+                           browser*.ts (`crot-mcp browser install`), secrets.ts (`crot-mcp secrets`)
   service/                 CROT service (WP-20): authenticated local channel, endpoints and credentials,
+                           secrets/ (WP-21: secret store, OS backends, migration),
                            service (Core, bridge, HTTP, shim and control endpoints), stdio shim, control client
   bin/crot-mcp.ts          entry point (stdio shim, service, service commands)
   bin/crot-browser-relay.ts  native-messaging relay started by the browser

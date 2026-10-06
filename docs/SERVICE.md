@@ -138,7 +138,7 @@ Windows `%LOCALAPPDATA%\CROT`):
 | --- | --- | --- |
 | shim endpoint | Unix socket `<state>/service.sock` (0600) | named pipe `\\.\pipe\crot-service-<digest>` |
 | control endpoint | Unix socket `<state>/control.sock` (0600) | named pipe `\\.\pipe\crot-control-<digest>` |
-| credentials | `<state>/service-token`, `<state>/control-token` | same files, owner-only ACL |
+| credentials | CROT secret store: Keychain or Secret Service entries, or `<state>/service-token`, `<state>/control-token` (file fallback, 0600) | DPAPI-encrypted files in `<state>\secrets\` (file fallback: owner-only ACL) |
 
 - The state directory is created `0700` (owner-only ACL on Windows); the
   sockets are `0600`, so other OS users cannot connect at all. On Windows the
@@ -155,10 +155,33 @@ Windows `%LOCALAPPDATA%\CROT`):
   shim credential does not open the control channel.
 - Credentials are created by the service only, never passed in arguments or
   environment variables, never logged, audited or given to Core, the browser or
-  child processes. The credential files and `service.log` are protected paths
-  (no CROT tool can modify them). As with the HTTP and bridge tokens, an agent
-  in `full_control` mode could read them; WP-21 moves them into OS secret
-  storage.
+  child processes. They are kept in the CROT secret store (WP-21,
+  ARCHITECTURE.md §27 AD-18): the OS secret store, or owner-only files where
+  none is usable; `crot-mcp secrets status` shows which. Secret files and the
+  DPAPI directory are denied to every CROT tool in every mode; the store
+  marker `secrets.json` and `service.log` are protected paths (no CROT tool
+  can modify them). The shim and the control client read the credentials
+  through the same store. `crot-mcp secrets rotate --all` (with the service
+  stopped) replaces them. A command started by CROT runs as the user and is
+  not confined at the OS level until WP-23, so it could still use the OS
+  secret store itself.
+
+### Secret store and migration
+
+- `secrets.store`: `auto` (default; OS secret store if a round trip works at
+  first start, otherwise owner-only files with the reason recorded), `os`
+  (required: the service does not start without it) or `file`. The choice is
+  recorded in `<state>/secrets.json` and kept; it changes only when the
+  configuration asks for another backend.
+- Backends: macOS Keychain (`/usr/bin/security`, login keychain, service
+  `crot-mcp:<state key>`), Windows DPAPI for the current user, Linux Secret
+  Service through `secret-tool` (only with a session bus). Values are passed
+  on stdin, never in arguments or environment variables.
+- Migration (service start, under a lock): every secret is copied, read back
+  and compared before the marker is switched and the old copy is deleted. A
+  failure rolls back and changes nothing; plaintext files of earlier versions
+  that hold a different value, or cannot be deleted, stop the service with a
+  message naming the file.
 
 ## Control channel
 
@@ -204,7 +227,10 @@ prompts and answers between the approval broker and the tray's
   `PATH`, shell (`SHELL`, `ComSpec`, `PATHEXT`) or home directory differs from
   the service's gets a note on stderr when it connects (only digests of the
   values are compared). For identical environments in every client, run the
-  service managed. The child-process environment allowlist is WP-21.
+  service managed. Commands do not get this environment as a whole: they get
+  an allowlist of it plus `environment.allow` (WP-21; see the README, Security
+  properties), so API keys of one client's configuration are not passed to
+  commands unless allowed.
 - The working directory is not inherited in effect: the service resolves the
   configuration first and then changes to the home directory; tools always
   run in an explicit directory.

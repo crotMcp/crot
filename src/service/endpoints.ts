@@ -9,13 +9,12 @@
  * | service  | <state>/service.sock     | \\.\pipe\crot-service-<digest of token>  | stdio MCP of the shim           |
  * | control  | <state>/control.sock     | \\.\pipe\crot-control-<digest of token>  | local control (no MCP, no tools) |
  *
- * Each endpoint has its own credential, a 256-bit random secret in a private
- * file of the state directory (<state>/service-token, <state>/control-token),
- * created owner-only through the platform's PrivateFileProtection (0600, or an
- * owner-only ACL through the Native Host). The credential is never sent: peers
- * prove possession in a challenge-response handshake (channel.ts). Secure OS
- * storage of these credentials is WP-21; the files are the storage until then
- * and are reached only through `CredentialStore`.
+ * Each endpoint has its own credential, a 256-bit random secret kept in the
+ * secret store of the state directory (WP-21: macOS Keychain, Windows DPAPI,
+ * Secret Service, or owner-only files <state>/service-token and
+ * <state>/control-token where no OS secure storage is available), reached
+ * only through `CredentialStore`. The credential is never sent: peers prove
+ * possession in a challenge-response handshake (channel.ts).
  *
  * Owner-only access is enforced in layers: the POSIX socket is created in the
  * owner-only state directory and restricted to 0600; a Windows named pipe
@@ -28,12 +27,17 @@
  * process per user can listen on it (POSIX bind / Windows first pipe
  * instance), so concurrent starts never produce two service owners.
  */
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { chmod, lstat, mkdir, readFile, rename, rm, rmdir, stat, unlink, utimes, writeFile } from "node:fs/promises";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { chmod, lstat, stat, unlink } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { CrotError } from "../core/errors.js";
 import type { PrivateFileProtection } from "../core/platform/types.js";
+import { acquireDirectoryLock, releaseDirectoryLock } from "./locks.js";
+import { openSecretStore, type SecretStore, type SecretStoreHost } from "./secrets/store.js";
+import type { SecretName } from "./secrets/types.js";
+
+export { acquireDirectoryLock, refreshDirectoryLock, releaseDirectoryLock } from "./locks.js";
 
 export type ServiceChannel = "service" | "control";
 
@@ -49,7 +53,6 @@ export const MAX_SOCKET_PATH_BYTES = 103;
 
 const TOKEN = /^[A-Za-z0-9_-]{43,256}$/;
 const LIVENESS_TIMEOUT_MS = 1_000;
-const LOCK_STALE_MS = 15_000;
 
 export interface ServiceEndpoint {
   readonly channel: ServiceChannel;
@@ -107,10 +110,10 @@ export function constantTimeEqual(a: Buffer, b: Buffer): boolean {
 }
 
 /**
- * Where the channel credentials live. The file store below is the WP-20
- * storage (private files); WP-21 replaces it with OS secure storage behind the
- * same interface. Credentials never reach Core, the audit log, logs, the
- * browser or child processes.
+ * Where the channel credentials live: the secret store of the state directory
+ * (WP-21, secrets/store.ts: OS secure storage or owner-only files).
+ * Credentials never reach Core, the audit log, logs, the browser or child
+ * processes.
  */
 export interface CredentialStore {
   /** The credential, or undefined when none exists yet (never creates one). */
@@ -119,90 +122,24 @@ export interface CredentialStore {
   readOrCreate(channel: ServiceChannel): Promise<string>;
 }
 
-export function fileCredentialStore(stateDir: string, privateFiles: PrivateFileProtection): CredentialStore {
-  return {
-    read: (channel) => readCredential(credentialFile(stateDir, channel), channel),
-    readOrCreate: async (channel) => {
-      await privateFiles.ensureDirectory(stateDir);
-      return loadOrCreateCredential(credentialFile(stateDir, channel), channel, privateFiles);
-    },
-  };
-}
-
-async function readCredential(file: string, channel: ServiceChannel): Promise<string | undefined> {
-  let text: string;
-  try {
-    text = await readFile(file, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw new CrotError(
-      "CONFIG_ERROR",
-      `Cannot read the CROT ${channel} credential ${file}: ${(error as Error).message}`,
-    );
-  }
-  const token = text.trim();
-  if (token === "") return undefined; // being created right now
-  if (!isCredential(token))
-    throw new CrotError(
-      "CONFIG_ERROR",
-      `The CROT ${channel} credential file ${file} does not contain a valid credential.`,
-    );
-  return token;
-}
+const credentialName = (channel: ServiceChannel): SecretName =>
+  channel === "service" ? "service-token" : "control-token";
 
 /**
- * Same procedure as the HTTP and bridge tokens: where the platform restricts
- * files after creation (protectFile), a new file is created empty, restricted
- * and only then receives the secret; an existing file is restricted before
- * use. Failure to restrict is an error, never a silent downgrade.
+ * Credentials in the secret store of `stateDir`. Readers (shim, control
+ * client) reopen the store on every read, so they follow a migration done by
+ * the service in the meantime. `store` is the service's prepared store.
  */
-async function loadOrCreateCredential(
-  file: string,
-  channel: ServiceChannel,
+export function secretCredentialStore(
+  stateDir: string,
   privateFiles: PrivateFileProtection,
-): Promise<string> {
-  const existing = await readCredential(file, channel);
-  if (existing !== undefined) {
-    if (privateFiles.protectFile) {
-      try {
-        await privateFiles.protectFile(file);
-      } catch (error) {
-        throw new CrotError(
-          "CONFIG_ERROR",
-          `Cannot restrict access to the CROT ${channel} credential ${file}: ${(error as Error).message}`,
-        );
-      }
-    }
-    return existing;
-  }
-  const token = randomBytes(32).toString("base64url");
-  const mode = privateFiles.fileMode !== undefined ? { mode: privateFiles.fileMode } : {};
-  try {
-    // An empty file left by an interrupted creation is replaced.
-    await rm(file, { force: true });
-    if (privateFiles.protectFile) {
-      await writeFile(file, "", { flag: "wx", ...mode });
-      try {
-        await privateFiles.protectFile(file);
-      } catch (error) {
-        await rm(file, { force: true });
-        throw error;
-      }
-      await writeFile(file, token + "\n", { encoding: "utf8", flag: "r+" });
-    } else {
-      await writeFile(file, token + "\n", { encoding: "utf8", flag: "wx", ...mode });
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      const raced = await readCredential(file, channel).catch(() => undefined);
-      if (raced) return raced;
-    }
-    throw new CrotError(
-      "CONFIG_ERROR",
-      `Cannot create the CROT ${channel} credential ${file}: ${(error as Error).message}`,
-    );
-  }
-  return token;
+  options: { readonly store?: SecretStore; readonly host?: SecretStoreHost } = {},
+): CredentialStore {
+  const open = async () => options.store ?? (await openSecretStore(stateDir, privateFiles, options.host));
+  return {
+    read: async (channel) => (await open()).read(credentialName(channel)),
+    readOrCreate: async (channel) => (await open()).readOrCreate(credentialName(channel)),
+  };
 }
 
 /** Whether something accepts connections on a POSIX socket path or Windows pipe. */
@@ -218,55 +155,6 @@ export function isListening(endpointPath: string, timeoutMs = LIVENESS_TIMEOUT_M
     socket.once("connect", () => done(true));
     socket.once("error", () => done(false));
   });
-}
-
-/**
- * Exclusive directory lock (atomic mkdir). A lock older than `staleMs` (its
- * holder crashed) is broken. Breaking is safe against concurrent breakers: the
- * stale lock is first moved aside under a unique name (only one process can
- * move it), and the moved directory must still be the one judged stale (same
- * inode and modification time); a process that moved a lock someone else had
- * just taken puts it back and does not get the lock.
- */
-export async function acquireDirectoryLock(lock: string, staleMs = LOCK_STALE_MS): Promise<boolean> {
-  try {
-    await mkdir(lock, { mode: 0o700 });
-    return true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
-  const info = await stat(lock).catch(() => undefined);
-  if (info && Date.now() - info.mtimeMs <= staleMs) return false;
-  if (info) {
-    const aside = `${lock}.stale-${process.pid}-${randomBytes(6).toString("hex")}`;
-    try {
-      await rename(lock, aside);
-    } catch {
-      return false; // another process broke it first
-    }
-    const moved = await stat(aside).catch(() => undefined);
-    if (!moved || moved.ino !== info.ino || moved.mtimeMs !== info.mtimeMs) {
-      await rename(aside, lock).catch(() => rmdir(aside).catch(() => undefined));
-      return false;
-    }
-    await rmdir(aside).catch(() => undefined);
-  }
-  try {
-    await mkdir(lock, { mode: 0o700 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Keep a held lock fresh (its modification time), so it is never judged stale while held. */
-export async function refreshDirectoryLock(lock: string): Promise<void> {
-  const now = new Date();
-  await utimes(lock, now, now).catch(() => undefined);
-}
-
-export function releaseDirectoryLock(lock: string): Promise<void> {
-  return rmdir(lock).catch(() => undefined);
 }
 
 function listenOnce(

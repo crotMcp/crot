@@ -18,7 +18,7 @@ const Env = z
   )
   .optional()
   .describe(
-    "Environment variables added to or overriding the CROT process environment; null removes a variable. Names are case-insensitive on Windows.",
+    "Environment variables set for the command (literal values) on top of its base environment, an allowlisted subset of the CROT environment; null removes a variable. Variables CROT withholds cannot be obtained through this. Names are case-insensitive on Windows.",
   );
 const Shell = z
   .enum(SHELL_IDS)

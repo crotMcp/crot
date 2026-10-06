@@ -24,6 +24,7 @@ import { PermissionEngine } from "./permissions/engine.js";
 import { NetworkPolicy, type NetworkPolicySummary } from "./permissions/network/policy.js";
 import { createPermissionPolicy, type PermissionMode } from "./permissions/policy.js";
 import { DEFAULT_AUDIT_FILE_NAME } from "./platform/directories.js";
+import { createChildEnvironment, type ChildEnvironmentSummary } from "./platform/child-environment.js";
 import { createNodePlatform } from "./platform/node-platform.js";
 import type { Platform, PlatformInfo, PrivateFileProtection, PrivateFileStatus } from "./platform/types.js";
 import { Workspace, type WorkspaceInfo } from "./workspace/workspace.js";
@@ -42,6 +43,10 @@ export interface CrotStatus {
   readonly platform: PlatformInfo;
   /** Paths CROT tools may never modify (audit log, configuration). */
   readonly protectedPaths: readonly string[];
+  /** Paths holding CROT secrets: CROT tools may neither read nor modify them, in any mode (AD-18). */
+  readonly secretPaths: readonly string[];
+  /** Environment of process-tool children: allowlist summary, no values (AD-18). */
+  readonly childEnvironment: ChildEnvironmentSummary;
   /** Browser bridge state (no browser data). */
   readonly browser: { readonly state: BrowserBridgeState };
   /** Host policy of network.access (rules as configured). */
@@ -74,6 +79,12 @@ export interface CrotCoreOptions {
   readonly platform?: Platform;
   /** Additional files CROT tools must never modify, e.g. the configuration file in use. */
   readonly protectedPaths?: readonly string[];
+  /**
+   * Files and directories holding CROT secrets (secret store files, legacy
+   * token files; AD-18). No CROT operation may read, list into, mount or
+   * modify them, in any mode; they are also protected paths.
+   */
+  readonly secretPaths?: readonly string[];
   /**
    * Connection to the CROT Browser Extension (the browser bridge). Omitted
    * when browser support is disabled. Core only sends authorized requests
@@ -130,6 +141,7 @@ export class CrotCore {
     private readonly audit: AuditSink,
     private readonly auditProtection: PrivateFileStatus | undefined,
     private readonly serviceStatus: (() => ServiceStatus) | undefined,
+    private readonly childEnvironment: ChildEnvironmentSummary,
   ) {}
 
   private shuttingDown: Promise<void> | undefined;
@@ -172,11 +184,14 @@ export class CrotCore {
       ...(config.audit.sink === "file" && config.audit.path ? [config.audit.path] : []),
       ...(audit instanceof JsonlFileAuditSink ? [audit.file] : []),
     ];
-    const protectedPaths = [
-      ...new Set(await Promise.all(guarded.map(async (p) => (await workspace.resolve(path.resolve(p))).absolute))),
+    const resolveAll = async (paths: readonly string[]) => [
+      ...new Set(await Promise.all(paths.map(async (p) => (await workspace.resolve(path.resolve(p))).absolute))),
     ];
+    const secretPaths = await resolveAll(options.secretPaths ?? []);
+    const protectedPaths = await resolveAll([...guarded, ...secretPaths]);
     const permissions = new PermissionEngine(policy, {
       protectedPaths,
+      secretPaths,
       contains: (a, c) => workspace.contains(a, c),
       network: networkPolicy,
       approvals: {
@@ -210,9 +225,35 @@ export class CrotCore {
     // (AD-1 point 6, AD-2); git.write operations on one repository are also serialized.
     const gitLock = new GitMetadataLock((a, c) => workspace.contains(a, c));
     const filesystem = new FileSystemService({ workspace, guard, limits: config.limits, gitLock });
-    const processes = new ProcessService({ workspace, guard, platform, limits: config.limits });
-    const git = new GitService({ workspace, guard, platform, limits: config.limits, lock: gitLock });
-    const docker = new DockerService({ workspace, guard, platform, limits: config.limits, protectedPaths });
+    // Children of process tools and Git start from the allowlisted environment (AD-18); Docker keeps its own list (AD-3).
+    const childEnvironment = createChildEnvironment(
+      platform.baseEnvironment,
+      config.environment.allow,
+      platform.environment.caseInsensitive,
+    );
+    const processes = new ProcessService({
+      workspace,
+      guard,
+      platform,
+      limits: config.limits,
+      baseEnv: childEnvironment.base,
+    });
+    const git = new GitService({
+      workspace,
+      guard,
+      platform,
+      limits: config.limits,
+      lock: gitLock,
+      baseEnv: childEnvironment.base,
+    });
+    const docker = new DockerService({
+      workspace,
+      guard,
+      platform,
+      limits: config.limits,
+      protectedPaths,
+      secretPaths,
+    });
     const browser = new BrowserService({
       guard,
       limits: config.limits,
@@ -235,6 +276,7 @@ export class CrotCore {
       audit,
       auditProtection,
       options.serviceStatus,
+      childEnvironment.summary,
     );
   }
 
@@ -291,6 +333,8 @@ export class CrotCore {
       },
       platform: this.platform.info,
       protectedPaths: this.permissions.protected,
+      secretPaths: this.permissions.secrets,
+      childEnvironment: this.childEnvironment,
       browser: { state: this.browser.state() },
       network: this.permissions.network.summary(),
       approvals: this.approvalStatus(),

@@ -95,6 +95,12 @@ export interface BrowserBridgeOptions {
   /** Private state directory (token file, POSIX socket). */
   readonly stateDir: string;
   readonly privateFiles: PrivateFileProtection;
+  /**
+   * Source of the bridge token: the CROT service passes its secret store
+   * (WP-21; read or create "browser-token"). Default: the owner-only token
+   * file in the state directory.
+   */
+  readonly token?: () => Promise<string>;
   /** Diagnostics (never receives the token or page data). */
   readonly log?: (message: string) => void;
   readonly handshakeTimeoutMs?: number;
@@ -160,7 +166,9 @@ export class BrowserBridge implements BrowserConnection {
   static async start(options: BrowserBridgeOptions): Promise<BrowserBridge> {
     await options.privateFiles.ensureDirectory(options.stateDir);
     const tokenFile = bridgeTokenFile(options.stateDir);
-    const { token } = await loadOrCreateBridgeToken(tokenFile, options.privateFiles);
+    const token = options.token
+      ? await options.token()
+      : (await loadOrCreateBridgeToken(tokenFile, options.privateFiles)).token;
     const bridge = new BrowserBridge(bridgeEndpoint(options.stateDir, token), tokenFile, token, options);
     if (bridge.endpoint.kind === "unix-socket") await bridge.checkDirectory(options.stateDir);
     if (!(await bridge.acquire())) {

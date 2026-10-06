@@ -25,7 +25,7 @@ import { environmentFingerprint } from "./environment.js";
 import {
   acquireDirectoryLock,
   refreshDirectoryLock,
-  fileCredentialStore,
+  secretCredentialStore,
   releaseDirectoryLock,
   SERVICE_LOG_FILE_NAME,
   SERVICE_START_LOCK_NAME,
@@ -68,7 +68,7 @@ export async function connectToService(
   // Configuration errors are reported here, before a service is involved.
   parseConfig(command.config);
   const digest = configDigest(command.configFile ?? "", command.config);
-  const store = fileCredentialStore(stateDir, options.privateFiles);
+  const store = secretCredentialStore(stateDir, options.privateFiles);
   const windows = options.windows ?? process.platform === "win32";
   const deadline = Date.now() + CONNECT_DEADLINE_MS;
   let started: Awaited<ReturnType<typeof startService>> | undefined;

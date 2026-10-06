@@ -1,5 +1,5 @@
 import { rmSync } from "node:fs";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AuthContext } from "../../auth/principal.js";
@@ -37,6 +37,12 @@ export interface DockerServiceDeps {
    * never get write access to them through a bind mount.
    */
   readonly protectedPaths?: readonly string[];
+  /**
+   * Paths holding CROT secrets (AD-18). No bind mount, read-only or not, may
+   * expose one that exists (the mount source being the path, inside it or an
+   * ancestor of it).
+   */
+  readonly secretPaths?: readonly string[];
   /** Base environment for Docker (defaults to the platform base environment). */
   readonly baseEnv?: Readonly<Record<string, string | undefined>>;
 }
@@ -352,6 +358,7 @@ export class DockerService {
       }
       const resolved = await this.deps.workspace.resolve(hostPath.source);
       if (!hostPath.readOnly) this.refuseProtected(resolved, hostPath.where);
+      await this.refuseSecrets(resolved, hostPath.where);
       hostPath.replace(resolved.absolute);
       hostPaths.push(resolved);
     }
@@ -604,6 +611,19 @@ export class DockerService {
           `${where}: a writable mount would expose a path protected by CROT: ${guarded}. Mount it read-only or choose another path.`,
         );
       }
+    }
+  }
+
+  /** No mount, read-only or not, may expose CROT secrets (AD-18). */
+  private async refuseSecrets(p: ResolvedPath, where: string): Promise<void> {
+    for (const secret of this.deps.secretPaths ?? []) {
+      if (!this.deps.workspace.contains(p.absolute, secret) && !this.deps.workspace.contains(secret, p.absolute))
+        continue;
+      if (!(await lstat(secret).catch(() => undefined))) continue;
+      throw new CrotError(
+        "PERMISSION_DENIED",
+        `${where}: the mount would expose CROT secrets (${secret}). Choose a path that does not contain the CROT state directory.`,
+      );
     }
   }
 

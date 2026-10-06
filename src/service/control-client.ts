@@ -5,7 +5,7 @@
  */
 import type { PrivateFileProtection } from "../core/platform/types.js";
 import { ChannelError, connectChannel, type AuthenticatedChannel } from "./channel.js";
-import { fileCredentialStore, isListening, serviceEndpoint, type CredentialStore } from "./endpoints.js";
+import { secretCredentialStore, isListening, serviceEndpoint, type CredentialStore } from "./endpoints.js";
 import { parseControlResponse, type ControlMethod } from "./protocol.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -38,7 +38,7 @@ export class ControlClient {
     readonly credentials?: CredentialStore;
     readonly windows?: boolean;
   }): Promise<ControlClient | undefined> {
-    const store = options.credentials ?? fileCredentialStore(options.stateDir, options.privateFiles);
+    const store = options.credentials ?? secretCredentialStore(options.stateDir, options.privateFiles);
     const credential = await store.read("control");
     if (credential === undefined) return undefined;
     const endpoint = serviceEndpoint(options.stateDir, "control", credential, options.windows);

@@ -136,7 +136,10 @@ afterEach(async () => {
   await dirs.cleanup();
 });
 
-async function makeCore(permissions: unknown, options: { protectedPaths?: string[] } = {}): Promise<CrotCore> {
+async function makeCore(
+  permissions: unknown,
+  options: { protectedPaths?: string[]; secretPaths?: string[] } = {},
+): Promise<CrotCore> {
   core = await createTestCore({ workspace: { root: dirs.workspace }, permissions }, audit, { platform, ...options });
   return core;
 }
@@ -616,6 +619,30 @@ describe("docker.use: docker_compose_up", () => {
     fake.calls.length = 0;
     scriptCompose({
       model: webModel(app, { volumes: [{ type: "bind", source: dirs.workspace, target: "/ws", read_only: true }] }),
+    });
+    await expect(c.docker.composeUp(ctx, { cwd: "app" })).resolves.toMatchObject({ project: "demo" });
+  });
+
+  it("refuses any bind mount, even read-only, that exposes CROT secrets (AD-18)", async () => {
+    const app = await makeProject(path.join(dirs.workspace, "app"));
+    const state = path.join(dirs.workspace, "state");
+    await mkdir(state, { recursive: true });
+    const token = path.join(state, "http-token");
+    await writeFile(token, "secret\n");
+    const missing = path.join(dirs.workspace, "other", "service-token");
+    const c = await makeCore({ mode: "full_control" }, { secretPaths: [token, missing] });
+    for (const source of [dirs.workspace, state, token]) {
+      fake.calls.length = 0;
+      scriptCompose({ model: webModel(app, { volumes: [{ type: "bind", source, target: "/x", read_only: true }] }) });
+      await expect(c.docker.composeUp(ctx, { cwd: "app" })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+      expect(fake.launched.some((a) => a.includes("up"))).toBe(false);
+    }
+    // A secret path that does not exist (OS secure storage in use) does not block mounting its parent.
+    fake.calls.length = 0;
+    scriptCompose({
+      model: webModel(app, {
+        volumes: [{ type: "bind", source: path.join(dirs.workspace, "other"), target: "/o", read_only: true }],
+      }),
     });
     await expect(c.docker.composeUp(ctx, { cwd: "app" })).resolves.toMatchObject({ project: "demo" });
   });

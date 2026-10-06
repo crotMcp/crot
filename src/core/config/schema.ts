@@ -67,6 +67,10 @@ export const AuditConfigSchema = z
   })
   .strict();
 
+/** environment.allow entries: a variable name, or a prefix of at least two characters followed by "*". */
+const ENV_ALLOW_PATTERN = /^(?:[A-Za-z_][A-Za-z0-9_().]{0,127}|[A-Za-z_][A-Za-z0-9_().]{1,126}\*)$/;
+const ENV_ALLOW_MESSAGE = 'expected a variable name or a prefix ending in "*" (at least two characters before it)';
+
 export const EnvironmentConfigSchema = z
   .object({
     /**
@@ -75,24 +79,43 @@ export const EnvironmentConfigSchema = z
      * login-shell: always; inherited: use the PATH CROT was started with.
      */
     path: z.enum(STARTUP_PATH_MODES).default("auto"),
+    /**
+     * Extra variables passed from the CROT environment to the children of
+     * process tools (shell.execute, process.manage), on top of the built-in
+     * allowlist (WP-21, docs/SECURITY.md). Exact names, or a prefix ending in
+     * "*" (e.g. "MYAPP_*"). Everything else is withheld.
+     */
+    allow: z.array(z.string().regex(ENV_ALLOW_PATTERN, ENV_ALLOW_MESSAGE)).max(256).default([]),
   })
   .strict();
 
 /**
  * Authentication modes of the HTTP transport.
  *
- * local-token: provisional bearer token stored in a private file in the CROT
- * state directory (loopback only). Future verifiers (e.g. an OAuth/OIDC
+ * local-token: provisional bearer token kept in the CROT secret store
+ * (http.auth.storage; loopback only). Future verifiers (e.g. an OAuth/OIDC
  * resource-server verifier) are added as new modes behind the same verifier
  * interface; authorization always stays with the PermissionEngine.
  */
 export const HTTP_AUTH_MODES = ["local-token"] as const;
+export const HTTP_TOKEN_STORAGES = ["secret-store", "token-file"] as const;
 export type HttpAuthMode = (typeof HTTP_AUTH_MODES)[number];
 
 export const HttpAuthConfigSchema = z
   .object({
     mode: z.enum(HTTP_AUTH_MODES).default("local-token"),
-    /** Token file for local-token; defaults to http-token in the platform state directory. */
+    /**
+     * Where the local token is kept (WP-21). secret-store (default): the CROT
+     * secret store (OS secure storage, or an owner-only file where none is
+     * available); a configured tokenFile is migrated into it and deleted.
+     * token-file: compatibility mode, the token stays in tokenFile (plaintext,
+     * owner-only); CROT warns about it at every start.
+     */
+    storage: z.enum(HTTP_TOKEN_STORAGES).default("secret-store"),
+    /**
+     * Legacy token file. With storage secret-store it is only migrated; with
+     * token-file it is the storage (default: http-token in the state directory).
+     */
     tokenFile: z.string().min(1).optional(),
   })
   .strict();
@@ -109,7 +132,7 @@ export const HttpConfigSchema = z
     host: z.string().min(1).default("127.0.0.1"),
     /** TCP port (0 picks a free port). */
     port: z.number().int().min(0).max(65535).default(7337),
-    auth: HttpAuthConfigSchema.default({ mode: "local-token" }),
+    auth: HttpAuthConfigSchema.default({ mode: "local-token", storage: "secret-store" }),
     /** Browser origins allowed to call the endpoint. Empty: requests carrying an Origin header are rejected. */
     allowedOrigins: z.array(z.string().min(1)).default([]),
     /** Maximum size of a request body. */
@@ -144,6 +167,19 @@ export const HttpConfigSchema = z
 export const BrowserConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
+  })
+  .strict();
+
+/**
+ * Secret store of the CROT service (WP-21, ARCHITECTURE.md §27 AD-18). Read
+ * only by the service; Core does not act on it.
+ * auto: OS secure storage when it is usable at first start, otherwise
+ * owner-only files (the choice is recorded and kept); os: require OS secure
+ * storage (migrates owner-only files into it); file: owner-only files.
+ */
+export const SecretsConfigSchema = z
+  .object({
+    store: z.enum(["auto", "os", "file"]).default("auto"),
   })
   .strict();
 
@@ -214,9 +250,10 @@ export const CrotConfigSchema = z
       .default({ mode: "sandbox", network: { allow: [], deny: [] }, approvals: ApprovalsConfigSchema.parse({}) }),
     limits: LimitsSchema.default(LimitsSchema.parse({})),
     audit: AuditConfigSchema.default({ sink: "stderr" }),
-    environment: EnvironmentConfigSchema.default({ path: "auto" }),
+    environment: EnvironmentConfigSchema.default({ path: "auto", allow: [] }),
     http: HttpConfigSchema.default(HttpConfigSchema.parse({})),
     browser: BrowserConfigSchema.default({ enabled: false }),
+    secrets: SecretsConfigSchema.default({ store: "auto" }),
   })
   .strict();
 
