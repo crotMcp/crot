@@ -148,8 +148,7 @@ own requests. Profile: AD-13 point 4.
 ### WP-23a — L1 for Linux (bubblewrap, AppArmor profile)
 - **Size:** M. **Depends on:** WP-21, AD-20 (normative for this card; it
   also decides the Linux part of OD-9: Ubuntu 22.04 and 24.04 LTS, x86_64 and
-  arm64). §26 question 15 (roadmap OD-14) must be decided before the card is
-  Done.
+  arm64, and §26 question 15 / roadmap OD-14 in point 14).
 - **Read:** AD-13 point 4, AD-17, AD-18, AD-19, AD-20, AD-3, §8,
   `docs/NATIVE_HOST.md`, `src/native-host/`, `src/core/platform/`.
 - **Scope (AD-20):** the L1 components and AppArmor policy with their install
@@ -158,7 +157,7 @@ own requests. Profile: AD-13 point 4.
   points 5–10) behind the Native Host's `ProcessLauncher`; the Docker endpoint
   (point 9); refusal and failure (point 11); availability checks, reason codes
   and `confinement` in `crot_status` and the control overview (point 12);
-  audit (point 13).
+  audit (point 13); best-effort host-network notes in `detail` (point 14).
 - **Out of scope:** packaging, signing and loading the policy on user machines
   (WP-34); macOS and Windows (WP-23b/c); `full_control`; changes to
   `docker.use`, `git.*`, the PermissionEngine or approvals.

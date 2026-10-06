@@ -210,7 +210,7 @@ readiness = Gates 7 and 8. Both are required for v1.
 | AD-15 | Sessionless request model; principal kind by entry point; request-scoped execution context; exposure scopes; supported versions 2026-07-28, 2025-11-25, 2025-06-18; PRM/RFC 8707/audience-bound JWT; relay and device responsibilities; constraints C1–C8 |
 | AD-17 | One per-user CROT service (never a system service), on demand from the stdio shim or managed by an OS supervisor; thin shim without policy, one exposure scope per stdio connection, no silent reconnect; one configuration per service; authenticated owner-only shim and control endpoints (mutual HMAC, replay protection); control channel without MCP/tools; shutdown keeps AD-7 |
 | AD-16 | CDP backend with fixed allowlist; command list v1; document-bound refs; explicit `tabId` for remote; per-tab FIFO; dialogs, files, screenshots; presets key `permissions.approvals.untrustedContent` = `require-approval` / `autonomous-browser` / `off`; store justification; required tests (point 19) |
-| AD-20 | Linux L1 (WP-23a): Ubuntu 22.04/24.04 LTS on x86_64/arm64; CROT-owned bubblewrap and AppArmor policy, version-matched, packaged and loaded by WP-34, never by the service; host read view minus CROT-protected paths; writes to workspace, private temp and a private home layer (CROT-private caches); network `on` (host namespace, localhost works) or `off`; mediated Docker endpoint on every transport; one sandbox per Core; remote-only refusal; stable reason codes |
+| AD-20 | Linux L1 (WP-23a): Ubuntu 22.04/24.04 LTS on x86_64/arm64; CROT-owned bubblewrap and AppArmor policy, version-matched, packaged and loaded by WP-34, never by the service; host read view minus CROT-protected paths; writes to workspace, private temp and a private home layer (CROT-private caches); network `on` (host namespace, localhost works) or `off`; mediated Docker endpoint on every transport; one sandbox per Core; remote-only refusal; stable reason codes; host-local services reachable over the host network are a documented residual risk reported in `detail` (decides OD-14) |
 
 ### 4.2 Still open
 
@@ -232,7 +232,7 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | OD-11 | Version-compatibility policy across extension (store auto-updates), local service, tray and relay/tunnel protocol; minimum supported versions; whether the relay may refuse outdated devices | Independent update channels can break the chain; refusing devices at the relay is admission, which must stay distinct from authorization (AD-15 p.10) | WP-29, WP-34, WP-39 | Before WP-34 — AD if the relay gains an admission rule |
 | OD-12 | Diagnostics and crash reporting under "no hidden telemetry" (§12): none, or explicit opt-in; scope of relay operational logs (metadata only) | Operability vs privacy promise; must be stated in the privacy policy | WP-39, WP-37 | Before WP-39 |
 | OD-13 | Commercial model: plans, what is entitled (remote mode, device count, other cloud features), trial, payment provider, legal entity and jurisdictions, data residency of relay/account data | Entitlement schema, billing integration, legal documents | WP-36, WP-37, WP-39 | Before WP-36 (product/business decision, not an AD unless it touches §23 boundaries) |
-| OD-14 | ARCHITECTURE.md §26 question 15: host endpoints that give code execution to a local caller without a CROT credential (Docker on TCP without TLS, an SSH server on this host accepting the user's keys, debugging ports of the user's processes, unauthenticated notebook/IDE servers, container engines that put containers in the host network without the CROT container profile), reachable because network `on` shares the host network (AD-20 point 8) | Through such an endpoint a confined command can run unconfined code and reach CROT's state; options (a) host configuration outside L1, documented and reported, or (b) mediated localhost replacing AD-20 point 8 `on` | WP-23a (security acceptance), WP-31, WP-33, WP-37 | Before WP-23a is Done — **AD required** if (b) |
+| OD-14 | ARCHITECTURE.md §26 question 15: host endpoints that give code execution to a local caller without a CROT credential (Docker on TCP without TLS, an SSH server on this host accepting the user's keys, debugging ports of the user's processes, unauthenticated notebook/IDE servers, container engines that put containers in the host network without the CROT container profile), reachable because network `on` shares the host network (AD-20 point 8) | Through such an endpoint a confined command can run unconfined code and reach CROT's state; options (a) host configuration outside L1, documented and reported, or (b) mediated localhost replacing AD-20 point 8 `on` | WP-23a (security acceptance), WP-31, WP-33, WP-37 | **Decided by ARCHITECTURE.md §27 AD-20 point 14:** option (a) — documented residual risk of the host-network model, best-effort notes in the confinement `detail`, never a refusal; network `on` stays the host network |
 
 Implementation choices that are **not** architectural but have release impact
 (the implementing WP decides and documents them): tray UI technology (WP-22: Electron, AD-19 point 1),
@@ -282,7 +282,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-20 | 1 | Supervised service, stdio shim, local control channel | WP-19, OD-1 | L | yes | with 2B, WP-28/29 | **Done** (AD-17) |
 | WP-21 | 1 | Secret storage, child-process environment allowlist | WP-20 | M | yes | with WP-22 | **Done** (AD-18) |
 | WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | yes | with WP-21 | **Done** (AD-19) |
-| WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part decided); OD-14 before Done | M | yes | with 23b/c | Not started |
+| WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part and OD-14 decided) | M | yes | with 23b/c | Not started |
 | WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Not started |
 | WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Not started |
 | WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | Not started |
@@ -445,7 +445,9 @@ spike first, then restricted / low-IL token + Job Object).
   `off`; the development baseline of AD-20 point 1 is part of the acceptance
   (including Docker/Compose with a TCP daemon, a localhost service and
   background processes); CI runs the real mechanism on Ubuntu 22.04 and 24.04.
-  OD-14 must be decided before WP-23a is Done.
+  Host-local services reachable over the host network with network `on` are
+  a documented residual risk (AD-20 point 14, OD-14), reported in `detail`
+  where detectable and never refused.
 - **Scope:** profile enforcement through the Platform / Native Host layer;
   `crot_status` reports L1 availability and reason; refusal of remote
   `shell`/`process` operations where the mechanism is unavailable on a

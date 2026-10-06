@@ -1032,7 +1032,10 @@ These need explicit decisions before the corresponding work packages.
     Decide whether a policy matcher limits remote contexts to tabs they
     opened (additive, like `exposed`). Not required for v1.
 15. **Host endpoints that give code execution without a CROT credential.**
-    *Opened by §27 AD-20; blocks the security acceptance of WP-23a.* With
+    *Decided in §27 AD-20 point 14: option (a) — a documented residual risk of
+    the host-network development model, reported in the confinement `detail`
+    where detectable, never a refusal; network `on` stays the host network.*
+    Originally: with
     network `on` a confined command shares the host network namespace (AD-20
     point 8), which localhost development services require. A local endpoint
     that gives code execution as the user or as root to any local caller
@@ -3534,9 +3537,12 @@ development capability CROT already offers.
 **Decision.**
 
 1. **Purpose and development baseline.** L1 protects CROT's secrets, state,
-   configuration, audit log, control channel and approvals, and the host
-   against privilege gained through the sandbox. It is not L2: it does not
-   hide the user's files, and it does not reduce the development environment.
+   configuration, audit log, control channel and approvals against direct
+   access from a confined process, and the host against privilege gained
+   through the sandbox itself. It is not L2: it does not hide the user's
+   files, and it does not reduce the development environment. With network
+   `on` it does not protect against host-local services that a confined
+   process reaches over the shared host network (point 14).
    Under L1 a confined command keeps:
    - the read view of the host filesystem that AD-13 allows, including the
      user's home, except the CROT-protected paths of point 6;
@@ -3840,15 +3846,46 @@ development capability CROT already offers.
     `"linux-bubblewrap"` or `"none"`, `available` boolean, `network` `"on"` or
     `"off"` (the configured mode), `reason` one of the codes above or `null`
     exactly when available, `detail` one line without secrets or CROT-protected
-    paths (for example the missing component, or that `off` would be
-    available). The tray shows these fields; the codes are stable for
-    diagnostics.
+    paths (for example the missing component, that `off` would be available,
+    or, when available, the host-network notes of point 14). The tray shows
+    these fields; the codes are stable for diagnostics.
 13. **Audit and logs.** `CONFINEMENT_UNAVAILABLE` and `CONFINEMENT_FAILED`
     appear in the audit record of the operation; refusals of the Docker
     endpoint are recorded as `confinement.docker_refused` (request kind and
     reason; no payload, no file contents). Changes of availability go to the
     service log with the reason code. Nothing in L1 status, audit or logs
     contains a secret.
+14. **Host-network residual risk (decides §26 question 15, roadmap OD-14).**
+    Network `on` is the normal host-network development environment and stays
+    as defined in point 8: no private network namespace, no localhost
+    forwarding and no other mediated network layer is part of L1. Host-local
+    services that accept the user's authority without a CROT-specific
+    credential are a documented residual risk of this model, not part of the
+    L1 guarantee: a Docker or other container daemon reachable over TCP
+    without TLS or otherwise through the host network, an SSH server on this
+    host that accepts the user's keys or agent, debugger, inspector,
+    dev-server or notebook endpoints without their own authentication, and
+    local container engines that put containers in the host network without
+    `crot-l1-container-<v>`. A confined command that uses such a service runs
+    code outside the sandbox with what that service grants.
+    - Their existence never makes L1 unavailable and never causes a refusal
+      of network `on` or of any operation.
+    - Where CROT can detect such a condition from local, non-secret facts —
+      the upstream transport of the Docker endpoint (TCP without TLS to a
+      local address), the daemon's reported security options (no AppArmor),
+      listening sockets on the host's loopback and local addresses that match
+      SSH or well-known debugger and notebook ports, a rootless Podman socket
+      — it adds a short note to `detail` (category and port, never addresses
+      of other hosts, credentials, tokens or file contents). Detection is
+      best effort and makes no connection with the user's credentials; the
+      absence of a note is no guarantee.
+    - Not affected: the CROT-specific boundary — no access from a confined
+      process to CROT's secrets, state, configuration, audit log, control and
+      approval channel (points 5–7, 9), no fallback to unconfined execution
+      (point 11), no secret in status, audit or logs (point 13). CROT's own
+      local endpoints are never such services: the loopback HTTP adapter
+      requires the local token, which is a CROT-protected secret, and the
+      shim and control endpoints are hidden.
 
 **Scope and limits.**
 
@@ -3866,11 +3903,14 @@ development capability CROT already offers.
   (use of the OS secret store or the file fallback) and residual risk D of
   AD-19 (acting like the tray). It does not cover `full_control`, `local`
   principals on machines without L1, or other processes of the user.
-- Not decided here: §26 question 15 (roadmap OD-14), host endpoints that give
-  code execution to a local caller without a CROT credential. Until it is
-  decided, the claim "a confined command cannot reach CROT's state" holds for
-  the paths of points 5–10 and is qualified by that question.
-- Residual risks, accepted: the AD-13 risks; a container does whatever its
+- Decides §26 question 15 (roadmap OD-14) as point 14. The guarantee is: a
+  confined process has no direct access to CROT's secrets, state,
+  configuration, audit log, control or approval channel, and gains no
+  privilege through the sandbox itself. L1 does not claim protection against
+  arbitrary host-local services reachable over the shared host network with
+  network `on`.
+- Residual risks, accepted: the AD-13 risks; the host-local services of
+  point 14; a container does whatever its
   image does within the mounts and options a–d allow (as AD-3); files that a
   rootful container writes into the workspace belong to the container's user
   (as AD-3); with a remote daemon the bind rules of point 9 are still applied

@@ -50,7 +50,7 @@ shim, local control channel** (PR #16, `92cce3b`; AD-17,
 
 | WP | What | Why now |
 | --- | --- | --- |
-| WP-23a/b/c | Command confinement L1 (Linux, macOS, Windows); also protects the OS secret store and the control credential from children. Linux boundary and supported releases (Ubuntu 22.04/24.04 LTS, x86_64/arm64) decided by ARCHITECTURE.md §27 AD-20 (docs only, no implementation yet) | unblocked by WP-21; closes the AD-19 residual risk; WP-23a needs OD-14 decided before Done |
+| WP-23a/b/c | Command confinement L1 (Linux, macOS, Windows); also protects the OS secret store and the control credential from children. Linux boundary and supported releases (Ubuntu 22.04/24.04 LTS, x86_64/arm64) decided by ARCHITECTURE.md §27 AD-20 (docs only, no implementation yet) | unblocked by WP-21; closes the AD-19 residual risk; WP-23a can start (AD-20, OD-14 decided) |
 | WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | browser branch; unblocked by WP-18 |
 | WP-28 → WP-29 | Identity provider and verifier, then Cloud Relay | relay branch starts right after AD-15 (AD-14 point 6) |
 | WP-35 | Extension publication, submitted early | needs the AD-16 permission justification (`debugger`, `downloads`, `tabGroups`) |
@@ -67,7 +67,7 @@ shim, local control channel** (PR #16, `92cce3b`; AD-17,
 | All stdio clients of a user share one configuration and one process environment (supervisor's or starting shim's; differing PATH/shell/home is reported to the client; commands get only the allowlisted part since WP-21) | AD-17 residual risk; WP-34 |
 | Windows named pipes keep Node's default security descriptor (no explicit owner-only DACL) | WP-34 |
 | Unconfined children can use the OS secret store (or the file fallback) as the same user | AD-18 residual risk; WP-23a/b/c |
-| Host endpoints that give code execution without a CROT credential (Docker on TCP without TLS, SSH server on this host accepting the user's keys, debugging ports, unauthenticated notebook/IDE servers, container engines without the CROT container profile) are reachable with network `on` | ARCHITECTURE.md §26 question 15, roadmap OD-14; before WP-23a is Done |
+| Host-local services that accept the user's authority without a CROT credential (Docker on TCP without TLS, SSH server on this host accepting the user's keys, debugging/notebook endpoints without authentication, container engines without the CROT container profile) are reachable with network `on` | Accepted residual risk of the host-network model (AD-20 point 14, OD-14 decided); reported in `detail` where detectable; disclosure in WP-37 |
 | macOS, Windows and browser parts of the v1 platform matrix | roadmap OD-9 (Linux part decided by AD-20) |
 | `secrets.store: "auto"` keeps the file fallback once chosen; switching needs `"os"` | AD-18 residual risk |
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
