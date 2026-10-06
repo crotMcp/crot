@@ -24,6 +24,13 @@ import { isWindows, makeTempDirs, testContext, waitFor, type TempDirs } from "..
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const mainScript = path.join(root, "dist/tray/main.js");
 const onCi = process.env.CI === "true";
+/**
+ * Chromium switches for every Electron start of this test, the probe included.
+ * Linux CI (Ubuntu 24.04) restricts unprivileged user namespaces and `npm ci`
+ * leaves chrome-sandbox without SUID root, so the Chromium sandbox aborts at
+ * start-up unless it is disabled. Test runs only; the tray itself is unchanged.
+ */
+const chromiumSwitches = process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : [];
 
 function electronBinary(): string | undefined {
   try {
@@ -43,16 +50,20 @@ function launcher(): { prefix: string[]; problem?: string } {
   if (needsXvfb && spawnSync("xvfb-run", ["--help"], { stdio: "ignore" }).error)
     return { prefix: [], problem: "no DISPLAY and xvfb-run is not available" };
   const prefix = [...(needsXvfb ? ["xvfb-run", "-a"] : []), electron];
-  const probe = spawnSync(prefix[0]!, [...prefix.slice(1), "--version"], {
+  const probe = spawnSync(prefix[0]!, [...prefix.slice(1), "--version", ...chromiumSwitches], {
     encoding: "utf8",
     timeout: 30_000,
     env: electronEnv(),
   });
-  if (probe.status !== 0)
-    return {
-      prefix,
-      problem: `Electron cannot start: ${(probe.stderr || probe.error?.message || "unknown").trim().split("\n")[0]}`,
-    };
+  if (probe.status !== 0) {
+    // xvfb-run runs the command as `"$@" 2>&1`: Electron's diagnostics arrive on stdout.
+    const output = `${probe.stderr ?? ""}\n${probe.stdout ?? ""}`;
+    const reason =
+      output.split("\n").find((line) => /FATAL|error/i.test(line) && !/dbus/.test(line)) ??
+      probe.error?.message ??
+      `exit status ${probe.status}, signal ${probe.signal}`;
+    return { prefix, problem: `Electron cannot start: ${reason.trim()}` };
+  }
   return { prefix };
 }
 
@@ -122,13 +133,12 @@ describe.skipIf(launch.problem !== undefined && !onCi)("WP-22: Electron tray smo
     await waitFor(() => requested === 1);
 
     const report = path.join(dirs.outside, "smoke.json");
-    const linux = process.platform === "linux";
     const args = [
       ...launch.prefix.slice(1),
       mainScript,
       `--state-dir=${stateDir}`,
       `--smoke-test=${report}`,
-      ...(linux ? ["--no-sandbox", "--disable-gpu"] : []),
+      ...chromiumSwitches,
     ];
     const child = spawn(launch.prefix[0]!, args, { env: electronEnv(), stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
