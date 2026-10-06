@@ -14,10 +14,11 @@ import type { PrivateFileProtection } from "../platform/types.js";
  *   CROT tool can modify).
  * - It fails closed: if the stored state cannot be read or is malformed,
  *   every remote scope is treated as exposed, and the file is left untouched.
- * - There is deliberately no reset here. A reset exists only as an explicit
- *   user action in an approval provider or as revocation of the client's
- *   access (WP-22); no tool, request, token claim or configuration value can
- *   clear a scope.
+ * - A reset exists only as an explicit user action in the approval provider
+ *   or as revocation of the client's access (WP-22, AD-19 point 8): reset()
+ *   is called only by the service for a control-channel request. Core,
+ *   adapters and tools never call it; no tool, request, token claim or
+ *   configuration value can clear a scope.
  *
  * Only SHA-256 digests of the scope keys are stored, never account, device or
  * client identifiers in clear text.
@@ -54,7 +55,7 @@ export interface RemoteExposureStoreOptions {
   readonly onError?: (error: unknown) => void;
 }
 
-export class RemoteExposureStore {
+export class RemoteExposureStore implements RemoteExposureResettable {
   private constructor(
     /** The state file; undefined for an in-memory store (tests, embedding). */
     readonly file: string | undefined,
@@ -130,6 +131,30 @@ export class RemoteExposureStore {
   }
 
   /**
+   * Make one remote scope clean again (AD-15 point 8, AD-19 point 8). Only the
+   * service calls this, for a user action on the control channel. The file is
+   * written first; if that fails nothing changes. Refused while the stored
+   * state failed closed, because the other scopes' state is unknown.
+   */
+  reset(remoteKey: string): RemoteExposureResetResult {
+    if (this.failedClosed) return "failed_closed";
+    const d = digest(remoteKey);
+    if (!this.exposed.has(d)) return "already_clean";
+    const next = new Set(this.exposed);
+    next.delete(d);
+    if (this.file !== undefined) {
+      try {
+        writeFileSync(this.file, serialize(next), { encoding: "utf8", flag: "w" });
+      } catch (error) {
+        this.onError(error);
+        return "write_failed";
+      }
+    }
+    this.exposed.delete(d);
+    return "reset";
+  }
+
+  /**
    * Record that a remote scope is exposed. The in-memory state changes first
    * and never goes back; the file is rewritten synchronously so that the state
    * is on disk before the source operation's result is returned.
@@ -146,6 +171,12 @@ export class RemoteExposureStore {
       this.onError(error);
     }
   }
+}
+
+export type RemoteExposureResetResult = "reset" | "already_clean" | "failed_closed" | "write_failed";
+
+export interface RemoteExposureResettable {
+  reset(remoteKey: string): RemoteExposureResetResult;
 }
 
 function serialize(exposed: ReadonlySet<string>): string {

@@ -253,7 +253,7 @@ describe("approval gates: pipeline", () => {
     const sink: AuditSink = {
       record: async (event) => {
         if ("kind" in event && event.kind === "approval") throw new Error("disk full");
-        recorded.push(event);
+        if (!("kind" in event && event.kind === "control")) recorded.push(event);
       },
     };
     const onAuditError = vi.fn();

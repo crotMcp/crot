@@ -4,7 +4,13 @@ import { ApprovalBroker } from "./approvals/broker.js";
 import { ExposureTracker, type UntrustedContentSetting } from "./approvals/exposure.js";
 import { RemoteExposureStore } from "./approvals/remote-exposure.js";
 import type { ApprovalProvider, ApprovalRuleId } from "./approvals/types.js";
-import { JsonlFileAuditSink, NullAuditSink, StreamAuditSink, type AuditSink } from "./audit/audit.js";
+import {
+  JsonlFileAuditSink,
+  NullAuditSink,
+  StreamAuditSink,
+  type AuditSink,
+  type ControlAuditRecord,
+} from "./audit/audit.js";
 import type { BrowserConnection } from "./capabilities/browser/connection.js";
 import type { BrowserBridgeState } from "./capabilities/browser/schemas.js";
 import { BrowserService } from "./capabilities/browser/service.js";
@@ -115,6 +121,38 @@ export interface CrotCoreOptions {
    * information supplied by the host; Core never acts on it.
    */
   readonly serviceStatus?: () => ServiceStatus;
+  /**
+   * The exposure state of every scope (AD-12, AD-15 point 8), handed over
+   * from a previous Core of the same service when the service builds a new
+   * one (preset change, AD-19 point 5), so that no scope becomes clean. When
+   * given, remoteExposure and remoteExposureFile do not create another store.
+   */
+  readonly exposure?: ExposureTracker;
+  /**
+   * Receives the composition-root handle of this Core (AD-19 point 3)
+   * synchronously during create(). Only the composition root (the service)
+   * passes this option; no adapter, browser side, tool or relay gets the
+   * handle, and Core has no public method for what it offers.
+   */
+  readonly composition?: (handle: CoreCompositionHandle) => void;
+}
+
+/** What only the composition root can do with a Core (AD-5 point 6, AD-19 points 3, 5 and 9). */
+export interface CoreCompositionHandle {
+  /** Register an approval provider (the tray provider of the service); returns the unregister function. */
+  registerApprovalProvider(provider: ApprovalProvider): () => void;
+  /** Write a control action to this Core's audit sink (AD-19 point 9). Rejects when it cannot be written. */
+  recordControlEvent(event: ControlAuditRecord): Promise<void>;
+  /** What keeps this Core busy: a new Core can replace it only when all are zero (AD-19 point 5). */
+  activity(): CoreActivity;
+  /** The exposure tracker of this Core, for the next Core of the same service. */
+  readonly exposure: ExposureTracker;
+}
+
+export interface CoreActivity {
+  readonly operationsInFlight: number;
+  readonly pendingApprovals: number;
+  readonly runningBackgroundProcesses: number;
 }
 
 /**
@@ -200,19 +238,21 @@ export class CrotCore {
         untrustedContent: config.permissions.approvals.untrustedContent,
       },
     });
-    const remoteExposure =
-      options.remoteExposure ??
-      (remoteExposureFile
-        ? await RemoteExposureStore.open(remoteExposureFile, platform.privateFiles, {
-            onError: (e) =>
-              process.stderr.write(`crot: remote exposure state: ${e instanceof Error ? e.message : String(e)}\n`),
-          })
-        : undefined);
+    const remoteExposure = options.exposure
+      ? undefined
+      : (options.remoteExposure ??
+        (remoteExposureFile
+          ? await RemoteExposureStore.open(remoteExposureFile, platform.privateFiles, {
+              onError: (e) =>
+                process.stderr.write(`crot: remote exposure state: ${e instanceof Error ? e.message : String(e)}\n`),
+            })
+          : undefined));
     const approvalBroker = new ApprovalBroker({ maxPending: config.permissions.approvals.maxPending });
     for (const provider of options.approvalProviders ?? []) approvalBroker.register(provider);
+    const exposure = options.exposure ?? new ExposureTracker(remoteExposure ? { remote: remoteExposure } : {});
     const guard = new ExecutionGuard(permissions, audit, {
       approvals: approvalBroker,
-      exposure: new ExposureTracker(remoteExposure ? { remote: remoteExposure } : {}),
+      exposure,
       // Step 4 of a gated operation: every path must still resolve to the same place.
       revalidatePath: async (p) => {
         const again = await workspace.resolve(p.absolute, { followFinalSymlink: false });
@@ -260,6 +300,16 @@ export class CrotCore {
       ...(options.browser ? { connection: options.browser } : {}),
     });
     const network = new NetworkService({ guard, limits: config.limits });
+    options.composition?.({
+      registerApprovalProvider: (provider) => approvalBroker.register(provider),
+      recordControlEvent: (event) => audit.record(event),
+      activity: () => ({
+        operationsInFlight: guard.inFlightCount,
+        pendingApprovals: approvalBroker.pendingCount,
+        runningBackgroundProcesses: processes.runningCount(),
+      }),
+      exposure,
+    });
     return new CrotCore(
       config,
       workspace,

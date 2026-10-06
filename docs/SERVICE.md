@@ -26,7 +26,7 @@ MCP client B ── stdio ──► crot-mcp (shim) ─┤ shim endpoint (authen
           HTTP on loopback ◄── HTTP MCP clients
                                            ▲
 crot-mcp service status|stop ──────────────┘ control endpoint (authenticated)
-(later: tray app and its approval provider, WP-22)
+CROT tray (WP-22, docs/TRAY.md) ──────────┘ same endpoint: approvals, device controls
 ```
 
 ## Commands
@@ -186,15 +186,41 @@ Windows `%LOCALAPPDATA%\CROT`):
 ## Control channel
 
 The control channel is for the user's own tools: `crot-mcp service
-status|stop` today, the tray app and its approval provider later (WP-22). It
-carries **no MCP and no tools**; anything other than a known control request
-closes the connection. Requests: `ping`, `status`, `shutdown`. It makes no
+status|stop` and the CROT tray ([`TRAY.md`](TRAY.md), WP-22, ARCHITECTURE.md
+§27 AD-19). It carries **no MCP and no tools**; anything other than a known
+control request with valid parameters closes the connection. It makes no
 permission decision and cannot reach Core's tools. It is not an authorization
 mechanism: its credential only shows that the peer runs as the same OS user
-(who can stop the service anyway); it creates no principal, grant or scope and
-changes no mode or rule. When the tray arrives (WP-22) it carries approval
-prompts and answers between the approval broker and the tray's
-`ApprovalProvider`; the decisions stay in the PermissionEngine and the broker.
+(who can stop the service anyway); it creates no principal, grant or scope.
+
+| Request | What it does |
+| --- | --- |
+| `ping`, `status`, `shutdown` | WP-20 |
+| `overview` | service, mode, workspace, preset and its source, remote mode, full-control opt-in, remote clients, agents, browser, trays, L1/CDP/pairing availability |
+| `approvals.subscribe` / `approvals.unsubscribe` | the connection becomes (stops being) an approval UI; subscribe returns the pending requests, then events `approval.requested`, `approval.resolved`, `state.changed` follow |
+| `approvals.decide { requestId, decision, subjectDigest }` | approve (with the presented digest) or reject one request that was presented to this connection |
+| `preset.set { value }` | `require-approval` or `off` (`autonomous-browser`: WP-31); refused unless CROT is idle |
+| `remote.setMode { enabled }`, `remote.setFullControl { enabled }` | device switches (full control: recorded only) |
+| `remote.resetExposure`, `remote.revokeClient` `{ accountId, deviceId, clientId }` | one remote client |
+| `pairing.start` | refused: not available until WP-28 |
+
+- The service's approval provider `tray` is registered with the broker while
+  at least one connection is subscribed; the decisions stay in the broker and
+  the PermissionEngine, checked against the request and the digest.
+- A preset change switches the service to a new Core with the new policy,
+  only while no operation is in flight, no approval is pending and no
+  background process runs; the exposure state and the browser bridge are
+  carried over. MCP connections stay connected.
+- Device state lives in the state directory as owner-only, protected files:
+  `service-settings.json` (preset, remote mode, full-control opt-in) and
+  `remote-clients.json` (identifiers, first/last seen, revocation time).
+  Unreadable state fails closed. Every change is audited as a `control`
+  record; changes that widen access are refused when the audit record cannot
+  be written.
+- `crot-mcp service status` and `crot_status` show `controls` (preset and
+  source, remote mode, full-control opt-in, number of approval UIs).
+- Until L1 (WP-23) any process of the user can read the control credential
+  and use these requests; see TRAY.md, Security.
 
 ## Concurrency
 

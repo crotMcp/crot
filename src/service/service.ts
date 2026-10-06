@@ -29,15 +29,21 @@ import { createCrotMcpServer } from "../adapters/mcp/server.js";
 import type { BrowserBridge } from "../browser-bridge/server.js";
 import { browserProtectedPaths, startBrowserBridge } from "../cli/browser.js";
 import type { ServeCommand } from "../cli/options.js";
-import { REMOTE_EXPOSURE_FILE_NAME } from "../core/approvals/index.js";
+import type { UntrustedContentSetting } from "../core/approvals/exposure.js";
+import { REMOTE_EXPOSURE_FILE_NAME, RemoteExposureStore } from "../core/approvals/index.js";
 import { parseConfig } from "../core/config/load.js";
 import { expandHome } from "../core/config/paths.js";
-import { CORE_VERSION, CrotCore } from "../core/crot-core.js";
+import { CORE_VERSION, CrotCore, type CoreCompositionHandle, type CrotCoreOptions } from "../core/crot-core.js";
 import { CrotError } from "../core/errors.js";
 import type { ServiceStatus } from "../core/service-status.js";
 import type { PrivateFileProtection } from "../core/platform/types.js";
 import { NativeHost } from "../native-host/native-host.js";
+import type { RemoteAdmission } from "../adapters/http/server.js";
 import { acceptChannel, MAX_CLIENT_FRAME_BYTES, type AuthenticatedChannel } from "./channel.js";
+import { ControlCenter, type ControlConnection, type RemoteEntry } from "./control-center.js";
+import { CoreHolder } from "./core-holder.js";
+import { DeviceSettingsStore, SERVICE_SETTINGS_FILE_NAME } from "./device-settings.js";
+import { REMOTE_CLIENTS_FILE_NAME, RemoteClientRegistry } from "./remote-clients.js";
 import { configDigest } from "./config-digest.js";
 import { environmentDifferences, environmentFingerprint } from "./environment.js";
 import {
@@ -53,6 +59,7 @@ import {
   parseControlRequest,
   parseShimMessage,
   SERVICE_PROTOCOL_VERSION,
+  type ControlEvent,
   type ControlRequest,
   type ControlStatus,
   type ServiceToShim,
@@ -117,7 +124,9 @@ export class CrotService {
   private endpoints: { service: ServiceEndpoint; control: ServiceEndpoint } | undefined;
   private native: NativeHost | undefined;
   private bridge: BrowserBridge | undefined;
-  private coreInstance: CrotCore | undefined;
+  private holder: CoreHolder | undefined;
+  private control: ControlCenter | undefined;
+  private readonly controlConnections = new Map<AuthenticatedChannel, ControlConnection>();
   private http: CrotHttpServer | undefined;
   private digest = "";
   private idleTimer: NodeJS.Timeout | undefined;
@@ -150,9 +159,25 @@ export class CrotService {
     return (await service.claimEndpoints()) ? (await service.startRuntime(), service) : "already_running";
   }
 
+  /**
+   * The Core the adapters use: a delegating object that always forwards to
+   * the current Core, which a preset change replaces (AD-19 point 5).
+   */
   get core(): CrotCore {
-    if (!this.coreInstance) throw new Error("CROT service not started");
-    return this.coreInstance;
+    if (!this.holder) throw new Error("CROT service not started");
+    return this.holder.core;
+  }
+
+  /** Admission of remote requests on this device (remote mode, revocation; AD-19 points 6 and 8). */
+  get remoteAdmission(): RemoteAdmission {
+    if (!this.control) throw new Error("CROT service not started");
+    return this.control;
+  }
+
+  /** Register a relay entry point (WP-30) so that revocation and remote mode off end its requests. */
+  addRemoteEntry(entry: RemoteEntry): () => void {
+    if (!this.control) throw new Error("CROT service not started");
+    return this.control.addRemoteEntry(entry);
   }
 
   get httpUrl(): string | undefined {
@@ -181,6 +206,7 @@ export class CrotService {
             ...(this.httpTokenStorage ? { httpToken: this.httpTokenStorage } : {}),
           }
         : { store: "unknown", location: "not prepared" },
+      ...(this.control ? { controls: this.control.statusSummary() } : {}),
     };
   }
 
@@ -264,6 +290,14 @@ export class CrotService {
         http.auth.tokenFile !== undefined ? path.resolve(expandHome(http.auth.tokenFile)) : undefined;
       // Persisted exposure of remote principals (AD-15): only HTTP (later the tunnel) carries remote principals.
       const remoteExposureFile = http.enabled ? path.join(stateDir, REMOTE_EXPOSURE_FILE_NAME) : undefined;
+      // Device state of the tray controls (AD-19): protected private state, fail closed.
+      const privateFiles = this.options.privateFiles;
+      const settings = await DeviceSettingsStore.open(path.join(stateDir, SERVICE_SETTINGS_FILE_NAME), privateFiles);
+      if (settings.error) log(`warning: device settings: ${settings.error}; using the most restrictive settings`);
+      const clients = await RemoteClientRegistry.open(path.join(stateDir, REMOTE_CLIENTS_FILE_NAME), privateFiles, {
+        onError: (e) => log(`warning: remote clients: ${e instanceof Error ? e.message : String(e)}`),
+      });
+      if (clients.error) log(`warning: remote clients: ${clients.error}; every remote request is refused`);
       // Secret material (AD-18): neither readable nor modifiable through CROT tools, in any mode.
       const secretPaths = [
         ...stateSecretPaths(stateDir),
@@ -291,13 +325,48 @@ export class CrotService {
         token: () => secrets.store.readOrCreate("browser-token"),
         log,
       });
-      this.coreInstance = await CrotCore.create(command.config, {
+      const remoteExposure = remoteExposureFile
+        ? await RemoteExposureStore.open(remoteExposureFile, this.native.platform.privateFiles, {
+            onError: (e) => log(`remote exposure state: ${e instanceof Error ? e.message : String(e)}`),
+          })
+        : undefined;
+      const coreOptions: CrotCoreOptions = {
         protectedPaths,
         secretPaths,
         ...(remoteExposureFile ? { remoteExposureFile } : {}),
+        ...(remoteExposure ? { remoteExposure } : {}),
         platform: this.native.platform,
         ...(this.bridge ? { browser: this.bridge } : {}),
         serviceStatus: () => this.status(),
+      };
+      const configuredPreset = parsed.permissions.approvals.untrustedContent;
+      const build = async (preset: UntrustedContentSetting, exposure?: CoreCompositionHandle["exposure"]) => {
+        let handle: CoreCompositionHandle | undefined;
+        const core = await CrotCore.create(withPreset(command.config, preset, configuredPreset), {
+          ...coreOptions,
+          ...(exposure ? { exposure } : {}),
+          composition: (h) => (handle = h),
+        });
+        return { core, handle: handle! };
+      };
+      const initial = await build(ControlCenter.effectivePreset(settings, configuredPreset).effective);
+      const holder = new CoreHolder(initial.core, initial.handle);
+      this.holder = holder;
+      this.control = new ControlCenter({
+        holder,
+        settings,
+        clients,
+        remoteExposure,
+        configuredPreset,
+        buildCore: (preset) => build(preset, holder.composition.exposure),
+        serviceStatus: () => this.status(),
+        browserState: () => this.bridge?.state(),
+        agents: () => ({
+          stdio: this.activeShims(),
+          httpSessions: this.http?.sessionCount ?? 0,
+          httpSessionlessInFlight: this.http?.sessionlessLoad.inFlight ?? 0,
+        }),
+        log,
       });
       this.banner();
       if (http.enabled) await this.startHttp(http, legacyTokenFile);
@@ -548,8 +617,14 @@ export class CrotService {
     }).then(
       (channel) => {
         this.controls.add(channel);
+        const connection: ControlConnection = { send: (message: ControlEvent) => void channel.send(message) };
+        this.controlConnections.set(channel, connection);
         channel.onmessage = (value) => void this.onControlMessage(channel, value);
-        channel.onclose = () => this.controls.delete(channel);
+        channel.onclose = () => {
+          this.controls.delete(channel);
+          this.controlConnections.delete(channel);
+          this.control?.connectionClosed(connection);
+        };
         channel.start();
       },
       (error: unknown) =>
@@ -564,6 +639,23 @@ export class CrotService {
       return;
     }
     await this.ready;
+    const connection = this.controlConnections.get(channel);
+    const handled = connection && this.state === "running" ? this.control?.handle(connection, request) : undefined;
+    if (handled) {
+      let result: unknown;
+      try {
+        result = await handled;
+      } catch (error) {
+        channel.send({
+          t: "response",
+          id: request.id,
+          error: { code: "failed", message: error instanceof Error ? error.message : String(error) },
+        });
+        return;
+      }
+      channel.send({ t: "response", id: request.id, result });
+      return;
+    }
     channel.send({ t: "response", id: request.id, result: this.controlResult(request) });
     if (request.method === "shutdown") {
       await channel.drained();
@@ -587,6 +679,9 @@ export class CrotService {
       }
       case "shutdown":
         return { stopping: true, pid: process.pid };
+      default:
+        // WP-22 requests while the service is not running (starting or stopping).
+        return { ok: false, reason: "unavailable", message: `The CROT service is ${this.state}.` };
     }
   }
 
@@ -683,7 +778,8 @@ export class CrotService {
 
   private async releaseRuntime(): Promise<void> {
     if (this.http) await this.http.close();
-    if (this.coreInstance) await this.coreInstance.shutdown();
+    if (this.holder) await this.holder.instance.shutdown();
+    await this.control?.flush();
     await this.bridge?.close();
     await this.native?.close();
     if (this.state !== "stopping" && this.serviceServer) {
@@ -696,9 +792,23 @@ export class CrotService {
 
   /** Last resort when the graceful shutdown hangs: kill process trees synchronously. */
   emergency(): void {
-    this.coreInstance?.terminateProcessesSync();
+    this.holder?.instance.terminateProcessesSync();
     this.native?.closeSync();
   }
+}
+
+/**
+ * The configuration input with the preset chosen in the tray (AD-19 point 5).
+ * The configuration file itself and its digest (AD-17 point 5) are unchanged.
+ */
+function withPreset(input: unknown, preset: UntrustedContentSetting, configured: UntrustedContentSetting): unknown {
+  if (preset === configured) return input;
+  const record = (v: unknown): Record<string, unknown> =>
+    typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  const base = record(input);
+  const permissions = record(base.permissions);
+  const approvals = record(permissions.approvals);
+  return { ...base, permissions: { ...permissions, approvals: { ...approvals, untrustedContent: preset } } };
 }
 
 /** How http.auth keeps the local token (WP-21). */

@@ -1,21 +1,31 @@
 /**
  * Client of the control channel (WP-20, AD-17): `crot-mcp service status`
- * and `crot-mcp service stop`. The tray and its ApprovalProvider (WP-22) use
- * the same channel. The channel carries no MCP and no tools.
+ * and `crot-mcp service stop`, and the tray (WP-22, AD-19), which also
+ * receives the events of a subscribed connection. The channel carries no MCP
+ * and no tools.
  */
 import type { PrivateFileProtection } from "../core/platform/types.js";
 import { ChannelError, connectChannel, type AuthenticatedChannel } from "./channel.js";
 import { secretCredentialStore, isListening, serviceEndpoint, type CredentialStore } from "./endpoints.js";
-import { parseControlResponse, type ControlMethod } from "./protocol.js";
+import { parseControlEvent, parseControlResponse, type ControlEvent, type ControlMethod } from "./protocol.js";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
 export class ControlClient {
+  /** Events of a subscribed connection (approvals.subscribe). */
+  onevent: ((event: ControlEvent) => void) | undefined;
+  /** The connection closed (service stopped or connection lost). */
+  onclose: (() => void) | undefined;
   private nextId = 1;
   private readonly waiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 
   private constructor(private readonly channel: AuthenticatedChannel) {
     channel.onmessage = (value) => {
+      const event = parseControlEvent(value);
+      if (event) {
+        this.onevent?.(event);
+        return;
+      }
       const response = parseControlResponse(value);
       const waiter = response ? this.waiting.get(response.id) : undefined;
       if (!response || !waiter) return channel.destroy();
@@ -27,6 +37,7 @@ export class ControlClient {
       for (const waiter of this.waiting.values())
         waiter.reject(new ChannelError("closed", "The CROT service closed the control connection."));
       this.waiting.clear();
+      this.onclose?.();
     };
     channel.start();
   }
@@ -52,7 +63,11 @@ export class ControlClient {
     }
   }
 
-  request(method: ControlMethod): Promise<unknown> {
+  get closed(): boolean {
+    return this.channel.isClosed;
+  }
+
+  request(method: ControlMethod, params?: Readonly<Record<string, unknown>>): Promise<unknown> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -69,7 +84,8 @@ export class ControlClient {
           reject(e);
         },
       });
-      if (!this.channel.send({ t: "request", id, method }) && this.channel.isClosed) {
+      const message = params === undefined ? { t: "request", id, method } : { t: "request", id, method, params };
+      if (!this.channel.send(message) && this.channel.isClosed) {
         this.waiting.delete(id);
         clearTimeout(timer);
         reject(new ChannelError("closed", "The control connection is closed."));

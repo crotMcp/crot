@@ -40,9 +40,14 @@ steps 10–11 and step 21 — Git read and write):
   Linux Secret Service) with an owner-only file fallback (`crot-mcp secrets
   status|show|rotate`); commands started by CROT get an allowlisted
   environment (see [Security properties](#security-properties))
+- Tray v1 (WP-22): an Electron tray on the control channel shows approval
+  requests and is the approval UI; it also holds the device controls
+  (approval preset, remote mode, remote full-control opt-in — recorded only —,
+  exposure reset and revocation of remote clients); see
+  [`docs/TRAY.md`](docs/TRAY.md)
 
 Not yet implemented: Docker operations beyond `docker.use` (build, pull, push, run, exec), Git network operations (fetch, pull, push), OS-level network egress control for processes and containers, remote (non-loopback)
-exposure and MCP authorization (OAuth/OIDC), installer and autostart, tray app, account/licensing layer.
+exposure and MCP authorization (OAuth/OIDC), installer and autostart (including packaging of the tray), account/licensing layer.
 Firefox is not supported.
 
 **Goal and plan.** The v1 goal (remote MCP clients reach the local computer and
@@ -588,9 +593,10 @@ outcome other than an explicit approval denies it with `PERMISSION_DENIED`
 - `principalKinds: ["remote"]` matches only clients that connect through the
   Cloud Relay; stdio and loopback HTTP clients are `local` (see
   [HTTP transport](#http-transport), migration since WP-19).
-- **No approval UI exists yet.** Until the tray app provides one, operations
-  matched by a rule are denied (`crot_status` shows a note). Without user
-  rules only the built-in `untrusted-content` rule below applies.
+- **Approval UI: the CROT tray** (WP-22, [`docs/TRAY.md`](docs/TRAY.md)).
+  While no tray is connected to the service, operations matched by a rule are
+  denied at once (`crot_status` shows a note). Without user rules only the
+  built-in `untrusted-content` rule below applies.
 - Approvals are single-use and bound to a digest of exactly what runs. After
   the approval CROT authorizes again and re-checks paths; an approval audit
   record is written before execution, and if it cannot be written the
@@ -611,9 +617,11 @@ outcome other than an explicit approval denies it with `PERMISSION_DENIED`
   `shell.execute`, `filesystem.write`, `git.write`, `network.access` or
   `browser.control`, and for `docker_compose_up` / `docker_compose_down`;
   reads are not affected. Without an approval UI these operations are denied
-  while the scope is exposed. Content is never inspected, and nothing clears
-  the exposure. `"untrustedContent": "off"` turns the rule off; `crot_status`
-  reports the setting. The rule is evaluated before your rules, so a matching
+  while the scope is exposed. Content is never inspected; only the user can
+  reset the exposure of a remote client in the tray (or by revoking it).
+  `"untrustedContent": "off"` turns the rule off; the preset chosen in the
+  tray (stored in `<state>/service-settings.json`) takes precedence over the
+  configuration value, and `crot_status` reports the value and its source. The rule is evaluated before your rules, so a matching
   operation is recorded with `approval.rule: "untrusted-content"`. The redirect
   hops of one `network_request` call are evaluated with the exposure at the
   start of the call; every later call sees the current exposure.
@@ -888,7 +896,9 @@ src/
                            browser*.ts (`crot-mcp browser install`), secrets.ts (`crot-mcp secrets`)
   service/                 CROT service (WP-20): authenticated local channel, endpoints and credentials,
                            secrets/ (WP-21: secret store, OS backends, migration),
-                           service (Core, bridge, HTTP, shim and control endpoints), stdio shim, control client
+                           service (Core, bridge, HTTP, shim and control endpoints), stdio shim, control client,
+                           WP-22: control center, tray approval provider, device settings, remote clients
+  tray/                    CROT tray (WP-22): Electron main, preload, page assets, controller, view model
   bin/crot-mcp.ts          entry point (stdio shim, service, service commands)
   bin/crot-browser-relay.ts  native-messaging relay started by the browser
 extension/                 CROT Browser Extension (MV3 sources and tests)

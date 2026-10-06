@@ -406,7 +406,8 @@ export class BrowserService {
       browser: { tabId: resolved.tabId, origin, connectionId },
       effects: [
         { label: "tab", value: String(resolved.tabId) },
-        { label: "tab URL", value: resolved.url },
+        // The URL is reported by the page's document (history.pushState can change its path).
+        { label: "tab URL", value: resolved.url, flag: "page_supplied" },
         { label: "tab origin", value: origin },
       ],
     };

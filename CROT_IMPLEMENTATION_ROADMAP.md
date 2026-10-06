@@ -137,10 +137,10 @@ Previous: **WP-19 — Remote MCP request pipeline per AD-15**, merged in PR #14
 | Area | What exists | Gap to v1 |
 | --- | --- | --- |
 | Browser | 10 tools; `chrome.scripting`, synthetic `element.click()`, main frame only, active-tab screenshots; permissions `nativeMessaging`, `tabs`, `scripting`, `alarms` | Entire AD-16 contract: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history, dialogs, upload, download, background screenshots, tab group, per-tab queue, explicit `tabId` for remote, `openedBy` (WP-24…WP-27) |
-| User confirmations | Mechanism complete; `ApprovalProvider` interface; only a test provider (`tests/approval-provider.ts`) | No product provider: every gated operation is denied today (WP-22) |
+| User confirmations | Mechanism complete; product provider `tray` in the service, CROT tray on the control channel (WP-22, AD-19) | Same-user processes can act like the tray until L1 (WP-23, AD-19 residual risk); tray packaging/autostart (WP-34) |
 | Identity | `Principal` with remote fields; `AccessTokenVerifier` seam; static local token | No OAuth verifier, identity provider, device identity, pairing or revocation (WP-28) |
 | Relay entry point | HTTP pipeline accepts a `relay` entry point (tests only) | No tunnel (WP-30), no relay (WP-29) |
-| Remote exposure lifecycle | Persisted, fail-closed | No user reset or revocation path (WP-22, WP-28); persistence write failures are only logged |
+| Remote exposure lifecycle | Persisted, fail-closed; per-client reset and revocation in the tray, audited, fail closed (WP-22, AD-19) | No re-grant of a revoked client and no revocation at the identity provider (WP-28) |
 | Process lifecycle | One per-user service (on demand from the shim, or managed by an OS supervisor), shim, control channel (WP-20, AD-17) | No autostart registration / supervisor files (WP-34); background processes are owned by the service, not by the client that started them (follow-up) |
 | Child-process environment | Allowlist for `shell.execute` / `process.manage` plus `environment.allow`; overrides cannot copy withheld variables; Docker and Git keep their rules (WP-21, AD-18) | — |
 | Secrets | OS secret store (Keychain, DPAPI, Secret Service) with owner-only file fallback; verified migration; denied to all CROT tools (WP-21, AD-18) | Unconfined commands can still use the OS store as the user (WP-23) |
@@ -180,7 +180,7 @@ No contradiction was found that requires changing an accepted AD.
 | Phase | Purpose | WPs |
 | --- | --- | --- |
 | 0 Contracts | Decide before code | WP-17, WP-18 — **Done** |
-| 1 Local foundation | Supervised product on one machine | WP-19, WP-20, WP-21 **Done**, WP-22, WP-19b (optional) |
+| 1 Local foundation | Supervised product on one machine | WP-19, WP-20, WP-21, WP-22 **Done**, WP-19b (optional) |
 | 2 Confinement | L1 on all three OS | WP-23a, WP-23b, WP-23c |
 | 2B Browser v1 | AD-16 contract | WP-24, WP-25, WP-26, WP-27 |
 | 3 Remote | Identity → relay → tunnel → profile → acceptance → review | WP-28, WP-29, WP-30, WP-31, WP-38, WP-32, WP-33 |
@@ -224,7 +224,7 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | OD-4 | Relay–device tunnel wire protocol within the AD-15 shape (framing, multiplexing, flow control, keep-alive, versioning) | A long-lived contract between independently deployed relay and installed devices; version skew after release | WP-29, WP-30, WP-34 (updates) | Start of WP-29 — **AD required** (new boundary) |
 | OD-5 | §26 Q13: relay/tunnel timeouts for gated requests (approval up to 300 s) and bounded browser waits; behaviour towards clients with shorter timeouts | Remote multi-step tasks with approvals must not fail silently | WP-29, WP-30, WP-32 | Before WP-30 is merged |
 | OD-6 | Windows L1 mechanism (AD-13 p.4: "restricted / low-IL token + Job Object, to be confirmed by a spike") and what happens if the spike shows it cannot meet the profile | L1 is release-blocking on every OS; the only accepted fallback is refusing remote shell on machines where the mechanism is unavailable, not on a whole OS | WP-23c, WP-31, Gate 6 | End of the WP-23c spike; if infeasible, a new AD before WP-31 |
-| OD-7 | How a preset / remote-profile change is applied by the service (reload vs restart) | Policy immutability (AD-5, AD-10) vs usability | WP-31 | Start of WP-31 (already assigned by AD-16 p.17) |
+| OD-7 | How a preset / remote-profile change is applied by the service (reload vs restart) | Policy immutability (AD-5, AD-10) vs usability | WP-22, WP-31 | **Decided by AD-19 point 5 (WP-22):** device state in `service-settings.json`; a new Core with the new policy, only while Core is idle; WP-31 adds the `autonomous-browser` rule set and the remote profile on the same mechanism |
 | OD-8 | Download hand-over mechanism (staging in download directory vs stream over bridge) | File-integrity guarantees of AD-16 p.12 | WP-26 | Start of WP-26 (already assigned by AD-16) |
 | OD-9 | Supported platform matrix for v1 (minimum Windows, macOS, Linux distributions and their userns/AppArmor policies; Chrome/Edge/Brave minimum versions; architectures) | L1 mechanisms, installer formats and support promises depend on it | WP-23a/b/c, WP-34, WP-37 | Before WP-23a/b/c start |
 | OD-10 | Store extension IDs vs native-host `allowed_origins` (Chrome Web Store and Edge Add-ons may assign different IDs; current manifest pins `bllcepanlhojbddfbbpegmnokpaakool`) and custody of the extension signing key | The native host must allow exactly the published extensions and nothing else | WP-34, WP-35 | When store items are created (WP-35 start) |
@@ -233,7 +233,7 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | OD-13 | Commercial model: plans, what is entitled (remote mode, device count, other cloud features), trial, payment provider, legal entity and jurisdictions, data residency of relay/account data | Entitlement schema, billing integration, legal documents | WP-36, WP-37, WP-39 | Before WP-36 (product/business decision, not an AD unless it touches §23 boundaries) |
 
 Implementation choices that are **not** architectural but have release impact
-(the implementing WP decides and documents them): tray UI technology (WP-22),
+(the implementing WP decides and documents them): tray UI technology (WP-22: Electron, AD-19 point 1),
 Node runtime bundling (WP-34), relay hosting platform (WP-29/WP-38).
 
 Questions that stay open and are **not required for v1**: §26 Q12 (transport
@@ -279,7 +279,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-19b | 1 | MCP SDK consolidation | WP-19 | S–M | no | any time | Not started |
 | WP-20 | 1 | Supervised service, stdio shim, local control channel | WP-19, OD-1 | L | yes | with 2B, WP-28/29 | **Done** (AD-17) |
 | WP-21 | 1 | Secret storage, child-process environment allowlist | WP-20 | M | yes | with WP-22 | **Done** (AD-18) |
-| WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | yes | with WP-21 | Not started |
+| WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | yes | with WP-21 | **Done** (AD-19) |
 | WP-23a | 2 | L1 Linux | WP-21, OD-9 | M | yes | with 23b/c | Not started |
 | WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Not started |
 | WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Not started |
@@ -387,6 +387,16 @@ children is L1 (WP-23).
   WP-22.
 
 #### WP-22 — Tray v1 and approval provider
+
+**Status: Done** (ARCHITECTURE.md §27 AD-19; [`docs/TRAY.md`](docs/TRAY.md)).
+Electron tray as a control-channel client; service-side provider `tray`;
+preset applied through a new Core while idle (decides OD-7); remote mode off
+by default; remote full-control opt-in recorded only (enforcement: WP-31);
+per-client exposure reset and revocation, fail closed (re-grant: WP-28);
+pairing and L1/CDP status shown as not available. Residual risk until L1:
+same-user processes can use the control credential. Docker and browser
+approvals use the same provider path; their end-to-end runs through the tray
+need Docker and the extension (covered at Core level and by WP-33).
 
 - **Objective:** the user can see and control CROT and answer approvals.
 - **Why:** without a provider every gated operation is denied (AD-5), which
@@ -562,13 +572,16 @@ today's behaviour.
 
 - **Objective:** safe remote defaults and the two presets, chosen only by the
   user.
-- **Dependencies:** WP-22, WP-23a/b/c, WP-30; OD-7.
+- **Dependencies:** WP-22, WP-23a/b/c, WP-30; OD-7 (decided by AD-19).
 - **Scope:** AD-13 p.5 (remote defaults to workspace mode, `untrusted-content`
   on; full control only as per-device opt-in); AD-16 p.17 presets via
   `permissions.approvals.untrustedContent`; L1-unavailable refusal for remote
   shell/process; reporting in `crot_status` and tray.
 - **Constraints:** only existing matchers (`principalKinds`, `exposed`,
-  capabilities, operations); no new mechanism.
+  capabilities, operations); no new mechanism. Open item from AD-19 point 7:
+  `principalKinds` exists only in approval rules, so the full-control opt-in
+  (recorded by WP-22, not enforced) needs a decision on how it takes effect.
+  Presets are applied by the WP-22 mechanism (AD-19 point 5, OD-7).
 - **Acceptance / tests:** defaults, opt-in and both presets proven by tests
   for local and remote principals; `browser.file_upload` and downloads stay
   gated in *Autonomous browser*; preset change impossible via tools, pages or
@@ -791,8 +804,8 @@ finish before WP-32.
    decision (docs-only PR or first commit of the WP).
 2. Otherwise choose, in order: an unblocked WP on chain A or B; then WP-23x;
    then WP-24…WP-27; then phase-4 WPs whose dependencies are done.
-3. **Right now (after WP-20):** WP-22 (tray v1 and approval provider on the
-   control channel) and WP-21 on chain A, WP-28 (decide OD-2 first) on the
+3. **Right now (after WP-22):** WP-23a/b/c (L1; also closes the AD-19
+   residual risk) on chain A, WP-28 (decide OD-2 first) on the
    critical path; WP-24 on the browser branch; WP-35 preparation and WP-37
    drafting may run in the background.
 

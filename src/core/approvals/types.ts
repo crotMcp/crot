@@ -43,7 +43,13 @@ export type ApprovalRequirement =
 export interface ApprovalEffect {
   readonly label: string;
   readonly value: string;
-  readonly flag?: "outside_workspace" | "secret_size_only";
+  /**
+   * outside_workspace: a path outside the workspace; secret_size_only: only the
+   * size of a secret value is shown; page_supplied: the value was supplied by a
+   * web page (tab URL, title, element name) and must be shown as such (AD-16
+   * point 16, AD-19 point 4).
+   */
+  readonly flag?: "outside_workspace" | "secret_size_only" | "page_supplied";
 }
 
 /**
