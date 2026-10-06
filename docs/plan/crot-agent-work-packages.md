@@ -152,7 +152,10 @@ own requests. Profile: AD-13 point 4.
 - **Read:** AD-13 point 4, AD-17, AD-18, AD-19, AD-20, AD-3, §8,
   `docs/NATIVE_HOST.md`, `src/native-host/`, `src/core/platform/`.
 - **Scope (AD-20):** the L1 components and AppArmor policy with their install
-  helper for source checkouts and CI (point 3); the sandbox (read and write
+  helper for source checkouts and CI (point 3: the stacked transition
+  `allow pix /** -> &crot-l1-<v>//&crot-l1-payload-<v>` is the only
+  production form; ABI 3.0 on 22.04, ABI 4.0 with userns rules on 24.04;
+  no nested user namespaces, point 5); the sandbox (read and write
   boundary, private home layer, network `on`/`off`, one sandbox per Core,
   points 5–10) behind the Native Host's `ProcessLauncher`; the Docker endpoint
   (point 9); refusal and failure (point 11); availability checks, reason codes
@@ -165,7 +168,8 @@ own requests. Profile: AD-13 point 4.
   AD-20 — Docker works from the confined shell through the Docker endpoint
   (no direct daemon access), writes go to the workspace, the private temp and
   the private home layer — and real-mechanism tests on Ubuntu 22.04 and 24.04
-  CI runners show the escape cases, both network modes, the development
+  CI runners show the escape cases (including nested user namespaces), both
+  network modes, the development
   workflows (npm, pip, cargo, Go, Git, Docker and Compose including a TCP
   daemon, a localhost service and background processes), the reason codes and
   the remote-only refusal.
