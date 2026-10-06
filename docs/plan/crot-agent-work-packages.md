@@ -146,7 +146,30 @@ Why: a remote shell without confinement can read CROT's tokens and approve its
 own requests. Profile: AD-13 point 4.
 
 ### WP-23a — L1 for Linux (bubblewrap, AppArmor profile)
-- **Size:** M. **Depends on:** WP-21.
+- **Size:** M. **Depends on:** WP-21, AD-20 (normative for this card; it
+  also decides the Linux part of OD-9: Ubuntu 22.04 and 24.04 LTS, x86_64 and
+  arm64). §26 question 15 (roadmap OD-14) must be decided before the card is
+  Done.
+- **Read:** AD-13 point 4, AD-17, AD-18, AD-19, AD-20, AD-3, §8,
+  `docs/NATIVE_HOST.md`, `src/native-host/`, `src/core/platform/`.
+- **Scope (AD-20):** the L1 components and AppArmor policy with their install
+  helper for source checkouts and CI (point 3); the sandbox (read and write
+  boundary, private home layer, network `on`/`off`, one sandbox per Core,
+  points 5–10) behind the Native Host's `ProcessLauncher`; the Docker endpoint
+  (point 9); refusal and failure (point 11); availability checks, reason codes
+  and `confinement` in `crot_status` and the control overview (point 12);
+  audit (point 13).
+- **Out of scope:** packaging, signing and loading the policy on user machines
+  (WP-34); macOS and Windows (WP-23b/c); `full_control`; changes to
+  `docker.use`, `git.*`, the PermissionEngine or approvals.
+- **Done when:** the general L1 criteria below hold as made concrete by
+  AD-20 — Docker works from the confined shell through the Docker endpoint
+  (no direct daemon access), writes go to the workspace, the private temp and
+  the private home layer — and real-mechanism tests on Ubuntu 22.04 and 24.04
+  CI runners show the escape cases, both network modes, the development
+  workflows (npm, pip, cargo, Go, Git, Docker and Compose including a TCP
+  daemon, a localhost service and background processes), the reason codes and
+  the remote-only refusal.
 
 ### WP-23b — L1 for macOS (Seatbelt, Keychain)
 - **Size:** M. **Depends on:** WP-21.
@@ -284,7 +307,10 @@ tests point 19). The cards below implement it and must not weaken it.
 ## Phase 4 — Commercial release
 
 ### WP-34 — Installers, signing, updates, native-host registration, autostart
-- **Size:** L. **Depends on:** WP-20, WP-22.
+- **Size:** L. **Depends on:** WP-20, WP-22, WP-23a (the Linux L1 components
+  and AppArmor policy of AD-20 point 3: WP-34 packages and signs them, loads
+  the policy on install and upgrade, unloads and removes it on removal, and
+  excludes the L1 private storage from temporary-file cleanup).
 - **Done when:** installation on all three OS without a terminal (§10, §24).
 
 ### WP-35 — Extension publication (Chrome Web Store, Edge Add-ons)
