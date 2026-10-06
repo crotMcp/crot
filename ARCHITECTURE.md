@@ -656,7 +656,7 @@ packages, their order and dependencies are in
 21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
-24. Command confinement L1 (Linux, macOS, Windows) [Target, v1, §27 AD-13]
+24. Command confinement L1 (Linux, macOS, Windows) [Target, v1, §27 AD-13; Linux: AD-20]
 25. Browser contract v1                           [Target, v1, §7.1, §27 AD-14; contract AD-16]
 ```
 
@@ -944,7 +944,7 @@ The tray app is a UI; control logic stays in Core/service.
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | **[Target]** (v1, AD-13) |
 | Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); relay and tunnel **[Target]** (mandatory in v1, AD-13; WP-29, WP-30) |
-| Command confinement L1 (Linux, macOS, Windows) | **[Target]** (v1, AD-13) |
+| Command confinement L1 (Linux, macOS, Windows) | **[Target]** (v1, AD-13); Linux boundary and supported releases decided by §27 AD-20 (WP-23a) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
 | Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
 | CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children **[Target]** (L1, WP-23) |
@@ -1031,6 +1031,33 @@ These need explicit decisions before the corresponding work packages.
     connected profile; `openedBy` in the tab list is information only.
     Decide whether a policy matcher limits remote contexts to tabs they
     opened (additive, like `exposed`). Not required for v1.
+15. **Host endpoints that give code execution without a CROT credential.**
+    *Decided in §27 AD-20 point 14: option (a) — a documented residual risk of
+    the host-network development model, reported in the confinement `detail`
+    where detectable, never a refusal; network `on` stays the host network.*
+    Originally: with
+    network `on` a confined command shares the host network namespace (AD-20
+    point 8), which localhost development services require. A local endpoint
+    that gives code execution as the user or as root to any local caller
+    without a credential, or with credentials a confined command may use
+    (AD-13 lets it read the user's files; AD-20 binds the SSH agent), lies
+    outside the sandbox: a Docker daemon on TCP without TLS (reachable
+    directly or from a container), an SSH server on this host that accepts the
+    user's keys, inspector or remote-debugging ports of the user's unconfined
+    processes, notebook or IDE servers without authentication, and local
+    container engines that put containers in the host network namespace
+    without `crot-l1-container` (rootless Podman, a daemon without AppArmor).
+    Through such an endpoint a confined command can run unconfined code and
+    then reach CROT's state. No v1 mechanism excludes them without isolating
+    localhost (which breaks the development baseline of AD-20 point 1) or a
+    destination policy (excluded by AD-13 points 6 and 7). Decide between
+    (a) defining them as host configuration outside L1 — documented, reported
+    in `detail` where CROT can detect them (for example the Docker endpoint
+    sees a TCP daemon without TLS), never refused; and (b) a mediated
+    localhost — a private network namespace whose localhost forwards to the
+    host's loopback services except identified execution endpoints — a new
+    boundary that replaces AD-20 point 8 `on` and cannot know every such
+    endpoint.
 
 ## 27. Architectural Decisions
 
@@ -1945,6 +1972,12 @@ scope and removes that ambiguity.
   AD-14 point 3; the presets of point 6 are made concrete (AD-14 point 4); the
   order and the client-specific end-to-end test of point 8 are replaced by
   AD-14 points 5 and 6.
+- Amended by AD-20 for Linux: the L1 boundary of point 4 is made concrete
+  (CROT-owned bubblewrap and AppArmor policy, read and write boundary, private
+  home layer instead of a tool-cache allowlist, network modes, sandbox
+  lifetime, status and reason codes); the Docker-socket rule of point 4 is
+  replaced by a mediated Docker endpoint, which resolves the contradiction
+  with point 7 (Docker build and pull through the confined shell).
 
 ### AD-14. v1 scope after the Remote MCP v1 review: the browser contract v1 is release-blocking, acceptance is client-independent, and the remote session contract is decided before implementation
 
@@ -3479,3 +3512,408 @@ them"). Several decisions were still open or assigned elsewhere:
   not extended across system sleep (AD-17); the remote client list keeps
   account and client identifiers in clear text in the private state directory
   so that the user can recognise them.
+
+### AD-20. Linux command confinement L1: a CROT-owned bubblewrap runtime with a CROT AppArmor policy, a private home layer, the host network and a mediated Docker endpoint; L1 confines without reducing the development baseline (WP-23a; decides the Linux part of roadmap OD-9)
+
+**Context.** AD-13 point 4 requires L1 for the children of `shell.execute`
+and `process.manage` in workspace (sandbox) mode and names "Linux bubblewrap
+(with the AppArmor profile the installer ships)". It leaves open who owns and
+loads that profile although the service never runs as root (AD-17 point 1),
+which Linux releases are supported (roadmap OD-9), what "a short allowlist of
+tool caches" contains, how abstract Unix sockets and the session bus are kept
+from a child that shares the host network, how long the sandbox of a
+detached process lives, and what `crot_status` reports. It also contains a
+contradiction: point 4 denies confined children the Docker socket, point 7
+says Docker build and pull are "usable through confined shell", and AD-3
+keeps `shell.execute` as the broader path to Docker. Access to a Docker
+daemon carries the daemon's privileges on the host (any host path can be
+mounted into a container), so neither hiding the socket (Docker unusable from
+the shell) nor passing it (L1 void) is acceptable. Until L1, AD-18 and AD-19
+(residual risk D) leave the OS secret store and the control credential
+exposed to the children of process tools. CROT is a development environment
+for agents: L1 must protect CROT and the host boundary without removing a
+development capability CROT already offers.
+
+**Decision.**
+
+1. **Purpose and development baseline.** L1 protects CROT's secrets, state,
+   configuration, audit log, control channel and approvals against direct
+   access from a confined process, and the host against privilege gained
+   through the sandbox itself. It is not L2: it does not hide the user's
+   files, and it does not reduce the development environment. With network
+   `on` it does not protect against host-local services that a confined
+   process reaches over the shared host network (point 14).
+   Under L1 a confined command keeps:
+   - the read view of the host filesystem that AD-13 allows, including the
+     user's home, except the CROT-protected paths of point 6;
+   - a normal shell, interpreters and all their descendants;
+   - package managers, builds and tests (npm, pip, cargo, Go and comparable
+     tools), including tool and toolchain installs into the home, which land
+     in the private home layer (point 7);
+   - with network `on`, the host network: internet, LAN, localhost services
+     of the host, ports published by Docker Compose, and the Unix sockets of
+     host development services visible in the read view (point 8);
+   - Git through the shell, including the user's SSH and GnuPG agents
+     (point 6);
+   - Docker, Docker Compose, Buildx and other Docker API clients from the
+     shell, on every transport the service's Docker CLI supports, including
+     TCP and TCP with TLS (point 9);
+   - background development processes (point 10).
+   `docker.use` (AD-3) is not a child of `shell.execute` or `process.manage`;
+   it keeps running in the service, unchanged, on every transport. Graphical
+   desktop sessions are not part of the baseline: AD-13 point 4 already
+   excludes "the GUI automation … of the tray app", so X11, Wayland and the
+   accessibility bus are not reachable; headless browsers and test runners
+   are unaffected. Where a machine cannot provide this baseline under L1, L1
+   is unavailable there with a reason (point 12); L1 is never provided as a
+   reduced shell.
+2. **Linux v1 platforms (decides the Linux part of roadmap OD-9).** Supported:
+   Ubuntu 22.04 LTS and Ubuntu 24.04 LTS, x86_64 and arm64, with each
+   release's GA and HWE kernels. Other distributions are not part of the v1
+   support promise; the checks of point 12 still run there and decide
+   availability, without a support claim. The macOS, Windows and browser
+   parts of OD-9 stay open for WP-23b, WP-23c and WP-34.
+3. **L1 components, ownership and version matching.**
+   - Components: `crot-bwrap` (bubblewrap built by CROT from a pinned upstream
+     release whose source digest is recorded), `crot-l1-init` (the CROT helper
+     that is the first process of every sandbox, point 10), the CROT AppArmor
+     policy (profile `crot-l1-<v>` for `crot-bwrap`, its child profile
+     `crot-l1-<v>//payload` for everything that runs in the sandbox, and
+     profile `crot-l1-container-<v>` for containers created through the
+     Docker endpoint, point 9) and `manifest.json` (the L1 component version
+     `<v>` and the SHA-256 digest of each binary).
+   - `<v>` is the L1 component version. The service is built with the `<v>`
+     it requires. The components are installed in `/usr/lib/crot/l1/<v>/`,
+     owned by root and not writable by the user. The profiles attach to these
+     exact paths only, never to `/usr/bin/bwrap` or any other system binary.
+     A component, manifest or loaded profile of a different `<v>` is a
+     mismatch (point 12), never used.
+   - WP-23a defines, builds and tests the components and the policy and ships
+     an install/remove helper that is run with root for source checkouts and
+     CI (developers, CI runners). WP-34 packages the same artifacts for the
+     supported releases and architectures, signs them, loads the policy in the
+     package scripts on install and upgrade, unloads and removes it on
+     removal, and excludes the L1 private storage (point 7) from age-based
+     temporary-file cleanup. A new `<v>` is installed side by side; the
+     previous `<v>` is removed only after the new one is installed, and a
+     running service keeps the `<v>` it was built for until it restarts.
+   - No minimum bubblewrap version is a platform requirement, because CROT
+     never uses a system bubblewrap. WP-23a pins the upstream release it
+     builds and records the bubblewrap options it relies on.
+4. **Privilege boundary.** Root is needed only at package time (WP-34) or for
+   the developer/CI helper of point 3. The CROT service stays a per-user
+   process (AD-17 point 1): it never loads, replaces or removes AppArmor
+   profiles and has no setuid component. `crot-bwrap` is not setuid; it uses
+   unprivileged user namespaces, which the policy grants to it on systems that
+   restrict them (Ubuntu 24.04: `kernel.apparmor_restrict_unprivileged_userns`
+   is 1). The service only detects whether the components and the policy are
+   present and match (point 12).
+5. **AppArmor versus the L1 runtime boundary.** The boundary is the sandbox
+   that `crot-bwrap` and `crot-l1-init` build: namespaces, the mount view,
+   no-new-privileges and the process model (points 6–10). AppArmor has exactly
+   two roles and contains no CROT path policy:
+   - **User-namespace permission.** `crot-l1-<v>` grants `crot-bwrap` the user
+     namespace that Ubuntu 24.04 otherwise denies, so the distribution's
+     restriction stays in force for every other program. The payload profile
+     does not grant user namespaces: nested user namespaces behave as for an
+     unconfined program on the same release.
+   - **IPC the mount view cannot hide.** The payload profile denies connecting
+     and sending to abstract Unix sockets and signalling or tracing processes
+     whose peer is not confined by the same payload profile; sockets between
+     confined processes work. `crot-l1-container-<v>` applies the same Unix
+     socket rule to containers, on top of the rules of Docker's default
+     container profile.
+   The file rules of both profiles allow all file access: which files a
+   confined process can read or write is decided only by the mount view.
+   AppArmor never depends on CROT configuration, principal or request, and it
+   is not a second authorization system.
+6. **Read boundary.** The sandbox sees the host filesystem read-only (AD-13:
+   confined commands may read the user's files outside the workspace). The
+   following are replaced by empty, inaccessible entries ("CROT-protected
+   paths" of L1):
+   - CROT's configuration file and directory, the state directory (file
+     fallback secrets, the secret marker and lock, shim and control endpoints,
+     private state such as `service-settings.json` and `remote-clients.json`,
+     the service log), the audit log, and every configured location of these
+     (`CROT_CONFIG`, explicit configuration, state and audit paths, the
+     legacy `http.auth.tokenFile`), computed from the resolved configuration
+     rather than from defaults;
+   - the storage of the Secret Service backends that can hold CROT secrets
+     (`~/.local/share/keyrings`, `~/.local/share/kwalletd`);
+   - `$XDG_RUNTIME_DIR` (`/run/user/<uid>`: session bus, keyring control,
+     Wayland, PipeWire, the systemd user manager, rootless Docker and Podman
+     sockets, X authority files), replaced by a private directory; only the
+     socket named by `SSH_AUTH_SOCK` (already on the AD-18 allowlist) and the
+     GnuPG agent sockets are bound in at their paths;
+   - the host's `/tmp` and `/var/tmp` (X11 sockets, other processes'
+     temporary files), replaced by the private temp (point 7);
+   - the Docker, Podman and containerd daemon sockets (the default system
+     locations and the socket named by `DOCKER_HOST` or the current Docker
+     context) and the TLS client keys of Docker endpoints (`DOCKER_CERT_PATH`,
+     the key material of `~/.docker` and of its contexts); Docker is reached
+     through the endpoint of point 9;
+   - device nodes: a minimal `/dev` plus GPU compute nodes, `/dev/fuse` and
+     `/dev/net/tun`; no input, uinput, console, memory or raw storage devices;
+   - `/proc` is the sandbox's own (a new PID namespace): host processes, their
+     environment, file descriptors and memory are not visible.
+   Session bus and Secret Service: on the supported releases the session bus
+   is `unix:path=/run/user/<uid>/bus`, hidden by the runtime-directory rule; a
+   session bus at an abstract address (other setups) is denied by the payload
+   profile in both network modes (point 5, point 8); `DBUS_SESSION_BUS_ADDRESS`
+   stays off the allowlist (AD-18 point 7). The system bus stays reachable;
+   it holds no CROT secret, and setuid helpers gain nothing under
+   no-new-privileges.
+7. **Write boundary.**
+   - **Workspace:** read-write, the real files.
+   - **Private temp:** `/tmp`, `/var/tmp` and `/dev/shm` inside the sandbox
+     belong to the sandbox (point 10) and are emptied when it starts.
+   - **Private home layer (the CROT-private tool caches).** The home is
+     presented as an overlay: the real home is the read-only lower layer and a
+     CROT-private directory is the upper layer. Every tool that writes into
+     the home (`~/.npm`, `~/.cache/pip`, `~/.cargo/registry`, `~/.cargo/git`,
+     the Go module and build caches, `pip --user`, `cargo install`,
+     `go install`, `rustup`, `nvm`, global Git configuration,
+     `~/.ssh/known_hosts`, and so on) works unchanged, reads the user's
+     existing caches, configuration and toolchains, and writes only into
+     CROT-private storage. No write reaches the user's real home: executable
+     locations such as `~/.cargo/bin`, `~/go/bin` and `~/.local/bin`, shell
+     start-up files, autostart entries and the user's real package-manager
+     caches are never modified, so a confined command cannot poison anything
+     an unconfined process of the user later uses. File systems mounted below
+     the home are layered the same way. The workspace and the CROT-protected
+     paths are mounted above the layer. This replaces AD-13 point 4's "short
+     allowlist of tool caches": no per-tool list and no environment rewriting
+     are needed.
+   - Everything else is read-only (AD-13 point 4).
+   - **L1 private storage** (upper layer and private temp) lives outside the
+     home, in `/var/tmp/crot-l1-<uid>/`, one subdirectory per state
+     directory. The service creates and verifies it (owned by the user, mode
+     `0700`, no symbolic link in the path, a local file system). It is not a
+     CROT-protected path and holds no CROT secret. It persists across service
+     restarts so caches stay warm; deleting it only discards confined writes
+     to the home.
+   - Effects, by design: confined writes into the home are visible to later
+     confined commands, not to the user's unconfined tools. Changes the user
+     makes in the home outside the workspace while a sandbox runs are normally
+     visible inside, but overlay semantics guarantee it only after the sandbox
+     restarts; the workspace is not layered and is always current.
+8. **Network.** The owner configuration `confinement.network` selects `on`
+   (default; AD-13 accepts that confined commands use the network) or `off`.
+   It is part of the configuration and its digest (AD-17 point 5); agents
+   cannot change it.
+   - `on`: the sandbox shares the host network namespace, so internet, LAN,
+     localhost services of the host and ports published by containers work as
+     outside the sandbox; there is no egress list (AD-13 points 6 and 7).
+     Abstract Unix sockets outside the sandbox are denied by the payload
+     profile (point 5); pathname Unix sockets are reachable where the read
+     view shows them.
+   - `off`: the sandbox has its own network namespace with loopback only,
+     shared by all confined processes of one Core (point 10), so a background
+     server and its tests still reach each other on `localhost`. A separate
+     network namespace has its own abstract socket namespace, so `off` does
+     not depend on AppArmor Unix mediation. The Docker endpoint (point 9) is a
+     pathname socket and stays usable; containers get their network from the
+     daemon, as with `docker.use`, so `off` is not an egress control for
+     containers.
+   - Landlock is not required on Linux in v1. Its abstract-socket scoping
+     needs Linux 6.12, which neither supported release ships as its GA kernel;
+     the AppArmor Unix mediation of the Ubuntu kernels gives the property on
+     both releases. WP-23a may add Landlock as defence in depth where the
+     kernel offers it; availability never depends on it.
+   - Status describes the configured mode. If `on` cannot be established but
+     `off` could, L1 is reported unavailable with the reason and `detail`
+     says that `off` would be available; CROT never switches the mode itself.
+9. **Docker endpoint (Docker from the confined shell).**
+   - A confined process never reaches a real daemon endpoint directly
+     (point 6). The service provides a Docker API endpoint per Core: a Unix
+     socket with the same path inside and outside the sandbox, in the L1
+     private storage. In the child, `DOCKER_HOST` names it and `DOCKER_CONTEXT`,
+     `DOCKER_TLS_VERIFY` and `DOCKER_CERT_PATH` are removed. The Docker CLI,
+     Docker Compose, Buildx/BuildKit, Testcontainers and other Docker API
+     clients work through it unchanged, including streaming, attach, exec,
+     logs and build sessions (HTTP upgrades and hijacked connections).
+   - Upstream, the endpoint reaches the daemon exactly as the service's Docker
+     CLI does: the service's `DOCKER_HOST`, current context, TLS material and
+     `ssh://` hosts (for example through `docker system dial-stdio`). Every
+     transport supported today — local Unix socket, TCP, TCP with TLS, SSH,
+     contexts — stays supported; TLS keys and SSH connections stay in the
+     service.
+   - The endpoint is part of the fixed L1 profile, not a second permission
+     system: it has no configuration and no per-request choice and does not
+     involve the PermissionEngine; `docker.use` and AD-3 are unchanged. It
+     forwards every request and refuses only those that would carry a confined
+     process across the L1 boundary through the daemon (HTTP 403 with a CROT
+     reason; audited, point 13):
+     a. bind mounts and volume driver options that bind host paths: a source
+        that is or contains a CROT-protected path is refused; a writable
+        source is accepted only inside the workspace or the L1 private
+        storage; a read-only source is accepted where the sandbox can read
+        it — the same read and write boundary as the sandbox, and the same
+        workspace rule for writable mounts that AD-3 applies to `docker.use`
+        in sandbox mode;
+     b. privileged containers, and added capabilities that act on the host
+        kernel or on other namespaces (`ALL`, `SYS_ADMIN`, `SYS_MODULE`,
+        `SYS_RAWIO`, `SYS_PTRACE`, `SYS_BOOT`, `DAC_READ_SEARCH`, `MAC_ADMIN`,
+        `MAC_OVERRIDE`, `BPF`, `PERFMON`, `SYSLOG`); other capabilities, for
+        example `NET_ADMIN`, are accepted;
+     c. the host PID, IPC, user and cgroup namespaces; security options that
+        turn off the container's confinement (`apparmor=unconfined`,
+        `seccomp=unconfined`, `systempaths=unconfined`, `label=disable`);
+        device mappings outside the classes of point 6; the BuildKit
+        entitlement `security.insecure`; plugin installation;
+     d. a bind of a real daemon endpoint; the endpoint's own socket may be
+        bound, so containers that drive Docker (for example Testcontainers'
+        helper container) go through the same endpoint.
+     The host network namespace (`--network host`, BuildKit `network.host`)
+     is accepted: containers created through the endpoint on a daemon that
+     supports AppArmor run under `crot-l1-container-<v>`, which denies
+     abstract Unix sockets outside the container. Exec, attach, archive (cp)
+     and commit on an existing container are accepted when that container's
+     configuration passes a–d; containers created outside CROT that do not
+     pass can still be listed, inspected and logged. Images, builds, pulls,
+     pushes, networks, named volumes, Compose projects and registry logins
+     work as outside the sandbox (registry credentials in
+     `~/.docker/config.json` stay readable, AD-13).
+10. **Sandbox lifetime and process model.**
+    - One sandbox per Core. It starts with the first confined launch and ends
+      when that Core shuts down (AD-17 point 8, including the Core switch of a
+      preset change, AD-19 point 5) or, through die-with-parent, when the
+      service dies. All confined `shell.execute` commands and `process.manage`
+      processes of that Core run in it and share the private temp, the
+      private home layer and, with network `off`, the loopback network.
+    - `crot-l1-init` is the sandbox's PID 1. It starts each command on request
+      of the service's launcher over a private channel that no confined
+      process inherits, and places each command under its own subreaper, so
+      the whole tree of a command — including descendants that call `setsid`
+      or fork twice — is ended by termination, `process.manage` stop and the
+      existing timeouts.
+    - Descendants cannot leave: fork and exec, nested shells, interpreters,
+      `nohup`, `setsid` and `disown` stay in the sandbox's namespaces and
+      AppArmor confinement; the user's systemd manager and session bus are
+      unreachable (point 6), so `systemd-run --user` cannot start an
+      unconfined unit; setuid programs (`sudo`, `pkexec`, `crontab`, `at`)
+      gain no privilege under no-new-privileges. A detached `process.manage`
+      process stays confined for its whole lifetime and ends with the sandbox
+      at the latest. No binary is blacklisted.
+11. **Refusal and failure.** L1 applies to the children of `shell.execute` and
+    `process.manage` in workspace (sandbox) mode for every principal when it
+    is available; `full_control` stays unconfined (§6, AD-13 point 4).
+    - If L1 is unavailable on the machine in the configured network mode,
+      these operations of `remote` principals are refused before any process
+      starts (`CONFINEMENT_UNAVAILABLE` with the reason code) and the refusal
+      is audited; `local` principals keep their existing behaviour (commands
+      run as before L1), and `crot_status` and the tray show that L1 is not
+      active (AD-13 point 4).
+    - If L1 was available but a sandbox cannot be set up or a launch fails for
+      a sandbox reason, that operation fails for every principal
+      (`CONFINEMENT_FAILED`); it is never retried unconfined. Availability is
+      checked again and reported.
+    - There is no other refusal condition. The refusals of the Docker
+      endpoint (point 9) concern single Docker requests, not L1 availability;
+      an absent or unreachable Docker daemon is reported by the Docker client
+      as it is outside the sandbox.
+    - The refusal is decided in Core's process service before launch, from the
+      platform's reported L1 state; the PermissionEngine, approval semantics
+      and the tray authorization are unchanged.
+12. **Availability checks, reason codes and status.** The checks run when a
+    Core is created, after a sandbox failure and before `crot_status` reports.
+    The first failing check is the reason. Stable reason codes:
+    - `not_implemented` — L1 is not implemented for this OS (macOS and
+      Windows until WP-23b and WP-23c);
+    - `userns_unavailable` — unprivileged user namespaces are disabled;
+    - `components_missing` — `/usr/lib/crot/l1/<v>/` or one of its components
+      is missing;
+    - `components_mismatch` — wrong `<v>`, a digest mismatch, or a component
+      that is not owned by root or is writable by the user;
+    - `apparmor_unavailable` — AppArmor is not enabled where L1 needs it (the
+      user-namespace restriction is active, or network `on`);
+    - `apparmor_profile_not_loaded` — the policy of `<v>` is not loaded
+      (`crot-bwrap` is denied its user namespace, or the sandbox's label is not
+      `crot-l1-<v>//payload`);
+    - `apparmor_unix_mediation_unavailable` — the kernel does not mediate Unix
+      sockets (network `on` only);
+    - `overlay_unavailable` — the private home layer cannot be mounted;
+    - `private_storage_unavailable` — the L1 private storage cannot be created
+      or fails verification;
+    - `self_test_failed` — the boundary self-test in a fresh sandbox failed. It
+      must fail to read a canary in a CROT-protected path, to write outside the
+      write boundary, to connect to an abstract canary socket of the service
+      (network `on`) and to signal the service, and it must succeed in reading
+      the home and writing the workspace, the private temp and the home layer.
+    `crot_status.confinement` and the control-protocol
+    `overview.confinement` (AD-19 point 10) have the same shape:
+    `{ mechanism, available, network, reason, detail }` — `mechanism`
+    `"linux-bubblewrap"` or `"none"`, `available` boolean, `network` `"on"` or
+    `"off"` (the configured mode), `reason` one of the codes above or `null`
+    exactly when available, `detail` one line without secrets or CROT-protected
+    paths (for example the missing component, that `off` would be available,
+    or, when available, the host-network notes of point 14). The tray shows
+    these fields; the codes are stable for diagnostics.
+13. **Audit and logs.** `CONFINEMENT_UNAVAILABLE` and `CONFINEMENT_FAILED`
+    appear in the audit record of the operation; refusals of the Docker
+    endpoint are recorded as `confinement.docker_refused` (request kind and
+    reason; no payload, no file contents). Changes of availability go to the
+    service log with the reason code. Nothing in L1 status, audit or logs
+    contains a secret.
+14. **Host-network residual risk (decides §26 question 15, roadmap OD-14).**
+    Network `on` is the normal host-network development environment and stays
+    as defined in point 8: no private network namespace, no localhost
+    forwarding and no other mediated network layer is part of L1. Host-local
+    services that accept the user's authority without a CROT-specific
+    credential are a documented residual risk of this model, not part of the
+    L1 guarantee: a Docker or other container daemon reachable over TCP
+    without TLS or otherwise through the host network, an SSH server on this
+    host that accepts the user's keys or agent, debugger, inspector,
+    dev-server or notebook endpoints without their own authentication, and
+    local container engines that put containers in the host network without
+    `crot-l1-container-<v>`. A confined command that uses such a service runs
+    code outside the sandbox with what that service grants.
+    - Their existence never makes L1 unavailable and never causes a refusal
+      of network `on` or of any operation.
+    - Where CROT can detect such a condition from local, non-secret facts —
+      the upstream transport of the Docker endpoint (TCP without TLS to a
+      local address), the daemon's reported security options (no AppArmor),
+      listening sockets on the host's loopback and local addresses that match
+      SSH or well-known debugger and notebook ports, a rootless Podman socket
+      — it adds a short note to `detail` (category and port, never addresses
+      of other hosts, credentials, tokens or file contents). Detection is
+      best effort and makes no connection with the user's credentials; the
+      absence of a note is no guarantee.
+    - Not affected: the CROT-specific boundary — no access from a confined
+      process to CROT's secrets, state, configuration, audit log, control and
+      approval channel (points 5–7, 9), no fallback to unconfined execution
+      (point 11), no secret in status, audit or logs (point 13). CROT's own
+      local endpoints are never such services: the loopback HTTP adapter
+      requires the local token, which is a CROT-protected secret, and the
+      shim and control endpoints are hidden.
+
+**Scope and limits.**
+
+- Decides the Linux part of roadmap OD-9 and the Linux L1 boundary for
+  WP-23a. It amends AD-13 point 4 for Linux: the "short allowlist of tool
+  caches" is the private home layer (point 7); the Docker socket rule is
+  replaced by the Docker endpoint (point 9), which also resolves the
+  contradiction with AD-13 point 7 (Docker build and pull through the
+  confined shell). AD-3 (`docker.use`), AD-17 (one per-user service, no root),
+  AD-18 (environment allowlist; under L1 the Docker connection variables are
+  replaced by the endpoint) and AD-19 are unchanged. AD-13's residual risks
+  stay as written: confined commands read user files outside the workspace
+  (except the CROT-protected paths) and use the network.
+- With L1 active it closes, for confined children, the AD-18 residual risk
+  (use of the OS secret store or the file fallback) and residual risk D of
+  AD-19 (acting like the tray). It does not cover `full_control`, `local`
+  principals on machines without L1, or other processes of the user.
+- Decides §26 question 15 (roadmap OD-14) as point 14. The guarantee is: a
+  confined process has no direct access to CROT's secrets, state,
+  configuration, audit log, control or approval channel, and gains no
+  privilege through the sandbox itself. L1 does not claim protection against
+  arbitrary host-local services reachable over the shared host network with
+  network `on`.
+- Residual risks, accepted: the AD-13 risks; the host-local services of
+  point 14; a container does whatever its
+  image does within the mounts and options a–d allow (as AD-3); files that a
+  rootful container writes into the workspace belong to the container's user
+  (as AD-3); with a remote daemon the bind rules of point 9 are still applied
+  to the paths as written; containers created outside CROT that do not pass
+  point 9 cannot be entered from the confined shell; overlay visibility of
+  concurrent changes in the home (point 7).

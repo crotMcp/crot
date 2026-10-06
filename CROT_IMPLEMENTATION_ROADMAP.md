@@ -210,6 +210,7 @@ readiness = Gates 7 and 8. Both are required for v1.
 | AD-15 | Sessionless request model; principal kind by entry point; request-scoped execution context; exposure scopes; supported versions 2026-07-28, 2025-11-25, 2025-06-18; PRM/RFC 8707/audience-bound JWT; relay and device responsibilities; constraints C1–C8 |
 | AD-17 | One per-user CROT service (never a system service), on demand from the stdio shim or managed by an OS supervisor; thin shim without policy, one exposure scope per stdio connection, no silent reconnect; one configuration per service; authenticated owner-only shim and control endpoints (mutual HMAC, replay protection); control channel without MCP/tools; shutdown keeps AD-7 |
 | AD-16 | CDP backend with fixed allowlist; command list v1; document-bound refs; explicit `tabId` for remote; per-tab FIFO; dialogs, files, screenshots; presets key `permissions.approvals.untrustedContent` = `require-approval` / `autonomous-browser` / `off`; store justification; required tests (point 19) |
+| AD-20 | Linux L1 (WP-23a): Ubuntu 22.04/24.04 LTS on x86_64/arm64; CROT-owned bubblewrap and AppArmor policy, version-matched, packaged and loaded by WP-34, never by the service; host read view minus CROT-protected paths; writes to workspace, private temp and a private home layer (CROT-private caches); network `on` (host namespace, localhost works) or `off`; mediated Docker endpoint on every transport; one sandbox per Core; remote-only refusal; stable reason codes; host-local services reachable over the host network are a documented residual risk reported in `detail` (decides OD-14) |
 
 ### 4.2 Still open
 
@@ -226,11 +227,12 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | OD-6 | Windows L1 mechanism (AD-13 p.4: "restricted / low-IL token + Job Object, to be confirmed by a spike") and what happens if the spike shows it cannot meet the profile | L1 is release-blocking on every OS; the only accepted fallback is refusing remote shell on machines where the mechanism is unavailable, not on a whole OS | WP-23c, WP-31, Gate 6 | End of the WP-23c spike; if infeasible, a new AD before WP-31 |
 | OD-7 | How a preset / remote-profile change is applied by the service (reload vs restart) | Policy immutability (AD-5, AD-10) vs usability | WP-22, WP-31 | **Decided by AD-19 point 5 (WP-22):** device state in `service-settings.json`; a new Core with the new policy, only while Core is idle; WP-31 adds the `autonomous-browser` rule set and the remote profile on the same mechanism |
 | OD-8 | Download hand-over mechanism (staging in download directory vs stream over bridge) | File-integrity guarantees of AD-16 p.12 | WP-26 | Start of WP-26 (already assigned by AD-16) |
-| OD-9 | Supported platform matrix for v1 (minimum Windows, macOS, Linux distributions and their userns/AppArmor policies; Chrome/Edge/Brave minimum versions; architectures) | L1 mechanisms, installer formats and support promises depend on it | WP-23a/b/c, WP-34, WP-37 | Before WP-23a/b/c start |
+| OD-9 | Supported platform matrix for v1 (minimum Windows, macOS, Linux distributions and their userns/AppArmor policies; Chrome/Edge/Brave minimum versions; architectures) | L1 mechanisms, installer formats and support promises depend on it | WP-23a/b/c, WP-34, WP-37 | **Linux part decided by ARCHITECTURE.md §27 AD-20:** Ubuntu 22.04 LTS and 24.04 LTS, x86_64 and arm64 (GA and HWE kernels); L1 prerequisites in AD-20 points 3, 4 and 12. macOS, Windows and browser parts: open, before WP-23b/c start and before WP-34 |
 | OD-10 | Store extension IDs vs native-host `allowed_origins` (Chrome Web Store and Edge Add-ons may assign different IDs; current manifest pins `bllcepanlhojbddfbbpegmnokpaakool`) and custody of the extension signing key | The native host must allow exactly the published extensions and nothing else | WP-34, WP-35 | When store items are created (WP-35 start) |
 | OD-11 | Version-compatibility policy across extension (store auto-updates), local service, tray and relay/tunnel protocol; minimum supported versions; whether the relay may refuse outdated devices | Independent update channels can break the chain; refusing devices at the relay is admission, which must stay distinct from authorization (AD-15 p.10) | WP-29, WP-34, WP-39 | Before WP-34 — AD if the relay gains an admission rule |
 | OD-12 | Diagnostics and crash reporting under "no hidden telemetry" (§12): none, or explicit opt-in; scope of relay operational logs (metadata only) | Operability vs privacy promise; must be stated in the privacy policy | WP-39, WP-37 | Before WP-39 |
 | OD-13 | Commercial model: plans, what is entitled (remote mode, device count, other cloud features), trial, payment provider, legal entity and jurisdictions, data residency of relay/account data | Entitlement schema, billing integration, legal documents | WP-36, WP-37, WP-39 | Before WP-36 (product/business decision, not an AD unless it touches §23 boundaries) |
+| OD-14 | ARCHITECTURE.md §26 question 15: host endpoints that give code execution to a local caller without a CROT credential (Docker on TCP without TLS, an SSH server on this host accepting the user's keys, debugging ports of the user's processes, unauthenticated notebook/IDE servers, container engines that put containers in the host network without the CROT container profile), reachable because network `on` shares the host network (AD-20 point 8) | Through such an endpoint a confined command can run unconfined code and reach CROT's state; options (a) host configuration outside L1, documented and reported, or (b) mediated localhost replacing AD-20 point 8 `on` | WP-23a (security acceptance), WP-31, WP-33, WP-37 | **Decided by ARCHITECTURE.md §27 AD-20 point 14:** option (a) — documented residual risk of the host-network model, best-effort notes in the confinement `detail`, never a refusal; network `on` stays the host network |
 
 Implementation choices that are **not** architectural but have release impact
 (the implementing WP decides and documents them): tray UI technology (WP-22: Electron, AD-19 point 1),
@@ -280,7 +282,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-20 | 1 | Supervised service, stdio shim, local control channel | WP-19, OD-1 | L | yes | with 2B, WP-28/29 | **Done** (AD-17) |
 | WP-21 | 1 | Secret storage, child-process environment allowlist | WP-20 | M | yes | with WP-22 | **Done** (AD-18) |
 | WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | yes | with WP-21 | **Done** (AD-19) |
-| WP-23a | 2 | L1 Linux | WP-21, OD-9 | M | yes | with 23b/c | Not started |
+| WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part and OD-14 decided) | M | yes | with 23b/c | Not started |
 | WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Not started |
 | WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Not started |
 | WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | Not started |
@@ -294,7 +296,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-38 | 3 | Staging cloud environment | WP-29, WP-28 | M | yes | with WP-30/31 | Not started |
 | WP-32 | 3 | Remote E2E acceptance suite and client compatibility | WP-24…WP-27, WP-30, WP-31, WP-38 | L | yes | — | Not started |
 | WP-33 | 3 | External security review and fixes | WP-32, WP-34 (release-candidate build), WP-38 | M (+fix time) | yes | with WP-37 | Not started |
-| WP-34 | 4 | Installers, signing, updates, autostart, supply chain | WP-20, WP-22, WP-23a, WP-35 (IDs), OD-1, OD-10, OD-11 | L | yes | with phase 3 | Not started |
+| WP-34 | 4 | Installers, signing, updates, autostart, supply chain | WP-20, WP-22, WP-23a (L1 components, AD-20 point 3), WP-35 (IDs), OD-1, OD-10, OD-11 | L | yes | with phase 3 | Not started |
 | WP-35 | 4 | Extension publication | WP-24, WP-25, WP-26 (prep: now) | M | yes | early | Not started |
 | WP-36 | 4 | Accounts, plans, billing, entitlements, device management | WP-28, WP-29, OD-13 | M–L | yes | with phase 3 | Not started |
 | WP-37 | 4 | Documentation, privacy/security docs, legal | content from all WPs; final after WP-33 | M | yes | ongoing | Not started |
@@ -432,6 +434,20 @@ spike first, then restricted / low-IL token + Job Object).
   approve its own requests.
 - **Dependencies:** WP-21; OD-9. WP-23c additionally has the OD-6 decision
   point at the end of its spike.
+- **WP-23a (Linux):** normative boundary is ARCHITECTURE.md §27 AD-20, which
+  decides the Linux part of OD-9 (Ubuntu 22.04/24.04 LTS, x86_64/arm64) and
+  makes this card concrete for Linux: CROT-owned bubblewrap and AppArmor
+  policy (installed for source checkouts and CI by the WP-23a helper, on user
+  machines by WP-34); Docker from the confined shell through the mediated
+  Docker endpoint on every transport (no direct daemon access); writes to the
+  workspace, the private temp and the private home layer (the CROT-private
+  caches); network `on` in the host namespace (localhost services work) or
+  `off`; the development baseline of AD-20 point 1 is part of the acceptance
+  (including Docker/Compose with a TCP daemon, a localhost service and
+  background processes); CI runs the real mechanism on Ubuntu 22.04 and 24.04.
+  Host-local services reachable over the host network with network `on` are
+  a documented residual risk (AD-20 point 14, OD-14), reported in `detail`
+  where detectable and never refused.
 - **Scope:** profile enforcement through the Platform / Native Host layer;
   `crot_status` reports L1 availability and reason; refusal of remote
   `shell`/`process` operations where the mechanism is unavailable on a
@@ -640,8 +656,11 @@ today's behaviour.
 
 - **Objective:** install, update and uninstall CROT on Linux, Windows and
   macOS without a terminal (§10, §24).
-- **Dependencies:** WP-20, WP-22, WP-23a (AppArmor profile), WP-35 (store
-  IDs), OD-1, OD-10, OD-11.
+- **Dependencies:** WP-20, WP-22, WP-23a (Linux L1 components and AppArmor
+  policy, AD-20 point 3: WP-34 packages and signs them, loads the policy on
+  install and upgrade, unloads and removes it on removal, and excludes the L1
+  private storage from temporary-file cleanup), WP-35 (store IDs), OD-1,
+  OD-10, OD-11.
 - **Scope:** packages per OS (formats per OD-9); code signing (Windows
   Authenticode, macOS Developer ID + notarization, Linux package signing);
   bundled runtime; service autostart; native-host registration for the
