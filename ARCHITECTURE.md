@@ -3563,8 +3563,15 @@ development capability CROT already offers.
    it keeps running in the service, unchanged, on every transport. Graphical
    desktop sessions are not part of the baseline: AD-13 point 4 already
    excludes "the GUI automation … of the tray app", so X11, Wayland and the
-   accessibility bus are not reachable; headless browsers and test runners
-   are unaffected. Where a machine cannot provide this baseline under L1, L1
+   accessibility bus are not reachable. Browser and headless-browser
+   workflows (browser test runners, automation libraries, headless
+   Chromium and Firefox) remain supported. Because a confined process cannot
+   create a user namespace (point 5), a runtime that would otherwise create
+   nested user namespaces for its own sandbox must use its supported
+   non-nested mode inside L1 (for example Chromium's `--no-sandbox`, where
+   that is the runtime's supported mode); this is a compatibility
+   requirement of running inside L1, not a reduction of CROT's
+   capabilities, and WP-23a covers it with a smoke test. Where a machine cannot provide this baseline under L1, L1
    is unavailable there with a reason (point 12); L1 is never provided as a
    reduced shell.
 2. **Linux v1 platforms (decides the Linux part of roadmap OD-9).** Supported:
