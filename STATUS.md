@@ -50,7 +50,7 @@ shim, local control channel** (PR #16, `92cce3b`; AD-17,
 
 | WP | What | Why now |
 | --- | --- | --- |
-| WP-23a/b/c | Command confinement L1 (Linux, macOS, Windows); also protects the OS secret store and the control credential from children. Linux boundary and supported releases (Ubuntu 22.04/24.04 LTS, x86_64/arm64) decided by ARCHITECTURE.md §27 AD-20 (docs only, no implementation yet) | unblocked by WP-21; closes the AD-19 residual risk; WP-23a can start (AD-20, OD-14 decided) |
+| WP-23a/b/c | Command confinement L1 (Linux, macOS, Windows); also protects the OS secret store and the control credential from children. Linux boundary and supported releases (Ubuntu 22.04/24.04 LTS, x86_64/arm64) decided by ARCHITECTURE.md §27 AD-20; AppArmor mechanism settled by the WP-23a probe (stacked Ubuntu/bwrap-style transition, ABI per release; AD-20 point 3) | unblocked by WP-21; closes the AD-19 residual risk; WP-23a can start (AD-20, OD-14 decided) |
 | WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | browser branch; unblocked by WP-18 |
 | WP-28 → WP-29 | Identity provider and verifier, then Cloud Relay | relay branch starts right after AD-15 (AD-14 point 6) |
 | WP-35 | Extension publication, submitted early | needs the AD-16 permission justification (`debugger`, `downloads`, `tabGroups`) |

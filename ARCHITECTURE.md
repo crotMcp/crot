@@ -3577,11 +3577,29 @@ development capability CROT already offers.
    - Components: `crot-bwrap` (bubblewrap built by CROT from a pinned upstream
      release whose source digest is recorded), `crot-l1-init` (the CROT helper
      that is the first process of every sandbox, point 10), the CROT AppArmor
-     policy (profile `crot-l1-<v>` for `crot-bwrap`, its child profile
-     `crot-l1-<v>//payload` for everything that runs in the sandbox, and
+     policy (profile `crot-l1-<v>` for `crot-bwrap`, the payload profile
+     `crot-l1-payload-<v>` for everything that runs in the sandbox, and
      profile `crot-l1-container-<v>` for containers created through the
      Docker endpoint, point 9) and `manifest.json` (the L1 component version
      `<v>` and the SHA-256 digest of each binary).
+   - **Transition (the only production form).** `crot-bwrap` runs under
+     no-new-privileges, and AppArmor allows a confined task under
+     no-new-privileges only an exec transition that keeps its current
+     profile. The payload is therefore a separate top-level profile stacked
+     onto `crot-l1-<v>`, in the shape of Ubuntu's own
+     `bwrap-userns-restrict` policy: `crot-l1-<v>` grants its file access
+     with `file rwlkm /{,**},` and execs with exactly one rule,
+     `allow pix /** -> &crot-l1-<v>//&crot-l1-payload-<v>,`; the payload
+     profile grants `file rwlkmix /{**,},` and includes no abstraction. The
+     label of every confined process is the stack
+     `crot-l1-<v>//&crot-l1-payload-<v>`. A plain or `cx` transition to a
+     child profile, and the other stacked forms of the probe, are not used
+     (evidence below the decision).
+   - **Policy ABI per release.** Ubuntu 22.04 (parser 3.0.4) cannot compile
+     `abi <abi/4.0>` with `userns,` rules, so the 22.04 policy is written
+     for `abi <abi/3.0>` and contains no user-namespace rule; the 24.04
+     policy is written for `abi <abi/4.0>` with user-namespace rules.
+     Everything else in the policy is the same on both releases.
    - `<v>` is the L1 component version. The service is built with the `<v>`
      it requires. The components are installed in `/usr/lib/crot/l1/<v>/`,
      owned by root and not writable by the user. The profiles attach to these
@@ -3612,11 +3630,16 @@ development capability CROT already offers.
    that `crot-bwrap` and `crot-l1-init` build: namespaces, the mount view,
    no-new-privileges and the process model (points 6–10). AppArmor has exactly
    two roles and contains no CROT path policy:
-   - **User-namespace permission.** `crot-l1-<v>` grants `crot-bwrap` the user
-     namespace that Ubuntu 24.04 otherwise denies, so the distribution's
-     restriction stays in force for every other program. The payload profile
-     does not grant user namespaces: nested user namespaces behave as for an
-     unconfined program on the same release.
+   - **User-namespace permission.** On Ubuntu 24.04 `crot-l1-<v>` grants
+     `crot-bwrap` the user namespace that the release otherwise denies, so
+     the distribution's restriction stays in force for every other program.
+   - **No nested user namespaces.** A confined process cannot create a user
+     namespace. On Ubuntu 24.04 the payload profile denies it (`deny
+     userns`). On Ubuntu 22.04 AppArmor does not mediate user namespaces for
+     this policy (ABI 3.0, point 3); there the control is bubblewrap's
+     `--disable-userns`, with which `crot-bwrap` is started on both
+     releases (on 24.04 in addition to the profile). Status and documentation never claim AppArmor mediation of
+     nested user namespaces on 22.04.
    - **IPC the mount view cannot hide.** The payload profile denies connecting
      and sending to abstract Unix sockets and signalling or tracing processes
      whose peer is not confined by the same payload profile; sockets between
@@ -3835,7 +3858,7 @@ development capability CROT already offers.
       user-namespace restriction is active, or network `on`);
     - `apparmor_profile_not_loaded` — the policy of `<v>` is not loaded
       (`crot-bwrap` is denied its user namespace, or the sandbox's label is not
-      `crot-l1-<v>//payload`);
+      `crot-l1-<v>//&crot-l1-payload-<v>`);
     - `apparmor_unix_mediation_unavailable` — the kernel does not mediate Unix
       sockets (network `on` only);
     - `overlay_unavailable` — the private home layer cannot be mounted;
@@ -3923,3 +3946,25 @@ development capability CROT already offers.
   to the paths as written; containers created outside CROT that do not pass
   point 9 cannot be entered from the confined shell; overlay visibility of
   concurrent changes in the home (point 7).
+- **Mechanism evidence (WP-23a probe, branch `probe/l1-mechanism`, runs 1–3
+  on GitHub-hosted `ubuntu-22.04`, `ubuntu-24.04`, `ubuntu-22.04-arm` and
+  `ubuntu-24.04-arm`).** A pinned upstream bubblewrap (v0.11.0) at a
+  CROT-style path with one AppArmor profile per transition form:
+  - only the Ubuntu/bwrap-style stacked form of point 3 (`ubu`) is an
+    enforcing transition that reaches the payload label under
+    no-new-privileges on all four jobs. A plain `px` or `cx` transition to a
+    child profile (`plain`, `cx`), the other stacked forms (`stack`,
+    `stackonly`, `stackpeer`, `stackchild`, `stackcx`) and the diagnostic
+    complain-mode variants are not production mechanisms;
+  - in the payload: abstract Unix sockets outside the sandbox are refused,
+    signals to host processes are refused while signals and sockets between
+    confined processes work, `setsid`/`nohup` descendants end with the
+    sandbox, and bubblewrap's overlay provides the private home layer;
+  - the CROT-style container profile is loaded and enforcing; a
+    `--network host` container under it is refused the host's abstract
+    socket, while the same container under Docker's default profile reaches
+    it;
+  - Ubuntu 22.04's parser 3.0.4 cannot compile `abi <abi/4.0>` with
+    `userns,` (point 3); profiles that include `abstractions/base` in the
+    `crot-bwrap` profile are rejected next to a `px` rule (conflicting exec
+    modifiers), which is why that profile includes no abstraction.
