@@ -795,7 +795,7 @@ its limitations). Not yet implemented:
   get only an allowlist of the CROT environment (paths, home, user, shell,
   locale, terminal, temporary directories, proxies, toolchain homes such as
   `JAVA_HOME` or `CARGO_HOME`, the Docker CLI connection, the Windows system
-  variables) plus `environment.allow`; API keys and tokens in the environment
+  variables, `PSModuleAnalysisCachePath`) plus `environment.allow`; API keys and tokens in the environment
   of the MCP client or supervisor are withheld, as is
   `DBUS_SESSION_BUS_ADDRESS`. The `env` argument can set literal values or
   remove variables but never copy a withheld one. `crot_status`

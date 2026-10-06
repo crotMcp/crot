@@ -150,6 +150,15 @@ describe("createChildEnvironment", () => {
     expect(child.base).toEqual({ Path: "C:\\bin", SystemRoot: "C:\\Windows" });
   });
 
+  it("passes the PowerShell module analysis cache location but not PSModulePath (Windows)", () => {
+    const child = createChildEnvironment(
+      { PSModuleAnalysisCachePath: "C:\\cache\\ModuleAnalysisCache", PSModulePath: "C:\\ps7\\Modules" },
+      [],
+      true,
+    );
+    expect(child.base).toEqual({ PSModuleAnalysisCachePath: "C:\\cache\\ModuleAnalysisCache" });
+  });
+
   it("the built-in list holds no credential-like names and no session bus", () => {
     for (const entry of CHILD_ENV_ALLOWLIST) {
       expect(entry).not.toMatch(/TOKEN|SECRET|PASSWORD|KEY|CREDENTIAL|DBUS|PSMODULEPATH/i);

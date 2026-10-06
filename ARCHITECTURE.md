@@ -3235,8 +3235,9 @@ needs an explicit boundary.
 7. **Child-process environment allowlist.** Children of `shell.execute` and
    `process.manage` start from an allowlisted copy of the CROT environment:
    paths, home and identity, shell, locale, terminal, temporary directories,
-   proxies, toolchain homes, the Docker CLI connection and the Windows system
-   variables (case-insensitive on Windows), plus names or prefixes (`NAME*`)
+   proxies, toolchain homes, the Docker CLI connection, the Windows system
+   variables and the PowerShell module analysis cache location
+   (`PSModuleAnalysisCachePath`; case-insensitive on Windows), plus names or prefixes (`NAME*`)
    listed in `environment.allow`. Session bus addresses
    (`DBUS_SESSION_BUS_ADDRESS`) and `PSModulePath` are not on the list. The
    `env` argument sets literal values or removes variables (`null`); it can

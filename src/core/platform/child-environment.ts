@@ -17,8 +17,10 @@
  *
  * Deliberately not on the list: session bus addresses
  * (DBUS_SESSION_BUS_ADDRESS reaches the user's keyring and desktop services)
- * and PSModulePath (a PowerShell 7 value breaks Windows PowerShell). The owner
- * can still allow any name with environment.allow.
+ * and PSModulePath (a PowerShell 7 value breaks Windows PowerShell; PowerShell
+ * builds its default module path without it). PSModuleAnalysisCachePath, a
+ * cache location, is passed: without it module auto-loading re-analyses every
+ * installed module. The owner can still allow any name with environment.allow.
  *
  * Git keeps its own rules on top of this base (GIT_* removed, fixed
  * variables; AD-2); Docker keeps its narrower list (AD-3).
@@ -114,6 +116,10 @@ export const CHILD_ENV_ALLOWLIST: readonly string[] = Object.freeze([
   "NUMBER_OF_PROCESSORS",
   "COMPUTERNAME",
   "DRIVERDATA",
+  // PowerShell: location of a prebuilt module analysis cache. Without it PowerShell re-analyses every
+  // installed module before it can auto-load a cmdlet such as Write-Output (tens of seconds on hosts
+  // with many modules, for example the GitHub Actions Windows images that set it machine-wide).
+  "PSMODULEANALYSISCACHEPATH",
 ]);
 
 export interface ChildEnvironmentSummary {
