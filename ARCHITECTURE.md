@@ -770,9 +770,12 @@ Target model:
 
 ## 21. User Confirmations
 
-**[Partial]** — the mechanism (approval gates) is implemented in Core (WP-15);
-no approval provider (UI) exists yet, so with gate rules configured the gated
-operations are denied. The tray app provider is **[Target]**.
+**[Implemented]** — the mechanism (approval gates) is implemented in Core
+(WP-15); the first product provider is the CROT tray (WP-22, §27 AD-19): the
+service holds the provider `tray`, the Electron tray on the authenticated
+control channel shows the requests and sends the decisions. Without a
+connected tray gated operations are denied. Presets: *Ask for every action*
+and *Off* selectable; *Autonomous browser* **[Target]** (WP-31).
 
 CROT can require explicit user approval before a sensitive operation.
 
@@ -780,8 +783,8 @@ CROT can require explicit user approval before a sensitive operation.
   the existing authorization pipeline (PermissionEngine policy, evaluated by the
   ExecutionGuard before execution) — not a second permission system.
 - **UI independence.** Core requests a confirmation through an interface;
-  implementations (UI providers) live outside Core — the tray app is the
-  planned first provider.
+  implementations (UI providers) live outside Core — the tray provider in the
+  service is the first (AD-19 point 3).
 - **Safe default.** No provider available, timeout or dismissal means deny.
 - **Authenticity.** A confirmation can only come from the user through a
   provider on an authenticated local channel; it cannot be granted by the
@@ -898,10 +901,12 @@ Boundaries:
 ## 24. Installable Application
 
 **[Partial]** — the local service, the stdio shim and the authenticated
-control channel are implemented (WP-20, §27 AD-17); tray, installer and
-autostart are not. Today CROT is run from a source checkout with CLI commands
-(`crot-mcp`, `crot-mcp service run|status|stop`), and the extension is loaded
-unpacked.
+control channel are implemented (WP-20, §27 AD-17), and tray v1 (WP-22, §27
+AD-19: approvals, preset, remote mode, remote full-control opt-in, exposure
+reset and revocation, status); installer, packaging of the tray and autostart
+are not (WP-34). Today CROT is run from a source checkout with CLI commands
+(`crot-mcp`, `crot-mcp service run|status|stop`, `npm run tray`), and the
+extension is loaded unpacked.
 
 Target for Linux, Windows and macOS:
 - **CROT local service (sidecar)** — the existing `crot-mcp` process (Core,
@@ -935,15 +940,16 @@ The tray app is a UI; control logic stays in Core/service.
 | Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | Contract decided (AD-16, WP-18: CDP); implementation **[Target]** (v1: WP-24…WP-27) |
 | Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); request pipeline **[Implemented]** (WP-19: sessionless 2026-07-28, supported versions, principal kinds by entry point, exposure scopes, persisted remote exposure); verifier, relay, tunnel **[Target]** (v1: WP-28…WP-30) |
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
-| User confirmations | **[Partial]** (mechanism implemented: WP-15, §27 AD-5…AD-11; no approval provider yet; tray provider and presets v1, AD-14) |
+| User confirmations | **[Implemented]** (mechanism: WP-15, §27 AD-5…AD-11; tray provider and preset selection: WP-22, §27 AD-19); *Autonomous browser* preset and remote profile **[Target]** (WP-31) |
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | **[Target]** (v1, AD-13) |
-| Remote mode, Cloud Relay | **[Target]** (mandatory in v1, AD-13) |
+| Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); relay and tunnel **[Target]** (mandatory in v1, AD-13; WP-29, WP-30) |
 | Command confinement L1 (Linux, macOS, Windows) | **[Target]** (v1, AD-13) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
 | Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
 | CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children **[Target]** (L1, WP-23) |
-| Installer, tray app, autostart of the service | **[Target]** (v1, AD-13) |
+| Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (WP-23) |
+| Installer, tray packaging, autostart of the service | **[Target]** (v1, AD-13; WP-34) |
 
 ## 26. Open Architectural Questions
 
@@ -3268,3 +3274,208 @@ needs an explicit boundary.
   - The allowlist is a default, not a sandbox: values on it (for example
     proxy URLs with credentials) are passed, and `environment.allow` is the
     owner's choice.
+
+### AD-19. Tray v1: a separate UI process on the control channel; the service holds the approval provider and the device-side controls (preset, remote mode, remote full-control opt-in, exposure reset, client revocation) (WP-22, roadmap OD-7)
+
+**Context.** Without an approval provider every gated operation is denied
+(AD-5, §21), so a remote workflow that reads a page and then acts cannot work
+(AD-13 point 3). WP-22 adds the first product provider and the tray. AD-17
+point 7 reserves the control channel for it ("approval and exposure-reset
+requests are added by WP-22 on this channel and remain the only path for
+them"). Several decisions were still open or assigned elsewhere:
+
+- AD-16 point 17 lets the user choose the preset in the tray but leaves "how
+  the supervised service applies it" to WP-31 (roadmap OD-7). Presets are part
+  of the immutable policy (AD-5 point 2, AD-10 point 1), and the configuration
+  file is part of the configuration digest that all shims share (AD-17
+  point 5).
+- AD-13 point 5 requires a per-device remote full-control opt-in "implemented
+  with the existing `principalKinds` matcher". `principalKinds` exists only in
+  approval rules; the PermissionPolicy has one mode for every principal. A
+  per-principal mode is therefore not available without a new mechanism.
+- AD-15 point 8 and C5 allow a reset of remote exposure only through a user
+  action in an approval provider or through revocation. §20 requires that
+  revocation ends remote sessions, and AD-15 point 4 makes the device check
+  that a grant is not revoked. No identity provider, device binding or tunnel
+  exists yet (WP-28…WP-30).
+- Until L1 (WP-23), an unconfined child or any other process of the same OS
+  user can read the control credential (AD-18, residual risks) and could talk
+  to the control channel like the tray.
+
+**Decision.**
+
+1. **Process model and trust boundary.** The tray is a separate Electron
+   application. It is only an authenticated client of the control channel
+   (AD-17 point 6): its main process reads the control credential through the
+   same `CredentialStore` as `crot-mcp service status` and holds the
+   connection. It holds no other secret, stores no credential or CROT state of
+   its own, and has no access to Core, the PermissionEngine, the broker, the
+   audit log or the state files. The CROT service stays a separate process and
+   keeps all control logic (§24: "the tray app is a UI; control logic stays in
+   Core/service"). The renderer runs with context isolation, the Chromium
+   sandbox and without Node integration, loads only files bundled with the
+   tray, blocks navigation and new windows, uses a strict content security
+   policy and reaches the main process only through a fixed preload API. The
+   control credential never reaches the renderer. Electron is used only for
+   the tray; packaging, signing and autostart of the tray are WP-34.
+2. **Control protocol, extended additively (AD-17 point 7).** The control
+   channel keeps its framing, authentication and request/response messages and
+   gains methods and service-to-client `event` messages:
+   - approvals: `approvals.subscribe` (the connection becomes an approval UI
+     and receives a snapshot of pending requests), `approvals.unsubscribe`,
+     `approvals.decide { requestId, decision: approve | reject, subjectDigest }`;
+     events `approval.requested` and `approval.resolved`;
+   - overview: `overview` (service, preset, remote mode, remote full-control
+     opt-in, remote clients, active agent contexts, browser connection, L1,
+     CDP and pairing availability); event `state.changed`;
+   - device controls: `preset.set`, `remote.setMode`, `remote.setFullControl`,
+     `remote.resetExposure`, `remote.revokeClient`; `pairing.start`.
+   Parameters are validated strictly; a malformed request or an unknown method
+   is a protocol violation and closes the connection, as in WP-20. The control
+   channel still carries no MCP and no tools, makes no permission decision and
+   creates no principal, grant or scope; it remains the only path for these
+   requests. No MCP tool, adapter, browser message, relay message or
+   configuration value can reach them.
+3. **Approval provider in the service, registered dynamically.** The service
+   implements one `ApprovalProvider` (`id: "tray"`, channel `local-ui`) that
+   fans requests out to every subscribed control connection. It is registered
+   with the broker while at least one tray is subscribed and unregistered when
+   the last one unsubscribes or disconnects, so the AD-5 lifecycle is
+   unchanged: no tray means `unavailable` / `no_provider` at once; losing the
+   last tray cancels pending requests (`provider_gone`); timeout and dismissal
+   deny. This refines AD-5 point 6: the registration handle is given only to
+   the composition root, through a `CrotCore.create` option, and never to an
+   adapter, the browser side, a tool or the relay; Core has no public
+   registration method. A decision is accepted only from a subscribed
+   connection, only for a request that is pending and was presented to it,
+   and only with the presented subject digest (`not_pending`,
+   `digest_mismatch`, `unknown_request` otherwise). The service never decides
+   on its own, never decides on behalf of a request it did not present, and
+   offers no "always allow" or batch decision (AD-5 point 3). The first
+   terminal transition wins across several trays (AD-5 point 4).
+4. **What the user sees.** The tray renders the Core subject as plain text by
+   the rules of `docs/design/approval-gates.md` §6.3 (Core order and labels,
+   visible control/bidi/zero-width characters, no silent truncation,
+   prominent remote principal, outside-workspace paths and `full_control`,
+   `client` marked as self-reported). Effects whose value comes from a web
+   page (tab URL and title, page text, element names) carry the additive
+   `ApprovalEffect.flag` value `page_supplied` and are shown as page-supplied
+   (AD-16 point 16). The digest and the audit are unchanged (AD-5 point 7).
+5. **Preset changes (decides OD-7).** The preset chosen in the tray is
+   device state, not configuration:
+   - It is stored in the service's protected private state
+     (`service-settings.json`, owner-only, a protected path no CROT tool can
+     modify), not in the configuration file. The configuration digest and the
+     shim rule of AD-17 point 5 are unchanged; the effective value is the
+     stored choice when present, otherwise
+     `permissions.approvals.untrustedContent` from the configuration.
+     `crot_status` and the tray report the value and its source.
+   - It is applied by building a new Core with the new policy and switching
+     to it. Each Core's policy stays immutable (AD-5 point 2, AD-10 point 1);
+     a preset change behaves like a restart of Core inside the service. The
+     switch happens only while Core is idle: no operation in flight, no
+     pending approval request and no running background process (AD-17: they
+     belong to Core and run until the service stops; records of exited
+     background processes are not carried over). Otherwise the change is refused
+     with the reason, and nothing changes. The idle check and the switch are
+     one atomic step; the old Core is then shut down as in AD-17 point 8. The
+     new Core takes over the exposure state of every local and remote scope
+     (AD-12, AD-15 point 8) and the browser bridge, so a change never cleans a
+     scope. If the new Core cannot be built, the old one stays and the stored
+     value is restored.
+   - In WP-22 the values the PermissionEngine implements can be chosen:
+     `require-approval` (*Ask for every action*) and `off`. The rule set of
+     *Autonomous browser* (`autonomous-browser`, AD-16 point 17) is
+     implemented by WP-31 and is shown as not yet available.
+   - If the stored state cannot be read, the effective value is
+     `require-approval` and the error is shown (fail closed).
+   - This amends AD-16 point 17 ("decided in WP-31") and AD-10 point 1
+     ("validated at startup": validated when a Core is built).
+6. **Remote mode.** A per-device switch in the same protected state, **off by
+   default** (§22), changed only through the control channel, audited and shown
+   in the tray and in `crot_status`; if the state cannot be read it is off.
+   While it is off, the relay entry point (the pipeline the tunnel reuses,
+   AD-15 C4) refuses every request before MCP or Core work (AD-15 point 9);
+   the tunnel (WP-30) opens only while it is on and closes when it is turned
+   off. No other authorization is derived from it.
+7. **Remote full-control opt-in: recorded, not enforced.** A per-device flag
+   in the same protected state, **off by default**, changed or revoked only
+   through the control channel, audited and shown in the tray and in
+   `crot_status`. In WP-22 it has no effect on the PermissionEngine, the
+   PermissionPolicy, the mode or any authorization: no enforcement and no new
+   authorization mechanism. How it takes effect (a per-principal permission
+   profile) is decided and implemented by WP-31; the claim of AD-13 point 5
+   that the existing `principalKinds` matcher suffices is an open item of
+   WP-31, because that matcher exists only in approval rules.
+8. **Remote clients, exposure reset and revocation (device side).**
+   - The service keeps a list of remote clients seen at the relay entry point,
+     keyed by (`accountId`, `deviceId`, `clientId`) — the remote exposure
+     scope of AD-15 point 8 — with only these identifiers, first and last seen
+     and the revocation time (`remote-clients.json`, protected private state).
+     No names, tokens, addresses or other personal data.
+   - **Exposure reset:** only through the control channel, for one client;
+     the client's persisted exposure becomes `clean`; audited. Refused while
+     the exposure state itself failed closed (AD-15 point 8).
+   - **Revocation:** only through the control channel. It is persisted, resets
+     the client's exposure, aborts its requests in flight (their approval
+     requests end `cancelled` / `caller_aborted`), closes its legacy sessions
+     and makes the relay entry point refuse every later request of that client
+     before MCP or Core work; audited. If the revocation state cannot be read,
+     every remote request is refused (fail closed). A remote client can never
+     change its own state.
+   - Not in WP-22: re-granting a revoked client and revoking tokens or devices
+     at the identity provider (WP-28); no identity provider or revocation
+     service is built here.
+9. **Audit of control actions.** Every preset change, remote-mode change,
+   full-control opt-in change, exposure reset and revocation writes a
+   `control.*` event to the audit log (actor: the local user through the
+   control channel; old and new value or client; outcome). Approval decisions
+   stay in the audit event of the gated operation (AD-5 point 7). A change that
+   widens what can run without the user (a less restrictive preset, remote
+   mode on, full-control opt-in on, an exposure reset) is refused when its
+   audit record cannot be written first (as AD-7); a change that narrows it
+   (revocation, remote mode off, opt-in off, a stricter preset) is never
+   blocked by an audit failure, which is reported.
+10. **Status and placeholders.** The tray shows the service state, the active
+    agent contexts (stdio connections, HTTP sessions and in-flight sessionless
+    requests, remote clients), the connected browser (name, version, extension
+    version, connection id; the bridge does not know a profile name), L1
+    confinement (not available until WP-23), the CDP browser backend (not
+    available until WP-24) and device pairing (requires WP-28; the pairing
+    screen and `pairing.start` exist and answer "not available").
+
+**Scope and limits.**
+
+- Implemented by WP-22. It decides roadmap OD-7, refines AD-5 point 6 and
+  amends AD-10 point 1 and AD-16 point 17 as stated in point 5. It keeps
+  AD-17 (one service, thin shim, one configuration and its digest, the
+  control channel is not an authorization mechanism), AD-18 (secrets; the tray
+  is another reader of the control credential through the `CredentialStore`)
+  and §20–§22 (remote mode off by default and visible; authorization stays
+  local; revocation ends remote sessions on the device). The PermissionEngine,
+  the PermissionPolicy, the ExecutionGuard, the broker lifecycle and the
+  subject digest are unchanged; Core changes are additive (the
+  composition-root handle, an injectable exposure tracker, the
+  `page_supplied` flag, control audit events).
+- Left to later work packages: L1 confinement and the protection of the
+  control credential against same-user processes (WP-23); identity, device
+  binding, pairing, re-grant and revocation at the identity provider (WP-28);
+  the tunnel honouring remote mode and the client list (WP-30); the
+  *Autonomous browser* rule set, the remote permission profile and the
+  enforcement of the full-control opt-in (WP-31); tray packaging, signing and
+  autostart (WP-34).
+- **Residual risk D, accepted.** Until L1 (WP-23), an unconfined process of
+  the same OS user (including a child of `shell.execute` in `sandbox` mode)
+  can read the control credential and act through the control channel like
+  the tray: approve a pending request it can observe, change the preset or
+  remote mode, reset exposure. The control channel proves only the same OS
+  user (AD-17 point 7), and no substitute authorization mechanism is added.
+  What is guaranteed: an MCP tool, a web page, the browser extension and the
+  relay cannot reach the control channel or the provider; an approval exists
+  only for a pending request with its exact subject digest; negative tests
+  prove both.
+- Other residual risks, accepted: a preset change waits for an idle Core
+  (background processes must be stopped first); approval deadlines are still
+  not extended across system sleep (AD-17); the remote client list keeps
+  account and client identifiers in clear text in the private state directory
+  so that the user can recognise them.
