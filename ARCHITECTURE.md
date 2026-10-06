@@ -3766,8 +3766,14 @@ development capability CROT already offers.
         helper container) go through the same endpoint.
      The host network namespace (`--network host`, BuildKit `network.host`)
      is accepted: containers created through the endpoint on a daemon that
-     supports AppArmor run under `crot-l1-container-<v>`, which denies
-     abstract Unix sockets outside the container. Exec, attach, archive (cp)
+     runs on this host (reached through a local Unix socket or a loopback
+     address) and supports AppArmor run under `crot-l1-container-<v>`, which
+     denies abstract Unix sockets outside the container. A daemon on another
+     host (SSH, TCP, TLS or a context naming another machine) keeps its normal
+     behaviour: the endpoint does not set the CROT profile there and never
+     refuses a request because that host cannot load it; its host network is
+     not this host's. A daemon on this host that the endpoint does not
+     recognise as local falls under point 14. Exec, attach, archive (cp)
      and commit on an existing container are accepted when that container's
      configuration passes a–d; containers created outside CROT that do not
      pass can still be listed, inspected and logged. Images, builds, pulls,
