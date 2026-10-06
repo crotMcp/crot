@@ -2,17 +2,25 @@
  * Directory locks of the CROT state directory (service start, secret store).
  */
 import { randomBytes } from "node:crypto";
+import type { Stats } from "node:fs";
 import { mkdir, rename, rmdir, stat, utimes } from "node:fs/promises";
 
 const LOCK_STALE_MS = 15_000;
 
+/** Generations of break claims tried for one stale lock (a claim is only skipped when its breaker crashed). */
+const MAX_BREAK_GENERATIONS = 8;
+
 /**
  * Exclusive directory lock (atomic mkdir). A lock older than `staleMs` (its
- * holder crashed) is broken. Breaking is safe against concurrent breakers: the
- * stale lock is first moved aside under a unique name (only one process can
- * move it), and the moved directory must still be the one judged stale (same
- * inode and modification time); a process that moved a lock someone else had
- * just taken puts it back and does not get the lock.
+ * holder crashed) is broken by exactly one process: the stale lock is moved
+ * aside and checked by the one process that holds the break claim for that
+ * lock instance (`<lock>.break-<instance>-<generation>`, atomic mkdir; the
+ * instance is the inode and modification time judged stale). Only that
+ * process ever moves the lock, and only after re-checking under the claim that
+ * the lock is still the stale instance, so a live lock is never moved,
+ * removed or left absent; whoever then creates the lock (atomic mkdir) holds
+ * it. A claim whose breaker crashed (older than `staleMs`) is skipped by
+ * claiming the next generation.
  */
 export async function acquireDirectoryLock(lock: string, staleMs = LOCK_STALE_MS): Promise<boolean> {
   try {
@@ -23,25 +31,47 @@ export async function acquireDirectoryLock(lock: string, staleMs = LOCK_STALE_MS
   }
   const info = await stat(lock).catch(() => undefined);
   if (info && Date.now() - info.mtimeMs <= staleMs) return false;
-  if (info) {
-    const aside = `${lock}.stale-${process.pid}-${randomBytes(6).toString("hex")}`;
-    try {
-      await rename(lock, aside);
-    } catch {
-      return false; // another process broke it first
-    }
-    const moved = await stat(aside).catch(() => undefined);
-    if (!moved || moved.ino !== info.ino || moved.mtimeMs !== info.mtimeMs) {
-      await rename(aside, lock).catch(() => rmdir(aside).catch(() => undefined));
-      return false;
-    }
-    await rmdir(aside).catch(() => undefined);
-  }
+  if (info) await breakStaleLock(lock, info, staleMs);
   try {
     await mkdir(lock, { mode: 0o700 });
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Name of the break claim of one stale lock instance (exported for tests). */
+export function breakClaimPath(lock: string, instance: Stats, generation: number): string {
+  const id = `${instance.ino.toString(36)}-${Math.round(instance.mtimeMs * 1000).toString(36)}`;
+  return `${lock}.break-${id}-${generation}`;
+}
+
+/** Remove the stale lock instance `info` if this process wins its break claim; otherwise leave it to the winner. */
+async function breakStaleLock(lock: string, info: Stats, staleMs: number): Promise<void> {
+  for (let generation = 0; generation < MAX_BREAK_GENERATIONS; generation++) {
+    const claim = breakClaimPath(lock, info, generation);
+    try {
+      await mkdir(claim, { mode: 0o700 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") return;
+      const held = await stat(claim).catch(() => undefined);
+      if (held && Date.now() - held.mtimeMs > staleMs) continue; // its breaker crashed
+      return; // another process is breaking this instance (or has just done so)
+    }
+    try {
+      // Under the claim nobody else moves the lock: if it is still the stale instance, it stays so until moved here.
+      const current = await stat(lock).catch(() => undefined);
+      if (current && current.ino === info.ino && current.mtimeMs === info.mtimeMs) {
+        const aside = `${lock}.stale-${process.pid}-${randomBytes(6).toString("hex")}`;
+        await rename(lock, aside);
+        await rmdir(aside).catch(() => undefined);
+      }
+    } catch {
+      // The lock stays; the caller's mkdir then fails and it does not get the lock.
+    } finally {
+      await rmdir(claim).catch(() => undefined);
+    }
+    return;
   }
 }
 
