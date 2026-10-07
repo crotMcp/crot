@@ -65,8 +65,20 @@ jobs:
           docker compose version
           docker buildx version
 
+      # Diagnostic only (never decides): the label a minimal crot-bwrap sandbox runs
+      # under, next to the runner shell's own label and no-new-privileges state.
+      - name: L1 sandbox label (diagnostic)
+        continue-on-error: true
+        run: |
+          echo "runner shell: $(cat /proc/self/attr/current 2>&1) / $(grep NoNewPrivs /proc/self/status)"
+          for d in /usr/lib/crot/l1/*/; do
+            echo "$d: $("$d/crot-bwrap" --unshare-user --unshare-pid --die-with-parent --ro-bind / / --dev /dev --proc /proc -- /bin/cat /proc/self/attr/current 2>&1)"
+          done
+
+      # One file at a time: l1-reasons.test.ts changes host-wide state (unloads the
+      # L1 policy, disables user namespaces) that other L1 files must not observe.
       - name: L1 tests (mandatory)
-        run: npx vitest run --testTimeout=300000 --hookTimeout=300000 tests/native-host/linux-l1 tests/core/confinement.test.ts
+        run: npx vitest run --no-file-parallelism --testTimeout=300000 --hookTimeout=300000 tests/native-host/linux-l1 tests/core/confinement.test.ts
 
       - name: Diagnostics
         if: always()
@@ -76,4 +88,4 @@ jobs:
           bash scripts/l1-install.sh status || true
           sysctl kernel.apparmor_restrict_unprivileged_userns user.max_user_namespaces 2>/dev/null || true
           sudo aa-status 2>/dev/null | grep -i crot || true
-          sudo dmesg 2>/dev/null | grep -i 'apparmor="DENIED"' | tail -n 50 || true
+          sudo dmesg 2>/dev/null | grep -i 'apparmor=' | grep -v 'apparmor="STATUS"' | tail -n 50 || true
