@@ -43,6 +43,12 @@ dir="$root/$v"
 policy_name="crot-l1-$v"
 etc_policy="/etc/apparmor.d/$policy_name"
 
+# Private build directory of one install run (mktemp -d), removed when the
+# script exits. Script-global, not local to do_install: the EXIT trap runs
+# after do_install has returned, when a local would be out of scope (set -u).
+work=""
+cleanup() { if [ -n "$work" ]; then rm -rf -- "$work"; fi; }
+
 die() { echo "l1-install: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing tool: $1"; }
 apparmor_enabled() { [ "$(cat /sys/module/apparmor/parameters/enabled 2>/dev/null || true)" = "Y" ]; }
@@ -73,9 +79,8 @@ do_install() {
   [ "$(id -u)" = 0 ] || die "install must run as root"
   [ "$(uname -s)" = Linux ] || die "L1 is Linux only"
   for t in cc meson ninja pkg-config sha256sum tar install; do need "$t"; done
-  local work
   work="$(mktemp -d)"
-  trap 'rm -rf "$work"' EXIT
+  trap cleanup EXIT
 
   # 1. The pinned bubblewrap release, verified before it is unpacked.
   local tarball="$work/bubblewrap-$bwrap_version.tar.xz"
