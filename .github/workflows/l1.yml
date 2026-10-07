@@ -1,0 +1,71 @@
+name: L1 confinement
+​
+# Command confinement L1 (ARCHITECTURE.md §27 AD-20) on real Ubuntu hosts:
+# the components are built and installed with scripts/l1-install.sh, the
+# AppArmor policy is loaded, and the REAL integration tests run with
+# CROT_L1_REQUIRED=1, so a missing or broken mechanism fails the job instead
+# of skipping tests. Diagnostics run afterwards and never mask a failure.
+​
+on:
+  push:
+    branches: [main]
+  pull_request:
+​
+permissions:
+  contents: read
+​
+jobs:
+  l1:
+    name: L1 / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, ubuntu-22.04-arm, ubuntu-24.04-arm]
+    env:
+      CROT_L1_REQUIRED: "1"
+      CROT_L1_SUDO: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install build dependencies, AppArmor tools, sshd
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc meson ninja-build pkg-config libcap-dev xz-utils curl \
+            apparmor apparmor-utils openssh-server openssl
+      - name: Install the L1 components and policy
+        run: sudo bash scripts/l1-install.sh install
+      - name: L1 status
+        run: bash scripts/l1-install.sh status
+      - name: SSH to localhost for the Docker SSH transport
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keygen -q -t ed25519 -N '' -f ~/.ssh/id_ed25519
+          cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          sudo systemctl start ssh || sudo service ssh start
+          for i in 1 2 3 4 5; do ssh-keyscan -H localhost >> ~/.ssh/known_hosts 2>/dev/null && break; sleep 1; done
+          echo "CROT_L1_DOCKER_SSH=ssh://$(id -un)@localhost" >> "$GITHUB_ENV"
+          ssh -o BatchMode=yes localhost docker version --format '{{.Server.Version}}'
+      - name: Docker on the runner
+        run: |
+          docker version
+          docker info --format '{{json .SecurityOptions}}'
+          docker compose version
+          docker buildx version
+      - name: L1 tests (mandatory)
+        run: npx vitest run --testTimeout=300000 --hookTimeout=300000 tests/native-host/linux-l1 tests/core/confinement.test.ts
+      - name: Diagnostics
+        if: always()
+        run: |
+          uname -a
+          cat /etc/os-release
+          bash scripts/l1-install.sh status || true
+          sysctl kernel.apparmor_restrict_unprivileged_userns user.max_user_namespaces 2>/dev/null || true
+          sudo aa-status 2>/dev/null | grep -i crot || true
+          sudo dmesg 2>/dev/null | grep -i 'apparmor="DENIED"' | tail -n 50 || true
+​
