@@ -4,6 +4,7 @@
  * the CROT service builds it. Used only when CROT_L1_REQUIRED=1 (the L1
  * workflow); there an unavailable L1 is a test failure with its reason.
  */
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +12,7 @@ import { MemoryAuditSink } from "../../../src/core/audit/audit.js";
 import { localPrincipal, type AuthContext } from "../../../src/core/auth/principal.js";
 import { CrotCore } from "../../../src/core/crot-core.js";
 import type { ConfinementNetwork } from "../../../src/core/platform/types.js";
+import { Sandbox, SandboxError } from "../../../src/native-host/linux-l1/sandbox.js";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 
 export const ctx: AuthContext = { principal: localPrincipal("test") };
@@ -85,6 +87,85 @@ export function assertAvailable(f: L1Fixture): void {
   const s = f.core.status().confinement;
   if (!s.available)
     throw new Error(
-      `L1 is required (CROT_L1_REQUIRED=1) but unavailable: ${s.reason} — ${s.detail ?? ""}; log: ${f.log.join(" | ")}`,
+      `L1 is required (CROT_L1_REQUIRED=1) but unavailable: ${s.reason} — ${s.detail ?? ""}; log: ${f.log.join(" | ")}` +
+        sandboxDiagnostics(),
     );
+}
+
+/*
+ * Diagnostics of a failing L1 check (test only; production behaviour is
+ * unchanged). Status and the CONFINEMENT_FAILED message carry only "the
+ * sandbox ended (exit N)": crot-bwrap's stderr, which names the immediate
+ * cause, never leaves the Sandbox. Every Sandbox.start of this test process is
+ * recorded (argv, how it ended, crot-bwrap/crot-l1-init stderr, the label in
+ * crot-l1-init's HELLO) and printed with assertAvailable's error, together
+ * with the minimal invocation of the workflow's "L1 sandbox label" step run
+ * at that moment and the AppArmor denials logged since this file started.
+ */
+interface SandboxRecord {
+  readonly argv: readonly string[];
+  sandbox?: Sandbox;
+  ended?: string;
+  startError?: string;
+  startDiagnostics?: string;
+}
+const sandboxRecords: SandboxRecord[] = [];
+const kernelLog = (): string[] => {
+  for (const [file, args] of [
+    ["sudo", ["-n", "dmesg"]],
+    ["dmesg", []],
+  ] as const) {
+    const r = spawnSync(file, args, { encoding: "utf8", timeout: 10_000 });
+    if (r.status === 0) return r.stdout.split("\n");
+  }
+  return [];
+};
+// Only in the L1 workflow (CROT_L1_REQUIRED=1); elsewhere the harness is imported by skipped suites.
+const diagnose = process.platform === "linux" && process.env.CROT_L1_REQUIRED === "1";
+const kernelLogStart = diagnose ? kernelLog().length : 0;
+const originalStart = Sandbox.start.bind(Sandbox);
+if (diagnose)
+  Sandbox.start = async (spec, onEnd, timeoutMs) => {
+    const record: SandboxRecord = { argv: [spec.file, ...spec.args] };
+    sandboxRecords.push(record);
+    try {
+      const sandbox = await originalStart(spec, onEnd, timeoutMs);
+      record.sandbox = sandbox;
+      void sandbox.whenEnded.then((e) => (record.ended = e.message));
+      return sandbox;
+    } catch (error) {
+      record.startError = (error as Error).message;
+      record.startDiagnostics = error instanceof SandboxError ? error.diagnostics : "";
+      throw error;
+    }
+  };
+
+function sandboxDiagnostics(): string {
+  const out = ["", "--- L1 sandbox diagnostics (test harness) ---"];
+  sandboxRecords.forEach((r, i) => {
+    out.push(`sandbox #${i + 1}: argv ${JSON.stringify(r.argv)}`);
+    out.push(
+      `  start: ${r.startError ? `failed: ${r.startError}` : "ok"}; HELLO label: ${JSON.stringify(r.sandbox?.label ?? null)}; ended: ${r.ended ?? (r.sandbox?.running ? "still running" : "unknown")}`,
+    );
+    out.push(`  crot-bwrap/crot-l1-init stderr: ${JSON.stringify(r.startDiagnostics ?? r.sandbox?.diagnostics ?? "")}`);
+  });
+  const bwrap = sandboxRecords[0]?.argv[0];
+  if (bwrap) {
+    const args = ["--unshare-user", "--unshare-pid", "--die-with-parent", "--ro-bind", "/", "/", "--dev", "/dev"];
+    const m = spawnSync(bwrap, [...args, "--proc", "/proc", "--", "/bin/cat", "/proc/self/attr/current"], {
+      encoding: "utf8",
+      env: {},
+      timeout: 10_000,
+    });
+    out.push(
+      `minimal invocation (workflow "L1 sandbox label" step): exit ${m.status ?? m.signal}; stdout ${JSON.stringify(m.stdout)}; stderr ${JSON.stringify(m.stderr)}`,
+    );
+  }
+  const denials = kernelLog()
+    .slice(kernelLogStart)
+    .filter((l) => l.includes('apparmor="DENIED"'));
+  out.push(`AppArmor denials since this file started: ${denials.length}`);
+  for (const l of denials.slice(-30)) out.push(`  ${l}`);
+  out.push("--- end of L1 sandbox diagnostics ---");
+  return out.join("\n");
 }
