@@ -19,10 +19,10 @@
  * No configuration, no per-request choice, no PermissionEngine: docker.use
  * and AD-3 are unchanged.
  */
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessByStdio, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { chmod, rm } from "node:fs/promises";
 import net from "node:net";
-import { Duplex } from "node:stream";
+import { Duplex, type Readable, type Writable } from "node:stream";
 import {
   checkBuildQuery,
   checkContainerCreate,
@@ -422,10 +422,68 @@ export function createUpstream(options: {
         env: { ...options.env },
         stdio: ["pipe", "pipe", "ignore"],
       });
-      const duplex = Duplex.from({ readable: child.stdout, writable: child.stdin });
-      duplex.on("close", () => child.kill());
-      child.on("error", () => duplex.destroy());
-      return duplex;
+      return dialStdioStream(child);
     },
   };
+}
+
+/**
+ * The byte stream of one `docker system dial-stdio` process. The connection
+ * ends when dial-stdio closes its stdout (the CLI does that when the daemon
+ * closes the connection, and then exits): the readable side ends after every
+ * byte it wrote has been delivered. Its stdin closing with the exit is that
+ * same end, not an error (Duplex.from reported it as ERR_STREAM_PREMATURE_CLOSE
+ * and could discard the unread answer). A write after the exit fails as on a
+ * closed socket. The stream closes once dial-stdio has exited and its output
+ * has been read.
+ */
+function dialStdioStream(
+  child: ChildProcessWithoutNullStreams | ChildProcessByStdio<Writable, Readable, null>,
+): Duplex {
+  const { stdin, stdout } = child;
+  const duplex = new Duplex({
+    read() {
+      stdout.resume();
+    },
+    write(chunk: Buffer, _encoding, callback) {
+      if (!stdin.writable) {
+        callback(Object.assign(new Error("docker system dial-stdio has exited"), { code: "EPIPE" }));
+        return;
+      }
+      stdin.write(chunk, (error) => callback(error ?? null));
+    },
+    final(callback) {
+      stdin.end();
+      callback();
+    },
+    destroy(error, callback) {
+      stdout.destroy();
+      stdin.destroy();
+      child.kill();
+      callback(error);
+    },
+  });
+  stdout.on("data", (chunk: Buffer) => {
+    if (!duplex.push(chunk)) stdout.pause();
+  });
+  stdout.on("end", () => duplex.push(null));
+  stdout.on("error", (error) => duplex.destroy(error));
+  // EPIPE when dial-stdio exits while a write is pending: that write's callback reports it.
+  stdin.on("error", () => undefined);
+  child.on("error", (error) => duplex.destroy(error));
+  // Closed once dial-stdio has exited and every byte it wrote has been read.
+  let exited = false;
+  let delivered = false;
+  const done = () => {
+    if (exited && delivered) duplex.destroy();
+  };
+  child.on("close", () => {
+    exited = true;
+    done();
+  });
+  duplex.on("end", () => {
+    delivered = true;
+    done();
+  });
+  return duplex;
 }

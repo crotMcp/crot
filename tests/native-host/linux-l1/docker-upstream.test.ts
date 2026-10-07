@@ -117,6 +117,77 @@ s.pipe(process.stdout);
   }
 });
 
+describe.skipIf(!posix)("createUpstream: the end of a dial-stdio connection", () => {
+  /** A fixture CLI like the one above that also records when it has exited. */
+  async function fixtureCli(exited: string): Promise<string> {
+    const fake = path.join(dir, "docker-exits");
+    await writeFile(
+      fake,
+      `#!${process.execPath}
+const net = require("node:net");
+process.on("exit", () => require("node:fs").writeFileSync(${JSON.stringify(exited)}, "1"));
+if (process.argv[2] !== "system" || process.argv[3] !== "dial-stdio") process.exit(2);
+const s = net.connect(${JSON.stringify(daemonSocket)});
+process.stdin.pipe(s);
+s.pipe(process.stdout);
+`,
+    );
+    await chmod(fake, 0o755);
+    return fake;
+  }
+
+  it("delivers the whole answer and ends without an error when it is read after dial-stdio exited", async () => {
+    // The daemon closes the connection (Connection: close), dial-stdio exits, and only then is the answer
+    // read (a busy event loop, or the endpoint waiting for a slow client). Duplex.from reported the exit as
+    // ERR_STREAM_PREMATURE_CLOSE and discarded the unread answer.
+    for (const host of ["ssh://me@build-host", "tcp://10.0.0.5:2376", "tcp://127.0.0.1:2375"]) {
+      const exited = path.join(dir, "exited");
+      await rm(exited, { force: true });
+      const fake = await fixtureCli(exited);
+      const conn = await createUpstream({
+        host,
+        tls: host.includes("2376"),
+        env: { PATH: process.env.PATH ?? "" },
+        docker: fake,
+      }).connect();
+      const errors: Error[] = [];
+      conn.on("error", (e: Error) => errors.push(e));
+      conn.pause();
+      conn.write("GET /v1.45/info HTTP/1.1\r\nHost: docker\r\nConnection: close\r\n\r\n");
+      const deadline = Date.now() + 10_000;
+      while (!(await readFile(exited, "utf8").catch(() => ""))) {
+        if (Date.now() > deadline) throw new Error("the fixture CLI did not exit");
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      // Let the service side see the exit (stdin and stdout of the child closed) before reading.
+      await new Promise((r) => setTimeout(r, 100));
+      let out = "";
+      const ended = new Promise<void>((resolve, reject) => {
+        conn.on("data", (d: Buffer) => (out += d.toString()));
+        conn.on("end", () => resolve());
+        conn.on("error", reject);
+      });
+      conn.resume();
+      await ended;
+      expect(out, host).toMatch(/^HTTP\/1\.1 200 /);
+      expect(out, host).toContain('{"url":"/v1.45/info"}');
+      await new Promise<void>((resolve) => (conn.closed ? resolve() : conn.once("close", () => resolve())));
+      expect(errors, host).toEqual([]);
+    }
+  });
+
+  it("still reports a dial-stdio that cannot be started", async () => {
+    const conn = await createUpstream({
+      host: "tcp://10.0.0.5:2376",
+      tls: true,
+      env: { PATH: process.env.PATH ?? "" },
+      docker: path.join(dir, "no-such-docker"),
+    }).connect();
+    const error = await new Promise<NodeJS.ErrnoException>((resolve) => conn.once("error", resolve));
+    expect(error.code).toBe("ENOENT");
+  });
+});
+
 describe.skipIf(!posix)("Docker contexts (fixture context store)", () => {
   it("reads the current context's host from DOCKER_CONTEXT or config.json, and hides its socket", async () => {
     const home = path.join(dir, "home");
