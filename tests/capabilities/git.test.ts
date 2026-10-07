@@ -60,6 +60,42 @@ async function makeRepo(dir: string): Promise<string> {
   return dir;
 }
 
+/**
+ * Diagnostics for the intermittent "Hook timed out in 10000ms" of the
+ * sandbox-mode beforeEach on CI (Windows, Node 20): times its three steps and
+ * prints one line when the hook takes more than 2 s. Shortly before the 10 s
+ * hook timeout it also prints the step that is still running, because a timed
+ * out hook may never finish. Prints nothing for an ordinary hook and changes
+ * nothing else.
+ */
+function hookTimer(test: string): { step(next: string): void; done(): void } {
+  const start = performance.now();
+  const durations: string[] = [];
+  let current = "makeTempDirs";
+  let since = start;
+  const elapsed = (from: number) => `${Math.round(performance.now() - from)}ms`;
+  const watchdog = setTimeout(() => {
+    console.warn(
+      `[git.test beforeEach > 9 s] still in ${current} (${elapsed(since)}); ${[...durations, `total=${elapsed(start)}`].join(" ")} | ${test}`,
+    );
+  }, 9_000);
+  watchdog.unref();
+  return {
+    step(next) {
+      durations.push(`${current}=${elapsed(since)}`);
+      current = next;
+      since = performance.now();
+    },
+    done() {
+      clearTimeout(watchdog);
+      if (performance.now() - start <= 2_000) return;
+      console.warn(
+        `[git.test beforeEach > 2 s] ${[...durations, `${current}=${elapsed(since)}`, `total=${elapsed(start)}`].join(" ")} | ${test}`,
+      );
+    },
+  };
+}
+
 const MARKER = "crot-git-read-marker";
 
 /** A command that would create `marker` if Git ever ran it. */
@@ -73,10 +109,17 @@ describe("git.read in sandbox mode", () => {
   let core: CrotCore;
   let repo: string;
 
-  beforeEach(async () => {
-    dirs = await makeTempDirs();
-    repo = await makeRepo(path.join(dirs.workspace, "repo"));
-    core = await createTestCore({ workspace: { root: dirs.workspace } });
+  beforeEach(async ({ task }) => {
+    const timer = hookTimer(task.name);
+    try {
+      dirs = await makeTempDirs();
+      timer.step("makeRepo");
+      repo = await makeRepo(path.join(dirs.workspace, "repo"));
+      timer.step("createTestCore");
+      core = await createTestCore({ workspace: { root: dirs.workspace } });
+    } finally {
+      timer.done();
+    }
   });
   afterEach(async () => {
     // After a failed beforeEach they may be unset: report its error, not a TypeError (both are idempotent).
