@@ -26,6 +26,11 @@ steps 10–11 and step 21 — Git read and write):
   behind a replaceable verifier (see [HTTP transport](#http-transport))
 - Native Host: native OS platform layer behind the same Core interfaces (see
   [`docs/NATIVE_HOST.md`](docs/NATIVE_HOST.md))
+- Command confinement L1 on Linux (Ubuntu 22.04/24.04, x86_64/arm64): in
+  workspace mode commands run in a CROT-owned bubblewrap sandbox under the CROT
+  AppArmor policy, with a mediated Docker endpoint (see
+  [Command confinement (Linux L1)](#command-confinement-linux-l1) and
+  [`docs/L1.md`](docs/L1.md))
 - CROT Browser Extension for Chromium browsers (Chrome, Edge, Brave): browser
   tools gated by `browser.read` / `browser.control` (see
   [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md))
@@ -774,6 +779,30 @@ its limitations). Not yet implemented:
   verifier); installing the CROT service for autostart (the
   service itself exists, see [`docs/SERVICE.md`](docs/SERVICE.md)).
 
+## Command confinement (Linux L1)
+
+In workspace (`sandbox`) mode on Linux, children of `shell_run`,
+`process_exec` and `process_start` run in one sandbox per Core
+(ARCHITECTURE.md §27 AD-20): host files read-only, CROT-protected paths,
+keyrings and the session runtime directory hidden, the workspace writable,
+private `/tmp`, a private home layer, no nested user namespaces, and Docker
+only through a CROT endpoint that refuses host binds outside the boundary,
+privileged containers and similar escapes (HTTP 403, audited as
+`confinement.docker_refused`). `full_control` is not confined.
+
+```json
+"confinement": { "network": "on" }
+```
+
+`network`: `"on"` (default; host network, `localhost` works) or `"off"`
+(loopback only). `crot_status` reports `confinement` (`available`, `reason`,
+`detail`). When L1 is not available, remote principals get
+`CONFINEMENT_UNAVAILABLE` and nothing is started; local use is unchanged. If
+the sandbox fails after L1 was available, the command fails with
+`CONFINEMENT_FAILED` and is never run unconfined. The components are
+installed with `sudo bash scripts/l1-install.sh install` until installers
+ship them (WP-34); details in [`docs/L1.md`](docs/L1.md).
+
 ## Security properties
 
 - Validated inputs: strict zod schemas owned by Core; unknown fields are rejected.
@@ -798,7 +827,7 @@ its limitations). Not yet implemented:
   denied to every CROT tool in every mode, and `docker_*` refuses mounts that
   contain them. Not covered: a command started by CROT runs as the user and
   can use the OS secret store itself (`full_control` is unconfined by
-  definition; sandbox mode until command confinement, WP-23); administrators.
+  definition; on Linux, workspace-mode commands are confined by L1 (WP-23a); macOS and Windows: WP-23b/c); administrators.
 - Child environment: `shell_run`, `process_exec` and `process_start` children
   get only an allowlist of the CROT environment (paths, home, user, shell,
   locale, terminal, temporary directories, proxies, toolchain homes such as

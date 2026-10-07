@@ -46,7 +46,6 @@ const PRESET_RANK: Readonly<Record<PresetValue, number>> = { off: 0, "autonomous
 export const FULL_CONTROL_NOTE =
   "Recorded and audited only: it does not change any permission yet. How it takes effect is decided by WP-31.";
 export const TUNNEL_NOTE = "The relay tunnel is not available yet (WP-30); no remote request can reach this device.";
-export const CONFINEMENT_REASON = "Command confinement L1 is implemented by WP-23; commands run unconfined.";
 export const CDP_REASON = "The CDP browser backend is implemented by WP-24.";
 export const PAIRING_REASON = "Device pairing requires identity and device binding (WP-28).";
 
@@ -516,7 +515,7 @@ export class ControlCenter implements RemoteAdmission {
       agents: { ...this.host.agents(), remoteClients: clients.filter((c) => c.revokedAt === undefined).length },
       browser: browserView(browser, core.browser.state),
       approvals: { trays: this.provider.subscriberCount, pending: this.provider.pendingCount },
-      confinement: { available: false, reason: CONFINEMENT_REASON },
+      confinement: core.confinement,
       cdp: { available: false, reason: CDP_REASON },
       pairing: { available: false, reason: PAIRING_REASON },
     };

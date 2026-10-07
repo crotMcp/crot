@@ -3,7 +3,15 @@ import type { AuthContext } from "../../auth/principal.js";
 import type { Limits } from "../../config/schema.js";
 import { CrotError, parseInput } from "../../errors.js";
 import type { ExecutionGuard } from "../../execution/guard.js";
-import type { CommandSpec, ManagedProcess, Platform, ResolvedEncoding } from "../../platform/types.js";
+import { confinementUnavailableError, decideConfinement } from "../../platform/confinement.js";
+import type {
+  CommandSpec,
+  CoreConfinement,
+  ManagedProcess,
+  Platform,
+  ProcessLauncher,
+  ResolvedEncoding,
+} from "../../platform/types.js";
 import { displayPath as display, type ResolvedPath, type Workspace } from "../../workspace/workspace.js";
 import { OutputBuffer } from "./output-buffer.js";
 import {
@@ -34,6 +42,12 @@ export interface ProcessServiceDeps {
   >;
   /** Base environment for children (defaults to the platform base environment). */
   readonly baseEnv?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Command confinement L1 of this Core (ARCHITECTURE.md §27 AD-20). Present
+   * in workspace (sandbox) mode; absent in full_control, where commands stay
+   * unconfined.
+   */
+  readonly confinement?: CoreConfinement;
 }
 
 /** How long to wait for stdio to close after the child exits (descendants may hold pipes open). */
@@ -72,8 +86,10 @@ type EnvOverrides = Readonly<Record<string, string | null>> | undefined;
  * owns its process tree: descendants still running when it finishes are
  * terminated (use background processes for long-running work).
  *
- * Note: SANDBOX confines the working directory and CROT's own file
- * operations; it is not OS-level isolation of what a command itself does.
+ * In SANDBOX mode the children are confined by L1 where it is available
+ * (AD-20): the decision is made here, inside the authorized operation, before
+ * any process starts (see launcherFor). SANDBOX alone confines the working
+ * directory and CROT's own file operations.
  */
 export class ProcessService {
   private readonly processes = new Map<string, BackgroundProcess>();
@@ -100,13 +116,14 @@ export class ProcessService {
     } as const;
     return this.deps.guard.run(context, op, async () => {
       this.assertOpen();
+      const launcher = this.launcherFor(context);
       await assertDirectory(cwd);
       const env = this.env(args.env);
       const spec = await this.deps.platform.launcher.resolveCommand(args.command, args.args, {
         cwd: cwd.absolute,
         env,
       });
-      return this.runForeground(spec, cwd, env, args.stdin, timeoutMs, encoding);
+      return this.runForeground(launcher, spec, cwd, env, args.stdin, timeoutMs, encoding);
     });
   }
 
@@ -125,9 +142,10 @@ export class ProcessService {
     } as const;
     return this.deps.guard.run(context, op, async () => {
       this.assertOpen();
+      const launcher = this.launcherFor(context);
       await assertDirectory(cwd);
       const spec = this.deps.platform.shells.command(args.script, shell);
-      return this.runForeground(spec, cwd, this.env(args.env), args.stdin, timeoutMs, encoding);
+      return this.runForeground(launcher, spec, cwd, this.env(args.env), args.stdin, timeoutMs, encoding);
     });
   }
 
@@ -155,6 +173,7 @@ export class ProcessService {
     };
     return this.deps.guard.run(context, op, async () => {
       this.assertOpen();
+      const launcher = this.launcherFor(context);
       await assertDirectory(cwd);
       if (this.runningCount() >= this.deps.limits.maxBackgroundProcesses) {
         throw new CrotError(
@@ -167,7 +186,7 @@ export class ProcessService {
         args.script !== undefined
           ? this.deps.platform.shells.command(args.script, shell)
           : await this.deps.platform.launcher.resolveCommand(args.command!, args.args, { cwd: cwd.absolute, env });
-      const proc = await this.deps.platform.launcher.launch(spec, { cwd: cwd.absolute, env, stdin: false });
+      const proc = await launcher.launch(spec, { cwd: cwd.absolute, env, stdin: false });
       if (this.closing) {
         // Shutdown began while the process was starting.
         await proc.terminate("force");
@@ -311,6 +330,27 @@ export class ProcessService {
     if (this.closing) throw shuttingDown();
   }
 
+  /**
+   * The launcher for one authorized operation (AD-20 point 11): the Core's L1
+   * sandbox when L1 is available; the Core launcher when L1 does not apply
+   * (full_control) or is unavailable for a local principal; otherwise the
+   * operation is refused with CONFINEMENT_UNAVAILABLE before any process
+   * starts. A confined launch that fails for a sandbox reason throws
+   * CONFINEMENT_FAILED and is never retried with the Core launcher.
+   */
+  private launcherFor(context: AuthContext): ProcessLauncher {
+    const confinement = this.deps.confinement;
+    const status = confinement?.status();
+    switch (decideConfinement(status, context.principal.kind)) {
+      case "confine":
+        return confinement!.launcher;
+      case "refuse":
+        throw confinementUnavailableError(status!);
+      default:
+        return this.deps.platform.launcher;
+    }
+  }
+
   private env(overrides: EnvOverrides): Record<string, string> {
     return this.deps.platform.environment.merge(
       this.deps.baseEnv ?? this.deps.platform.baseEnvironment,
@@ -319,6 +359,7 @@ export class ProcessService {
   }
 
   private async runForeground(
+    launcher: ProcessLauncher,
     spec: CommandSpec,
     cwd: ResolvedPath,
     env: Record<string, string>,
@@ -327,7 +368,7 @@ export class ProcessService {
     encoding: ResolvedEncoding,
   ): Promise<ExecResult> {
     const started = Date.now();
-    const proc = await this.deps.platform.launcher.launch(spec, { cwd: cwd.absolute, env, stdin: stdin !== undefined });
+    const proc = await launcher.launch(spec, { cwd: cwd.absolute, env, stdin: stdin !== undefined });
     this.foreground.add(proc);
     try {
       return await this.collectForeground(proc, started, stdin, timeoutMs, encoding);

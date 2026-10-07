@@ -442,7 +442,8 @@ describe("tray provider (AD-19 point 3)", () => {
     expect(await ask(new Conn(), { method: "pairing.start" })).toMatchObject({ ok: false, reason: "not_available" });
     const overview = center.overview();
     expect(overview.pairing.reason).toMatch(/WP-28/);
-    expect(overview.confinement.reason).toMatch(/WP-23/);
+    // Core built on a platform without an L1 mechanism (AD-20 point 12 shape).
+    expect(overview.confinement).toMatchObject({ mechanism: "none", available: false, reason: "not_implemented" });
     expect(overview.cdp.reason).toMatch(/WP-24/);
     expect(overview.browser).toMatchObject({ state: "connected", name: "Chrome", version: "130.0.0.0" });
   });

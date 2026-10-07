@@ -75,7 +75,7 @@ const WORKING_DIR_FORMAT = `{{json (.Label "${WORKING_DIR_LABEL}")}}`;
  * Everything else, including COMPOSE_* (which select files, projects and
  * profiles), is removed.
  */
-const FORWARDED_ENV: ReadonlySet<string> = new Set([
+export const FORWARDED_ENV: ReadonlySet<string> = new Set([
   "PATH",
   "PATHEXT",
   "HOME",

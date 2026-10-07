@@ -142,7 +142,13 @@ describe("trayView", () => {
     agents: { stdio: 1, httpSessions: 0, httpSessionlessInFlight: 0, remoteClients: 0 },
     browser: { state: "disconnected" },
     approvals: { trays: 1, pending: 0 },
-    confinement: { available: false, reason: "WP-23" },
+    confinement: {
+      mechanism: "none",
+      available: false,
+      network: "on",
+      reason: "not_implemented",
+      detail: "command confinement L1 is not implemented for this operating system",
+    },
     cdp: { available: false, reason: "WP-24" },
     pairing: { available: false, reason: "WP-28" },
   });
@@ -172,6 +178,33 @@ describe("trayView", () => {
     const remote = trayView({ connection: "connected", overview: overview({ mode: true }), pending: [] });
     expect(remote.icon).toBe("remote");
     expect(remote.tooltip).toBe("CROT — remote mode ON");
+  });
+
+  it("shows the L1 state, reason code and detail (AD-20 point 12)", () => {
+    const l1 = (o: ControlOverview) =>
+      trayView({ connection: "connected", overview: o, pending: [] }).status.find(
+        (r) => r.label === "Command confinement (L1)",
+      )!.value;
+    expect(l1(overview())).toBe(
+      "not available — not_implemented (command confinement L1 is not implemented for this operating system)",
+    );
+    const active: ControlOverview = {
+      ...overview(),
+      confinement: { mechanism: "linux-bubblewrap", available: true, network: "off", reason: null, detail: null },
+    };
+    expect(l1(active)).toBe("active, network off");
+    const missing: ControlOverview = {
+      ...overview(),
+      confinement: {
+        mechanism: "linux-bubblewrap",
+        available: false,
+        network: "on",
+        reason: "components_missing",
+        detail: "crot-bwrap is missing",
+      },
+    };
+    expect(l1(missing)).toBe("not available — components_missing (crot-bwrap is missing)");
+    expect(l1({ ...active, mode: "full_control" })).toBe("does not apply in full control");
   });
 
   it("escapes remote client identifiers", () => {

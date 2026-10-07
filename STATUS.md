@@ -5,6 +5,30 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
+## In review
+
+**WP-23a — Linux command confinement L1** (ARCHITECTURE.md §27 AD-20; draft
+PR). User docs: [`docs/L1.md`](docs/L1.md), README.
+
+- CROT-owned `crot-bwrap` (bubblewrap 0.11.0, pinned SHA-256) and
+  `crot-l1-init` in `/usr/lib/crot/l1/<v>/`, AppArmor policy (ABI 3.0/4.0)
+  installed and loaded by `scripts/l1-install.sh` (root; packaging WP-34);
+  the service only verifies them.
+- One sandbox per Core in workspace mode: read-only host, hidden protected
+  paths and runtime directory (agent sockets bound back), writable workspace,
+  private temp and home layer, network `on`/`off`, no nested user namespaces,
+  process-tree cleanup.
+- Docker endpoint on every transport (Unix, TCP, TLS, SSH, contexts) with
+  checks a–d, HTTP 403, `confinement.docker_refused`, container profile for
+  local daemons.
+- `CONFINEMENT_UNAVAILABLE` (remote, before admission) and
+  `CONFINEMENT_FAILED` (after admission, never retried unconfined); reason
+  codes in `crot_status` and the tray.
+
+Tests: real suites in the new L1 workflow (`.github/workflows/l1.yml`,
+Ubuntu 22.04/24.04 x64/arm64, `CROT_L1_REQUIRED=1`), fixtures and mocks in
+`tests/native-host/linux-l1/` and `tests/core/confinement.test.ts`.
+
 ## Last completed
 
 **WP-22 — Tray v1 and approval provider on the control channel**
@@ -50,7 +74,7 @@ shim, local control channel** (PR #16, `92cce3b`; AD-17,
 
 | WP | What | Why now |
 | --- | --- | --- |
-| WP-23a/b/c | Command confinement L1 (Linux, macOS, Windows); also protects the OS secret store and the control credential from children. Linux boundary and supported releases (Ubuntu 22.04/24.04 LTS, x86_64/arm64) decided by ARCHITECTURE.md §27 AD-20; AppArmor mechanism settled by the WP-23a probe (stacked Ubuntu/bwrap-style transition, ABI per release; AD-20 point 3) | unblocked by WP-21; closes the AD-19 residual risk; WP-23a can start (AD-20, OD-14 decided) |
+| WP-23b/c | Command confinement L1 on macOS and Windows (Linux: WP-23a in review, AD-20) | release-blocking on every OS (AD-13); WP-23c starts with its spike (OD-6) |
 | WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | browser branch; unblocked by WP-18 |
 | WP-28 → WP-29 | Identity provider and verifier, then Cloud Relay | relay branch starts right after AD-15 (AD-14 point 6) |
 | WP-35 | Extension publication, submitted early | needs the AD-16 permission justification (`debugger`, `downloads`, `tabGroups`) |
@@ -66,7 +90,7 @@ shim, local control channel** (PR #16, `92cce3b`; AD-17,
 | Approval deadlines are not extended across system sleep; sleep detection is a clock-jump heuristic (not changed by WP-22) | follow-up |
 | All stdio clients of a user share one configuration and one process environment (supervisor's or starting shim's; differing PATH/shell/home is reported to the client; commands get only the allowlisted part since WP-21) | AD-17 residual risk; WP-34 |
 | Windows named pipes keep Node's default security descriptor (no explicit owner-only DACL) | WP-34 |
-| Unconfined children can use the OS secret store (or the file fallback) as the same user | AD-18 residual risk; WP-23a/b/c |
+| Unconfined children can use the OS secret store (or the file fallback) as the same user | AD-18 residual risk; Linux workspace mode: closed by WP-23a (in review); `full_control`, macOS, Windows: WP-23b/c |
 | Host-local services that accept the user's authority without a CROT credential (Docker on TCP without TLS, SSH server on this host accepting the user's keys, debugging/notebook endpoints without authentication, container engines without the CROT container profile) are reachable with network `on` | Accepted residual risk of the host-network model (AD-20 point 14, OD-14 decided); reported in `detail` where detectable; disclosure in WP-37 |
 | macOS, Windows and browser parts of the v1 platform matrix | roadmap OD-9 (Linux part decided by AD-20) |
 | `secrets.store: "auto"` keeps the file fallback once chosen; switching needs `"os"` | AD-18 residual risk |
@@ -74,7 +98,7 @@ shim, local control channel** (PR #16, `92cce3b`; AD-17,
 | Re-granting a revoked remote client; revoking tokens or devices at the identity provider | WP-28 |
 | Remote full-control opt-in is recorded only; how it takes effect (per-principal profile; `principalKinds` exists only in approval rules) | AD-19 point 7; WP-31 |
 | Preset `autonomous-browser` (rule set not implemented yet) | WP-31 |
-| Any process of the same OS user can read the control credential and act like the tray | AD-19 residual risk; WP-23a/b/c |
+| Any process of the same OS user can read the control credential and act like the tray | AD-19 residual risk; confined Linux children: WP-23a (in review); macOS, Windows: WP-23b/c |
 | Tray packaging, signing and autostart (Electron is a dev dependency today) | WP-34 |
 | Which token claims carry `clientId` and the device id | WP-28 (depends on the identity provider) |
 | Exact device resource URI form and PRM location | WP-29 |

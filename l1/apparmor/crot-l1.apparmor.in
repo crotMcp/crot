@@ -1,0 +1,120 @@
+# CROT command confinement L1, AppArmor policy of L1 version @V@
+# (ARCHITECTURE.md §27 AD-20 points 3 and 5).
+#
+# Rendered and loaded by scripts/l1-install.sh (root, developers and CI) or by
+# the WP-34 packages; the CROT service never loads, replaces or removes it.
+# Template lines that start with the ABI 4 tag are kept only for ABI 4.0
+# (Ubuntu 24.04), lines with the ABI 3 tag only for ABI 3.0 (Ubuntu 22.04);
+# the tag is removed when rendering.
+#
+# AppArmor has exactly two roles here and contains no CROT path policy:
+#   1. the user-namespace permission of crot-bwrap (24.04) and no nested user
+#      namespaces for confined processes (24.04; on 22.04 the control is
+#      bubblewrap's --disable-userns, AppArmor does not mediate it there);
+#   2. the IPC that the mount view cannot hide: confined processes cannot
+#      connect or send to abstract Unix sockets, signal or trace processes
+#      whose peer is not the confined label; sockets, signals and tracing
+#      between confined processes work.
+# The file rules allow all file access: what a confined process can read or
+# write is decided only by the mount view built by crot-bwrap.
+
+@ABI4@abi <abi/4.0>,
+@ABI3@abi <abi/3.0>,
+
+include <tunables/global>
+
+# crot-bwrap: attaches to this exact path only (never /usr/bin/bwrap).
+profile crot-l1-@V@ /usr/lib/crot/l1/@V@/crot-bwrap flags=(attach_disconnected,mediate_deleted) {
+  allow capability,
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+@ABI4@  allow mqueue,
+@ABI4@  allow io_uring,
+@ABI4@  allow userns,
+  # Everything crot-bwrap starts (crot-l1-init and the commands) runs under the stack.
+  allow pix /** -> &crot-l1-@V@//&crot-l1-payload-@V@,
+}
+
+# Confined processes: the label is crot-l1-@V@//&crot-l1-payload-@V@.
+profile crot-l1-payload-@V@ flags=(attach_disconnected,mediate_deleted) {
+  allow capability,
+  allow file rwlkm /{**,},
+  allow network,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+@ABI4@  allow mqueue,
+@ABI4@  allow io_uring,
+  allow pix /** -> &crot-l1-payload-@V@,
+
+  # No nested user namespaces (24.04; 22.04: --disable-userns only).
+@ABI4@  deny userns,
+
+  # Unix sockets: every operation on the process's own sockets; connecting,
+  # sending and receiving only with unnamed peers or confined peers. Pathname
+  # sockets are mediated by the file rules, i.e. by the mount view. Abstract
+  # sockets of the host (network on shares the host network namespace) are
+  # therefore unreachable.
+  allow unix (create, bind, listen, accept, getattr, setattr, getopt, setopt, shutdown),
+  allow unix (connect, send, receive) peer=(addr=none),
+  allow unix (connect, send, receive) peer=(label=crot-l1-@V@//&crot-l1-payload-@V@),
+
+  # Signals and tracing only between confined processes; signals from outside are received.
+  allow signal (send) peer=crot-l1-@V@//&crot-l1-payload-@V@,
+  allow signal (receive),
+  allow ptrace (read, trace) peer=crot-l1-@V@//&crot-l1-payload-@V@,
+  allow ptrace (readby, tracedby),
+}
+
+# Containers created through the CROT Docker endpoint of a confined process
+# (AD-20 point 9) when the daemon is local and supports AppArmor: Docker's
+# default container profile plus the Unix socket rule of the payload profile.
+profile crot-l1-container-@V@ flags=(attach_disconnected,mediate_deleted) {
+  include <abstractions/base>
+
+  network,
+  capability,
+  file,
+  umount,
+@ABI4@  mqueue,
+@ABI4@  io_uring,
+@ABI4@  userns,
+  # Host (privileged) processes may send signals to container processes.
+  signal (receive) peer=unconfined,
+  # Container processes may send signals amongst themselves.
+  signal (send,receive) peer=crot-l1-container-@V@,
+
+  allow unix (create, bind, listen, accept, getattr, setattr, getopt, setopt, shutdown),
+  allow unix (connect, send, receive) peer=(addr=none),
+  allow unix (connect, send, receive) peer=(label=crot-l1-container-@V@),
+
+  deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
+  # deny write to files not in /proc/<number>/** or /proc/sys/**
+  deny @{PROC}/{[^1-9],[^1-9][^0-9],[^1-9s][^0-9y][^0-9s],[^1-9][^0-9][^0-9][^0-9/]*}/** w,
+  deny @{PROC}/sys/[^k]** w,  # deny /proc/sys except /proc/sys/k* (effectively /proc/sys/kernel)
+  deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,  # deny everything except shm* in /proc/sys/kernel/
+  deny @{PROC}/sysrq-trigger rwklx,
+  deny @{PROC}/kcore rwklx,
+
+  deny mount,
+
+  deny /sys/[^f]*/** wklx,
+  deny /sys/f[^s]*/** wklx,
+  deny /sys/fs/[^c]*/** wklx,
+  deny /sys/fs/c[^g]*/** wklx,
+  deny /sys/fs/cg[^r]*/** wklx,
+  deny /sys/firmware/** rwklx,
+  deny /sys/devices/virtual/powercap/** rwklx,
+  deny /sys/kernel/security/** rwklx,
+
+  # suppress ptrace denials when using 'docker ps' or using 'ps' inside a container
+  ptrace (trace,read,tracedby,readby) peer=crot-l1-container-@V@,
+}

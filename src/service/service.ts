@@ -315,7 +315,8 @@ export class CrotService {
       ].filter((p): p is string => p !== undefined);
 
       // Native resources first; Core is built on the Native Host platform.
-      this.native = await NativeHost.start({ startupPath: parsed.environment.path });
+      // Command confinement L1 (AD-20): its private storage is per state directory; availability changes go to the log.
+      this.native = await NativeHost.start({ startupPath: parsed.environment.path, stateDir, log });
       for (const note of this.native.status().notes) log(`note: native host: ${note}`);
       // The browser bridge never stops CROT: when it cannot start, CROT runs without it.
       this.bridge = await startBrowserBridge({

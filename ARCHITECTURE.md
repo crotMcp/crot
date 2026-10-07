@@ -656,7 +656,7 @@ packages, their order and dependencies are in
 21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
-24. Command confinement L1 (Linux, macOS, Windows) [Target, v1, §27 AD-13; Linux: AD-20]
+24. Command confinement L1 (Linux, macOS, Windows) [Partial: Linux implemented (WP-23a, §27 AD-20); macOS, Windows Target, v1, §27 AD-13]
 25. Browser contract v1                           [Target, v1, §7.1, §27 AD-14; contract AD-16]
 ```
 
@@ -944,11 +944,11 @@ The tray app is a UI; control logic stays in Core/service.
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | **[Target]** (v1, AD-13) |
 | Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); relay and tunnel **[Target]** (mandatory in v1, AD-13; WP-29, WP-30) |
-| Command confinement L1 (Linux, macOS, Windows) | **[Target]** (v1, AD-13); Linux boundary and supported releases decided by §27 AD-20 (WP-23a) |
+| Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); macOS, Windows **[Target]** (v1, AD-13; WP-23b/c) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
 | Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
-| CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children **[Target]** (L1, WP-23) |
-| Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (WP-23) |
+| CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children: Linux **[Implemented]** (L1, WP-23a, §27 AD-20), macOS/Windows **[Target]** (WP-23b/c) |
+| Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (Linux: closed for confined children by WP-23a; macOS/Windows: WP-23b/c) |
 | Installer, tray packaging, autostart of the service | **[Target]** (v1, AD-13; WP-34) |
 
 ## 26. Open Architectural Questions
