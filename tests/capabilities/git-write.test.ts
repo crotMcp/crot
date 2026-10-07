@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -47,7 +47,7 @@ function git(cwd: string, ...args: string[]): string {
  * Repository on main with one commit, a merged branch 'merged', an unmerged
  * branch 'topic', a tag, a repository-local identity, one modified and one untracked file.
  */
-async function makeRepo(dir: string): Promise<string> {
+async function buildRepo(dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
   git(dir, "init", "-q");
   git(dir, "symbolic-ref", "HEAD", "refs/heads/main");
@@ -68,6 +68,19 @@ async function makeRepo(dir: string): Promise<string> {
   await writeFile(path.join(dir, "a.txt"), "one\ntwo\n");
   await writeFile(path.join(dir, "new.txt"), "untracked\n");
   await writeFile(path.join(dir, "ignored.txt"), "ignored\n");
+  return dir;
+}
+
+let template: Promise<string> | undefined;
+/**
+ * A fresh copy of the repository of buildRepo. The repository is built once
+ * per file (each build runs many synchronous Git processes, slow on Windows
+ * runners) and copied into `dir` with its history, index and timestamps.
+ */
+async function makeRepo(dir: string): Promise<string> {
+  template ??= buildRepo(path.join(EMPTY_CONFIG_DIR, "template-repo"));
+  await mkdir(path.dirname(dir), { recursive: true });
+  await cp(await template, dir, { recursive: true, preserveTimestamps: true });
   return dir;
 }
 
@@ -130,8 +143,9 @@ describe("git.write in sandbox mode", () => {
     core = await createTestCore({ workspace: { root: dirs.workspace } });
   });
   afterEach(async () => {
-    await core.shutdown();
-    await dirs.cleanup();
+    // After a failed beforeEach they may be unset: report its error, not a TypeError (both are idempotent).
+    await core?.shutdown();
+    await dirs?.cleanup();
   });
 
   it("reports git.write as granted and enforced", () => {
@@ -728,8 +742,9 @@ describe("git.write in full_control mode", () => {
     core = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { mode: "full_control" } });
   });
   afterEach(async () => {
-    await core.shutdown();
-    await dirs.cleanup();
+    // After a failed beforeEach they may be unset: report its error, not a TypeError (both are idempotent).
+    await core?.shutdown();
+    await dirs?.cleanup();
   });
 
   it("writes to a repository outside the workspace", async () => {

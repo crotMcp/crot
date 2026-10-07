@@ -345,7 +345,16 @@ describe.skipIf(!posix)("the policy and the install helper", () => {
       expect(p).toContain(`profile ${container} flags=`);
       expect(p).not.toMatch(/^profile .*\/usr\/bin\/bwrap/m);
       expect(p).toContain(`allow pix /** -> &${label},`);
-      expect(p).toContain(`peer=(label=${label})`);
+      // Unix peers: each profile of the stack on its own (the kernel matches a stacked
+      // peer label profile by profile), never the compound label; the payload and container
+      // profiles have no bare network rule, which would grant every Unix socket operation.
+      expect(p).toContain(`allow unix (connect, send, receive) peer=(label=${bwrap}),`);
+      expect(p).toContain(`allow unix (connect, send, receive) peer=(label=${payload}),`);
+      expect(p).not.toContain(`peer=(label=${label})`);
+      for (const name of [payload, container]) {
+        const body = p.slice(p.indexOf(`profile ${name} flags=`)).split("\n}\n")[0];
+        expect(body).not.toMatch(/^\s*(allow\s+)?network\s*,/m);
+      }
     }
     const v4 = await render("4.0");
     const v3 = await render("3.0");
