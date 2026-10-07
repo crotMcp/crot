@@ -68,4 +68,3 @@ jobs:
           sysctl kernel.apparmor_restrict_unprivileged_userns user.max_user_namespaces 2>/dev/null || true
           sudo aa-status 2>/dev/null | grep -i crot || true
           sudo dmesg 2>/dev/null | grep -i 'apparmor="DENIED"' | tail -n 50 || true
-​
