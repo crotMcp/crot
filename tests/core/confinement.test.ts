@@ -9,9 +9,10 @@
  * sandbox is tested in tests/native-host/linux-l1/l1-integration.test.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RemoteExposureStore } from "../../src/core/approvals/remote-exposure.js";
 import { MemoryAuditSink } from "../../src/core/audit/audit.js";
 import { FORWARDED_ENV } from "../../src/core/capabilities/docker/service.js";
-import { remotePrincipal, type AuthContext } from "../../src/core/auth/principal.js";
+import { remoteExposureScope, remotePrincipal, type AuthContext } from "../../src/core/auth/principal.js";
 import type { CrotCore } from "../../src/core/crot-core.js";
 import { CrotError } from "../../src/core/errors.js";
 import { decideConfinement } from "../../src/core/platform/confinement.js";
@@ -92,11 +93,17 @@ afterEach(async () => {
 /**
  * A Core on the real Node platform whose launcher is wrapped by a spy, with a
  * stub L1. `confined` decides what the confined launcher does.
+ *
+ * The remote scope starts clean (AD-15 point 8): without a remote exposure
+ * store every remote scope is exposed (fail closed), and the built-in
+ * untrusted-content rule (AD-12) would then gate every remote command before
+ * the L1 decision is reached. That gate is covered on its own below.
  */
 async function setup(
   initial: ConfinementStatus,
   confined: (base: ProcessLauncher) => ProcessLauncher["launch"],
   mode: "sandbox" | "full_control" = "sandbox",
+  remoteExposure: RemoteExposureStore = RemoteExposureStore.inMemory(),
 ): Promise<Harness> {
   const node = await createNodePlatform();
   const baseLaunch = vi.fn(node.launcher.launch.bind(node.launcher));
@@ -129,6 +136,7 @@ async function setup(
   const audit = new MemoryAuditSink();
   const core = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { mode } }, audit, {
     platform,
+    remoteExposure,
   });
   harness = {
     core,
@@ -216,6 +224,22 @@ describe("ProcessService and L1 (mocked platform confinement)", () => {
     });
   }
 
+  it("an exposed remote scope stays behind the approval gate (AD-12): denied before the L1 decision, nothing launched", async () => {
+    const exposed = RemoteExposureStore.inMemory();
+    exposed.markExposed(remoteExposureScope("a", "d", "c").remoteKey!);
+    for (const status of [available, unavailable]) {
+      const h = await setup(status, (b) => b.launch.bind(b), "sandbox", exposed);
+      await expect(exec(h.core, remote)).rejects.toMatchObject({
+        code: "PERMISSION_DENIED",
+        details: { approval: { status: "unavailable" } },
+      });
+      expect(h.baseLaunch).not.toHaveBeenCalled();
+      expect(h.confinedLaunch).not.toHaveBeenCalled();
+      await h.core.shutdown();
+      harness = undefined;
+    }
+  });
+
   it("follows the reported state at launch time (a failure that makes L1 unavailable)", async () => {
     const h = await setup(available, (b) => b.launch.bind(b));
     await exec(h.core, remote);
@@ -249,6 +273,7 @@ describe("ProcessService and L1 (mocked platform confinement)", () => {
     const { confinement: _none, ...withoutL1 } = node;
     const core = await createTestCore({ workspace: { root: dirs.workspace } }, undefined, {
       platform: withoutL1 as Platform,
+      remoteExposure: RemoteExposureStore.inMemory(),
     });
     try {
       expect(core.status().confinement).toMatchObject({
