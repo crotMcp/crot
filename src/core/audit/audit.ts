@@ -106,6 +106,15 @@ export type AuditRecord = AuditEvent | ApprovalAuditRecord;
 /** Everything an audit sink receives. */
 export type AuditEntry = AuditRecord | ControlAuditRecord | ConfinementAuditRecord;
 
+/**
+ * Whether an audit entry is an operation record (an operation's event or its
+ * mandatory approval record) rather than a control action (AD-19 point 9) or
+ * an L1 confinement refusal (AD-20 point 13).
+ */
+export function isAuditRecord(entry: AuditEntry): entry is AuditRecord {
+  return !("kind" in entry) || entry.kind === "approval";
+}
+
 /** Destination for audit events. Implementations must not transmit data off the machine. */
 export interface AuditSink {
   record(event: AuditEntry): Promise<void>;
