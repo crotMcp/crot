@@ -46,7 +46,13 @@ profile crot-l1-@V@ /usr/lib/crot/l1/@V@/crot-bwrap flags=(attach_disconnected,m
 profile crot-l1-payload-@V@ flags=(attach_disconnected,mediate_deleted) {
   allow capability,
   allow file rwlkm /{**,},
-  allow network,
+  # Network families other than unix only: a bare network rule also grants
+  # every Unix socket operation (unix is a network family to AppArmor), which
+  # would make the Unix socket rules below ineffective.
+  allow network inet,
+  allow network inet6,
+  allow network netlink,
+  allow network packet,
   allow mount,
   allow umount,
   allow pivot_root,
@@ -65,7 +71,13 @@ profile crot-l1-payload-@V@ flags=(attach_disconnected,mediate_deleted) {
   # therefore unreachable.
   allow unix (create, bind, listen, accept, getattr, setattr, getopt, setopt, shutdown),
   allow unix (connect, send, receive) peer=(addr=none),
-  allow unix (connect, send, receive) peer=(label=crot-l1-@V@//&crot-l1-payload-@V@),
+  # The kernel matches a stacked peer label profile by profile (the peer of a
+  # confined process is crot-l1-@V@ and crot-l1-payload-@V@, each checked on its
+  # own), so the compound label written as one peer never matches: both
+  # profiles of the stack are listed. crot-l1-@V@ alone is only crot-bwrap,
+  # which uses no Unix sockets.
+  allow unix (connect, send, receive) peer=(label=crot-l1-@V@),
+  allow unix (connect, send, receive) peer=(label=crot-l1-payload-@V@),
 
   # Signals and tracing only between confined processes; signals from outside are received.
   allow signal (send) peer=crot-l1-@V@//&crot-l1-payload-@V@,
@@ -80,7 +92,12 @@ profile crot-l1-payload-@V@ flags=(attach_disconnected,mediate_deleted) {
 profile crot-l1-container-@V@ flags=(attach_disconnected,mediate_deleted) {
   include <abstractions/base>
 
-  network,
+  # Not a bare network rule: it would also grant every Unix socket operation
+  # and defeat the Unix socket rules below (see the payload profile).
+  network inet,
+  network inet6,
+  network netlink,
+  network packet,
   capability,
   file,
   umount,

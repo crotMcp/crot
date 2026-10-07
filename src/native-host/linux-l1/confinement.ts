@@ -95,6 +95,8 @@ const unavailable = (network: ConfinementNetwork, reason: ConfinementReason, det
 });
 
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 300);
+/** The AppArmor label crot-l1-init reported, for a mismatch detail (a kernel profile name, never a secret). */
+const observedLabel = (l: string) => JSON.stringify(oneLine(l).slice(0, 120) || "none");
 
 /** Classify a crot-bwrap failure (its diagnostics never reach status). */
 export function classifySandboxFailure(
@@ -300,7 +302,7 @@ export class LinuxConfinement implements CommandConfinement {
         return unavailable(
           network,
           "apparmor_profile_not_loaded",
-          `the sandbox does not run under the L1 policy ${this.version}`,
+          `the sandbox does not run under the L1 policy ${this.version} (its label: ${observedLabel(sandbox.label)})`,
         );
       const ops = [
         `read-deny:${canary}`,
@@ -556,7 +558,7 @@ class LinuxCoreConfinement implements CoreConfinement {
       if (prepared.apparmor && sandbox.label !== label) {
         await sandbox.close();
         void this.refresh();
-        throw this.failed("the sandbox does not run under the L1 policy");
+        throw this.failed(`the sandbox does not run under the L1 policy (its label: ${observedLabel(sandbox.label)})`);
       }
       this.sandbox = sandbox;
       return sandbox;
