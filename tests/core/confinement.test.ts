@@ -255,7 +255,11 @@ describe("ProcessService and L1 (mocked platform confinement)", () => {
     await exec(h.core, remote);
     expect(h.baseLaunch).toHaveBeenCalledTimes(1);
     expect(h.confinedLaunch).not.toHaveBeenCalled();
-    expect(h.core.status().confinement).toEqual(available);
+    // CrotStatus.confinement (AD-20 point 12): in full_control the machine's state is reported with a note.
+    const note = "permission mode full_control: commands run unconfined";
+    expect(h.core.status().confinement).toEqual({ ...available, detail: note });
+    h.setStatus(unavailable);
+    expect(await h.core.refreshConfinement()).toEqual({ ...unavailable, detail: `${note}; ${unavailable.detail}` });
   });
 
   it("crot_status shape: the status of the Core's L1, refreshed on request", async () => {

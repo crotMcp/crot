@@ -4,7 +4,7 @@
  * and the L1 private storage. Unit tests on fixtures (temporary directories,
  * fake mountinfo); the real mount view is checked in l1-integration.test.ts.
  */
-import { lstat, mkdir, mkdtemp, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -217,12 +217,26 @@ describe.skipIf(!posix)("host discovery on fixtures", () => {
   });
 
   it("hides a path and its real path when reached through a symbolic link, skips absent paths", async () => {
-    await mkdir(path.join(dir, "real"));
-    await symlink(path.join(dir, "real"), path.join(dir, "link"));
-    await writeFile(path.join(dir, "f"), "");
-    expect(await hiddenEntries([path.join(dir, "link"), path.join(dir, "f"), path.join(dir, "absent")])).toEqual([
-      { path: path.join(dir, "real"), kind: "dir" },
-      { path: path.join(dir, "f"), kind: "file" },
+    // The canonical fixture directory: the temporary directory itself may be reached through a
+    // symbolic link (macOS: /var -> /private/var), which is the case of the next test.
+    const base = await realpath(dir);
+    await mkdir(path.join(base, "real"));
+    await symlink(path.join(base, "real"), path.join(base, "link"));
+    await writeFile(path.join(base, "f"), "");
+    expect(await hiddenEntries([path.join(base, "link"), path.join(base, "f"), path.join(base, "absent")])).toEqual([
+      { path: path.join(base, "real"), kind: "dir" },
+      { path: path.join(base, "f"), kind: "file" },
+    ]);
+  });
+
+  it("hides both names of a path whose parent is a symbolic link (an alias such as macOS /var)", async () => {
+    const base = await realpath(dir);
+    await mkdir(path.join(base, "target"));
+    await writeFile(path.join(base, "target", "f"), "");
+    await symlink(path.join(base, "target"), path.join(base, "alias"));
+    expect(await hiddenEntries([path.join(base, "alias", "f")])).toEqual([
+      { path: path.join(base, "target", "f"), kind: "file" },
+      { path: path.join(base, "alias", "f"), kind: "file" },
     ]);
   });
 });
