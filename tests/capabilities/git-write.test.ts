@@ -248,9 +248,30 @@ describe("git.write in sandbox mode", () => {
   it("commit fails without an identity instead of guessing one", async () => {
     git(repo, "config", "--unset", "user.name");
     git(repo, "config", "--unset", "user.email");
-    await expect(core.git.commit(ctx, { cwd: "repo", message: "who", allowEmpty: true })).rejects.toMatchObject({
-      code: "OPERATION_FAILED",
-    });
+    // git.write forwards user.name/user.email from the user's global configuration (AD-2; tested
+    // below), so a developer's own identity would make this commit succeed. This Core gets a home
+    // without any global configuration: no identity is available to it at all.
+    const home = path.join(dirs.outside, "home-without-identity");
+    await mkdir(home);
+    const savedHome = process.env.HOME;
+    const savedXdg = process.env.XDG_CONFIG_HOME;
+    process.env.HOME = home;
+    process.env.XDG_CONFIG_HOME = path.join(home, ".config");
+    let isolated: CrotCore | undefined;
+    try {
+      isolated = await createTestCore({ workspace: { root: dirs.workspace } });
+      const before = head(repo);
+      await expect(isolated.git.commit(ctx, { cwd: "repo", message: "who", allowEmpty: true })).rejects.toMatchObject({
+        code: "OPERATION_FAILED",
+      });
+      expect(head(repo)).toBe(before);
+    } finally {
+      if (savedHome === undefined) delete process.env.HOME;
+      else process.env.HOME = savedHome;
+      if (savedXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = savedXdg;
+      await isolated?.shutdown();
+    }
   });
 
   it("commit is never signed, even when the repository asks for it", async () => {
