@@ -152,6 +152,13 @@ if (diagnose)
     }
   };
 
+/** The AppArmor denials logged since this test file started (test-only diagnostics). */
+export function apparmorDenials(): string[] {
+  return kernelLog()
+    .slice(kernelLogStart)
+    .filter((l) => l.includes('apparmor="DENIED"'));
+}
+
 function sandboxDiagnostics(): string {
   const out = ["", "--- L1 sandbox diagnostics (test harness) ---"];
   sandboxRecords.forEach((r, i) => {
@@ -173,9 +180,7 @@ function sandboxDiagnostics(): string {
       `minimal invocation (workflow "L1 sandbox label" step): exit ${m.status ?? m.signal}; stdout ${JSON.stringify(m.stdout)}; stderr ${JSON.stringify(m.stderr)}`,
     );
   }
-  const denials = kernelLog()
-    .slice(kernelLogStart)
-    .filter((l) => l.includes('apparmor="DENIED"'));
+  const denials = apparmorDenials();
   out.push(`AppArmor denials since this file started: ${denials.length}`);
   for (const l of denials.slice(-30)) out.push(`  ${l}`);
   out.push("--- end of L1 sandbox diagnostics ---");
