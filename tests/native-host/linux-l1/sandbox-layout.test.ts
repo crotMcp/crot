@@ -387,6 +387,8 @@ describe.skipIf(!(isLinux && l1Required))("group layer with the installed crot-b
           "--ro-bind",
           "/",
           "/",
+          "--dev",
+          "/dev",
           "--overlay-src",
           lower,
           ...(group ? ["--overlay-src", group] : []),
