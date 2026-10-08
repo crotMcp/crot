@@ -39,11 +39,16 @@ harness gives its remote scopes an in-memory (clean) exposure store, as the
 Core unit tests do; without one every remote scope is exposed (fail closed)
 and the untrusted-content gate refuses remote commands before L1 is reached.
 
-Open in the L1 workflow: the headless Chromium smoke test on Ubuntu 24.04
-x86_64 — Chrome runs there as `chrome//&crot-l1-<v>//&crot-l1-payload-<v>`
-(Ubuntu's own `chrome` profile is added to the stack on exec), so the L1 Unix
-socket, signal and ptrace peer rules deny its own IPC. Needs a decision on
-the exec transition of the L1 policy; the policy is unchanged.
+Ubuntu 24.04 x86_64 with Google Chrome: Ubuntu's `chrome` profile
+(`flags=(unconfined)`, `userns,`) was added to the stack on exec, so Chrome
+ran as `chrome//&crot-l1-<v>//&crot-l1-payload-<v>` and the L1 peer rules
+denied its own IPC. Fixed: the installer adds exact-path `ix` rules for the
+host's loaded unconfined userns profiles (`scripts/l1-host-exec.py`), and
+the payload inherits its label on exec (`file rwlkmix`, as AD-20 states);
+AD-20 point 3 carries the explicit amendment. The L1 workflow drives the
+installed browser inside L1 over CDP and checks labels, denials and the
+boundary of its process tree; on the arm64 runners there is no browser and
+these checks are reported as not applicable (notice), not as passed.
 
 ## Last completed
 
