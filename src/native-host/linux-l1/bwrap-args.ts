@@ -8,7 +8,9 @@
  *     a private /dev/shm;
  *  3. the private temp on /tmp and /var/tmp;
  *  4. the private home layer: an overlay with the real home as the read-only
- *     lower layer, and one per file system mounted below the home;
+ *     lower layer, and one per file system mounted below the home; the group
+ *     layer of each, if any (layout.ts groupLayerDirs), is a second lower
+ *     layer directly above the real file system;
  *  5. the workspace, read-write;
  *  6. a private $XDG_RUNTIME_DIR, then the agent sockets bound back at their paths;
  *  7. the CROT-protected paths and the other hidden entries of point 6, replaced
@@ -35,9 +37,15 @@ export interface SandboxLayout {
   readonly network: "on" | "off";
   readonly workspace: string;
   readonly home: string;
-  readonly homeLayer: { readonly upper: string; readonly work: string };
+  /** `group`: the group layer of the home (layout.ts createGroupLayer), when there is one. */
+  readonly homeLayer: { readonly upper: string; readonly work: string; readonly group?: string };
   /** File systems mounted below the home, each layered like the home. */
-  readonly homeSubmounts: readonly { readonly path: string; readonly upper: string; readonly work: string }[];
+  readonly homeSubmounts: readonly {
+    readonly path: string;
+    readonly upper: string;
+    readonly work: string;
+    readonly group?: string;
+  }[];
   readonly temp: { readonly tmp: string; readonly varTmp: string };
   /** $XDG_RUNTIME_DIR, replaced by a private directory. */
   readonly runtimeDir?: string;
@@ -83,9 +91,14 @@ export function bwrapArgs(layout: SandboxLayout): string[] {
   a.push("--bind", layout.temp.varTmp, "/var/tmp");
 
   // 4. Private home layer.
-  a.push("--overlay-src", layout.home, "--overlay", layout.homeLayer.upper, layout.homeLayer.work, layout.home);
+  // --overlay-src in bottom-to-top order: the real file system, then its group layer.
+  a.push("--overlay-src", layout.home);
+  if (layout.homeLayer.group) a.push("--overlay-src", layout.homeLayer.group);
+  a.push("--overlay", layout.homeLayer.upper, layout.homeLayer.work, layout.home);
   for (const sub of layout.homeSubmounts) {
-    a.push("--overlay-src", sub.path, "--overlay", sub.upper, sub.work, sub.path);
+    a.push("--overlay-src", sub.path);
+    if (sub.group) a.push("--overlay-src", sub.group);
+    a.push("--overlay", sub.upper, sub.work, sub.path);
   }
 
   // 5. Workspace.
