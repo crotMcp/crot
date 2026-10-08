@@ -25,9 +25,25 @@ PR). User docs: [`docs/L1.md`](docs/L1.md), README.
   `CONFINEMENT_FAILED` (after admission, never retried unconfined); reason
   codes in `crot_status` and the tray.
 
+- Home layer: directories the user owns with a supplementary group (e.g.
+  `~/.docker`, group `docker`, on the GitHub runners) get a *group layer*
+  (empty copies with the mapped uid/gid as a lower layer), because overlayfs
+  cannot copy up an entry whose group is not mapped in the sandbox's user
+  namespace (`EOVERFLOW`; `docker buildx` failed). Limitation: such *files*
+  cannot be modified in place, only replaced ([`docs/L1.md`](docs/L1.md)).
+
 Tests: real suites in the new L1 workflow (`.github/workflows/l1.yml`,
 Ubuntu 22.04/24.04 x64/arm64, `CROT_L1_REQUIRED=1`), fixtures and mocks in
-`tests/native-host/linux-l1/` and `tests/core/confinement.test.ts`.
+`tests/native-host/linux-l1/` and `tests/core/confinement.test.ts`. The L1
+harness gives its remote scopes an in-memory (clean) exposure store, as the
+Core unit tests do; without one every remote scope is exposed (fail closed)
+and the untrusted-content gate refuses remote commands before L1 is reached.
+
+Open in the L1 workflow: the headless Chromium smoke test on Ubuntu 24.04
+x86_64 — Chrome runs there as `chrome//&crot-l1-<v>//&crot-l1-payload-<v>`
+(Ubuntu's own `chrome` profile is added to the stack on exec), so the L1 Unix
+socket, signal and ptrace peer rules deny its own IPC. Needs a decision on
+the exec transition of the L1 policy; the policy is unchanged.
 
 ## Last completed
 
