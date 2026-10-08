@@ -154,7 +154,8 @@ own requests. Profile: AD-13 point 4.
 - **Scope (AD-20):** the L1 components and AppArmor policy with their install
   helper for source checkouts and CI (point 3: the stacked transition
   `allow pix /** -> &crot-l1-<v>//&crot-l1-payload-<v>` is the only
-  production form; ABI 3.0 on 22.04, ABI 4.0 with userns rules on 24.04;
+  production transition, plus installer-generated exact-path `ix` rules
+  for the host's unconfined application profiles; ABI 3.0 on 22.04, ABI 4.0 with userns rules on 24.04;
   no nested user namespaces, point 5); the sandbox (read and write
   boundary, private home layer, network `on`/`off`, one sandbox per Core,
   points 5–10) behind the Native Host's `ProcessLauncher`; the Docker endpoint
