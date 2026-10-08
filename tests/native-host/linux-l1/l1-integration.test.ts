@@ -444,7 +444,11 @@ describe.skipIf(!run)("L1 on this host (network on)", () => {
         probe,
         [
           "#!/bin/sh",
-          `out='${dir}'/probe-$$.txt`,
+          // The report is written under a temporary name and renamed when complete; the renderer is
+          // only started after that rename. A renderer the browser launches but no longer needs (a
+          // spare one) may still be in this script when the session ends, and the sandbox then ends
+          // it: its report stays a .partial file and is never taken as a complete one.
+          `out='${dir}'/probe-$$`,
           "{",
           '  read l </proc/self/attr/current; echo "label: $l"',
           "  grep NoNewPrivs /proc/self/status",
@@ -457,8 +461,9 @@ describe.skipIf(!run)("L1 on this host (network on)", () => {
           `  ${connect}`,
           `  echo x > /usr/crot-browser-probe 2>/dev/null && echo LEAK-usr || echo usr-read-only`,
           `  echo x > '${escape}' && echo home-private-layer`,
-          '} > "$out" 2>&1',
-          'exec "$@"',
+          '} > "$out.partial" 2>&1',
+          'mv "$out.partial" "$out.txt" && exec "$@"',
+          "exit 1",
           "",
         ].join("\n"),
         { mode: 0o755 },
@@ -468,8 +473,18 @@ describe.skipIf(!run)("L1 on this host (network on)", () => {
       ]);
       expect(session.error, JSON.stringify(session)).toBeUndefined();
       expect(session.dom).toContain('<p id="x">crot-l1</p>');
-      const reports = (await readdir(dir)).filter((n) => n.startsWith("probe-"));
+      const files = (await readdir(dir)).filter((n) => n.startsWith("probe-"));
+      const reports = files.filter((n) => n.endsWith(".txt"));
+      const partial = files.filter((n) => n.endsWith(".partial"));
+      expect(files.length).toBe(reports.length + partial.length);
+      // Every renderer that ran started after its complete report (exec follows the rename).
       expect(reports.length).toBeGreaterThan(0);
+      // An unfinished report proves nothing complete, but what it did record is held to the same rules.
+      for (const name of partial) {
+        const report = await readFile(path.join(dir, name), "utf8");
+        expect(report).not.toMatch(/LEAK|CANARY-SECRET|KEYRING/);
+        if (apparmor && report.includes("\n")) expect(report.split("\n")[0]).toBe(`label: ${label} (enforce)`);
+      }
       for (const name of reports) {
         const report = await readFile(path.join(dir, name), "utf8");
         expect(report).not.toMatch(/LEAK|CANARY-SECRET|KEYRING/);

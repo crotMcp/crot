@@ -430,6 +430,10 @@ async function probeAsOtherUser(endpoint: string): Promise<string> {
     // Only .NET types and language constructs, no cmdlets: nothing depends on loading a PowerShell
     // module. Process.Start with a user name and password is CreateProcessWithLogonW, i.e. a real logon
     // of the other account. The password comes from the environment, not the command line.
+    // LoadUserProfile stays false (CreateProcessWithLogonW without LOGON_WITH_PROFILE): the probe needs
+    // the other account's token, not its profile. With the profile, the first logon of a new account
+    // creates it — on a fresh CI runner that takes 20–30 s of machine-wide work, which exceeded this
+    // probe's time limit and stalled the file system for the test files running beside it.
     const ps = [
       "$ErrorActionPreference = 'Stop';",
       "$password = [System.Security.SecureString]::new();",
@@ -441,7 +445,7 @@ async function probeAsOtherUser(endpoint: string): Promise<string> {
       `$info.UserName = ${q(otherUser!)};`,
       "$info.Domain = $env:COMPUTERNAME;",
       "$info.Password = $password;",
-      "$info.LoadUserProfile = $true;",
+      "$info.LoadUserProfile = $false;",
       "$info.UseShellExecute = $false;",
       "$info.CreateNoWindow = $true;",
       "$p = [System.Diagnostics.Process]::Start($info);",
