@@ -8,6 +8,7 @@ import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { RemoteExposureStore } from "../../../src/core/approvals/remote-exposure.js";
 import { MemoryAuditSink } from "../../../src/core/audit/audit.js";
 import { localPrincipal, type AuthContext } from "../../../src/core/auth/principal.js";
 import { CrotCore } from "../../../src/core/crot-core.js";
@@ -58,7 +59,18 @@ export async function l1Fixture(
   const audit = new MemoryAuditSink();
   const core = await CrotCore.create(
     { workspace: { root: workspace }, confinement: { network: options.network ?? "on" } },
-    { platform: native.platform, auditSink: audit, protectedPaths: [stateDir], secretPaths: [canary] },
+    {
+      platform: native.platform,
+      auditSink: audit,
+      protectedPaths: [stateDir],
+      secretPaths: [canary],
+      // The remote scopes of these tests start clean, as for a newly paired client: without a store
+      // Core treats every remote scope as exposed (fail closed, AD-15 point 8), so the untrusted-content
+      // gate (AD-12) would refuse a remote shell command for want of an approval UI before the L1
+      // decision is reached. The gate itself and its order before L1 are covered by
+      // tests/core/confinement.test.ts ("an exposed remote scope stays behind the approval gate").
+      remoteExposure: RemoteExposureStore.inMemory(),
+    },
   );
   return {
     home,
