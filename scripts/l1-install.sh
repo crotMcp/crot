@@ -19,9 +19,13 @@
 #                          downloading it (its SHA-256 is still checked)
 #   CROT_L1_ABI            force the AppArmor ABI: 4.0 (Ubuntu 24.04) or 3.0
 #                          (Ubuntu 22.04); default: detected
+#   CROT_L1_APPARMOR_DIR, CROT_L1_APPARMOR_PROFILES, CROT_L1_MULTIARCH
+#                          the host policy read by scripts/l1-host-exec.py
+#                          (tests); default: /etc/apparmor.d and the kernel's
+#                          list of loaded profiles
 #
 # Build dependencies (Ubuntu): gcc meson ninja-build pkg-config libcap-dev
-# xz-utils curl apparmor (apparmor_parser).
+# xz-utils curl apparmor (apparmor_parser) python3.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -66,13 +70,17 @@ detect_abi() {
 }
 
 render_policy() { # <abi> <out>
-  local abi="$1" out="$2"
+  local abi="$1" out="$2" host_exec
+  # The exact-path exec rules for the host's loaded unconfined profiles that grant user
+  # namespaces (see the crot-l1-<v> profile); none where there are no such profiles (22.04).
+  command -v python3 >/dev/null 2>&1 || die "python3 is required to render the policy"
+  host_exec="$(python3 "$repo/scripts/l1-host-exec.py")" || die "cannot read the host's AppArmor profiles"
   if [ "$abi" = 4.0 ]; then
-    sed -e "s/@V@/$v/g" -e '/^@ABI3@/d' -e 's/^@ABI4@//' "$repo/l1/apparmor/crot-l1.apparmor.in" >"$out"
+    sed -e "s/@V@/$v/g" -e '/^@ABI3@/d' -e 's/^@ABI4@//' "$repo/l1/apparmor/crot-l1.apparmor.in"
   else
-    sed -e "s/@V@/$v/g" -e '/^@ABI4@/d' -e 's/^@ABI3@//' "$repo/l1/apparmor/crot-l1.apparmor.in" >"$out"
-  fi
-  if grep -qE '@ABI[34]@|@V@' "$out"; then die "unrendered template markers in the policy"; fi
+    sed -e "s/@V@/$v/g" -e '/^@ABI4@/d' -e 's/^@ABI3@//' "$repo/l1/apparmor/crot-l1.apparmor.in"
+  fi | HOST_EXEC="$host_exec" awk '$0 == "@HOST_EXEC@" { if (ENVIRON["HOST_EXEC"] != "") print ENVIRON["HOST_EXEC"]; next } { print }' >"$out"
+  if grep -qE '@ABI[34]@|@V@|@HOST_EXEC@' "$out"; then die "unrendered template markers in the policy"; fi
 }
 
 do_install() {
