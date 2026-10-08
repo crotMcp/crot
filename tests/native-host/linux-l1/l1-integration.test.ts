@@ -234,8 +234,13 @@ describe.skipIf(!run)("L1 on this host (network on)", () => {
       `${browser} --headless=new --no-sandbox --disable-gpu --dump-dom 'data:text/html,<p id=x>crot-l1</p>'`,
       90_000,
     );
-    // Chromium's own stderr (and how it ended) names the cause when it prints nothing.
-    expect(r.stdout, `exit ${r.exitCode}; stderr: ${r.stderr.slice(-4000)}`).toContain('<p id="x">crot-l1</p>');
+    // Chromium's own stderr (and how it ended) names the cause when it prints nothing; without
+    // the repeated crash handler lines.
+    const stderr = r.stderr
+      .split("\n")
+      .filter((l) => !l.includes("crashpad"))
+      .join("\n");
+    expect(r.stdout, `exit ${r.exitCode}; stderr: ${stderr.slice(0, 6000)}`).toContain('<p id="x">crot-l1</p>');
   }, 120_000);
 });
 
