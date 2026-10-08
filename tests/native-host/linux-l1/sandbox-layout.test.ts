@@ -4,6 +4,7 @@
  * and the L1 private storage. Unit tests on fixtures (temporary directories,
  * fake mountinfo); the real mount view is checked in l1-integration.test.ts.
  */
+import { spawnSync } from "node:child_process";
 import { lstat, mkdir, mkdtemp, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -21,7 +22,9 @@ import {
   hiddenEntries,
   homeSubmounts,
 } from "../../../src/native-host/linux-l1/layout.js";
+import { L1_ROOT, L1_VERSION } from "../../../src/native-host/linux-l1/components.js";
 import { openStorage, storageKey, StorageError } from "../../../src/native-host/linux-l1/storage.js";
+import { isLinux, l1Required } from "./l1-support.js";
 
 const posix = process.platform !== "win32";
 
@@ -229,15 +232,59 @@ describe.skipIf(!posix)("host discovery on fixtures", () => {
     ]);
   });
 
-  it("hides both names of a path whose parent is a symbolic link (an alias such as macOS /var)", async () => {
+  it("hides a path whose parent is a symbolic link once, at its real path (Ubuntu: /var/run -> /run)", async () => {
+    // CI #13 (Ubuntu): /run/docker.sock and /var/run/docker.sock were both bound, and crot-bwrap
+    // failed with "Can't create file at /var/run/docker.sock" (absolute link /var/run -> /run).
     const base = await realpath(dir);
-    await mkdir(path.join(base, "target"));
-    await writeFile(path.join(base, "target", "f"), "");
-    await symlink(path.join(base, "target"), path.join(base, "alias"));
-    expect(await hiddenEntries([path.join(base, "alias", "f")])).toEqual([
-      { path: path.join(base, "target", "f"), kind: "file" },
-      { path: path.join(base, "alias", "f"), kind: "file" },
+    await mkdir(path.join(base, "run"));
+    await writeFile(path.join(base, "run", "docker.sock"), "");
+    await symlink(path.join(base, "run"), path.join(base, "var-run"));
+    await symlink("run", path.join(base, "var-run-relative"));
+    const real = path.join(base, "run", "docker.sock");
+    const entries = await hiddenEntries([
+      real,
+      path.join(base, "var-run", "docker.sock"),
+      path.join(base, "var-run-relative", "docker.sock"),
     ]);
+    expect(entries).toEqual([{ path: real, kind: "file" }]);
+    // One bind, at the real path (the fixture is the workspace so that its location below /tmp does not skip it).
+    const l = layout({ workspace: base, hidden: entries });
+    const a = bwrapArgs(l);
+    expect(a.flatMap((v, i) => (v === "--ro-bind" && a[i + 1] === l.emptyFile ? [a[i + 2]] : []))).toEqual([real]);
+  });
+});
+
+describe.skipIf(!(isLinux && l1Required))("hidden entries with the installed crot-bwrap (L1 workflow)", () => {
+  it("starts a sandbox that hides a path reached through an absolute symbolic link, under both names", async () => {
+    const base = await realpath(dir);
+    await mkdir(path.join(base, "run"));
+    const real = path.join(base, "run", "docker.sock");
+    const alias = path.join(base, "var-run", "docker.sock");
+    await writeFile(real, "HOST");
+    await writeFile(path.join(base, "empty"), "");
+    await symlink(path.join(base, "run"), path.join(base, "var-run"));
+    const binds = (await hiddenEntries([real, alias])).flatMap((e) => ["--ro-bind", path.join(base, "empty"), e.path]);
+    const r = spawnSync(
+      path.join(L1_ROOT, L1_VERSION, "crot-bwrap"),
+      [
+        "--unshare-user",
+        "--die-with-parent",
+        "--ro-bind",
+        "/",
+        "/",
+        ...binds,
+        "--",
+        "/bin/sh",
+        "-c",
+        'cat "$1" "$2"; echo end',
+        "sh",
+        real,
+        alias,
+      ],
+      { env: {}, encoding: "utf8", timeout: 30_000 },
+    );
+    expect({ status: r.status, stderr: r.stderr }).toEqual({ status: 0, stderr: "" });
+    expect(r.stdout).toBe("end\n");
   });
 });
 

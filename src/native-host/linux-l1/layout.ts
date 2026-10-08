@@ -113,27 +113,31 @@ async function kindOf(p: string): Promise<"dir" | "file" | undefined> {
 }
 
 /**
- * Hidden entries for the given paths: every existing path, and its real path
- * when it is reached through a symbolic link, so neither name shows the
- * original. Paths that do not exist are skipped.
+ * Hidden entries for the given paths: the real path of every existing path,
+ * with symbolic links resolved in the final component and in every parent.
+ * Paths that do not exist are skipped.
+ *
+ * One mount at the real path hides every name of the entry: the sandbox shows
+ * the host's file system, so another name (/var/run/docker.sock with
+ * /var/run -> /run) resolves to the real path there. A mount at such a name
+ * adds nothing, and bubblewrap cannot even create it when a parent is an
+ * absolute symbolic link: it resolves the destination after pivot_root, where
+ * the link's target does not exist ("Can't create file at
+ * /var/run/docker.sock: No such file or directory" on Ubuntu), and the
+ * sandbox fails to start.
  */
 export async function hiddenEntries(paths: readonly string[]): Promise<HiddenEntry[]> {
   const out = new Map<string, HiddenEntry>();
   for (const raw of paths) {
-    const p = path.posix.resolve(raw);
-    let real: string | undefined;
+    let real: string;
     try {
-      real = await realpath(p);
+      real = await realpath(path.posix.resolve(raw));
     } catch {
-      real = undefined;
+      continue;
     }
-    for (const candidate of [real, p]) {
-      if (!candidate) continue;
-      const st = await lstat(candidate).catch(() => undefined);
-      // A symbolic link itself cannot be a mount point; its target is covered by the real path.
-      if (!st || st.isSymbolicLink()) continue;
-      out.set(candidate, { path: candidate, kind: st.isDirectory() ? "dir" : "file" });
-    }
+    const st = await lstat(real).catch(() => undefined);
+    if (!st) continue;
+    out.set(real, { path: real, kind: st.isDirectory() ? "dir" : "file" });
   }
   return [...out.values()];
 }

@@ -341,4 +341,17 @@ describe.skipIf(!run)("L1 Docker endpoint: exec, cp, compose and build (default 
     );
     expect(r.stdout).toContain("none");
   });
+
+  it("hides the daemon socket under both of its names with one mount at its real path (/var/run -> /run)", async () => {
+    const r = await f.sh(
+      "for p in /run/docker.sock /var/run/docker.sock; do [ -S $p ] && echo $p:SOCKET || echo $p:none; done; " +
+        'awk \'$5 == "/run/docker.sock" || $5 == "/var/run/docker.sock" { print "mount:" $5 }\' /proc/self/mountinfo',
+    );
+    expect(r.exitCode, r.stderr).toBe(0);
+    expect(r.stdout).toContain("/run/docker.sock:none");
+    expect(r.stdout).toContain("/var/run/docker.sock:none");
+    // Where the host has /run/docker.sock (the GitHub runners), it is hidden by exactly one mount, and none at the alias.
+    expect(r.stdout.match(/^mount:\/var\/run\/docker\.sock$/gm) ?? []).toHaveLength(0);
+    expect((r.stdout.match(/^mount:\/run\/docker\.sock$/gm) ?? []).length).toBeLessThanOrEqual(1);
+  });
 });
