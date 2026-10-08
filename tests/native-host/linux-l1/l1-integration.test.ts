@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { remotePrincipal } from "../../../src/core/auth/principal.js";
 import { profileNames } from "../../../src/native-host/linux-l1/components.js";
 import { readHostFacts } from "../../../src/native-host/linux-l1/host.js";
-import { assertAvailable, ctx, l1Fixture, type L1Fixture } from "./l1-harness.js";
+import { apparmorDenials, assertAvailable, ctx, l1Fixture, type L1Fixture } from "./l1-harness.js";
 import { isLinux, l1Required } from "./l1-support.js";
 
 const run = isLinux && l1Required;
@@ -240,7 +240,20 @@ describe.skipIf(!run)("L1 on this host (network on)", () => {
       .split("\n")
       .filter((l) => !l.includes("crashpad"))
       .join("\n");
-    expect(r.stdout, `exit ${r.exitCode}; stderr: ${stderr.slice(0, 6000)}`).toContain('<p id="x">crot-l1</p>');
+    const denials = r.stdout.includes("crot-l1</p>")
+      ? ""
+      : [
+          ...new Set(
+            apparmorDenials().map((l) =>
+              l.replace(/^.*?apparmor=/, "apparmor=").replace(/ pid=\d+| peer_pid=\d+/g, ""),
+            ),
+          ),
+        ]
+          .slice(-25)
+          .join("\n");
+    expect(r.stdout, `exit ${r.exitCode}; AppArmor denials:\n${denials}\nstderr: ${stderr.slice(0, 2500)}`).toContain(
+      '<p id="x">crot-l1</p>',
+    );
   }, 120_000);
 });
 
