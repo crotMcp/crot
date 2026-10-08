@@ -70,9 +70,10 @@ npx electron dist/tray/main.js --state-dir=<state directory>
   full-control opt-in on, exposure reset) are refused if their audit record
   cannot be written; changes that narrow access are applied even then.
 - The status section shows the service, mode, workspace, connected agents,
-  the browser connection, and the components that are not available yet:
-  command confinement L1 (WP-23), the CDP browser backend (WP-24) and pairing
-  (WP-28).
+  the browser connection, command confinement L1 with its reason code (Linux:
+  WP-23a, [`L1.md`](L1.md); macOS and Windows: not available until WP-23b/c),
+  and the components that are not available yet: the CDP browser backend
+  (WP-24) and pairing (WP-28).
 
 ## Security
 
@@ -87,7 +88,8 @@ npx electron dist/tray/main.js --state-dir=<state directory>
   process accepts IPC only from its own window on `crot-tray://app/`,
   validates every argument and maps actions to a fixed list of control
   requests.
-- **Residual risk (AD-19, accepted until L1/WP-23):** any process of the same
+- **Residual risk (AD-19, accepted until L1/WP-23; closed for workspace-mode
+  commands on Linux by WP-23a):** any process of the same
   OS user — including an unconfined command started by CROT — can read the
   control credential and act like the tray (approve its own pending request,
   change the preset, turn remote mode on). The tray is a UI, not a security

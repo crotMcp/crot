@@ -10,7 +10,9 @@
 > the old plan and cards in `docs/plan/` > `README.md` and `docs/*` (which
 > describe the current implementation).
 >
-> **Verified against:** `main` at `8169b1f` (merge of PR #14, WP-19, 2026-10-05).
+> **Verified against:** `main` at `22abf89` (2026-10-08: WP-23a merged in
+> PR #6 `e1d1f61`, followed by the CI test fixes PR #9 `4df63c6`, PR #11
+> `2b803eb` and PR #7 `22abf89`). First verification: `8169b1f` (WP-19).
 > Status claims below were checked against the repository tree, the source
 > files named, the CI workflows and the merged history, not taken from earlier
 > plans.
@@ -31,8 +33,8 @@
    commit (or a preceding PR) adds an AD to ARCHITECTURE.md §27.
 4. Each card says **what must become true**. Classes, files, algorithms and
    libraries are the implementing agent's choice unless an AD fixes them.
-5. Housekeeping (first docs PR after this file lands, or folded into the next
-   WP PR): repoint `AGENTS.md` and `ARCHITECTURE.md` header references from
+5. Housekeeping (done; `docs/plan/crot-implementation-plan.md` is removed,
+   the cards in `docs/plan/` point here for order and status): repoint `AGENTS.md` and `ARCHITECTURE.md` header references from
    `docs/plan/crot-implementation-plan.md` to this file, and mark the old plan
    and cards as superseded.
 
@@ -74,8 +76,37 @@ Non-negotiables used throughout this roadmap:
 
 ### 2.1 Last completed work package
 
-**WP-20 — Supervised service, thin stdio shim, local control channel**
-(§27 AD-17, decides OD-1). In the tree:
+**WP-23a — Linux command confinement L1** (§27 AD-20, decides the Linux part
+of OD-9 and OD-14), merged in PR #6 (`e1d1f61`). In the tree:
+
+- `src/native-host/linux-l1/`: the sandbox behind the Native Host's
+  `ProcessLauncher` (`sandbox.ts`, `bwrap-args.ts`, `layout.ts`,
+  `storage.ts`: read-only host, hidden CROT-protected paths, writable
+  workspace, private temp and home layer, network `on`/`off`, one sandbox per
+  Core), component and policy verification (`components.ts`, `host.ts`), the
+  mediated Docker endpoint on every transport (`docker-endpoint.ts`,
+  `docker-policy.ts`, `http-framing.ts`) and `detail` notes (`notes.ts`);
+  `src/core/platform/confinement.ts`: `CONFINEMENT_UNAVAILABLE` /
+  `CONFINEMENT_FAILED`, reason codes; macOS and Windows report
+  `not_implemented`.
+- `scripts/l1-install.sh`, `scripts/l1-host-exec.py`: CROT-owned
+  `crot-bwrap` / `crot-l1-init` and the AppArmor policy (ABI 3.0 / 4.0,
+  stacked payload transition, host exec `ix` rules of the AD-20 point 3
+  amendment) for source checkouts and CI; packaging on user machines is
+  WP-34.
+- `crot_status.confinement` and the tray's L1 row report availability,
+  reason and `detail`.
+- Tests: `tests/native-host/linux-l1/`, `tests/core/confinement.test.ts`;
+  the real mechanism (escape cases, both network modes, development
+  workflows, Docker/Compose, installed browser over CDP) runs in CI on Ubuntu
+  22.04/24.04 x86_64/arm64 with `CROT_L1_REQUIRED=1`. User docs:
+  `docs/L1.md`.
+
+Before: **WP-22 — Tray v1 and approval provider** (PR #2, `4639392`;
+AD-19, decides OD-7), **WP-21 — Secret storage and child-process environment
+allowlist** (PR #1, `881663b`; AD-18), **WP-20 — Supervised service, thin
+stdio shim, local control channel** (PR #16, `92cce3b`; AD-17, decides
+OD-1). In the tree for WP-20:
 
 - `src/service/`: one CROT service per OS user (`service.ts`) owning Native
   Host, browser bridge, Core and HTTP; the thin stdio shim (`shim.ts`) that
@@ -121,6 +152,9 @@ Previous: **WP-19 — Remote MCP request pipeline per AD-15**, merged in PR #14
 | Platform layer Linux/macOS/Windows; Native Host (Windows Job Objects, owner-only ACLs) | `src/core/platform`, `src/native-host`, `docs/NATIVE_HOST.md` | — |
 | MCP over stdio; Streamable HTTP on loopback with local token | `src/adapters/mcp`, `src/adapters/http` | AD-13 p.6 |
 | Per-user CROT service, thin stdio shim, authenticated owner-only control channel, sessionless concurrency limit | `src/service`, `docs/SERVICE.md` | AD-17 |
+| CROT secrets in the OS secret store (owner-only file fallback), child-process environment allowlist | `src/service/secrets`, `src/core/platform/child-environment.ts` | AD-18 |
+| Tray v1 (Electron, control-channel client) and service-side approval provider `tray`; preset switching while idle; remote mode, client list, exposure reset, revocation | `src/tray`, `src/service/control-center.ts`, `docs/TRAY.md` | AD-19 |
+| Command confinement L1 on Linux (Ubuntu 22.04/24.04, x86_64/arm64) | `src/native-host/linux-l1`, `src/core/platform/confinement.ts`, `scripts/l1-install.sh`, `docs/L1.md`, `.github/workflows/l1.yml` | AD-20 |
 | `git.read`, `git.write` | `src/core/capabilities/git` | AD-1, AD-2 |
 | `docker.use` (ps, logs, compose up/down) | `src/core/capabilities/docker` | AD-3 |
 | `network.access` host policy for CROT's own requests | `src/core/capabilities/network` | AD-4 |
@@ -129,7 +163,7 @@ Previous: **WP-19 — Remote MCP request pipeline per AD-15**, merged in PR #14
 | Remote request pipeline (sessionless + legacy, principal kinds, exposure scopes, persisted remote exposure) | see §2.1 | AD-15 |
 | Browser bridge, `crot-browser-relay`, MV3 extension, `browser install`, 10 basic tools | `src/browser-bridge`, `extension/`, `src/cli/browser-install.ts` | §7 |
 | Real-browser E2E (Linux, Chrome for Testing, Xvfb) | `tests-e2e/browser`, `.github/workflows/browser-e2e.yml` | — |
-| Lint/format/typecheck/test gate `npm run check`; CI on Ubuntu, macOS, Windows × Node 20, 22 | `.github/workflows/ci.yml` | — |
+| Lint/format/typecheck/test gate `npm run check`; CI on Ubuntu, macOS, Windows × Node 20, 22, L1 on Ubuntu 22.04/24.04 x86_64/arm64, real Chromium | `.github/workflows/ci.yml`, `.github/workflows/l1.yml` | — |
 | Contracts: remote request contract, browser contract v1 | ARCHITECTURE.md §27 | AD-15, AD-16 |
 
 ### 2.3 Partially implemented
@@ -137,19 +171,20 @@ Previous: **WP-19 — Remote MCP request pipeline per AD-15**, merged in PR #14
 | Area | What exists | Gap to v1 |
 | --- | --- | --- |
 | Browser | 10 tools; `chrome.scripting`, synthetic `element.click()`, main frame only, active-tab screenshots; permissions `nativeMessaging`, `tabs`, `scripting`, `alarms` | Entire AD-16 contract: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history, dialogs, upload, download, background screenshots, tab group, per-tab queue, explicit `tabId` for remote, `openedBy` (WP-24…WP-27) |
-| User confirmations | Mechanism complete; product provider `tray` in the service, CROT tray on the control channel (WP-22, AD-19) | Same-user processes can act like the tray until L1 (WP-23, AD-19 residual risk); tray packaging/autostart (WP-34) |
+| User confirmations | Mechanism complete; product provider `tray` in the service, CROT tray on the control channel (WP-22, AD-19) | Same-user processes can act like the tray (AD-19 residual risk): closed for confined Linux children by WP-23a; still open on macOS/Windows (WP-23b/c), in `full_control` and for other processes of the user; tray packaging/autostart (WP-34) |
 | Identity | `Principal` with remote fields; `AccessTokenVerifier` seam; static local token | No OAuth verifier, identity provider, device identity, pairing or revocation (WP-28) |
 | Relay entry point | HTTP pipeline accepts a `relay` entry point (tests only) | No tunnel (WP-30), no relay (WP-29) |
 | Remote exposure lifecycle | Persisted, fail-closed; per-client reset and revocation in the tray, audited, fail closed (WP-22, AD-19) | No re-grant of a revoked client and no revocation at the identity provider (WP-28) |
 | Process lifecycle | One per-user service (on demand from the shim, or managed by an OS supervisor), shim, control channel (WP-20, AD-17) | No autostart registration / supervisor files (WP-34); background processes are owned by the service, not by the client that started them (follow-up) |
 | Child-process environment | Allowlist for `shell.execute` / `process.manage` plus `environment.allow`; overrides cannot copy withheld variables; Docker and Git keep their rules (WP-21, AD-18) | — |
-| Secrets | OS secret store (Keychain, DPAPI, Secret Service) with owner-only file fallback; verified migration; denied to all CROT tools (WP-21, AD-18) | Unconfined commands can still use the OS store as the user (WP-23) |
+| Secrets | OS secret store (Keychain, DPAPI, Secret Service) with owner-only file fallback; verified migration; denied to all CROT tools (WP-21, AD-18) | Unconfined commands can still use the OS store as the user (AD-18 residual risk): closed for Linux workspace mode by WP-23a; open on macOS/Windows (WP-23b/c) and in `full_control` |
+| Command confinement L1 | Linux workspace mode (WP-23a, AD-20); components installed by `scripts/l1-install.sh` | macOS (WP-23b) and Windows (WP-23c, OD-6 spike) report `not_implemented`, so remote `shell`/`process` operations are refused there; OD-9 macOS/Windows part open; packaging and policy loading on user machines (WP-34) |
 | Cross-OS browser validation | Linux E2E only | macOS / Windows browser chain unverified end to end (WP-25, WP-40) |
 
 ### 2.4 Missing for v1 (nothing in the repository yet)
 
-Supervised service, stdio shim, local control channel; tray app; secure
-secret storage; command confinement L1 (all OS); identity provider integration
+Command confinement L1 on macOS and Windows; CDP browser backend and the rest
+of the AD-16 contract; identity provider integration
 and device binding; Cloud Relay; device tunnel; remote permission profile and
 presets; acceptance suite through a relay; external security review;
 installers, signing, updates, autostart; published extension; accounts, plans,
@@ -170,8 +205,21 @@ process.
 | D7 | No WP covered production cloud operations, billing, device management for lost devices, version skew between store-updated extension and app, or the release process | New WP-39, WP-40; WP-34 and WP-36 scopes extended |
 | D8 | AD-13 point 8 names a client-specific E2E ("Notion → relay → …") | Superseded by AD-14 point 5; this roadmap uses only the client-independent suite (§14) |
 | D9 | AD-13 point 4 makes Windows L1 "to be confirmed by a spike"; no fallback decision exists if the spike fails | Recorded as open decision OD-6 with a deadline (§4.2) |
+| D10 | Audit at `22abf89`: §2.1 named WP-20 as the last completed WP, §2.4 still listed the service, tray, secret storage and Linux L1 as missing, §6.1 showed WP-23a "In review" although PR #6 is merged | §2.1–§2.4, §3, §6.1, §6.4 updated to the merged state |
+| D11 | `STATUS.md` listed WP-23b/c under "Next" as startable, but OD-9 (macOS/Windows part) is undecided and blocks them (§4.2, §8.4 rule 1) | `STATUS.md` and §8.4 show WP-23b/c as blocked by OD-9; OD-9 for macOS/Windows is the first step of that branch |
+| D12 | §8.2 did not name the browser chain into the security review: WP-24 → WP-25/WP-26 → WP-35 (store IDs) → WP-34 (release-candidate build) → WP-33 | Added to §8.2 as the second near-critical chain |
+| D13 | §7 item 3, `docs/TRAY.md` and `README.md` described L1 as not available at all | Updated: Linux workspace mode is confined (WP-23a); macOS, Windows and `full_control` remain open |
 
 No contradiction was found that requires changing an accepted AD.
+
+### 2.6 Architectural notes found by the audit (not resolved here)
+
+Recorded for the WP that owns them; this roadmap does not change any AD.
+
+| # | Observation | Owner |
+| --- | --- | --- |
+| N1 | AD-18 and AD-19 (scope, residual risks, AD-19 point 10) still say "until L1 (WP-23)" / "L1 not available until WP-23". Since AD-20 / WP-23a the tray and `crot_status` report the real L1 state, and the residual risks are closed for confined Linux children only. The AD texts describe the state at their decision; they are not amended silently | WP-23b/c (when the residual risks close on macOS/Windows) or a docs PR with an explicit cross-reference amendment |
+| N2 | WP-34 depends on WP-23a for the Linux L1 components (AD-20 point 3, D4), but not on WP-23b/c. Whether macOS (Seatbelt profile) and Windows (OD-6 mechanism) need installer-shipped components is unknown until OD-9 (macOS/Windows) and OD-6 are decided | OD-9 / OD-6 decisions; add WP-23b/c to WP-34's dependencies if they ship components |
 
 ---
 
@@ -181,7 +229,7 @@ No contradiction was found that requires changing an accepted AD.
 | --- | --- | --- |
 | 0 Contracts | Decide before code | WP-17, WP-18 — **Done** |
 | 1 Local foundation | Supervised product on one machine | WP-19, WP-20, WP-21, WP-22 **Done**, WP-19b (optional) |
-| 2 Confinement | L1 on all three OS | WP-23a, WP-23b, WP-23c |
+| 2 Confinement | L1 on all three OS | WP-23a **Done**, WP-23b, WP-23c (blocked by OD-9 macOS/Windows part; WP-23c also OD-6) |
 | 2B Browser v1 | AD-16 contract | WP-24, WP-25, WP-26, WP-27 |
 | 3 Remote | Identity → relay → tunnel → profile → acceptance → review | WP-28, WP-29, WP-30, WP-31, WP-38, WP-32, WP-33 |
 | 4 Commercial | Ship and operate | WP-34, WP-35, WP-36, WP-37, WP-39, WP-40 |
@@ -282,14 +330,14 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-20 | 1 | Supervised service, stdio shim, local control channel | WP-19, OD-1 | L | yes | with 2B, WP-28/29 | **Done** (AD-17) |
 | WP-21 | 1 | Secret storage, child-process environment allowlist | WP-20 | M | yes | with WP-22 | **Done** (AD-18) |
 | WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | yes | with WP-21 | **Done** (AD-19) |
-| WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part and OD-14 decided) | M | yes | with 23b/c | **In review** (draft PR, AD-20) |
-| WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Not started |
-| WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Not started |
+| WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part and OD-14 decided) | M | yes | with 23b/c | **Done** (AD-20; PR #6, `e1d1f61`) |
+| WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Not started (blocked: OD-9 macOS part) |
+| WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Not started (blocked: OD-9 Windows part; OD-6 at spike end) |
 | WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | Not started |
 | WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
 | WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | Not started |
 | WP-27 | 2B | Browser: per-tab queue, explicit `tabId` for remote, `openedBy` | WP-24 | S–M | yes | with 25, 26 | Not started |
-| WP-28 | 3 | Identity and device binding | WP-17, OD-2; WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | Not started |
+| WP-28 | 3 | Identity and device binding | WP-17, OD-2; WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | Not started (**recommended next**, §8.4; OD-2 first) |
 | WP-29 | 3 | Cloud Relay v1 | WP-28 (verifier facts), OD-3, OD-4 | XL | yes | with phase 1/2/2B | Not started |
 | WP-30 | 3 | Device tunnel adapter | WP-20, WP-28, WP-29, OD-5 | M–L | yes | — | Not started |
 | WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a/b/c, WP-30, OD-7 | M | yes | — | Not started |
@@ -427,6 +475,10 @@ need Docker and the extension (covered at Core level and by WP-33).
 Common card for WP-23a (Linux: bubblewrap + installer-shipped AppArmor
 profile), WP-23b (macOS: Seatbelt, secrets in Keychain), WP-23c (Windows:
 spike first, then restricted / low-IL token + Job Object).
+
+**Status:** WP-23a **Done** (ARCHITECTURE.md §27 AD-20; PR #6, `e1d1f61`;
+[`docs/L1.md`](docs/L1.md)). WP-23b and WP-23c not started: blocked by the
+macOS / Windows part of OD-9; WP-23c additionally ends its spike with OD-6.
 
 - **Objective:** children of `shell.execute` and `process.manage` in
   workspace mode run under the fixed AD-13 point 4 profile.
@@ -747,9 +799,11 @@ today's behaviour.
 ## 7. Release-blocking security work (summary)
 
 1. Secrets in secure storage, env allowlist (WP-21).
-2. L1 on Linux, macOS, Windows with escape tests (WP-23a/b/c).
+2. L1 on Linux, macOS, Windows with escape tests (WP-23a/b/c; Linux done in
+   WP-23a).
 3. Approval provider authenticity: owner-only control channel unreachable from
-   confined processes, agents, pages and relay (WP-20, WP-22, WP-23).
+   confined processes, agents, pages and relay (WP-20, WP-22, WP-23; confined
+   Linux children: done in WP-23a).
 4. Remote exposure persistent and fail-closed, reset only by the user
    (done in WP-19 + WP-22).
 5. Token verification on the device, audience binding, revocation (WP-28).
@@ -802,18 +856,25 @@ A: WP-20 (L) ─► WP-22 (L) ─────────────┐
 B: WP-28 (L) ─► WP-29 (XL) ────────────┴─► WP-30 ─► WP-31 ─► WP-32 ─► WP-33 ─► WP-40
 ```
 
-Chain B is the longest by size and is unblocked now; start WP-28 immediately.
-L1 (WP-23a/b/c, after WP-21) must be done before WP-31; WP-23c (spike + L)
-is the highest schedule risk among them. Browser v1 (WP-24 L + 3×M/S–M) must
-finish before WP-32.
+Chain A is done (WP-20, WP-21, WP-22 and WP-23a merged). Chain B is the
+longest by size and has not started; it is the critical path now: WP-28 →
+WP-29 → WP-30 → WP-31 → WP-32 → WP-33 → WP-40.
+L1 (WP-23b/c, after WP-21 and the OD-9 macOS/Windows decision) must be done
+before WP-31; WP-23c (spike + L, OD-6) is the highest schedule risk among
+them. Browser v1 (WP-24 L + 3×M/S–M) must finish before WP-32, and it is
+also the start of a second near-critical chain into the security review:
+
+```text
+C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-34 (L, RC build) ─► WP-33
+```
 
 ### 8.3 Classification
 
 | Class | WPs |
 | --- | --- |
-| Sequential on critical path | WP-20 → WP-22; WP-28 → WP-29 → WP-30 → WP-31 → WP-32 → WP-33 → WP-40 |
-| Parallelizable now | WP-20, WP-24, WP-28, WP-35 (prep), WP-37 (drafting), WP-19b |
-| Parallel after prerequisites | WP-21 ∥ WP-22; WP-23a ∥ b ∥ c; WP-25 ∥ WP-26 ∥ WP-27; WP-34, WP-36, WP-38 with phase 3; WP-37 ∥ WP-39 ∥ WP-33 |
+| Sequential on critical path | (done: WP-20 → WP-22); WP-28 → WP-29 → WP-30 → WP-31 → WP-32 → WP-33 → WP-40 |
+| Parallelizable now | WP-24, WP-28 (after OD-2), WP-35 (prep), WP-37 (drafting), WP-19b; OD-9 macOS/Windows decision (unblocks WP-23b/c) |
+| Parallel after prerequisites | WP-23b ∥ WP-23c (after OD-9); WP-25 ∥ WP-26 ∥ WP-27; WP-34, WP-36, WP-38 with phase 3; WP-37 ∥ WP-39 ∥ WP-33 |
 | Release blockers | every WP except WP-19b |
 | Optional / non-blocking | WP-19b; §26 Q12 transport matcher; §26 Q14 tab-scope matcher |
 | Post-v1 | §11 of this roadmap |
@@ -824,10 +885,32 @@ finish before WP-32.
    decision (docs-only PR or first commit of the WP).
 2. Otherwise choose, in order: an unblocked WP on chain A or B; then WP-23x;
    then WP-24…WP-27; then phase-4 WPs whose dependencies are done.
-3. **Right now (after WP-22):** WP-23a/b/c (L1; also closes the AD-19
-   residual risk) on chain A, WP-28 (decide OD-2 first) on the
-   critical path; WP-24 on the browser branch; WP-35 preparation and WP-37
-   drafting may run in the background.
+3. **Right now (after WP-23a, audit at `22abf89`):**
+
+   **Recommended next WP: WP-28 — Identity and device binding.**
+
+   - *Why:* chain A is complete, so WP-28 is the lowest-numbered unstarted
+     WP on the critical path (§8.2 chain B, the longest remaining chain:
+     WP-28 → WP-29 (XL) → WP-30 → WP-31 → WP-32 → WP-33 → WP-40); WP-29,
+     WP-30, WP-36 and WP-38 all wait on it.
+   - *Dependencies satisfied:* WP-17 (AD-15) for the verifier; WP-21 for
+     device key storage (AD-18 secret store); WP-22 for the pairing UI (the
+     tray's pairing screen and `pairing.start` answer "not available"
+     today); the `AccessTokenVerifier` seam and the `relay` entry point exist
+     since WP-19.
+   - *ODs to close first:* **OD-2** (concrete managed identity provider and
+     the claims carrying `clientId` and the device id) — the first commit of
+     WP-28 or a preceding docs PR, selected against AD-15 point 5; it is a
+     product/vendor choice that needs the owner's confirmation. **OD-3**
+     (device resource URI form) is needed for WP-28's audience tests and
+     should be decided together with OD-2 rather than waiting for WP-29.
+   - *Can run in parallel:* WP-24 (unblocked, no open OD; starts chain C);
+     the OD-9 macOS/Windows decision, then WP-23b and the WP-23c spike
+     (OD-6); WP-35 preparation, WP-37 drafting, WP-19b.
+   - *On the critical path:* **yes**.
+
+   If OD-2 cannot be decided yet, the next unblocked WP without an open
+   decision is WP-24 (browser chain C, also release-blocking).
 
 ---
 

@@ -51,7 +51,7 @@ steps 10–11 and step 21 — Git read and write):
   exposure reset and revocation of remote clients); see
   [`docs/TRAY.md`](docs/TRAY.md)
 
-Not yet implemented: Docker operations beyond `docker.use` (build, pull, push, run, exec), Git network operations (fetch, pull, push), OS-level network egress control for processes and containers, remote (non-loopback)
+Not yet implemented: command confinement L1 on macOS and Windows (Linux: [L1](docs/L1.md)), Docker operations beyond `docker.use` (build, pull, push, run, exec), Git network operations (fetch, pull, push), OS-level network egress control for processes and containers, remote (non-loopback)
 exposure and MCP authorization (OAuth/OIDC), installer and autostart (including packaging of the tray), account/licensing layer.
 Firefox is not supported.
 
@@ -338,7 +338,9 @@ audit log. Idle sessions are closed after `http.sessionIdleTimeoutMs`.
   [Security properties](#security-properties)). A command run with
   `shell.execute` runs as the user and is not confined at the OS level: it can
   reach the OS secret store or the file fallback itself (in `full_control` by
-  definition, in sandbox mode until command confinement, WP-23).
+  definition, in sandbox mode on macOS and Windows until command confinement,
+  WP-23b/c; on Linux sandbox-mode commands run under L1, see
+  [Command confinement](#command-confinement-linux-l1)).
 - `http.auth.storage: "token-file"` keeps the token in a plaintext owner-only
   file for clients that read it from there; CROT warns about it at start.
 - HTTP-level rejections (401, 403, ...) are logged to stderr, not to the audit
@@ -772,9 +774,10 @@ its limitations). Not yet implemented:
 
 - Graceful termination of Windows console programs (`GenerateConsoleCtrlEvent`);
   graceful termination requests escalate to forced termination.
-- OS-level sandboxing of commands (Core's sandbox confines paths and working
-  directories, not what a command does); until then a command can use the OS
-  secret store as the user (WP-23).
+- OS-level sandboxing of commands on macOS and Windows (Core's sandbox
+  confines paths and working directories, not what a command does); until
+  then a command can use the OS secret store as the user (WP-23b/c). Linux:
+  [Command confinement](#command-confinement-linux-l1) (WP-23a).
 - Credential provisioning for the HTTP transport (device identity/registration
   verifier); installing the CROT service for autostart (the
   service itself exists, see [`docs/SERVICE.md`](docs/SERVICE.md)).
