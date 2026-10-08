@@ -12,6 +12,7 @@ import {
   mkdir,
   mkdtemp,
   readdir,
+  readFile,
   realpath,
   rm,
   stat,
@@ -374,7 +375,8 @@ describe.skipIf(!(isLinux && l1Required))("group layer with the installed crot-b
     await mkdir(path.join(lower, "cfg"), { recursive: true });
     await writeFile(path.join(lower, "cfg", "config.json"), "{}");
     await chown(path.join(lower, "cfg"), process.getuid!(), g); // as ~/.docker (group docker) on the runners
-    const run = async (group: string | undefined) => {
+    const script = 'mkdir "$1/cfg/buildx" && echo new > "$1/cfg/buildx/f" && cat "$1/cfg/config.json" && echo ok';
+    const run = async (group: string | undefined, sh = script) => {
       const upper = await mkdtemp(path.join(base, "upper-"));
       const work = await mkdtemp(path.join(base, "work-"));
       const r = spawnSync(
@@ -395,7 +397,7 @@ describe.skipIf(!(isLinux && l1Required))("group layer with the installed crot-b
           "--",
           "/bin/sh",
           "-c",
-          'mkdir "$1/cfg/buildx" && echo new > "$1/cfg/buildx/f" && cat "$1/cfg/config.json" && echo ok',
+          sh,
           "sh",
           lower,
         ],
@@ -419,6 +421,16 @@ describe.skipIf(!(isLinux && l1Required))("group layer with the installed crot-b
     expect(await readdir(path.join(lower, "cfg"))).toEqual(["config.json"]);
     expect(await readdir(path.join(withLayer.upper, "cfg", "buildx"))).toEqual(["f"]);
     expect((await stat(path.join(lower, "cfg"))).gid).toBe(g);
+    // The documented limitation (docs/L1.md): a file of the other group cannot be modified in
+    // place; replacing it (new file, rename) works, again only in the private layer.
+    const files = await run(
+      layer,
+      '(echo x >> "$1/cfg/config.json") 2>/dev/null && echo in-place || echo no-in-place; ' +
+        'echo replaced > "$1/cfg/.new" && mv "$1/cfg/.new" "$1/cfg/config.json" && cat "$1/cfg/config.json"',
+    );
+    expect(files.status, files.out).toBe(0);
+    expect(files.out).toBe("no-in-place\nreplaced\n");
+    expect(await readFile(path.join(lower, "cfg", "config.json"), "utf8")).toBe("{}");
   });
 });
 
