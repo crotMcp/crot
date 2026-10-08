@@ -181,3 +181,43 @@ function sandboxDiagnostics(): string {
   out.push("--- end of L1 sandbox diagnostics ---");
   return out.join("\n");
 }
+
+/*
+ * Diagnostics of a failing write below the home in L1 (test only; WP-23a
+ * BuildKit failure "mkdir ~/.docker/buildx: value too large for defined data
+ * type"): owner, group and mode of the home entries on the host next to this
+ * process's ids, the user namespace maps of the sandbox, and whether the
+ * private home layer can create entries in the home and in ~/.docker.
+ */
+export async function homeLayerDiagnostics(f: L1Fixture): Promise<string> {
+  const host = spawnSync(
+    "sh",
+    [
+      "-c",
+      'echo "host id: $(id)"; stat -c "host: %n uid=%u(%U) gid=%g(%G) mode=%a %F" "$HOME" "$HOME/.docker" "$HOME"/.docker/* 2>&1; ' +
+        'echo "host home entries (depth 3) not $(id -u):$(id -g):"; ' +
+        'find "$HOME" -maxdepth 3 \\( ! -uid "$(id -u)" -o ! -gid "$(id -g)" \\) -printf "  %p uid=%U gid=%G mode=%m %y\\n" 2>&1 | head -n 40',
+    ],
+    { encoding: "utf8", timeout: 20_000 },
+  );
+  const inside = await f
+    .sh(
+      'echo "uid_map: $(tr -s " " < /proc/self/uid_map)"; echo "gid_map: $(tr -s " " < /proc/self/gid_map)"; ' +
+        'echo "groups: $(id)"; stat -c "sandbox: %n uid=%u gid=%g mode=%a %F" "$HOME" "$HOME/.docker" "$HOME"/.docker/* 2>&1; ' +
+        'mkdir "$HOME/crot-diag-home" 2>&1 && echo "mkdir ~/crot-diag-home: ok"; ' +
+        'mkdir "$HOME/.docker/crot-diag" 2>&1 && echo "mkdir ~/.docker/crot-diag: ok"; ' +
+        'for e in "$HOME"/.docker/*; do [ -f "$e" ] && { touch "$e" 2>&1 && echo "touch $e: ok"; }; done; ' +
+        'grep -E " (/home|$HOME)[ /]" /proc/self/mountinfo | head -n 5',
+    )
+    .then(
+      (r) => r.stdout + r.stderr,
+      (error: unknown) => `sandbox probe failed: ${(error as Error).message}`,
+    );
+  return [
+    "",
+    "--- L1 home layer diagnostics (test harness) ---",
+    host.stdout + host.stderr,
+    inside,
+    "--- end of L1 home layer diagnostics ---",
+  ].join("\n");
+}
