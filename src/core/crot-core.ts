@@ -9,12 +9,13 @@ import {
   NullAuditSink,
   StreamAuditSink,
   type AuditSink,
+  newAuditEventId,
   type ControlAuditRecord,
 } from "./audit/audit.js";
 import type { BrowserConnection } from "./capabilities/browser/connection.js";
 import type { BrowserBridgeState } from "./capabilities/browser/schemas.js";
 import { BrowserService } from "./capabilities/browser/service.js";
-import { DockerService } from "./capabilities/docker/service.js";
+import { DockerService, FORWARDED_ENV as DOCKER_FORWARDED_ENV } from "./capabilities/docker/service.js";
 import { FileSystemService } from "./capabilities/filesystem/service.js";
 import { GitMetadataLock } from "./capabilities/git/metadata-lock.js";
 import { GitService } from "./capabilities/git/service.js";
@@ -31,8 +32,16 @@ import { NetworkPolicy, type NetworkPolicySummary } from "./permissions/network/
 import { createPermissionPolicy, type PermissionMode } from "./permissions/policy.js";
 import { DEFAULT_AUDIT_FILE_NAME } from "./platform/directories.js";
 import { createChildEnvironment, type ChildEnvironmentSummary } from "./platform/child-environment.js";
+import { notImplementedStatus, unavailableConfinement } from "./platform/confinement.js";
 import { createNodePlatform } from "./platform/node-platform.js";
-import type { Platform, PlatformInfo, PrivateFileProtection, PrivateFileStatus } from "./platform/types.js";
+import type {
+  ConfinementStatus,
+  CoreConfinement,
+  Platform,
+  PlatformInfo,
+  PrivateFileProtection,
+  PrivateFileStatus,
+} from "./platform/types.js";
 import { Workspace, type WorkspaceInfo } from "./workspace/workspace.js";
 
 export interface CrotStatus {
@@ -57,6 +66,12 @@ export interface CrotStatus {
   readonly browser: { readonly state: BrowserBridgeState };
   /** Host policy of network.access (rules as configured). */
   readonly network: NetworkPolicySummary;
+  /**
+   * Command confinement L1 of the children of shell.execute and
+   * process.manage (ARCHITECTURE.md §27 AD-20 point 12). In full_control L1
+   * does not apply; the machine's state is reported with a note.
+   */
+  readonly confinement: ConfinementStatus;
   /** Approval gates: configured rules and whether an approval UI is registered (never pending requests). */
   readonly approvals: {
     readonly rules: readonly ApprovalRuleId[];
@@ -180,6 +195,10 @@ export class CrotCore {
     private readonly auditProtection: PrivateFileStatus | undefined,
     private readonly serviceStatus: (() => ServiceStatus) | undefined,
     private readonly childEnvironment: ChildEnvironmentSummary,
+    /** L1 of this Core (workspace mode); undefined in full_control. */
+    private readonly confinement: CoreConfinement | undefined,
+    /** State of the machine reported in full_control, where L1 does not apply. */
+    private fullControlConfinement: ConfinementStatus | undefined,
   ) {}
 
   private shuttingDown: Promise<void> | undefined;
@@ -271,12 +290,44 @@ export class CrotCore {
       config.environment.allow,
       platform.environment.caseInsensitive,
     );
+    // Command confinement L1 (AD-20): one sandbox per Core in workspace mode, started with the first
+    // confined launch. In full_control L1 does not apply and commands stay unconfined.
+    const confinementNetwork = config.confinement.network;
+    let confinement: CoreConfinement | undefined;
+    let fullControlConfinement: ConfinementStatus | undefined;
+    if (config.permissions.mode === "sandbox") {
+      const dockerEnvironment: Record<string, string> = {};
+      for (const [name, value] of Object.entries(platform.baseEnvironment)) {
+        if (DOCKER_FORWARDED_ENV.has(name.toUpperCase())) dockerEnvironment[name] = value;
+      }
+      confinement = platform.confinement
+        ? await platform.confinement.open({
+            workspace: workspace.root,
+            protectedPaths,
+            network: confinementNetwork,
+            dockerEnvironment,
+            audit: (event) => {
+              audit
+                .record({ kind: "confinement", id: newAuditEventId(), timestamp: new Date().toISOString(), ...event })
+                .catch(
+                  options.onAuditError ??
+                    ((e) => process.stderr.write(`crot: audit write failed: ${(e as Error).message}\n`)),
+                );
+            },
+          })
+        : unavailableConfinement(confinementNetwork);
+    } else {
+      fullControlConfinement = platform.confinement
+        ? await platform.confinement.probe(confinementNetwork)
+        : notImplementedStatus(confinementNetwork);
+    }
     const processes = new ProcessService({
       workspace,
       guard,
       platform,
       limits: config.limits,
       baseEnv: childEnvironment.base,
+      ...(confinement ? { confinement } : {}),
     });
     const git = new GitService({
       workspace,
@@ -327,6 +378,8 @@ export class CrotCore {
       auditProtection,
       options.serviceStatus,
       childEnvironment.summary,
+      confinement,
+      fullControlConfinement,
     );
   }
 
@@ -346,6 +399,7 @@ export class CrotCore {
       this.browser.shutdown();
       this.network.shutdown();
       await this.processes.shutdown();
+      await this.confinement?.close();
       await this.git.shutdown();
       await this.docker.shutdown();
       await this.guard.drain(SHUTDOWN_DRAIN_MS);
@@ -361,6 +415,7 @@ export class CrotCore {
    */
   terminateProcessesSync(): void {
     this.processes.terminateAllSync();
+    this.confinement?.closeSync();
     this.git.terminateAllSync();
     this.docker.terminateAllSync();
   }
@@ -387,9 +442,26 @@ export class CrotCore {
       childEnvironment: this.childEnvironment,
       browser: { state: this.browser.state() },
       network: this.permissions.network.summary(),
+      confinement: this.confinementStatus(),
       approvals: this.approvalStatus(),
       ...(this.serviceStatus ? { service: this.serviceStatus() } : {}),
     };
+  }
+
+  /** Last reported L1 state (AD-20 point 12); no checks run. */
+  confinementStatus(): ConfinementStatus {
+    if (this.confinement) return this.confinement.status();
+    const s = this.fullControlConfinement!;
+    const note = "permission mode full_control: commands run unconfined";
+    return { ...s, detail: s.detail ? `${note}; ${s.detail}` : note };
+  }
+
+  /** Run the L1 availability checks before crot_status reports (AD-20 point 12). */
+  async refreshConfinement(): Promise<ConfinementStatus> {
+    if (this.confinement) await this.confinement.refresh();
+    else if (this.platform.confinement)
+      this.fullControlConfinement = await this.platform.confinement.probe(this.config.confinement.network);
+    return this.confinementStatus();
   }
 
   private approvalStatus(): CrotStatus["approvals"] {

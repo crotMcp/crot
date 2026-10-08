@@ -89,10 +89,14 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "crot_status",
     title: "CROT status",
     description:
-      "Show the operating system, available shells, output encodings, process-control guarantees and PATH source, permission mode, workspace, granted capabilities, protected paths, limits and browser bridge state of this CROT installation.",
+      "Show the operating system, available shells, output encodings, process-control guarantees and PATH source, permission mode, workspace, granted capabilities, protected paths, limits, command confinement (L1) and browser bridge state of this CROT installation.",
     inputSchema: EmptyInputSchema,
     annotations: { ...local, readOnlyHint: true },
-    call: async (core) => core.status(),
+    call: async (core) => {
+      // AD-20 point 12: the L1 checks run again before crot_status reports.
+      await core.refreshConfinement();
+      return core.status();
+    },
   }),
 
   // Filesystem

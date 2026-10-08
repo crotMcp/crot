@@ -33,7 +33,20 @@ export type CrotErrorCode =
    * load unauthorized files, grant containers host privileges, build or pull
    * images); the operation is refused (ARCHITECTURE.md §27, AD-3).
    */
-  | "UNSAFE_COMPOSE";
+  | "UNSAFE_COMPOSE"
+  /**
+   * Command confinement L1 is not available on this machine in the configured
+   * network mode; shell.execute / process.manage of a remote principal in
+   * workspace mode are refused before any process starts. `details.reason`
+   * is the L1 reason code (ARCHITECTURE.md §27, AD-20 points 11 and 12).
+   */
+  | "CONFINEMENT_UNAVAILABLE"
+  /**
+   * L1 was available but the sandbox could not be set up or the launch failed
+   * for a sandbox reason. The command was not started, confined or otherwise;
+   * it is never retried unconfined (AD-20 point 11).
+   */
+  | "CONFINEMENT_FAILED";
 
 export class CrotError extends Error {
   readonly code: CrotErrorCode;

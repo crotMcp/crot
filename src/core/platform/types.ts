@@ -278,6 +278,87 @@ export interface EncodingSupport {
   resolve(requested: string): ResolvedEncoding;
 }
 
+/** Stable reason codes reported when command confinement L1 is not usable (ARCHITECTURE.md §27 AD-20 point 12). */
+export const CONFINEMENT_REASON_CODES = [
+  "not_implemented",
+  "userns_unavailable",
+  "components_missing",
+  "components_mismatch",
+  "apparmor_unavailable",
+  "apparmor_profile_not_loaded",
+  "apparmor_unix_mediation_unavailable",
+  "overlay_unavailable",
+  "private_storage_unavailable",
+  "self_test_failed",
+] as const;
+export type ConfinementReason = (typeof CONFINEMENT_REASON_CODES)[number];
+
+/** The owner-configured network mode of L1 (`confinement.network`, AD-20 point 8). */
+export const CONFINEMENT_NETWORK_MODES = ["on", "off"] as const;
+export type ConfinementNetwork = (typeof CONFINEMENT_NETWORK_MODES)[number];
+
+/**
+ * State of command confinement L1 (AD-20 point 12), the same shape in
+ * crot_status and the control overview. `reason` is null exactly when
+ * `available` is true; `detail` is one line without secrets or CROT-protected
+ * paths.
+ */
+export interface ConfinementStatus {
+  readonly mechanism: "linux-bubblewrap" | "none";
+  readonly available: boolean;
+  readonly network: ConfinementNetwork;
+  readonly reason: ConfinementReason | null;
+  readonly detail: string | null;
+}
+
+/** A refusal of the L1 Docker endpoint (AD-20 points 9 and 13): request kind and reason, never a payload. */
+export interface ConfinementAuditEvent {
+  readonly event: "confinement.docker_refused";
+  readonly request: string;
+  readonly reason: string;
+}
+
+/** What one Core hands to the platform to confine the children of its process tools (AD-20 points 6-10). */
+export interface ConfinementScope {
+  /** Workspace root (read-write in the sandbox). */
+  readonly workspace: string;
+  /** CROT-protected paths, computed from the resolved configuration (AD-20 point 6). */
+  readonly protectedPaths: readonly string[];
+  readonly network: ConfinementNetwork;
+  /** Environment of the service's Docker CLI, used upstream by the Docker endpoint (AD-20 point 9). */
+  readonly dockerEnvironment: Readonly<Record<string, string>>;
+  /** Audit of Docker endpoint refusals. */
+  readonly audit: (event: ConfinementAuditEvent) => void;
+}
+
+/**
+ * Confinement of one Core: one sandbox, started with the first confined
+ * launch and ended by close() (AD-20 point 10). Performs no authorization:
+ * ProcessService calls it only after the PermissionEngine authorized the
+ * operation.
+ */
+export interface CoreConfinement {
+  /** Last reported state (no checks run). */
+  status(): ConfinementStatus;
+  /** Run the availability checks (AD-20 point 12) and report the result. */
+  refresh(): Promise<ConfinementStatus>;
+  /**
+   * Launches inside the Core's sandbox. A launch that fails for a sandbox
+   * reason throws CONFINEMENT_FAILED and never starts the command elsewhere.
+   */
+  readonly launcher: ProcessLauncher;
+  close(): Promise<void>;
+  /** Synchronous end of the sandbox (host process 'exit'). */
+  closeSync(): void;
+}
+
+/** Platform support for command confinement L1. */
+export interface CommandConfinement {
+  /** State of the machine in a network mode, without a Core. */
+  probe(network: ConfinementNetwork): Promise<ConfinementStatus>;
+  open(scope: ConfinementScope): Promise<CoreConfinement>;
+}
+
 export interface Platform {
   readonly info: PlatformInfo;
   readonly paths: PathRules;
@@ -290,4 +371,9 @@ export interface Platform {
   readonly privateFiles: PrivateFileProtection;
   /** Probe whether paths below `directory` compare case-sensitively. */
   probeCaseSensitivity(directory: string): Promise<boolean>;
+  /**
+   * Command confinement L1 (AD-20). Absent: no confinement mechanism on this
+   * platform (reported as `not_implemented`).
+   */
+  readonly confinement?: CommandConfinement;
 }

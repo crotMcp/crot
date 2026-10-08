@@ -87,11 +87,33 @@ export interface ControlAuditRecord {
   readonly client?: { readonly accountId: string; readonly deviceId: string; readonly clientId: string };
 }
 
+/**
+ * A refusal of the L1 Docker endpoint (ARCHITECTURE.md §27 AD-20 points 9 and
+ * 13): the request kind and the reason, never a payload or file contents.
+ */
+export interface ConfinementAuditRecord {
+  readonly kind: "confinement";
+  readonly id: string;
+  readonly timestamp: string;
+  readonly event: "confinement.docker_refused";
+  readonly request: string;
+  readonly reason: string;
+}
+
 /** Records of operations (an operation's event or its mandatory approval record). */
 export type AuditRecord = AuditEvent | ApprovalAuditRecord;
 
 /** Everything an audit sink receives. */
-export type AuditEntry = AuditRecord | ControlAuditRecord;
+export type AuditEntry = AuditRecord | ControlAuditRecord | ConfinementAuditRecord;
+
+/**
+ * Whether an audit entry is an operation record (an operation's event or its
+ * mandatory approval record) rather than a control action (AD-19 point 9) or
+ * an L1 confinement refusal (AD-20 point 13).
+ */
+export function isAuditRecord(entry: AuditEntry): entry is AuditRecord {
+  return !("kind" in entry) || entry.kind === "approval";
+}
 
 /** Destination for audit events. Implementations must not transmit data off the machine. */
 export interface AuditSink {
@@ -112,8 +134,11 @@ export class MemoryAuditSink implements AuditSink {
   readonly events: AuditRecord[] = [];
   /** Control actions (AD-19 point 9), kept apart from operation records. */
   readonly controlEvents: ControlAuditRecord[] = [];
+  /** Refusals of the L1 Docker endpoint (AD-20 point 13). */
+  readonly confinementEvents: ConfinementAuditRecord[] = [];
   async record(event: AuditEntry): Promise<void> {
     if ("kind" in event && event.kind === "control") this.controlEvents.push(event);
+    else if ("kind" in event && event.kind === "confinement") this.confinementEvents.push(event);
     else this.events.push(event);
   }
 }

@@ -1,5 +1,6 @@
 import { createNodePlatform } from "../core/platform/node-platform.js";
 import type {
+  CommandConfinement,
   OsFamily,
   Platform,
   PrivateFileProtection,
@@ -7,6 +8,7 @@ import type {
   ProcessLauncher,
 } from "../core/platform/types.js";
 import { createJobObjectLauncher, guardLauncher, JobTracker } from "./job-launcher.js";
+import { LinuxConfinement, type LinuxConfinementOptions } from "./linux-l1/confinement.js";
 import { createWindowsAclProtection, currentUserSid, windowsTools } from "./windows-acl.js";
 import { loadJobObjectApi, type FfiLoader } from "./windows-job.js";
 
@@ -19,6 +21,16 @@ export type NativeHostOptions = NodePlatformOptions & {
   readonly windowsAcl?: boolean;
   /** Test seam: loader of the FFI module. */
   readonly loadFfi?: FfiLoader;
+  /**
+   * The service's state directory: the L1 private storage has one
+   * subdirectory per state directory (AD-20 point 7). Defaults to the
+   * platform's state directory.
+   */
+  readonly stateDir?: string;
+  /** Service log, for changes of L1 availability (AD-20 point 13). */
+  readonly log?: (line: string) => void;
+  /** Linux command confinement L1 (default true). Test seam: options for the L1 implementation. */
+  readonly confinement?: boolean | Partial<Omit<LinuxConfinementOptions, "base" | "stateDir">>;
 };
 
 export interface NativeHostStatus {
@@ -68,7 +80,15 @@ export class NativeHost {
   ) {}
 
   static async start(options: NativeHostOptions): Promise<NativeHost> {
-    const { jobObjects = true, windowsAcl = true, loadFfi, ...platformOptions } = options;
+    const {
+      jobObjects = true,
+      windowsAcl = true,
+      loadFfi,
+      stateDir,
+      log,
+      confinement: confinementOption = true,
+      ...platformOptions
+    } = options;
     const base = await createNodePlatform(platformOptions);
     const lifecycle = { open: true };
     const isOpen = () => lifecycle.open;
@@ -103,6 +123,18 @@ export class NativeHost {
       }
     }
 
+    // Command confinement L1 (AD-20): Linux only; other systems report not_implemented (WP-23b, WP-23c).
+    let confinement: CommandConfinement | undefined;
+    if (base.info.os === "linux" && confinementOption !== false) {
+      confinement = new LinuxConfinement({
+        stateDir: stateDir ?? base.info.directories.state,
+        base: launcher,
+        env: process.env,
+        ...(log ? { log } : {}),
+        ...(typeof confinementOption === "object" ? confinementOption : {}),
+      });
+    }
+
     const platform: Platform = {
       info: {
         ...base.info,
@@ -117,6 +149,7 @@ export class NativeHost {
       encodings: base.encodings,
       privateFiles,
       probeCaseSensitivity: (directory) => base.probeCaseSensitivity(directory),
+      ...(confinement ? { confinement } : {}),
     };
     return new NativeHost(platform, lifecycle, jobs, nativeAcl, notes);
   }

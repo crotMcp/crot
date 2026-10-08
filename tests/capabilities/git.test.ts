@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { cp, mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -29,7 +29,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 /** Repository with two commits on main, a feature branch, one modified, one staged and one untracked file. */
-async function makeRepo(dir: string): Promise<string> {
+async function buildRepo(dir: string): Promise<string> {
   await mkdir(dir, { recursive: true });
   git(dir, "init", "-q");
   git(dir, "symbolic-ref", "HEAD", "refs/heads/main");
@@ -47,6 +47,55 @@ async function makeRepo(dir: string): Promise<string> {
   return dir;
 }
 
+let template: Promise<string> | undefined;
+/**
+ * A fresh copy of the repository of buildRepo. The repository is built once
+ * per file (each build runs many synchronous Git processes, slow on Windows
+ * runners) and copied into `dir` with its history, index and timestamps.
+ */
+async function makeRepo(dir: string): Promise<string> {
+  template ??= buildRepo(path.join(EMPTY_CONFIG_DIR, "template-repo"));
+  await mkdir(path.dirname(dir), { recursive: true });
+  await cp(await template, dir, { recursive: true, preserveTimestamps: true });
+  return dir;
+}
+
+/**
+ * Diagnostics for the intermittent "Hook timed out in 10000ms" of the
+ * sandbox-mode beforeEach on CI (Windows, Node 20): times its three steps and
+ * prints one line when the hook takes more than 2 s. Shortly before the 10 s
+ * hook timeout it also prints the step that is still running, because a timed
+ * out hook may never finish. Prints nothing for an ordinary hook and changes
+ * nothing else.
+ */
+function hookTimer(test: string): { step(next: string): void; done(): void } {
+  const start = performance.now();
+  const durations: string[] = [];
+  let current = "makeTempDirs";
+  let since = start;
+  const elapsed = (from: number) => `${Math.round(performance.now() - from)}ms`;
+  const watchdog = setTimeout(() => {
+    console.warn(
+      `[git.test beforeEach > 9 s] still in ${current} (${elapsed(since)}); ${[...durations, `total=${elapsed(start)}`].join(" ")} | ${test}`,
+    );
+  }, 9_000);
+  watchdog.unref();
+  return {
+    step(next) {
+      durations.push(`${current}=${elapsed(since)}`);
+      current = next;
+      since = performance.now();
+    },
+    done() {
+      clearTimeout(watchdog);
+      if (performance.now() - start <= 2_000) return;
+      console.warn(
+        `[git.test beforeEach > 2 s] ${[...durations, `${current}=${elapsed(since)}`, `total=${elapsed(start)}`].join(" ")} | ${test}`,
+      );
+    },
+  };
+}
+
 const MARKER = "crot-git-read-marker";
 
 /** A command that would create `marker` if Git ever ran it. */
@@ -60,14 +109,22 @@ describe("git.read in sandbox mode", () => {
   let core: CrotCore;
   let repo: string;
 
-  beforeEach(async () => {
-    dirs = await makeTempDirs();
-    repo = await makeRepo(path.join(dirs.workspace, "repo"));
-    core = await createTestCore({ workspace: { root: dirs.workspace } });
+  beforeEach(async ({ task }) => {
+    const timer = hookTimer(task.name);
+    try {
+      dirs = await makeTempDirs();
+      timer.step("makeRepo");
+      repo = await makeRepo(path.join(dirs.workspace, "repo"));
+      timer.step("createTestCore");
+      core = await createTestCore({ workspace: { root: dirs.workspace } });
+    } finally {
+      timer.done();
+    }
   });
   afterEach(async () => {
-    await core.shutdown();
-    await dirs.cleanup();
+    // After a failed beforeEach they may be unset: report its error, not a TypeError (both are idempotent).
+    await core?.shutdown();
+    await dirs?.cleanup();
   });
 
   it("reports git.read as granted and enforced", () => {
@@ -254,8 +311,9 @@ describe("git.read in full_control mode", () => {
     core = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { mode: "full_control" } });
   });
   afterEach(async () => {
-    await core.shutdown();
-    await dirs.cleanup();
+    // After a failed beforeEach they may be unset: report its error, not a TypeError (both are idempotent).
+    await core?.shutdown();
+    await dirs?.cleanup();
   });
 
   it("reads a repository outside the workspace", async () => {

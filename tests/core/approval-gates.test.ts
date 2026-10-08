@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApprovalBroker } from "../../src/core/approvals/broker.js";
 import type { ApprovalRule } from "../../src/core/approvals/types.js";
-import { MemoryAuditSink, type AuditRecord, type AuditSink } from "../../src/core/audit/audit.js";
+import { isAuditRecord, MemoryAuditSink, type AuditRecord, type AuditSink } from "../../src/core/audit/audit.js";
 import { RemoteExposureStore } from "../../src/core/approvals/remote-exposure.js";
 import { localPrincipal, remotePrincipal, type AuthContext } from "../../src/core/auth/principal.js";
 import type { CrotCore } from "../../src/core/crot-core.js";
@@ -253,7 +253,7 @@ describe("approval gates: pipeline", () => {
     const sink: AuditSink = {
       record: async (event) => {
         if ("kind" in event && event.kind === "approval") throw new Error("disk full");
-        if (!("kind" in event && event.kind === "control")) recorded.push(event);
+        if (isAuditRecord(event)) recorded.push(event);
       },
     };
     const onAuditError = vi.fn();

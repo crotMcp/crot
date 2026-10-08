@@ -20,6 +20,7 @@
  */
 import type { UntrustedContentSetting } from "../core/approvals/exposure.js";
 import type { PresentedApproval, TerminalApprovalStatus } from "../core/approvals/types.js";
+import type { ConfinementStatus } from "../core/platform/types.js";
 import type { ServiceStatus } from "../core/service-status.js";
 import { parseEnvironmentFingerprint } from "./environment.js";
 
@@ -194,7 +195,8 @@ export interface ControlOverview {
     readonly connectionId?: string;
   };
   readonly approvals: { readonly trays: number; readonly pending: number };
-  readonly confinement: { readonly available: false; readonly reason: string };
+  /** Command confinement L1 as reported by the Core (AD-20 point 12). */
+  readonly confinement: ConfinementStatus;
   readonly cdp: { readonly available: false; readonly reason: string };
   readonly pairing: { readonly available: false; readonly reason: string };
 }

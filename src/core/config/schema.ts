@@ -8,7 +8,7 @@ import { UNTRUSTED_CONTENT_SETTINGS } from "../approvals/exposure.js";
 import { CapabilitySchema } from "../permissions/capabilities.js";
 import { NetworkPolicyConfigSchema } from "../permissions/network/policy.js";
 import { PERMISSION_MODES } from "../permissions/policy.js";
-import { STARTUP_PATH_MODES } from "../platform/types.js";
+import { CONFINEMENT_NETWORK_MODES, STARTUP_PATH_MODES } from "../platform/types.js";
 
 /**
  * CROT configuration (version 1).
@@ -183,6 +183,18 @@ export const SecretsConfigSchema = z
   })
   .strict();
 
+/**
+ * Command confinement L1 (ARCHITECTURE.md §27 AD-20 point 8). Owner
+ * configuration, part of the configuration digest; agents cannot change it.
+ * network on (default): confined commands share the host network; off: a
+ * loopback-only network shared by the confined processes of one Core.
+ */
+export const ConfinementConfigSchema = z
+  .object({
+    network: z.enum(CONFINEMENT_NETWORK_MODES).default("on"),
+  })
+  .strict();
+
 /** One approval gate rule: an operation needs approval when every given condition matches. */
 export const ApprovalRuleConfigSchema = z
   .object({
@@ -254,6 +266,7 @@ export const CrotConfigSchema = z
     http: HttpConfigSchema.default(HttpConfigSchema.parse({})),
     browser: BrowserConfigSchema.default({ enabled: false }),
     secrets: SecretsConfigSchema.default({ store: "auto" }),
+    confinement: ConfinementConfigSchema.default({ network: "on" }),
   })
   .strict();
 
@@ -265,4 +278,5 @@ export type HttpConfig = z.output<typeof HttpConfigSchema>;
 export type HttpConfigInput = z.input<typeof HttpConfigSchema>;
 export type ApprovalsConfig = z.output<typeof ApprovalsConfigSchema>;
 export type BrowserConfig = z.output<typeof BrowserConfigSchema>;
+export type ConfinementConfig = z.output<typeof ConfinementConfigSchema>;
 export type BrowserConfigInput = z.input<typeof BrowserConfigSchema>;

@@ -656,7 +656,7 @@ packages, their order and dependencies are in
 21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
-24. Command confinement L1 (Linux, macOS, Windows) [Target, v1, §27 AD-13; Linux: AD-20]
+24. Command confinement L1 (Linux, macOS, Windows) [Partial: Linux implemented (WP-23a, §27 AD-20); macOS, Windows Target, v1, §27 AD-13]
 25. Browser contract v1                           [Target, v1, §7.1, §27 AD-14; contract AD-16]
 ```
 
@@ -944,11 +944,11 @@ The tray app is a UI; control logic stays in Core/service.
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | **[Target]** (v1, AD-13) |
 | Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); relay and tunnel **[Target]** (mandatory in v1, AD-13; WP-29, WP-30) |
-| Command confinement L1 (Linux, macOS, Windows) | **[Target]** (v1, AD-13); Linux boundary and supported releases decided by §27 AD-20 (WP-23a) |
+| Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); macOS, Windows **[Target]** (v1, AD-13; WP-23b/c) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
 | Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
-| CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children **[Target]** (L1, WP-23) |
-| Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (WP-23) |
+| CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children: Linux **[Implemented]** (L1, WP-23a, §27 AD-20), macOS/Windows **[Target]** (WP-23b/c) |
+| Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (Linux: closed for confined children by WP-23a; macOS/Windows: WP-23b/c) |
 | Installer, tray packaging, autostart of the service | **[Target]** (v1, AD-13; WP-34) |
 
 ## 26. Open Architectural Questions
@@ -3595,13 +3595,37 @@ development capability CROT already offers.
      profile. The payload is therefore a separate top-level profile stacked
      onto `crot-l1-<v>`, in the shape of Ubuntu's own
      `bwrap-userns-restrict` policy: `crot-l1-<v>` grants its file access
-     with `file rwlkm /{,**},` and execs with exactly one rule,
-     `allow pix /** -> &crot-l1-<v>//&crot-l1-payload-<v>,`; the payload
+     with `file rwlkm /{,**},` and execs with one glob rule,
+     `allow pix /** -> &crot-l1-<v>//&crot-l1-payload-<v>,`, plus the
+     installer-generated exact-path `ix` rules for host application
+     profiles (next item, amendment of WP-23a); the payload
      profile grants `file rwlkmix /{**,},` and includes no abstraction. The
      label of every confined process is the stack
      `crot-l1-<v>//&crot-l1-payload-<v>`. A plain or `cx` transition to a
      child profile, and the other stacked forms of the probe, are not used
      (evidence below the decision).
+   - **Host application profiles (amendment, WP-23a).** A stacking exec
+     target (`&…`) also attaches every loaded host profile whose attachment
+     matches the executed path, so with only the glob rule a program such as
+     Google Chrome on Ubuntu 24.04 (host profile `chrome`,
+     `flags=(unconfined)` with `userns,`) ran as
+     `chrome//&crot-l1-<v>//&crot-l1-payload-<v>` and the payload's
+     peer rules denied its own IPC. The installer (`scripts/l1-install.sh`,
+     helper `scripts/l1-host-exec.py`; WP-34 package scripts likewise, on
+     install, upgrade and when the host's profiles change) therefore adds
+     to `crot-l1-<v>` one exact-path rule `allow ix "<path>",` for each
+     literal attachment of a host profile that is loaded as `unconfined`,
+     has `flags=(unconfined)` and grants `userns,` (a program the host
+     already runs unconfined). An exact rule takes precedence over the glob
+     rule in the policy compiler, so such a program keeps the label of
+     its parent: inside the sandbox the full stack, with the payload's
+     rules (no user namespace, peer rules) applied to it; there is no
+     transition to any other profile. Enforcing host profiles, globbed
+     attachments and paths under `/usr/lib/crot/` get no rule (they stay
+     with the glob rule, fail closed). The only change outside the sandbox:
+     such a program run directly by `crot-bwrap` keeps `crot-l1-<v>`
+     instead of the host's unconfined profile — not more privilege than
+     the host already grants it.
    - **Policy ABI per release.** Ubuntu 22.04 (parser 3.0.4) cannot compile
      `abi <abi/4.0>` with `userns,` rules, so the 22.04 policy is written
      for `abi <abi/3.0>` and contains no user-namespace rule; the 24.04
@@ -3945,6 +3969,22 @@ development capability CROT already offers.
   privilege through the sandbox itself. L1 does not claim protection against
   arbitrary host-local services reachable over the shared host network with
   network `on`.
+- **Amendment (WP-23a, Ubuntu 24.04 Chrome).** Point 3 gains the
+  installer-generated exact-path `ix` rules for host application profiles;
+  the glob stacking rule stays the only transition, and the payload's
+  `file rwlkmix` is now what the policy ships (before, the payload had a
+  second `pix` rule to its own stack, which joined host profiles too).
+  Reason: with the stacked transition alone, the installed Google Chrome
+  (and any program with a host `flags=(unconfined)` + `userns,` profile)
+  could not run inside L1, which breaks the browser baseline of point 1.
+  Not changed: no-new-privileges, the payload's user-namespace denial and
+  peer rules, the label `crot-l1-<v>//&crot-l1-payload-<v>` of every
+  confined process, `full_control`, ExecutionGuard and the Docker endpoint.
+  Evidence: the L1 workflow drives the installed browser inside L1 over
+  CDP (page, navigation, input, click, DOM, clean exit) and checks that
+  every browser process has exactly the L1 label and that no peer denial
+  is logged; on runners without a browser (arm64) the check is reported as
+  not applicable.
 - Residual risks, accepted: the AD-13 risks; the host-local services of
   point 14; a container does whatever its
   image does within the mounts and options a–d allow (as AD-3); files that a

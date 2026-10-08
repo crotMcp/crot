@@ -201,7 +201,7 @@ export function trayView(state: TrayState): TrayView {
             : o.browser.state,
         ),
         row("Approval UIs", `${o.approvals.trays} tray(s) connected, ${o.approvals.pending} pending`),
-        row("Command confinement (L1)", `not available — ${o.confinement.reason}`),
+        row("Command confinement (L1)", confinementText(o.mode, o.confinement)),
         row("CDP browser backend", `not available — ${o.cdp.reason}`),
       ]
     : [];
@@ -255,4 +255,13 @@ export function trayView(state: TrayState): TrayView {
     icon,
     tooltip,
   };
+}
+
+/** The L1 row: state, reason code and its explanation as reported by the service (AD-20 point 12). */
+function confinementText(mode: string, c: ControlOverview["confinement"]): string {
+  const detail = c.detail ? ` (${c.detail})` : "";
+  if (mode === "full_control")
+    return `does not apply in full control${c.available ? "" : `; not available — ${c.reason ?? "unknown"}`}${detail}`;
+  if (c.available) return `active, network ${c.network}${detail}`;
+  return `not available — ${c.reason ?? "unknown"}${detail}`;
 }
