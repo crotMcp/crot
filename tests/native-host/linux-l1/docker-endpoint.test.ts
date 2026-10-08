@@ -54,6 +54,7 @@ function mockDaemon(socketPath: string): Promise<http.Server> {
       const inspect = /^\/(?:v[\d.]+\/)?containers\/([^/]+)\/json$/.exec(url);
       if (url.endsWith("/info"))
         return json(200, { SecurityOptions: ["name=apparmor", "name=seccomp,profile=builtin"] });
+      if (inspect?.[1] === "slow") return void setTimeout(() => json(200, CONTAINERS.ok), 150);
       if (inspect)
         return CONTAINERS[inspect[1]!]
           ? json(200, CONTAINERS[inspect[1]!])
@@ -359,6 +360,39 @@ describe.skipIf(!posix)("Docker endpoint against a mock daemon", () => {
       expect(out).toMatch(/^HTTP\/1\.1 101 /);
       expect(out.endsWith("[stdin closed]")).toBe(true);
     }
+  });
+
+  it("forwards the data that arrives while a container check is still waiting for the daemon", async () => {
+    // docker cp sends the head of PUT .../archive and streams the tar right after it; the stdin of
+    // docker exec/attach follows its head too. Nothing of it may be lost while the endpoint inspects
+    // the container (L1 workflow #14: docker cp into a container hung, its body never completed).
+    await startEndpoint();
+    const archive = await new Promise<string>((resolve, reject) => {
+      const s = net.connect({ path: endpoint!.socketPath, allowHalfOpen: true });
+      let text = "";
+      s.on("data", (d: Buffer) => (text += d.toString("latin1")));
+      s.on("end", () => resolve(text));
+      s.on("error", reject);
+      s.write(
+        "PUT /v1.44/containers/slow/archive?path=%2Ftmp HTTP/1.1\r\nHost: docker\r\nTransfer-Encoding: chunked\r\nContent-Type: application/x-tar\r\n\r\n5\r\nfirst\r\n",
+      );
+      setTimeout(() => s.end("6\r\nsecond\r\n0\r\n\r\n"), 30); // during the check
+    });
+    expect(archive).toMatch(/^HTTP\/1\.1 200 /);
+    expect(seen.find((r) => r.method === "PUT")).toMatchObject({ body: "firstsecond" });
+    const attach = await new Promise<string>((resolve, reject) => {
+      const s = net.connect({ path: endpoint!.socketPath, allowHalfOpen: true });
+      let text = "";
+      s.on("data", (d: Buffer) => (text += d.toString("latin1")));
+      s.on("end", () => resolve(text));
+      s.on("error", reject);
+      s.write(
+        "POST /containers/slow/attach?stream=1&stdin=1&stdout=1 HTTP/1.1\r\nHost: docker\r\nConnection: Upgrade\r\nUpgrade: tcp\r\nContent-Length: 0\r\n\r\nearly-",
+      );
+      setTimeout(() => s.end("stdin"), 30); // during the check
+    });
+    expect(attach).toMatch(/^HTTP\/1\.1 101 /);
+    expect(attach.endsWith("EARLY-STDIN[stdin closed]")).toBe(true);
   });
 
   it("ends a connection that the client half-closes before sending a request", async () => {

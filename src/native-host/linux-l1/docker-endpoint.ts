@@ -279,6 +279,10 @@ export class DockerEndpoint {
           const parsed = parseHead(buffer);
           if (!parsed) return;
           const { head } = parsed;
+          // Data that arrives while a check or the daemon connection is awaited is appended to
+          // `buffer`; what follows the head is therefore taken from `buffer` after each await, not
+          // from `parsed.rest` (a view of the buffer as it was before).
+          const headLength = buffer.length - parsed.rest.length;
           const request = classify(head.method, head.target);
           const framing = bodyFraming(head);
           if (request.kind === "plugin.install") {
@@ -298,10 +302,8 @@ export class DockerEndpoint {
           }
           if (BODY_INSPECTED.has(request.kind)) {
             const reader = new BodyReader(framing, true);
-            let rest: Buffer = parsed.rest;
-            const n = reader.feed(rest);
+            const n = reader.feed(buffer.subarray(headLength));
             if (!reader.done) return; // wait for the whole body (buffer still holds head + partial body)
-            rest = rest.subarray(n);
             let body: Buffer = reader.body();
             try {
               const json = body.length > 0 ? (JSON.parse(body.toString("utf8")) as Record<string, unknown>) : {};
@@ -325,12 +327,12 @@ export class DockerEndpoint {
             const u = await ensureUpstream();
             u.write(serializeHead(head, { "Content-Length": String(body.length), "Transfer-Encoding": null }));
             u.write(body);
-            buffer = rest;
+            buffer = buffer.subarray(headLength + n);
             continue;
           }
           const u = await ensureUpstream();
           u.write(head.raw);
-          buffer = parsed.rest;
+          buffer = buffer.subarray(headLength);
           if (hijacks(head, request.kind)) {
             // After the request (and its body, if any) the connection carries raw streams.
             // BuildKit entitlements travel in the Solve request of the control API (/grpc); /session
