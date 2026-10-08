@@ -7,7 +7,7 @@
  * an unavailable L1 fails every test with the reason code.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -20,7 +20,114 @@ import { apparmorDenials, assertAvailable, ctx, l1Fixture, type L1Fixture } from
 import { isLinux, l1Required } from "./l1-support.js";
 
 const run = isLinux && l1Required;
-const { label } = profileNames();
+const { label, bwrap: bwrapProfile, payload: payloadProfile } = profileNames();
+
+/** The browser of the headless Chromium checks (AD-20 point 1), if the runner image has one. */
+const browser = isLinux
+  ? ["google-chrome", "chromium", "chromium-browser"].find(
+      (b) => spawnSync("sh", ["-c", `command -v ${b}`]).status === 0,
+    )
+  : undefined;
+const browserPage = "'data:text/html,<p id=x>crot-l1</p>'";
+const browserFlags = "--headless=new --no-sandbox --disable-gpu --dump-dom";
+
+/**
+ * A GitHub Actions notice: evidence that must be visible in the job's annotations also when the
+ * test passes (test-only; labels, process names, paths and policy files of the runner, no user data).
+ */
+const notice = (title: string, lines: readonly string[]): void => {
+  if (process.env.GITHUB_ACTIONS !== "true") return;
+  const esc = (v: string) => v.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+  console.log(`::notice title=${esc(title).replace(/:/g, "%3A").replace(/,/g, "%2C")}::${esc(lines.join("\n"))}`);
+};
+if (run && !browser)
+  notice("L1 headless Chromium checks not applicable", [
+    `No google-chrome, chromium or chromium-browser on this runner (${os.arch()}): the headless Chromium checks ` +
+      "of AD-20 point 1 are skipped here and did not run.",
+  ]);
+
+/** Every process of this user whose AppArmor label contains the payload profile: "comm | exe | label". */
+const confinedProcesses = (into: Set<string>): void => {
+  for (const pid of readdirSync("/proc")) {
+    if (!/^\d+$/.test(pid)) continue;
+    try {
+      const current = readFileSync(`/proc/${pid}/attr/current`, "utf8").trim();
+      if (!current.includes(payloadProfile)) continue;
+      const comm = readFileSync(`/proc/${pid}/comm`, "utf8").trim();
+      let exe = "?";
+      try {
+        exe = readlinkSync(`/proc/${pid}/exe`);
+      } catch {
+        // exited or not readable
+      }
+      into.add(`${comm} | ${exe} | ${current}`);
+    } catch {
+      // the process exited meanwhile
+    }
+  }
+};
+
+/** Runs a confined command while the host (unconfined, outside L1) records the labels of the confined processes. */
+const watchLabels = async <T>(command: Promise<T>): Promise<{ result: T; processes: string[]; denials: string[] }> => {
+  const before = apparmorDenials().length;
+  const seen = new Set<string>();
+  let done = false;
+  const result = command.finally(() => {
+    done = true;
+  });
+  while (!done) {
+    confinedProcesses(seen);
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  const denials = [
+    ...new Set(
+      apparmorDenials()
+        .slice(before)
+        .map((l) => l.replace(/^.*?apparmor=/, "apparmor=").replace(/ pid=\d+| peer_pid=\d+/g, "")),
+    ),
+  ];
+  return { result: await result, processes: [...seen].sort(), denials };
+};
+
+/** The host's AppArmor profile "chrome", if loaded: name and mode, attachment, and its policy file. */
+const hostChromeProfile = (): string[] => {
+  const read = (file: string): string => {
+    try {
+      return readFileSync(file, "utf8");
+    } catch {
+      const r = spawnSync("sudo", ["-n", "cat", file], { encoding: "utf8", timeout: 10_000 });
+      return r.status === 0 ? r.stdout : `(${file}: not readable)`;
+    }
+  };
+  const out: string[] = [];
+  const loaded = read("/sys/kernel/security/apparmor/profiles")
+    .split("\n")
+    .filter((l) => /^chrome[ /]/.test(l));
+  out.push(`loaded profiles named chrome: ${loaded.length ? loaded.join("; ") : "none"}`);
+  const policy = "/sys/kernel/security/apparmor/policy/profiles";
+  let dirs: string[] = [];
+  try {
+    dirs = readdirSync(policy).filter((d) => d.startsWith("chrome."));
+  } catch {
+    const r = spawnSync("sudo", ["-n", "ls", policy], { encoding: "utf8", timeout: 10_000 });
+    dirs = (r.stdout ?? "").split("\n").filter((d) => d.startsWith("chrome."));
+  }
+  for (const d of dirs)
+    out.push(
+      `${d}: attach=${read(path.join(policy, d, "attach")).trim()} mode=${read(path.join(policy, d, "mode")).trim()}`,
+    );
+  const file = "/etc/apparmor.d/chrome";
+  out.push(
+    existsSync(file)
+      ? `${file}: ${read(file)
+          .split("\n")
+          .map((l) => l.trim())
+          .filter((l) => l && !l.startsWith("#"))
+          .join(" ")}`
+      : `${file}: absent`,
+  );
+  return out;
+};
 
 describe.skipIf(!run)("L1 on this host (network on)", () => {
   let f: L1Fixture;
@@ -225,36 +332,101 @@ describe.skipIf(!run)("L1 on this host (network on)", () => {
     if (apparmor) expect(r.stdout).toContain(label);
   });
 
-  it("runs headless Chromium with --no-sandbox (smoke)", async () => {
-    const browser = ["google-chrome", "chromium", "chromium-browser"].find(
-      (b) => spawnSync("sh", ["-c", `command -v ${b}`]).status === 0,
-    );
-    if (!browser) return; // recorded by the workflow: the runner image has Chrome
-    const r = await f.sh(
-      `${browser} --headless=new --no-sandbox --disable-gpu --dump-dom 'data:text/html,<p id=x>crot-l1</p>'`,
-      90_000,
-    );
-    // Chromium's own stderr (and how it ended) names the cause when it prints nothing; without
-    // the repeated crash handler lines.
-    const stderr = r.stderr
-      .split("\n")
-      .filter((l) => !l.includes("crashpad"))
-      .join("\n");
-    const denials = r.stdout.includes("crot-l1</p>")
-      ? ""
-      : [
-          ...new Set(
-            apparmorDenials().map((l) =>
-              l.replace(/^.*?apparmor=/, "apparmor=").replace(/ pid=\d+| peer_pid=\d+/g, ""),
+  // Without a browser on the runner (the arm64 images) the check is reported as skipped, with a
+  // notice in the job's annotations, never as passed.
+  it.skipIf(!browser)(
+    "runs headless Chromium with --no-sandbox (smoke)",
+    async () => {
+      const r = await f.sh(`${browser} ${browserFlags} ${browserPage}`, 90_000);
+      // Chromium's own stderr (and how it ended) names the cause when it prints nothing; without
+      // the repeated crash handler lines.
+      const stderr = r.stderr
+        .split("\n")
+        .filter((l) => !l.includes("crashpad"))
+        .join("\n");
+      const denials = r.stdout.includes("crot-l1</p>")
+        ? ""
+        : [
+            ...new Set(
+              apparmorDenials().map((l) =>
+                l.replace(/^.*?apparmor=/, "apparmor=").replace(/ pid=\d+| peer_pid=\d+/g, ""),
+              ),
             ),
-          ),
-        ]
-          .slice(-25)
-          .join("\n");
-    expect(r.stdout, `exit ${r.exitCode}; AppArmor denials:\n${denials}\nstderr: ${stderr.slice(0, 2500)}`).toContain(
-      '<p id="x">crot-l1</p>',
-    );
-  }, 120_000);
+          ]
+            .slice(-25)
+            .join("\n");
+      expect(r.stdout, `exit ${r.exitCode}; AppArmor denials:\n${denials}\nstderr: ${stderr.slice(0, 2500)}`).toContain(
+        '<p id="x">crot-l1</p>',
+      );
+    },
+    120_000,
+  );
+
+  // E1 (WP-23a, Chromium on Ubuntu 24.04): the labels the confined processes actually run under,
+  // read from the host, next to the host's own AppArmor profile "chrome". Whatever the label,
+  // every process of the command stays confined by both L1 profiles.
+  it.skipIf(!browser)(
+    "Chromium's processes keep both L1 profiles in their label (E1: actual labels)",
+    async () => {
+      const binary = realpathSync(execFileSync("sh", ["-c", `command -v ${browser}`], { encoding: "utf8" }).trim());
+      const { result, processes, denials } = await watchLabels(
+        f.sh(
+          `read l </proc/self/attr/current; echo "sh label: $l"; ${browser} ${browserFlags} ${browserPage} >/dev/null 2>&1; echo "browser exit: $?"`,
+          90_000,
+        ),
+      );
+      notice(`E1 ${os.arch()}: labels inside L1`, [
+        `browser: ${browser} -> ${binary}`,
+        ...result.stdout.trim().split("\n"),
+        `confined processes seen from the host (comm | exe | label):`,
+        ...processes,
+        ...hostChromeProfile(),
+        `AppArmor denials during the run: ${denials.length}`,
+        ...denials.filter((d) => /comm="chrome|peer="chrome/.test(d)).slice(0, 12),
+      ]);
+      expect(result.stdout).toContain(`sh label: ${label}`);
+      const browserProcesses = processes.filter((p) => /^(chrome|chromium|chrome_crashpad)/.test(p));
+      expect(browserProcesses.length, processes.join("\n")).toBeGreaterThan(0);
+      for (const p of processes) {
+        expect(p).toContain(`${bwrapProfile}//`);
+        expect(p).toContain(`&${payloadProfile}`);
+      }
+    },
+    120_000,
+  );
+
+  // E2 (WP-23a): the same browser binary at a path no host AppArmor profile attaches to (a copy in
+  // the workspace), started the same way inside L1. The policy and the sandbox are unchanged.
+  it.skipIf(!browser)(
+    "runs the same headless Chromium from a path without a host profile (E2)",
+    async () => {
+      const binary = realpathSync(execFileSync("sh", ["-c", `command -v ${browser}`], { encoding: "utf8" }).trim());
+      const dir = path.dirname(binary);
+      const copy = path.join(f.workspace, "e2-browser");
+      expect(spawnSync("cp", ["-a", dir, copy], { encoding: "utf8", timeout: 120_000 }).status).toBe(0);
+      try {
+        const exe = path.join(copy, existsSync(path.join(dir, "chrome")) ? "chrome" : path.basename(binary));
+        const { result, processes, denials } = await watchLabels(f.sh(`${exe} ${browserFlags} ${browserPage}`, 90_000));
+        notice(`E2 ${os.arch()}: browser copy inside L1`, [
+          `copy of ${dir} at ${copy}, started as ${exe}`,
+          `exit ${result.exitCode}; DOM printed: ${result.stdout.includes('<p id="x">crot-l1</p>')}`,
+          `confined processes seen from the host (comm | exe | label):`,
+          ...processes,
+          `AppArmor denials during the run: ${denials.length}`,
+          ...denials.filter((d) => /comm="chrome|peer="chrome/.test(d)).slice(0, 12),
+        ]);
+        expect(
+          result.stdout,
+          `exit ${result.exitCode}; denials:\n${denials.join("\n")}\nstderr: ${result.stderr.slice(0, 2000)}`,
+        ).toContain('<p id="x">crot-l1</p>');
+        for (const p of processes)
+          expect(p.replace(/ \([a-z]+\)$/, "")).toMatch(new RegExp(`\\| ${label.replace(/[/&]/g, "\\$&")}$`));
+      } finally {
+        await rm(copy, { recursive: true, force: true });
+      }
+    },
+    300_000,
+  );
 });
 
 describe.skipIf(!run)("L1 on this host (network off)", () => {
