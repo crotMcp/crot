@@ -45,8 +45,16 @@ export interface L1Storage {
   readonly emptyDir: string;
   /** Sockets of the Docker endpoints of this state directory. */
   readonly run: string;
-  /** A fresh private temp (/tmp, /var/tmp) for one sandbox. */
-  newTemp(): Promise<{ readonly tmp: string; readonly varTmp: string; remove(): Promise<void> }>;
+  /**
+   * A fresh private temp (/tmp, /var/tmp) for one sandbox, and the place of
+   * its group layers (`groups`, created only when needed), removed with it.
+   */
+  newTemp(): Promise<{
+    readonly tmp: string;
+    readonly varTmp: string;
+    readonly groups: string;
+    remove(): Promise<void>;
+  }>;
 }
 
 export function storageKey(stateDir: string): string {
@@ -130,8 +138,7 @@ export async function openStorage(
     // Private temps of sandboxes of services that ended without cleanup (never those of a live
     // process: several Cores of one service share the storage, and their sandboxes may run).
     for (const entry of await readdir(path.join(root, "temp"))) {
-      if (!processAlive(Number(entry.split("-")[0])))
-        await rm(path.join(root, "temp", entry), { recursive: true, force: true });
+      if (!processAlive(Number(entry.split("-")[0]))) await removeTree(path.join(root, "temp", entry));
     }
     return {
       root,
@@ -154,7 +161,9 @@ export async function openStorage(
         return {
           tmp: path.join(dir, "tmp"),
           varTmp: path.join(dir, "var-tmp"),
-          remove: () => rm(dir, { recursive: true, force: true }),
+          groups: path.join(dir, "groups"),
+          // A group layer can hold directories without owner write permission (the host's modes).
+          remove: () => removeTree(dir),
         };
       },
     };
@@ -176,4 +185,20 @@ export async function ensureLayer(
   await ensurePrivateDir(layer.upper, uid);
   await ensurePrivateDir(layer.work, uid);
   return layer;
+}
+
+/** rm -rf that also removes directories without owner write or search permission. */
+async function removeTree(dir: string): Promise<void> {
+  try {
+    await rm(dir, { recursive: true, force: true });
+  } catch {
+    const fix = async (p: string): Promise<void> => {
+      const st = await lstat(p).catch(() => undefined);
+      if (!st?.isDirectory()) return;
+      await chmod(p, 0o700).catch(() => undefined);
+      for (const e of await readdir(p).catch(() => [] as string[])) await fix(path.join(p, e));
+    };
+    await fix(dir);
+    await rm(dir, { recursive: true, force: true });
+  }
 }
