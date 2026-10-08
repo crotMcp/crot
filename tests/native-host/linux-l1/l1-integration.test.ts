@@ -38,7 +38,8 @@ const browserFlags = "--headless=new --no-sandbox --disable-gpu --dump-dom";
 const notice = (title: string, lines: readonly string[]): void => {
   if (process.env.GITHUB_ACTIONS !== "true") return;
   const esc = (v: string) => v.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
-  console.log(`::notice title=${esc(title).replace(/:/g, "%3A").replace(/,/g, "%2C")}::${esc(lines.join("\n"))}`);
+  // On a line of its own: in CI the reporter puts colour codes in front of the first line of a log.
+  console.log(`\n::notice title=${esc(title).replace(/:/g, "%3A").replace(/,/g, "%2C")}::${esc(lines.join("\n"))}`);
 };
 if (run && !browser)
   notice("L1 headless Chromium checks not applicable", [
