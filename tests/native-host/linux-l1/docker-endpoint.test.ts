@@ -9,7 +9,7 @@
  */
 import http from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
-import type net from "node:net";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -75,7 +75,9 @@ function mockDaemon(socketPath: string): Promise<http.Server> {
     seen.push({ method: req.method ?? "", url: req.url ?? "", body: "" });
     hijacked.add(socket);
     socket.on("close", () => hijacked.delete(socket));
-    socket.on("end", () => socket.end());
+    socket.on("error", () => socket.destroy()); // the client may already be gone
+    // Like a container whose stdin was closed: it still writes its last output, then the stream ends.
+    socket.on("end", () => socket.end("[stdin closed]"));
     socket.write(
       "HTTP/1.1 101 UPGRADED\r\nContent-Type: application/vnd.docker.raw-stream\r\nConnection: Upgrade\r\nUpgrade: tcp\r\n\r\n",
     );
@@ -334,6 +336,39 @@ describe.skipIf(!posix)("Docker endpoint against a mock daemon", () => {
     expect(exec).toEqual({ status: 101, echoed: "HELLO EXEC" });
     const attach = await upgrade("/containers/ok/attach?stream=1&stdin=1&stdout=1", "typed input");
     expect(attach).toEqual({ status: 101, echoed: "TYPED INPUT" });
+  });
+
+  it("keeps delivering the output after the client half-closes a hijacked stream (docker CLI CloseWrite)", async () => {
+    // The docker CLI ends its write side once stdin is done (docker run -i, docker exec -i, at once without -i)
+    // and keeps reading: the output that follows must still reach it (L1 workflow #14: attach output was empty).
+    await startEndpoint();
+    for (const url of ["/containers/ok/attach?stream=1&stdin=1&stdout=1", "/v1.45/exec/e1/start"]) {
+      const out = await new Promise<string>((resolve, reject) => {
+        const s = net.connect({ path: endpoint!.socketPath, allowHalfOpen: true });
+        let text = "";
+        s.on("data", (d: Buffer) => {
+          text += d.toString("latin1");
+          if (text.includes("\r\n\r\n") && !s.writableEnded) s.end(); // after the 101, like CloseWrite
+        });
+        s.on("end", () => resolve(text));
+        s.on("error", reject);
+        s.write(
+          `POST ${url} HTTP/1.1\r\nHost: docker\r\nConnection: Upgrade\r\nUpgrade: tcp\r\nContent-Type: application/json\r\nContent-Length: 0\r\n\r\n`,
+        );
+      });
+      expect(out).toMatch(/^HTTP\/1\.1 101 /);
+      expect(out.endsWith("[stdin closed]")).toBe(true);
+    }
+  });
+
+  it("ends a connection that the client half-closes before sending a request", async () => {
+    await startEndpoint();
+    const ended = await new Promise<boolean>((resolve) => {
+      const s = net.connect({ path: endpoint!.socketPath, allowHalfOpen: true }, () => s.end());
+      s.on("end", () => resolve(true));
+      s.on("error", () => resolve(false));
+    });
+    expect(ended).toBe(true);
   });
 
   it("carries BuildKit /session and /grpc streams and closes a /grpc stream that requests security.insecure", async () => {

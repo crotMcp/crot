@@ -35,10 +35,13 @@ function hostDocker(args: string[], env: NodeJS.ProcessEnv = process.env): strin
   return execFileSync("docker", args, { encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
 }
 
-/** A TCP (optionally TLS) listener on loopback that forwards every connection to the real daemon socket. */
+/**
+ * A TCP (optionally TLS) listener on loopback that forwards every connection to the real daemon socket.
+ * Half-open like a daemon: the docker CLI closes its write side of attach/exec streams and keeps reading.
+ */
 async function proxy(tlsOptions?: tls.TlsOptions): Promise<{ port: number; close(): void }> {
   const forward = (client: net.Socket) => {
-    const upstream = net.connect(DAEMON_SOCKET);
+    const upstream = net.connect({ path: DAEMON_SOCKET, allowHalfOpen: true });
     client.pipe(upstream).pipe(client);
     const end = () => {
       client.destroy();
@@ -47,7 +50,9 @@ async function proxy(tlsOptions?: tls.TlsOptions): Promise<{ port: number; close
     client.on("error", end).on("close", end);
     upstream.on("error", end).on("close", end);
   };
-  const server = tlsOptions ? tls.createServer(tlsOptions, forward) : net.createServer(forward);
+  const server = tlsOptions
+    ? tls.createServer({ ...tlsOptions, allowHalfOpen: true }, forward)
+    : net.createServer({ allowHalfOpen: true }, forward);
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   return { port: (server.address() as net.AddressInfo).port, close: () => server.close() };
 }

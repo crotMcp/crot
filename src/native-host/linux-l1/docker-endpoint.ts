@@ -134,7 +134,9 @@ export class DockerEndpoint {
 
   static async start(options: DockerEndpointOptions): Promise<DockerEndpoint> {
     await rm(options.socketPath, { force: true });
-    const server = net.createServer();
+    // Half-open: the Docker CLI closes its write side of a hijacked attach/exec stream once its stdin
+    // is done (at once without -i) and keeps reading the output; Node would otherwise end our side too.
+    const server = net.createServer({ allowHalfOpen: true });
     const endpoint = new DockerEndpoint(server, options);
     server.on("connection", (socket) => endpoint.handle(socket));
     await new Promise<void>((resolve, reject) => {
@@ -209,6 +211,8 @@ export class DockerEndpoint {
     let scanTail = Buffer.alloc(0);
 
     let ended = false;
+    /** The client has ended its side (FIN): passed on to the daemon, the answer still flows back. */
+    let clientEnded = false;
     /** Refuse and end the connection: nothing after a refused request on it is processed. */
     const refuse = (kind: string, reason: string) => {
       ended = true;
@@ -348,7 +352,15 @@ export class DockerEndpoint {
         closeAll();
       } finally {
         busy = false;
+        if (clientEnded) passEnd();
       }
+    };
+
+    /** After the client's FIN: end the daemon connection once everything before it was forwarded, or our side if there is none. */
+    const passEnd = () => {
+      if (upstream) {
+        if (!upstream.writableEnded) upstream.end();
+      } else if (!socket.writableEnded) socket.end();
     };
 
     socket.on("data", (chunk: Buffer) => {
@@ -359,7 +371,10 @@ export class DockerEndpoint {
         if (buffer.length > 0 && !busy) void process();
       });
     });
-    socket.on("end", () => upstream?.end());
+    socket.on("end", () => {
+      clientEnded = true;
+      if (!busy) passEnd();
+    });
   }
 }
 
