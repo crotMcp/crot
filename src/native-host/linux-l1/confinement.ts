@@ -536,14 +536,23 @@ class LinuxCoreConfinement implements CoreConfinement {
           throw this.failed(`L1 is no longer available (${this.current.reason ?? "unknown"})`);
       }
       const prepared = this.prepared;
-      this.endpoint ??= await this.startEndpoint(prepared);
-      await this.temp?.remove();
-      this.temp = await prepared.storage.newTemp();
-      const layout: SandboxLayout = {
-        ...(await baseLayout(this.options, prepared, this.scope)),
-        temp: this.temp,
-        dockerSocket: this.endpoint.socketPath,
-      };
+      let layout: SandboxLayout;
+      try {
+        this.endpoint ??= await this.startEndpoint(prepared);
+        await this.temp?.remove();
+        this.temp = await prepared.storage.newTemp();
+        layout = {
+          ...(await baseLayout(this.options, prepared, this.scope)),
+          temp: this.temp,
+          dockerSocket: this.endpoint.socketPath,
+        };
+      } catch (error) {
+        // The private storage, the endpoint or the layout failed after admission: a confinement
+        // failure like a sandbox that does not start (AD-20 point 11), never a raw file system error.
+        await this.refresh().catch(() => undefined);
+        const code = (error as NodeJS.ErrnoException).code;
+        throw this.failed(`the sandbox could not be prepared${code ? ` (${code})` : ""}`);
+      }
       let sandbox: Sandbox;
       try {
         sandbox = await Sandbox.start(sandboxCommand(layout), () => {

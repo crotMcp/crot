@@ -266,31 +266,40 @@ describe.skipIf(!run)("L1 on this host (network off)", () => {
 });
 
 describe.skipIf(!run)("CONFINEMENT_FAILED after admission (real sandbox set-up failure)", () => {
-  it("fails the operation, launches nothing outside L1 and reports the new state", async () => {
-    const f = await l1Fixture();
-    try {
-      assertAvailable(f);
-      // L1 was available when the operation was admitted. Break the private storage before the
-      // first confined launch so the sandbox cannot be set up.
-      const uid = process.getuid!();
-      const base = `/var/tmp/crot-l1-${uid}`;
-      await chmod(base, 0o000);
+  // L1 workflow #14: the broken storage surfaced as a raw EACCES (endpoint socket, private temp), not as
+  // CONFINEMENT_FAILED. Network off needs no AppArmor, so that case also runs on hosts without it.
+  it.each(["on", "off"] as const)(
+    "fails the operation, launches nothing outside L1 and reports the new state (network %s)",
+    async (network) => {
+      const f = await l1Fixture({ network });
       try {
-        const marker = path.join(f.workspace, "ran-unconfined");
-        await expect(f.sh(`touch ${marker}`)).rejects.toMatchObject({ code: "CONFINEMENT_FAILED" });
-        expect(existsSync(marker)).toBe(false);
-        expect(f.audit.events.at(-1)?.error?.code).toBe("CONFINEMENT_FAILED");
-        expect(f.core.status().confinement).toMatchObject({ available: false, reason: "private_storage_unavailable" });
-        // Local principals keep their behaviour only once L1 is reported unavailable (AD-20 point 11).
+        assertAvailable(f);
+        // L1 was available when the operation was admitted. Break the private storage before the
+        // first confined launch so the sandbox cannot be set up.
+        const uid = process.getuid!();
+        const base = `/var/tmp/crot-l1-${uid}`;
+        await chmod(base, 0o000);
+        try {
+          const marker = path.join(f.workspace, "ran-unconfined");
+          await expect(f.sh(`touch ${marker}`)).rejects.toMatchObject({ code: "CONFINEMENT_FAILED" });
+          expect(existsSync(marker)).toBe(false);
+          expect(f.audit.events.at(-1)?.error?.code).toBe("CONFINEMENT_FAILED");
+          expect(f.core.status().confinement).toMatchObject({
+            available: false,
+            reason: "private_storage_unavailable",
+          });
+          // Local principals keep their behaviour only once L1 is reported unavailable (AD-20 point 11).
+        } finally {
+          await chmod(base, 0o700);
+        }
+        expect(await f.core.refreshConfinement()).toMatchObject({ available: true });
+        expect((await f.sh("echo again")).stdout).toBe("again\n");
       } finally {
-        await chmod(base, 0o700);
+        await f.close();
       }
-      expect(await f.core.refreshConfinement()).toMatchObject({ available: true });
-      expect((await f.sh("echo again")).stdout).toBe("again\n");
-    } finally {
-      await f.close();
-    }
-  }, 120_000);
+    },
+    120_000,
+  );
 });
 
 describe.skipIf(!run)("reason codes on this host", () => {
