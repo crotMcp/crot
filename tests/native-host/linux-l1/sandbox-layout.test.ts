@@ -5,7 +5,20 @@
  * fake mountinfo); the real mount view is checked in l1-integration.test.ts.
  */
 import { spawnSync } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readdir, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  chown,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +32,8 @@ import {
 import {
   agentSockets,
   allowedDevices,
+  createGroupLayer,
+  groupLayerDirs,
   hiddenEntries,
   homeSubmounts,
 } from "../../../src/native-host/linux-l1/layout.js";
@@ -131,6 +146,35 @@ describe("bwrapArgs", () => {
     expect(
       at(a, "--overlay-src", "/home/u/data", "--overlay", "/s/l/0/upper", "/s/l/0/work", "/home/u/data"),
     ).toBeGreaterThan(0);
+  });
+
+  it("mounts the group layer as a lower layer directly above the real file system (bottom to top)", () => {
+    const a = bwrapArgs(
+      layout({
+        homeLayer: { ...layout().homeLayer, group: "/t/groups/home" },
+        homeSubmounts: [{ path: "/home/u/data", upper: "/s/l/0/upper", work: "/s/l/0/work", group: "/t/groups/0" }],
+      }),
+    );
+    const h = layout().homeLayer;
+    expect(
+      at(a, "--overlay-src", "/home/u", "--overlay-src", "/t/groups/home", "--overlay", h.upper, h.work, "/home/u"),
+    ).toBeGreaterThan(0);
+    expect(
+      at(
+        a,
+        "--overlay-src",
+        "/home/u/data",
+        "--overlay-src",
+        "/t/groups/0",
+        "--overlay",
+        "/s/l/0/upper",
+        "/s/l/0/work",
+        "/home/u/data",
+      ),
+    ).toBeGreaterThan(0);
+    // Without a group layer the home is the only lower layer, as before.
+    const plain = bwrapArgs(layout());
+    expect(at(plain, "--overlay-src", "/home/u", "--overlay", h.upper, h.work, "/home/u")).toBeGreaterThan(0);
   });
 
   it("isWithin compares path components", () => {
@@ -251,6 +295,130 @@ describe.skipIf(!posix)("host discovery on fixtures", () => {
     const l = layout({ workspace: base, hidden: entries });
     const a = bwrapArgs(l);
     expect(a.flatMap((v, i) => (v === "--ro-bind" && a[i + 1] === l.emptyFile ? [a[i + 2]] : []))).toEqual([real]);
+  });
+});
+
+describe.skipIf(!posix)("group layer (point 7: directories the private layer cannot copy up)", () => {
+  const uid = () => process.getuid!();
+  const gid = () => process.getgid!();
+  const tree = async (base: string) => {
+    for (const d of ["a/b/c", "a/d", "e", "ws/inner", "secret/x"]) await mkdir(path.join(base, d), { recursive: true });
+    await writeFile(path.join(base, "a", "file"), "");
+    await symlink(path.join(base, "e"), path.join(base, "a", "link"));
+  };
+
+  it("finds nothing when every directory has the mapped group", async () => {
+    await tree(dir);
+    expect(await groupLayerDirs(dir, { uid: uid(), gid: gid() })).toEqual([]);
+  });
+
+  it("lists the user's directories of another group with their ancestors, parents first; skips subtrees, links and files", async () => {
+    await tree(dir);
+    // Every fixture directory has this process's group; any other mapped gid makes all of them foreign.
+    const found = await groupLayerDirs(dir, {
+      uid: uid(),
+      gid: gid() + 1,
+      skip: [path.join(dir, "ws"), path.join(dir, "secret")],
+    });
+    expect(found.map((d) => d.relative).sort()).toEqual(["a", "a/b", "a/b/c", "a/d", "e"]);
+    const depths = found.map((d) => d.relative.split("/").length);
+    expect(depths).toEqual([...depths].sort((x, y) => x - y));
+    const a = await stat(path.join(dir, "a"));
+    expect(found.find((d) => d.relative === "a")).toEqual({
+      relative: "a",
+      mode: a.mode & 0o7777,
+      atimeMs: a.atimeMs,
+      mtimeMs: a.mtimeMs,
+    });
+  });
+
+  it("neither lists nor enters directories of other owners, and visits at most maxDirs directories", async () => {
+    await tree(dir);
+    expect(await groupLayerDirs(dir, { uid: uid() + 1, gid: gid() + 1 })).toEqual([]);
+    // Breadth first: with one visit only the root is listed, so only the first level is found.
+    const shallow = await groupLayerDirs(dir, { uid: uid(), gid: gid() + 1, maxDirs: 1 });
+    expect(shallow.map((d) => d.relative).sort()).toEqual(["a", "e", "secret", "ws"]);
+  });
+
+  it("creates the layer: empty directories with the host's modes and times; removed with the sandbox's temp", async () => {
+    const s = await openStorage("/state/g", { parent: dir });
+    const t = await s.newTemp();
+    const host = path.join(dir, "host");
+    await mkdir(path.join(host, "ro", "sub"), { recursive: true });
+    await writeFile(path.join(host, "ro", "sub", "f"), "data");
+    await chmod(path.join(host, "ro"), 0o555);
+    await utimes(path.join(host, "ro"), 1_000_000, 2_000_000);
+    const dirs = await groupLayerDirs(host, { uid: uid(), gid: gid() + 1 });
+    expect(await createGroupLayer(path.join(t.groups, "home"), dirs)).toBe(true);
+    const ro = await stat(path.join(t.groups, "home", "ro"));
+    expect(ro.mode & 0o7777).toBe(0o555);
+    expect(Math.round(ro.mtimeMs / 1000)).toBe(2_000_000);
+    expect(await readdir(path.join(t.groups, "home", "ro", "sub"))).toEqual([]);
+    expect(await createGroupLayer(path.join(t.groups, "none"), [])).toBe(false);
+    await expect(stat(path.join(t.groups, "none"))).rejects.toMatchObject({ code: "ENOENT" });
+    await t.remove();
+    await expect(stat(t.groups)).rejects.toMatchObject({ code: "ENOENT" });
+    await chmod(path.join(host, "ro"), 0o755);
+  });
+});
+
+/** A supplementary group of this process other than its gid (the one crot-bwrap maps), if any. */
+const otherGroup = (): number | undefined => process.getgroups?.().find((g) => g !== process.getgid!());
+
+describe.skipIf(!(isLinux && l1Required))("group layer with the installed crot-bwrap (L1 workflow)", () => {
+  it("a directory of another group of the user cannot be copied up (EOVERFLOW) without it, and can with it", async () => {
+    const g = otherGroup();
+    if (g === undefined) throw new Error("the L1 runners' user has supplementary groups (docker, adm)");
+    const base = await realpath(dir);
+    const lower = path.join(base, "lower");
+    await mkdir(path.join(lower, "cfg"), { recursive: true });
+    await writeFile(path.join(lower, "cfg", "config.json"), "{}");
+    await chown(path.join(lower, "cfg"), process.getuid!(), g); // as ~/.docker (group docker) on the runners
+    const run = async (group: string | undefined) => {
+      const upper = await mkdtemp(path.join(base, "upper-"));
+      const work = await mkdtemp(path.join(base, "work-"));
+      const r = spawnSync(
+        path.join(L1_ROOT, L1_VERSION, "crot-bwrap"),
+        [
+          "--unshare-user",
+          "--die-with-parent",
+          "--ro-bind",
+          "/",
+          "/",
+          "--overlay-src",
+          lower,
+          ...(group ? ["--overlay-src", group] : []),
+          "--overlay",
+          upper,
+          work,
+          lower,
+          "--",
+          "/bin/sh",
+          "-c",
+          'mkdir "$1/cfg/buildx" && echo new > "$1/cfg/buildx/f" && cat "$1/cfg/config.json" && echo ok',
+          "sh",
+          lower,
+        ],
+        { env: {}, encoding: "utf8", timeout: 30_000 },
+      );
+      return { status: r.status, out: r.stdout + r.stderr, upper };
+    };
+    // The root cause: overlayfs cannot represent the group in crot-bwrap's user namespace.
+    const without = await run(undefined);
+    expect(without.status).not.toBe(0);
+    expect(without.out).toMatch(/Value too large for defined data type/);
+    // The group layer makes the directory copyable; its contents still come from the real directory.
+    const layer = path.join(base, "groups");
+    const dirs = await groupLayerDirs(lower, { uid: process.getuid!(), gid: process.getgid!() });
+    expect(dirs.map((d) => d.relative)).toEqual(["cfg"]);
+    expect(await createGroupLayer(layer, dirs)).toBe(true);
+    const withLayer = await run(layer);
+    expect(withLayer.status, withLayer.out).toBe(0);
+    expect(withLayer.out).toContain("{}ok");
+    // The write landed in the private upper layer, never in the real directory.
+    expect(await readdir(path.join(lower, "cfg"))).toEqual(["config.json"]);
+    expect(await readdir(path.join(withLayer.upper, "cfg", "buildx"))).toEqual(["f"]);
+    expect((await stat(path.join(lower, "cfg"))).gid).toBe(g);
   });
 });
 
