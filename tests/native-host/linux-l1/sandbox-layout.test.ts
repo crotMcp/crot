@@ -324,10 +324,10 @@ describe.skipIf(!posix)("group layer (point 7: directories the private layer can
     const depths = found.map((d) => d.relative.split("/").length);
     expect(depths).toEqual([...depths].sort((x, y) => x - y));
     const a = await stat(path.join(dir, "a"));
-    expect(found.find((d) => d.relative === "a")).toEqual({
+    // The host's mode and modification time (the scan itself may update the access time).
+    expect(found.find((d) => d.relative === "a")).toMatchObject({
       relative: "a",
       mode: a.mode & 0o7777,
-      atimeMs: a.atimeMs,
       mtimeMs: a.mtimeMs,
     });
   });
