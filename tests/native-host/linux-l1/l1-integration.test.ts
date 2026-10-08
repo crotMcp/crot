@@ -248,7 +248,9 @@ describe.skipIf(!run)("L1 on this host (network off)", () => {
 
   it("has only a loopback network, shared by the Core's confined processes", async () => {
     const node = process.execPath;
-    expect((await f.sh("ls /sys/class/net")).stdout.trim()).toBe("lo");
+    // The interfaces of the sandbox's own network namespace: /proc/net is per network namespace,
+    // /sys/class/net is not (sysfs is the host's, read-only, so it lists the host's interfaces).
+    expect((await f.sh("sed -n 's/^ *\\([^:]*\\):.*/\\1/p' /proc/net/dev")).stdout.trim()).toBe("lo");
     const server = await f.core.processes.start(ctx, {
       command: node,
       args: [
