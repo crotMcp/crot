@@ -22,7 +22,7 @@ import tls from "node:tls";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { profileNames } from "../../../src/native-host/linux-l1/components.js";
 import { readHostFacts } from "../../../src/native-host/linux-l1/host.js";
-import { assertAvailable, l1Fixture, type L1Fixture } from "./l1-harness.js";
+import { assertAvailable, homeLayerDiagnostics, l1Fixture, type L1Fixture } from "./l1-harness.js";
 import { isLinux, l1Required } from "./l1-support.js";
 
 const run = isLinux && l1Required;
@@ -331,7 +331,7 @@ describe.skipIf(!run)("L1 Docker endpoint: exec, cp, compose and build (default 
       `docker buildx build -q -t ${name}-img:1 "${ctxDir}" >/dev/null && docker run --rm ${name}-img:1 cat /built.txt`,
       180_000,
     );
-    expect(ok.exitCode, ok.stderr).toBe(0);
+    expect(ok.exitCode, ok.exitCode === 0 ? ok.stderr : ok.stderr + (await homeLayerDiagnostics(f))).toBe(0);
     expect(ok.stdout.trim()).toBe("built");
     const before = refusals().length;
     const bad = await f.sh(`docker buildx build --allow security.insecure -t ${name}-img:2 "${ctxDir}"`, 180_000);
