@@ -42,10 +42,12 @@ import {
 import {
   agentSockets,
   allowedDevices,
+  createGroupLayer,
   currentContextHost,
   DAEMON_SOCKETS,
   defaultHome,
   dockerHiddenPaths,
+  groupLayerDirs,
   hiddenEntries,
   homeSubmounts,
   SECRET_STORE_DIRS,
@@ -130,6 +132,8 @@ async function baseLayout(
   options: LinuxConfinementOptions,
   prepared: Prepared,
   scope: Pick<ConfinementScope, "workspace" | "protectedPaths" | "network">,
+  /** Where this sandbox's group layers are created (its private temp: L1Storage.newTemp().groups). */
+  groups: string,
   homeLayer: { readonly upper: string; readonly work: string } = {
     upper: prepared.storage.homeUpper,
     work: prepared.storage.homeWork,
@@ -138,31 +142,40 @@ async function baseLayout(
   const env = options.env;
   const home = defaultHome(env);
   const uid = process.getuid?.() ?? -1;
+  const gid = process.getgid?.() ?? -1;
   const mountinfo = (await readFile("/proc/self/mountinfo", "utf8").catch(() => "")) as string;
   // Submounts inside the workspace are covered by the workspace bind; the others get their own private layer.
   const subs = homeSubmounts(mountinfo, home).filter((p) => !isWithin(scope.workspace, p));
-  const homeSubmountsLayers = [];
-  let i = 0;
-  for (const p of subs) {
-    const layer = await ensureLayer(prepared.storage, i++, uid);
-    homeSubmountsLayers.push({ path: p, ...layer });
-  }
-  const runtimeDir =
-    env.XDG_RUNTIME_DIR && path.posix.isAbsolute(env.XDG_RUNTIME_DIR)
-      ? path.posix.resolve(env.XDG_RUNTIME_DIR)
-      : undefined;
   const hidden = await hiddenEntries([
     ...scope.protectedPaths,
     ...SECRET_STORE_DIRS.map((d) => path.join(home, d)),
     ...(await dockerHiddenPaths(env, home)),
   ]);
+  // The group layer of each layered file system (layout.ts groupLayerDirs): what is mounted above
+  // the layer (workspace, hidden entries) or layered on its own (submounts) is not scanned.
+  const skip = [scope.workspace, ...subs, ...hidden.map((h) => h.path)];
+  const groupLayer = async (root: string, name: string): Promise<{ group?: string }> => {
+    const dest = path.join(groups, name);
+    return (await createGroupLayer(dest, await groupLayerDirs(root, { uid, gid, skip }))) ? { group: dest } : {};
+  };
+  const homeSubmountsLayers = [];
+  let i = 0;
+  for (const p of subs) {
+    const index = i++;
+    const layer = await ensureLayer(prepared.storage, index, uid);
+    homeSubmountsLayers.push({ path: p, ...layer, ...(await groupLayer(p, String(index))) });
+  }
+  const runtimeDir =
+    env.XDG_RUNTIME_DIR && path.posix.isAbsolute(env.XDG_RUNTIME_DIR)
+      ? path.posix.resolve(env.XDG_RUNTIME_DIR)
+      : undefined;
   return {
     bwrap: prepared.components.bwrap,
     init: prepared.components.init,
     network: scope.network,
     workspace: scope.workspace,
     home,
-    homeLayer,
+    homeLayer: { ...homeLayer, ...(await groupLayer(home, "home")) },
     homeSubmounts: homeSubmountsLayers,
     ...(runtimeDir ? { runtimeDir } : {}),
     agentSockets: await agentSockets(env, home),
@@ -287,7 +300,13 @@ export class LinuxConfinement implements CommandConfinement {
       }
       temp = await prepared.storage.newTemp();
       const layout: SandboxLayout = {
-        ...(await baseLayout(this.options, prepared, { workspace, protectedPaths: [canaryDir], network }, selfLayer)),
+        ...(await baseLayout(
+          this.options,
+          prepared,
+          { workspace, protectedPaths: [canaryDir], network },
+          temp.groups,
+          selfLayer,
+        )),
         temp,
       };
       try {
@@ -542,7 +561,7 @@ class LinuxCoreConfinement implements CoreConfinement {
         await this.temp?.remove();
         this.temp = await prepared.storage.newTemp();
         layout = {
-          ...(await baseLayout(this.options, prepared, this.scope)),
+          ...(await baseLayout(this.options, prepared, this.scope, this.temp.groups)),
           temp: this.temp,
           dockerSocket: this.endpoint.socketPath,
         };
