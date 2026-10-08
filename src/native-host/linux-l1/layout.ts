@@ -4,7 +4,7 @@
  * bound in, and which file systems below the home are layered.
  */
 import { createHash } from "node:crypto";
-import { lstat, readdir, readFile, realpath } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readFile, realpath, utimes } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isWithin, type HiddenEntry } from "./bwrap-args.js";
@@ -194,3 +194,96 @@ export function defaultHome(env: Readonly<Record<string, string | undefined>>): 
 }
 
 export { kindOf };
+
+/** A directory of the group layer: its path relative to the layered root, mode and times on the host. */
+export interface GroupLayerDir {
+  readonly relative: string;
+  readonly mode: number;
+  readonly atimeMs: number;
+  readonly mtimeMs: number;
+}
+
+/** Upper bound of the directories one group-layer scan visits (breadth first: the shallow ones first). */
+export const GROUP_LAYER_MAX_DIRS = 20_000;
+
+/**
+ * The directories below `root` that the private layer cannot copy up, and
+ * their ancestors (AD-20 point 7): owned by the user (`uid`) but with a group
+ * other than `gid`, the one group mapped into the sandbox's user namespace
+ * (bubblewrap maps the caller's uid and gid only). overlayfs refuses to copy
+ * up an inode whose owner or group has no mapping in the mounter's namespace
+ * (EOVERFLOW, "Value too large for defined data type"), so nothing can be
+ * created below such a directory in the sandbox although the user can write
+ * there on the host: e.g. ~/.docker of group docker on the GitHub runners,
+ * where `docker buildx` fails to create ~/.docker/buildx.
+ *
+ * Directories of other owners are neither listed nor entered: the user's
+ * permissions there would change if they appeared as the user's own. Symbolic
+ * links are not followed, other file systems (layered separately) and the
+ * `skip` subtrees (the workspace, mounted above the layer) are not entered.
+ * Unreadable directories are skipped. At most `maxDirs` directories are visited.
+ */
+export async function groupLayerDirs(
+  root: string,
+  options: { readonly uid: number; readonly gid: number; readonly skip?: readonly string[]; readonly maxDirs?: number },
+): Promise<GroupLayerDir[]> {
+  const maxDirs = options.maxDirs ?? GROUP_LAYER_MAX_DIRS;
+  const skip = options.skip ?? [];
+  let rootStat;
+  try {
+    rootStat = await lstat(root);
+  } catch {
+    return [];
+  }
+  if (!rootStat.isDirectory()) return [];
+  const dev = rootStat.dev;
+  const found = new Map<string, GroupLayerDir>();
+  // Every queued directory is owned by the user; its ancestors are too (only those are entered).
+  const queue: { abs: string; rel: string; chain: GroupLayerDir[] }[] = [{ abs: root, rel: "", chain: [] }];
+  for (let next = 0; next < queue.length && next < maxDirs; next++) {
+    const dir = queue[next]!;
+    let names: string[];
+    try {
+      names = (await readdir(dir.abs, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      const abs = path.join(dir.abs, name);
+      if (skip.some((s) => isWithin(s, abs))) continue;
+      const st = await lstat(abs).catch(() => undefined);
+      if (!st?.isDirectory() || st.dev !== dev || st.uid !== options.uid) continue;
+      const rel = dir.rel ? `${dir.rel}/${name}` : name;
+      const entry: GroupLayerDir = { relative: rel, mode: st.mode & 0o7777, atimeMs: st.atimeMs, mtimeMs: st.mtimeMs };
+      const chain = [...dir.chain, entry];
+      if (st.gid !== options.gid) for (const c of chain) found.set(c.relative, c);
+      queue.push({ abs, rel, chain });
+    }
+  }
+  return [...found.values()].sort((a, b) => a.relative.split("/").length - b.relative.split("/").length);
+}
+
+/**
+ * Create the group layer at `dest` (a fresh, empty directory is created): an
+ * empty directory owned by the user and the mapped group for every entry of
+ * `dirs`, with the host's mode and times. It is mounted as a lower layer
+ * directly above the real file system (bwrap-args.ts), so the private layer
+ * copies these directories up from it (owner and group mapped) and the
+ * directory contents still come from the real file system below: nothing is
+ * copied, the user's later changes stay visible as for any lower layer, and
+ * the upper layer's whiteouts and opaque directories still hide what they
+ * hide. Returns false (and creates nothing) when `dirs` is empty.
+ */
+export async function createGroupLayer(dest: string, dirs: readonly GroupLayerDir[]): Promise<boolean> {
+  if (dirs.length === 0) return false;
+  await mkdir(dest, { recursive: true, mode: 0o700 });
+  // Parents first (dirs is sorted by depth); modes and times last and deepest first, so that
+  // neither a read-only mode nor a child's creation interferes.
+  for (const d of dirs) await mkdir(path.join(dest, d.relative), { recursive: true, mode: 0o700 });
+  for (const d of [...dirs].reverse()) {
+    const p = path.join(dest, d.relative);
+    await chmod(p, d.mode);
+    await utimes(p, d.atimeMs / 1000, d.mtimeMs / 1000);
+  }
+  return true;
+}
