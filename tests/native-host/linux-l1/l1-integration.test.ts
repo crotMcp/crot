@@ -8,7 +8,7 @@
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -20,7 +20,7 @@ import { apparmorDenials, assertAvailable, ctx, l1Fixture, type L1Fixture } from
 import { isLinux, l1Required } from "./l1-support.js";
 
 const run = isLinux && l1Required;
-const { label, bwrap: bwrapProfile, payload: payloadProfile } = profileNames();
+const { label, payload: payloadProfile } = profileNames();
 
 /** The browser of the headless Chromium checks (AD-20 point 1), if the runner image has one. */
 const browser = isLinux
@@ -363,70 +363,136 @@ describe.skipIf(!run)("L1 on this host (network on)", () => {
     120_000,
   );
 
-  // E1 (WP-23a, Chromium on Ubuntu 24.04): the labels the confined processes actually run under,
-  // read from the host, next to the host's own AppArmor profile "chrome". Whatever the label,
-  // every process of the command stays confined by both L1 profiles.
+  /** Runs tests/native-host/linux-l1/fixtures/browser-cdp.mjs inside L1 with the installed browser. */
+  const driveBrowser = async (name: string, extra: string[] = []) => {
+    const dir = path.join(f.workspace, name);
+    await mkdir(dir, { recursive: true });
+    const driver = path.join(dir, "browser-cdp.mjs");
+    await writeFile(driver, await readFile(new URL("./fixtures/browser-cdp.mjs", import.meta.url)));
+    const quoted = [process.execPath, driver, browser!, path.join(dir, "profile"), ...extra].map((a) => `'${a}'`);
+    const watched = await watchLabels(f.sh(quoted.join(" "), 150_000));
+    const line = watched.result.stdout.trim().split("\n").pop() ?? "";
+    let session: Record<string, unknown> = {};
+    try {
+      session = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      session = { error: `no result: ${watched.result.stdout.slice(-500)} ${watched.result.stderr.slice(-1500)}` };
+    }
+    return { ...watched, session, dir };
+  };
+  /** Every recorded process runs under exactly the L1 label, and AppArmor refused nothing between them. */
+  const expectL1Only = (processes: string[], denials: string[]) => {
+    const browserProcesses = processes.filter((p) => /^(chrome|chromium|chrome_crashpad|msedge|brave)/.test(p));
+    expect(browserProcesses.length, processes.join("\n")).toBeGreaterThan(1);
+    if (!apparmor) return;
+    for (const p of processes) expect(p.split(" | ").pop(), p).toBe(`${label} (enforce)`);
+    // Refusals towards the host (e.g. the session bus) are the boundary; refusals between the
+    // browser's own processes would break it, and there are none.
+    expect(denials.filter((d) => /peer="(chrome|crot-l1)/.test(d))).toEqual([]);
+  };
+
+  // AD-20 point 1 (headless browsers stay supported): the browser installed on the runner, from its
+  // system path (/opt/google/chrome/chrome on the x64 images, which Ubuntu 24.04's own AppArmor
+  // profile "chrome" attaches to), driven over the DevTools protocol inside L1.
   it.skipIf(!browser)(
-    "Chromium's processes keep both L1 profiles in their label (E1: actual labels)",
+    "drives the installed browser inside L1: new page, navigation, typing, click, DOM, clean exit",
     async () => {
-      const binary = realpathSync(execFileSync("sh", ["-c", `command -v ${browser}`], { encoding: "utf8" }).trim());
-      const { result, processes, denials } = await watchLabels(
-        f.sh(
-          `read l </proc/self/attr/current; echo "sh label: $l"; ${browser} ${browserFlags} ${browserPage} >/dev/null 2>&1; echo "browser exit: $?"`,
-          90_000,
-        ),
-      );
-      notice(`E1 ${os.arch()}: labels inside L1`, [
-        `browser: ${browser} -> ${binary}`,
-        ...result.stdout.trim().split("\n"),
-        `confined processes seen from the host (comm | exe | label):`,
+      const { session, processes, denials, result } = await driveBrowser("browser-session");
+      notice(`L1 browser session ${os.arch()}`, [
+        `browser: ${browser} -> ${realpathSync(execFileSync("sh", ["-c", `command -v ${browser}`], { encoding: "utf8" }).trim())}`,
+        `session: ${JSON.stringify({ ...session, dom: undefined, stderr: undefined })}`,
+        "confined processes seen from the host (comm | exe | label):",
         ...processes,
         ...hostChromeProfile(),
-        `AppArmor denials during the run: ${denials.length}`,
-        ...denials.filter((d) => /comm="chrome|peer="chrome/.test(d)).slice(0, 12),
+        `AppArmor denials during the session: ${denials.length}`,
+        ...denials.slice(0, 12),
       ]);
-      expect(result.stdout).toContain(`sh label: ${label}`);
-      const browserProcesses = processes.filter((p) => /^(chrome|chromium|chrome_crashpad)/.test(p));
-      expect(browserProcesses.length, processes.join("\n")).toBeGreaterThan(0);
-      for (const p of processes) {
-        expect(p).toContain(`${bwrapProfile}//`);
-        expect(p).toContain(`&${payloadProfile}`);
+      expect(session.error, `${JSON.stringify(session)}\n${result.stderr.slice(-1500)}`).toBeUndefined();
+      expect(session.firstTitle).toBe("one");
+      expect(session.typed).toBe("typed");
+      expect(session.url).toBe("/two?v=typed");
+      expect(session.dom).toContain('<p id="x">crot-l1</p>');
+      expect(session.exit).toEqual({ code: 0, signal: null });
+      expectL1Only(processes, denials);
+      // Nothing of the browser outlives the session (the sandbox ends with its command).
+      let left: string[] = [];
+      for (let i = 0; i < 50; i++) {
+        const now = new Set<string>();
+        confinedProcesses(now);
+        left = [...now].filter((p) => /^(chrome|chrome_crashpad)/.test(p));
+        if (left.length === 0) break;
+        await new Promise((r) => setTimeout(r, 100));
       }
+      expect(left).toEqual([]);
     },
-    120_000,
+    200_000,
   );
 
-  // E2 (WP-23a): the same browser binary at a path no host AppArmor profile attaches to (a copy in
-  // the workspace), started the same way inside L1. The policy and the sandbox are unchanged.
+  // The browser's own process tree is inside the same boundary as every confined command: a probe
+  // started by the browser for each renderer (--renderer-cmd-prefix, a child of the browser process)
+  // checks the CROT secrets and state, the control/runtime directory, the Docker daemon socket,
+  // nested user namespaces, a host abstract socket and writes outside the workspace.
   it.skipIf(!browser)(
-    "runs the same headless Chromium from a path without a host profile (E2)",
+    "keeps the browser's process tree inside the L1 boundary (secrets, state, control, Docker, userns, writes)",
     async () => {
-      const binary = realpathSync(execFileSync("sh", ["-c", `command -v ${browser}`], { encoding: "utf8" }).trim());
-      const dir = path.dirname(binary);
-      const copy = path.join(f.workspace, "e2-browser");
-      expect(spawnSync("cp", ["-a", dir, copy], { encoding: "utf8", timeout: 120_000 }).status).toBe(0);
-      try {
-        const exe = path.join(copy, existsSync(path.join(dir, "chrome")) ? "chrome" : path.basename(binary));
-        const { result, processes, denials } = await watchLabels(f.sh(`${exe} ${browserFlags} ${browserPage}`, 90_000));
-        notice(`E2 ${os.arch()}: browser copy inside L1`, [
-          `copy of ${dir} at ${copy}, started as ${exe}`,
-          `exit ${result.exitCode}; DOM printed: ${result.stdout.includes('<p id="x">crot-l1</p>')}`,
-          `confined processes seen from the host (comm | exe | label):`,
-          ...processes,
-          `AppArmor denials during the run: ${denials.length}`,
-          ...denials.filter((d) => /comm="chrome|peer="chrome/.test(d)).slice(0, 12),
-        ]);
-        expect(
-          result.stdout,
-          `exit ${result.exitCode}; denials:\n${denials.join("\n")}\nstderr: ${result.stderr.slice(0, 2000)}`,
-        ).toContain('<p id="x">crot-l1</p>');
-        for (const p of processes)
-          expect(p.replace(/ \([a-z]+\)$/, "")).toMatch(new RegExp(`\\| ${label.replace(/[/&]/g, "\\$&")}$`));
-      } finally {
-        await rm(copy, { recursive: true, force: true });
+      const dir = path.join(f.workspace, "browser-probe");
+      await mkdir(dir, { recursive: true });
+      const escape = path.join(f.home, `.crot-browser-probe-${process.pid}`);
+      const probe = path.join(dir, "probe.sh");
+      const connect = `'${process.execPath}' -e "require('net').connect('\\0${abstractName}').on('connect',()=>{console.log('LEAK-abstract');process.exit(0)}).on('error',e=>{console.log('abstract-'+e.code);process.exit(0)})"`;
+      await writeFile(
+        probe,
+        [
+          "#!/bin/sh",
+          `out='${dir}'/probe-$$.txt`,
+          "{",
+          '  read l </proc/self/attr/current; echo "label: $l"',
+          "  grep NoNewPrivs /proc/self/status",
+          `  cat '${f.canary}' >/dev/null 2>&1 && echo LEAK-canary || echo canary-hidden`,
+          `  ls '${f.stateDir}' >/dev/null 2>&1 && echo LEAK-state || echo state-hidden`,
+          `  cat '${keyringCanary}' >/dev/null 2>&1 && echo LEAK-keyring || echo keyring-hidden`,
+          `  [ -e '${runtimeDir}/crot-it-bus-${process.pid}' ] && echo LEAK-runtime || echo runtime-private`,
+          "  for s in /run/docker.sock /var/run/docker.sock; do [ -S $s ] && echo LEAK-docker; done; echo docker-hidden",
+          "  unshare -U true 2>/dev/null && echo LEAK-userns || echo userns-refused",
+          `  ${connect}`,
+          `  echo x > /usr/crot-browser-probe 2>/dev/null && echo LEAK-usr || echo usr-read-only`,
+          `  echo x > '${escape}' && echo home-private-layer`,
+          '} > "$out" 2>&1',
+          'exec "$@"',
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      const { session, processes, denials } = await driveBrowser("browser-probe-session", [
+        `--renderer-cmd-prefix=${probe}`,
+      ]);
+      expect(session.error, JSON.stringify(session)).toBeUndefined();
+      expect(session.dom).toContain('<p id="x">crot-l1</p>');
+      const reports = (await readdir(dir)).filter((n) => n.startsWith("probe-"));
+      expect(reports.length).toBeGreaterThan(0);
+      for (const name of reports) {
+        const report = await readFile(path.join(dir, name), "utf8");
+        expect(report).not.toMatch(/LEAK|CANARY-SECRET|KEYRING/);
+        if (apparmor) expect(report).toContain(`label: ${label} (enforce)`);
+        expect(report).toMatch(/NoNewPrivs:\s+1/);
+        for (const ok of [
+          "canary-hidden",
+          "state-hidden",
+          "keyring-hidden",
+          "runtime-private",
+          "docker-hidden",
+          "userns-refused",
+          "usr-read-only",
+          "home-private-layer",
+        ])
+          expect(report, report).toContain(ok);
+        expect(report).toMatch(/abstract-E[A-Z]+/);
       }
+      // The probe's home write went to the sandbox's private layer, never to the real home.
+      expect(existsSync(escape)).toBe(false);
+      expectL1Only(processes, denials);
     },
-    300_000,
+    200_000,
   );
 });
 
