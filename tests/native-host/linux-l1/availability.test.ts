@@ -7,7 +7,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -328,11 +328,21 @@ describe.skipIf(!posix)("LinuxConfinement: the first failing check is the reason
 });
 
 describe.skipIf(!posix)("the policy and the install helper", () => {
-  const render = (abi: string) => {
+  // A host without AppArmor profiles of its own unless a test gives one.
+  const render = (abi: string, host: Record<string, string> = {}) => {
     const out = path.join(dir, `policy-${abi}`);
-    execFileSync("bash", [path.join(repo, "scripts/l1-install.sh"), "render-policy", abi, out]);
+    execFileSync("bash", [path.join(repo, "scripts/l1-install.sh"), "render-policy", abi, out], {
+      env: {
+        ...process.env,
+        CROT_L1_APPARMOR_DIR: path.join(dir, "no-apparmor.d"),
+        CROT_L1_APPARMOR_PROFILES: path.join(dir, "no-profiles"),
+        ...host,
+      },
+    });
     return readFile(out, "utf8");
   };
+  const profileBody = (policy: string, name: string) =>
+    policy.slice(policy.indexOf(`profile ${name} `)).split("\n}\n")[0] ?? "";
 
   it("renders three profiles of <v>, attached to the CROT path only, per ABI", async () => {
     const { bwrap, payload, container, label } = profileNames(L1_VERSION);
@@ -344,7 +354,12 @@ describe.skipIf(!posix)("the policy and the install helper", () => {
       expect(p).toContain(`profile ${payload} flags=`);
       expect(p).toContain(`profile ${container} flags=`);
       expect(p).not.toMatch(/^profile .*\/usr\/bin\/bwrap/m);
-      expect(p).toContain(`allow pix /** -> &${label},`);
+      expect(profileBody(p, bwrap)).toContain(`allow pix /** -> &${label},`);
+      // The payload profile inherits on exec: no profile lookup by path, the label never changes.
+      const payloadBody = profileBody(p, payload);
+      expect(payloadBody).toContain("allow file rwlkmix /{**,},");
+      expect(payloadBody).not.toMatch(/\bp?c?ix?\b[^\n]*->/);
+      expect(p).not.toMatch(/^\s*allow ix "/m);
       // Unix peers: each profile of the stack on its own (the kernel matches a stacked
       // peer label profile by profile), never the compound label; the payload and container
       // profiles have no bare network rule, which would grant every Unix socket operation.
@@ -366,6 +381,79 @@ describe.skipIf(!posix)("the policy and the install helper", () => {
       .filter((l) => !l.trim().startsWith("#"))
       .join("\n");
     expect(rules3).not.toMatch(/userns|mqueue|io_uring/);
+  });
+
+  it("keeps the L1 label for the exact paths of the host's loaded unconfined profiles that grant user namespaces", async () => {
+    const { bwrap, payload, container } = profileNames(L1_VERSION);
+    const etc = path.join(dir, "apparmor.d");
+    await mkdir(path.join(etc, "abstractions"), { recursive: true });
+    const profile = (header: string, body = "  userns,") =>
+      `abi <abi/4.0>,\ninclude <tunables/global>\n${header} {\n${body}\n  include if exists <local/x>\n}\n`;
+    const files: Record<string, string> = {
+      // As Ubuntu 24.04 ships them: included.
+      chrome: profile("profile chrome /opt/google/chrome/chrome flags=(unconfined)"),
+      msedge: profile("profile msedge /opt/microsoft/msedge/msedge flags=(unconfined)"),
+      opera: profile("profile opera /usr/lib/@{multiarch}/opera/opera flags=(unconfined)"),
+      chromium:
+        "@{chromium} = chromium{,-browser}\n" +
+        profile("profile chromium /usr/lib/@{chromium}/@{chromium} flags=(unconfined)"),
+      compass: profile('profile "Some App" "/opt/Some App/some app" flags=(unconfined)'),
+      // Not included: confining (enforce), no userns rule, not loaded, not unconfined when loaded,
+      // a pattern that stays a glob, an unknown variable, CROT's own path, an abstraction.
+      tcpdump: profile("profile tcpdump /usr/bin/tcpdump flags=(attach_disconnected)"),
+      nouserns: profile("profile nouserns /usr/bin/nouserns flags=(unconfined)", "  # userns,"),
+      notloaded: profile("profile notloaded /usr/bin/notloaded flags=(unconfined)"),
+      complain: profile("profile complain /usr/bin/complain flags=(unconfined)"),
+      glob: profile("profile glob /usr/bin/glob* flags=(unconfined)"),
+      unknown: profile("profile unknown /usr/lib/@{nowhere}/unknown flags=(unconfined)"),
+      [`crot-l1-${L1_VERSION}`]: profile(`profile crot-l1-x /usr/lib/crot/l1/x/crot-bwrap flags=(unconfined)`),
+      "abstractions/base": profile("profile abstraction /usr/bin/abstraction flags=(unconfined)"),
+    };
+    for (const [name, text] of Object.entries(files)) await writeFile(path.join(etc, name), text);
+    const loaded = path.join(dir, "profiles");
+    await writeFile(
+      loaded,
+      [
+        "chrome (unconfined)",
+        "msedge (unconfined)",
+        "opera (unconfined)",
+        "chromium (unconfined)",
+        "Some App (unconfined)",
+        "tcpdump (enforce)",
+        "nouserns (unconfined)",
+        "complain (complain)",
+        "glob (unconfined)",
+        "unknown (unconfined)",
+        "crot-l1-x (unconfined)",
+        "abstraction (unconfined)",
+        "",
+      ].join("\n"),
+    );
+    const host = {
+      CROT_L1_APPARMOR_DIR: etc,
+      CROT_L1_APPARMOR_PROFILES: loaded,
+      CROT_L1_MULTIARCH: "x86_64-linux-gnu",
+    };
+    for (const abi of ["4.0", "3.0"]) {
+      const p = await render(abi, host);
+      const rules = [...p.matchAll(/^\s*allow ix "([^"]+)",$/gm)].map((m) => m[1]);
+      expect(rules).toEqual([
+        "/opt/Some App/some app",
+        "/opt/google/chrome/chrome",
+        "/opt/microsoft/msedge/msedge",
+        "/usr/lib/chromium-browser/chromium",
+        "/usr/lib/chromium-browser/chromium-browser",
+        "/usr/lib/chromium/chromium",
+        "/usr/lib/chromium/chromium-browser",
+        "/usr/lib/x86_64-linux-gnu/opera/opera",
+      ]);
+      // Only in crot-l1-<v>: the payload profile inherits on exec anyway, the container profile has
+      // no exec rule.
+      expect(profileBody(p, bwrap).match(/^\s*allow ix "/gm)).toHaveLength(rules.length);
+      expect(profileBody(p, payload)).not.toContain('allow ix "');
+      expect(profileBody(p, container)).not.toContain('allow ix "');
+      expect(p).not.toContain("@HOST_EXEC@");
+    }
   });
 
   it("takes the version and the pinned bubblewrap release from components.ts", () => {
