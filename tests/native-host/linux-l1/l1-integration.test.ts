@@ -231,10 +231,11 @@ describe.skipIf(!run)("L1 on this host (network on)", () => {
     );
     if (!browser) return; // recorded by the workflow: the runner image has Chrome
     const r = await f.sh(
-      `${browser} --headless=new --no-sandbox --disable-gpu --dump-dom 'data:text/html,<p id=x>crot-l1</p>' 2>/dev/null`,
+      `${browser} --headless=new --no-sandbox --disable-gpu --dump-dom 'data:text/html,<p id=x>crot-l1</p>'`,
       90_000,
     );
-    expect(r.stdout).toContain('<p id="x">crot-l1</p>');
+    // Chromium's own stderr (and how it ended) names the cause when it prints nothing.
+    expect(r.stdout, `exit ${r.exitCode}; stderr: ${r.stderr.slice(-4000)}`).toContain('<p id="x">crot-l1</p>');
   }, 120_000);
 });
 
