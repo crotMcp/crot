@@ -374,7 +374,9 @@ describe.skipIf(!(isLinux && l1Required))("group layer with the installed crot-b
     const lower = path.join(base, "lower");
     await mkdir(path.join(lower, "cfg"), { recursive: true });
     await writeFile(path.join(lower, "cfg", "config.json"), "{}");
-    await chown(path.join(lower, "cfg"), process.getuid!(), g); // as ~/.docker (group docker) on the runners
+    // As ~/.docker and ~/.docker/config.json (group docker) on the runners.
+    await chown(path.join(lower, "cfg"), process.getuid!(), g);
+    await chown(path.join(lower, "cfg", "config.json"), process.getuid!(), g);
     const script = 'mkdir "$1/cfg/buildx" && echo new > "$1/cfg/buildx/f" && cat "$1/cfg/config.json" && echo ok';
     const run = async (group: string | undefined, sh = script) => {
       const upper = await mkdtemp(path.join(base, "upper-"));
