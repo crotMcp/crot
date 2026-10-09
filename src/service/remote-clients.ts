@@ -235,15 +235,18 @@ export class RemoteClientRegistry {
     const { revokedAt: _revoked, ...rest } = existing;
     const regranted: RemoteClientRecord = { ...rest, grantedAt };
     // Written before it takes effect: no request is admitted on a re-grant that is not on disk.
+    // It takes effect inside the same queued write, so a background write queued meanwhile
+    // serializes the re-granted state rather than the revoked one.
     const next = new Map(this.clients).set(key, regranted);
     try {
-      await this.write(next);
+      await this.write(next, () => {
+        const { revokedAt: _r, ...current } = this.clients.get(key) ?? regranted;
+        this.clients.set(key, { ...current, grantedAt });
+      });
     } catch (error) {
       this.onError(error);
       return { ok: false, reason: "write_failed" };
     }
-    const { revokedAt: _r, ...current } = this.clients.get(key) ?? regranted;
-    this.clients.set(key, { ...current, grantedAt });
     return { ok: true, persisted: true, grantedAt };
   }
 
@@ -268,12 +271,18 @@ export class RemoteClientRegistry {
     this.write().catch((error: unknown) => this.onError(error));
   }
 
-  private write(snapshot?: ReadonlyMap<string, RemoteClientRecord>): Promise<void> {
+  /**
+   * Queue a write of `snapshot` (default: the current state). `written` runs once it is on
+   * disk, before the next queued write starts.
+   */
+  private write(snapshot?: ReadonlyMap<string, RemoteClientRecord>, written?: () => void): Promise<void> {
     const run = async () => {
-      if (this.file === undefined || this.privateFiles === undefined) return;
-      const text =
-        JSON.stringify({ version: FORMAT_VERSION, clients: sortByLastSeen(snapshot ?? this.clients) }) + "\n";
-      await writeStateFile(this.file, text, this.privateFiles);
+      if (this.file !== undefined && this.privateFiles !== undefined) {
+        const text =
+          JSON.stringify({ version: FORMAT_VERSION, clients: sortByLastSeen(snapshot ?? this.clients) }) + "\n";
+        await writeStateFile(this.file, text, this.privateFiles);
+      }
+      written?.();
     };
     const next = this.writing.catch(() => undefined).then(run);
     this.writing = next.catch(() => undefined);

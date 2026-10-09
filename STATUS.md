@@ -36,7 +36,15 @@ ARCHITECTURE.md §27 AD-21 with its implementation note). User docs:
   Provider-side revocation from the tray is a hook reporting "not
   available" until WP-36.
 - **Environment:** no release environment is pinned (WP-38/WP-39); a
-  development environment comes from `CROT_IDENTITY_DEV_ENVIRONMENT`.
+  development environment comes from `CROT_IDENTITY_DEV_ENVIRONMENT`, which
+  every build honours until one is pinned (release-gate item, roadmap §2.6
+  N3).
+- **Review** (independent review of PR #16 against AD-15, AD-21 and the
+  WP-28 card): re-grant now takes effect inside its queued write, so a
+  background write cannot serialize the revoked state after it (hardening,
+  with a regression test); tray "Cancel pairing" message cleaned up; docs
+  list the assumptions not yet verified against live WorkOS, the re-pairing
+  effect on revocations, and the provider-side revocation deferral (N3).
 
 Tests: `tests/identity/` (verifier with real RS256 JWTs and JWKS rotation,
 pairing over a real loopback callback, binding, credential, environment,
@@ -168,7 +176,7 @@ the device credential (`CrotService.tunnelCredential()`).
 | `secrets.store: "auto"` keeps the file fallback once chosen; switching needs `"os"` | AD-18 residual risk |
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
 | Revoking a client's authorization at the identity provider from the tray (best effort after the device-side revocation; hook exists, reports "not available") | WP-36 (CROT account service holds the provider credentials) |
-| No live WorkOS environment exercised yet (tests use an emulated AuthKit environment); release builds pin no identity environment | WP-38 (staging), WP-39 (production) |
+| No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); no release configuration pins an identity environment, so every build honours the development override until then | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
 | Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | OD-4 (AD before WP-29), WP-29, WP-30 |
 | Remote full-control opt-in is recorded only; how it takes effect (per-principal profile; `principalKinds` exists only in approval rules) | AD-19 point 7; WP-31 |
 | Preset `autonomous-browser` (rule set not implemented yet) | WP-31 |

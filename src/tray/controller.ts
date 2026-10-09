@@ -154,10 +154,9 @@ export class TrayController {
     });
   }
 
+  /** Cancel a running pairing; the service refuses (`not_pairing`) when none is in progress. */
   cancelPairing(): Promise<boolean> {
-    return this.action("pairing.cancel", undefined, (r) =>
-      isRecord(r) && r.unchanged === true ? "No pairing was in progress." : "Pairing cancelled.",
-    );
+    return this.action("pairing.cancel", undefined, () => "Pairing cancelled.");
   }
 
   /** Unpair this device (AD-21 point 4 (b)): every remote request ends at once. */

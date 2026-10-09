@@ -224,6 +224,7 @@ Recorded for the WP that owns them; this roadmap does not change any AD.
 | --- | --- | --- |
 | N1 | AD-18 and AD-19 (scope, residual risks, AD-19 point 10) still say "until L1 (WP-23)" / "L1 not available until WP-23". Since AD-20 / WP-23a the tray and `crot_status` report the real L1 state, and the residual risks are closed for confined Linux children only. The AD texts describe the state at their decision; they are not amended silently | WP-23b/c (when the residual risks close on macOS/Windows) or a docs PR with an explicit cross-reference amendment |
 | N2 | WP-34 depends on WP-23a for the Linux L1 components (AD-20 point 3, D4), but not on WP-23b/c. Whether macOS (Seatbelt profile) and Windows (OD-6 mechanism) need installer-shipped components is unknown until OD-9 (macOS/Windows) and OD-6 are decided | OD-9 / OD-6 decisions; add WP-23b/c to WP-34's dependencies if they ship components |
+| N3 | WP-28 card scope lists "provider-side revocation"; AD-21 point 4 makes it best effort and forbids a provider client secret on devices, so the device cannot call the provider. WP-28 ships a hook reporting "not available"; the AD-21 point 4 (a) bound holds without it. Also: no release configuration pins an identity environment yet, so the development override (`CROT_IDENTITY_DEV_ENVIRONMENT`) is honoured by every build until it is pinned (AD-21 point 5) | WP-36 (provider-side revocation through the account service); WP-38/WP-39 pin the environment and WP-34 ships only pinned builds — release-gate item before G4 |
 
 ---
 
@@ -342,7 +343,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
 | WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | Not started |
 | WP-27 | 2B | Browser: per-tab queue, explicit `tabId` for remote, `openedBy` | WP-24 | S–M | yes | with 25, 26 | Not started |
-| WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | **Done** (AD-21; in review: crot-mcp PR #16) |
+| WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | **In review** (AD-21; crot-mcp PR #16; Done on merge) |
 | WP-29 | 3 | Cloud Relay v1 | WP-28 (verifier facts), OD-3 (decided: AD-21), OD-4 | XL | yes | with phase 1/2/2B | Not started |
 | WP-30 | 3 | Device tunnel adapter | WP-20, WP-28, WP-29, OD-5 | M–L | yes | — | Not started |
 | WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a/b/c, WP-30, OD-7 | M | yes | — | Not started |

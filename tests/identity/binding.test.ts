@@ -246,4 +246,22 @@ describe("remote client re-grant", () => {
     expect(reopened.list()[0]).toMatchObject({ grantedAt: new Date(now).toISOString() });
     expect(reopened.list()[0]).not.toHaveProperty("revokedAt");
   });
+
+  it("a background write queued during a re-grant does not revert it on disk", async () => {
+    const file = path.join(dirs.outside, REMOTE_CLIENTS_FILE_NAME);
+    const reg = await RemoteClientRegistry.open(file, privateFiles);
+    const deviceId = generateDeviceId();
+    const id = { accountId: "user_01", deviceId, clientId: "client-a" };
+    reg.seen(id);
+    await reg.revoke(id);
+    const pending = reg.regrant(id);
+    // A new client is seen while the re-grant is being written: its background write is queued after it.
+    reg.seen({ accountId: "user_01", deviceId, clientId: "client-b" });
+    expect(await pending).toMatchObject({ ok: true, persisted: true });
+    await reg.flush();
+    expect(reg.isRevoked(id)).toBe(false);
+    const reopened = await RemoteClientRegistry.open(file, privateFiles);
+    expect(reopened.isRevoked(id)).toBe(false);
+    expect(reopened.list()).toHaveLength(2);
+  });
 });

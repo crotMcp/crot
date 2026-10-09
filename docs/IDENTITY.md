@@ -142,6 +142,11 @@ are HTTPS only, without redirects, with size and time limits.
   audited first, written before it takes effect. The client starts with a
   clean exposure; access tokens issued before or in the second of the
   re-grant are refused (401 `invalid_token`), so the client signs in again.
+- Revocations and re-grants are kept per account, device id and client.
+  Unpairing and pairing again creates a **new device id** (a new resource,
+  AD-15 point 8): clients revoked for the previous device id are not revoked
+  for the new one, but they need new tokens for the new resource and appear
+  as new clients there.
 - **At the provider** (authorized application or account removed in
   WorkOS): the provider stops issuing tokens; tokens already issued end at
   their expiry (≤ 5 minutes configured, ≤ 15 minutes device ceiling). Asking
@@ -167,3 +172,31 @@ signing.
 - No staging or production environment exists yet (WP-38, WP-39); the tests
   run against an in-process emulation of an AuthKit environment
   (`tests/identity/test-authorization-server.ts`).
+- **Release pinning.** No release configuration pins an identity environment
+  yet, so every build today honours `CROT_IDENTITY_DEV_ENVIRONMENT`. AD-21
+  point 5 requires the environment to be pinned in release configuration;
+  WP-38/WP-39 must pin it (and WP-34 must ship only builds that pin it)
+  before any release build. Once pinned, the variable is ignored (tested).
+- **Provider-side revocation** (asking WorkOS to revoke a client's
+  authorization from the tray, AD-21 point 4 "best effort") is not part of
+  WP-28: AD-21 point 4 allows no provider client secret on a device, so it
+  needs the CROT account service (WP-36). The bound in AD-21 point 4 (a)
+  holds without it. Recorded in roadmap §2.6 N3.
+
+### Not yet verified against a live WorkOS environment
+
+The emulation is protocol-level (real RS256 signatures, JWKS rotation and
+refetch, PKCE S256 verification, a real loopback HTTP callback, RFC 8707
+`resource` handling with `invalid_target`); it is not a copy of WorkOS. The
+following assumptions are checked only against it and must be confirmed in
+WP-38:
+
+- the location and content of the AuthKit authorization server metadata and
+  JWKS for a custom domain;
+- AuthKit access tokens carrying `client_id` (mapped to `clientId`), and
+  `aud` equal to the RFC 8707 `resource` requested;
+- a native public client using PKCE without a client secret, with a loopback
+  redirect URI on any port (RFC 8252 §7.3);
+- `token_type` `Bearer`, token lifetime as configured (≤ 5 minutes), and the
+  claims used for `sub`/`accountId`;
+- whether AuthKit returns `iss` in authorization responses (RFC 9207, above).
