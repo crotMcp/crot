@@ -50,9 +50,15 @@ steps 10–11 and step 21 — Git read and write):
   (approval preset, remote mode, remote full-control opt-in — recorded only —,
   exposure reset and revocation of remote clients); see
   [`docs/TRAY.md`](docs/TRAY.md)
+- Identity and device binding (WP-28): pairing the device with a CROT account
+  from the tray (OAuth sign-in with PKCE; a new device id and Ed25519 device
+  key per pairing), the device's OAuth access-token verifier for the relay
+  entry point (AD-21), unpairing and re-granting revoked clients; release
+  builds pin no identity environment yet (staging WP-38), development uses
+  `CROT_IDENTITY_DEV_ENVIRONMENT`; see [`docs/IDENTITY.md`](docs/IDENTITY.md)
 
 Not yet implemented: command confinement L1 on macOS and Windows (Linux: [L1](docs/L1.md)), Docker operations beyond `docker.use` (build, pull, push, run, exec), Git network operations (fetch, pull, push), OS-level network egress control for processes and containers, remote (non-loopback)
-exposure and MCP authorization (OAuth/OIDC), installer and autostart (including packaging of the tray), account/licensing layer.
+exposure (Cloud Relay WP-29, device tunnel WP-30), installer and autostart (including packaging of the tray), account/licensing layer.
 Firefox is not supported.
 
 **Goal and plan.** The v1 goal (remote MCP clients reach the local computer and
@@ -279,7 +285,7 @@ kind:
 | --- | --- |
 | stdio | `{ id: "local-user", kind: "local", transport: "stdio" }` |
 | loopback HTTP (local token) | `{ id: "local-token:<fingerprint>", kind: "local", transport: "http", authMethod: "local-token", client }` |
-| Cloud Relay (planned, WP-28/WP-30; token model: ARCHITECTURE.md §27 AD-21) | `{ id: <sub>, kind: "remote", transport: "relay", authMethod: "oauth", accountId: <sub>, deviceId: <from aud>, clientId: <client_id> }` |
+| Cloud Relay (verifier: WP-28, [`docs/IDENTITY.md`](docs/IDENTITY.md); relay and tunnel planned, WP-29/WP-30; token model: ARCHITECTURE.md §27 AD-21) | `{ id: <sub>, kind: "remote", transport: "relay", authMethod: "oauth", accountId: <sub>, deviceId: <from aud>, clientId: <client_id> }` |
 
 The principal is recorded in every audit event. Credentials never reach Core or
 the audit log. `kind: "remote"` is reserved for relay clients, identified by

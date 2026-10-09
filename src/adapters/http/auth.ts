@@ -12,17 +12,18 @@ import type { PrivateFileProtection } from "../../core/platform/types.js";
  * rejects it. It establishes *who* is calling; it never decides *what* the
  * caller may do: authorization stays with the Core PermissionEngine.
  *
- * The shape matches the SDK's OAuth token verifier, so a future OAuth/OIDC
- * resource-server verifier (user/device identity, commercial accounts) can
- * replace the provisional local token without changes to the HTTP server,
- * the MCP tools, Core or the PermissionEngine.
+ * The shape matches the SDK's OAuth token verifier. The relay entry point's
+ * OAuth access-token verifier (src/identity/verifier.ts, AD-21, WP-28)
+ * implements it; neither the HTTP server, the MCP tools, Core nor the
+ * PermissionEngine depend on the identity provider.
  *
  * Conventions for AuthInfo.extra (read by principalFromAuthInfo, AD-15):
  * - subject: stable principal id (falls back to clientId)
- * - authMethod: how the principal was authenticated
+ * - authMethod: how the principal was authenticated; "oauth" only on the
+ *   relay entry point, never on loopback; "local-token" never on the relay
  * - accountId, deviceId: remote identity, required on the relay entry point
- *   (together with AuthInfo.clientId); a "local-token" credential is never
- *   accepted there.
+ *   (together with AuthInfo.clientId)
+ * - issuedAt: `iat` of an OAuth token (seconds), for the re-grant boundary
  */
 export interface AccessTokenVerifier {
   /** Authentication method recorded on the principal, e.g. "local-token". */

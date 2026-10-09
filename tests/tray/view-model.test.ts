@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { PresentedApproval } from "../../src/core/approvals/types.js";
 import type { ControlOverview } from "../../src/service/protocol.js";
-import { approvalCard, trayView, visibleText } from "../../src/tray/view-model.js";
+import { approvalCard, pairingRow, trayView, visibleText } from "../../src/tray/view-model.js";
 
 /** WP-22 / AD-19 point 4: how the tray presents an approval subject (docs/design/approval-gates.md §6.3). */
 
@@ -150,7 +150,7 @@ describe("trayView", () => {
       detail: "command confinement L1 is not implemented for this operating system",
     },
     cdp: { available: false, reason: "WP-24" },
-    pairing: { available: false, reason: "WP-28" },
+    pairing: { available: false, reason: "no identity environment", state: "unpaired" },
   });
 
   it("shows offline states", () => {
@@ -226,5 +226,55 @@ describe("trayView", () => {
     });
     expect(v.clients[0]!.text).toContain("c[U+200B]");
     expect(v.clients[0]!.clientId).toBe("c\u200b");
+  });
+});
+
+describe("pairingRow (WP-28)", () => {
+  const environment = {
+    id: "dev",
+    kind: "development" as const,
+    issuer: "https://auth.dev.example",
+    relayHost: "relay.dev.example",
+    rfc9207: "not_advertised" as const,
+  };
+
+  it("offers the one action that applies", () => {
+    expect(pairingRow(undefined)).toMatchObject({ state: "offline", action: "none" });
+    expect(pairingRow({ available: false, reason: "no environment", state: "unpaired" })).toMatchObject({
+      action: "none",
+      lines: [expect.stringMatching(/not available: no environment/), expect.stringMatching(/not paired/)],
+    });
+    expect(pairingRow({ available: true, state: "unpaired", environment }).action).toBe("pair");
+    const pending = pairingRow({
+      available: true,
+      state: "pairing",
+      environment,
+      pending: { authorizationUrl: "https://auth.dev.example/oauth2/authorize?x=1", expiresAt: "2026-01-01T00:10:00Z" },
+    });
+    expect(pending.action).toBe("cancel");
+    expect(pending.lines.join("\n")).toMatch(/Waiting for sign-in/);
+    expect(pairingRow({ available: true, state: "unavailable", environment, error: "malformed" }).action).toBe(
+      "unpair",
+    );
+  });
+
+  it("shows the paired device, its URI and the environment, with visible characters only", () => {
+    const row = pairingRow({
+      available: true,
+      state: "paired",
+      environment,
+      device: {
+        deviceId: "abcdefghijklmnopqrstuvwxya",
+        accountId: "user\u202e01",
+        environment: "dev",
+        pairedAt: "2026-01-01T00:00:00Z",
+        resourceUri: "https://relay.dev.example/d/abcdefghijklmnopqrstuvwxya/mcp",
+      },
+    });
+    expect(row.action).toBe("unpair");
+    const text = row.lines.join("\n");
+    expect(text).toContain("RFC 9207 not advertised");
+    expect(text).toContain("https://relay.dev.example/d/abcdefghijklmnopqrstuvwxya/mcp");
+    expect(text).toContain("user[U+202E]01");
   });
 });

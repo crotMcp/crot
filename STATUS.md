@@ -7,11 +7,52 @@ package PR updates this file.
 
 ## In review
 
-Nothing. The last audit of `main` (`22abf89`, 2026-10-08) synchronized this
-file and `CROT_IMPLEMENTATION_ROADMAP.md` §2, §6.1 and §8 with the merged
-state. Since then only documentation changed: PR #12 (`74352c2`, the audit
-itself) and PR #14 (`ff571c2`, ARCHITECTURE.md §27 AD-21, decides OD-2 and
-OD-3); no code, test or CI change. Current `main`: `ff571c2`.
+**WP-28 — Identity and device binding** (crot-mcp PR #16, branch
+`wp-28/identity-device-binding`, based on `main` at `5b91c82`;
+ARCHITECTURE.md §27 AD-21 with its implementation note). User docs:
+[`docs/IDENTITY.md`](docs/IDENTITY.md), [`docs/TRAY.md`](docs/TRAY.md),
+[`docs/SERVICE.md`](docs/SERVICE.md), README.
+
+- **Verifier** (`src/identity/verifier.ts`) behind `AccessTokenVerifier` for
+  the relay entry point, in the order of AD-21 point 3: RS256 with JWKS from
+  the issuer's RFC 8414 metadata (bounded cache and refetch), `iss`, a single
+  `aud` = the device's canonical URI, `exp` (no leeway) / `nbf` / `iat`
+  (60 s skew, 15 min ceiling), `sub` = paired account, `client_id`. Only
+  verified facts reach `AuthInfo`; `authMethod: "oauth"` is accepted only on
+  the relay entry point, the local token never there. 401s carry
+  `WWW-Authenticate` with the device's PRM URL.
+- **Device binding** (`src/service/device-binding.ts`): paired account,
+  device id (16 random bytes, base32), environment; Ed25519 device key in
+  the secret store (`device-key`); protected private state, fail closed; a
+  new device id and key per pairing; tunnel credential (domain-separated
+  challenge signature) only for a paired device in its environment.
+- **Pairing** (`src/identity/pairing.ts`): authorization code + PKCE S256,
+  loopback redirect, `resource` = the new device's canonical URI; the token
+  is verified like a remote request's, `sub` becomes the account; audited
+  first; tray "Pair this device" opens the sign-in in the browser.
+- **Revocation:** unpair (immediate, ends requests in flight, removes the
+  key); re-grant of a revoked client (audited first, persisted before
+  effect, older tokens refused); admission also checks the binding.
+  Provider-side revocation from the tray is a hook reporting "not
+  available" until WP-36.
+- **Environment:** no release environment is pinned (WP-38/WP-39); a
+  development environment comes from `CROT_IDENTITY_DEV_ENVIRONMENT`, which
+  every build honours until one is pinned (release-gate item, roadmap §2.6
+  N3).
+- **Review** (independent review of PR #16 against AD-15, AD-21 and the
+  WP-28 card): re-grant now takes effect inside its queued write, so a
+  background write cannot serialize the revoked state after it (hardening,
+  with a regression test); tray "Cancel pairing" message cleaned up; docs
+  list the assumptions not yet verified against live WorkOS, the re-pairing
+  effect on revocations, and the provider-side revocation deferral (N3).
+
+Tests: `tests/identity/` (verifier with real RS256 JWTs and JWKS rotation,
+pairing over a real loopback callback, binding, credential, environment,
+re-grant boundary) against an in-process emulated AuthKit environment
+(`tests/identity/test-authorization-server.ts`); the WP-22 relay tests now
+pair the device and use the real verifier (`tests/service/tray-control.test.ts`,
+new WP-28 block covering the AD-21 point 8 device column), tray controller
+and view model. No live WorkOS environment was available for this PR.
 
 ## Last completed
 
@@ -98,24 +139,21 @@ approval gates, remote exposure reset) and HTTP relay admission.
 
 Before: **WP-21 — Secret storage and child-process environment allowlist**
 (PR #1, `881663b`; AD-18), **WP-20 — Supervised service, thin stdio
-shim, local control channel** (PR #16, `92cce3b`; AD-17,
+shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 [`docs/SERVICE.md`](docs/SERVICE.md)).
 
 ## Next
 
-**Recommended next WP: WP-28 — Identity and device binding**
-(roadmap §8.4). Critical path: yes — chain A (WP-20…WP-22, WP-23a) is done,
-and WP-28 → WP-29 → WP-30 → WP-31 → WP-32 → WP-33 → WP-40 is the longest
-remaining chain. Dependencies satisfied: WP-17 (AD-15), WP-21 (device key
-storage), WP-22 (pairing UI placeholder), the `AccessTokenVerifier` seam and
-`relay` entry point (WP-19). No open decision blocks it: **OD-2** (identity provider and token
-claims) and **OD-3** (device resource URI) are decided by ARCHITECTURE.md
-§27 AD-21; its RFC 9207 open condition must be met before Gate G4.
+**Next: the OD-4 decision (relay–device tunnel protocol, an AD), then WP-29 —
+Cloud Relay v1** (roadmap §8.4). Critical path: yes — chain B continues
+WP-29 → WP-30 → WP-31 → WP-32 → WP-33 → WP-40. WP-28 provides what WP-29
+and WP-30 consume: verifier facts, device id, canonical URI and PRM URL,
+the device credential (`CrotService.tunnelCredential()`).
 
 | WP | What | State |
 | --- | --- | --- |
-| WP-28 → WP-29 | Identity provider and verifier, then Cloud Relay | recommended next; OD-2 and OD-3 decided (AD-21); OD-4 is an AD before WP-29 |
-| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to WP-28 |
+| OD-4 → WP-29 | Tunnel protocol AD, then Cloud Relay v1 | next; WP-28 in review; OD-3 decided (AD-21) |
+| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to OD-4/WP-29 |
 | WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13), needed before WP-31 |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
 
@@ -137,14 +175,16 @@ claims) and **OD-3** (device resource URI) are decided by ARCHITECTURE.md
 | AD-18/AD-19 texts still say "until L1 (WP-23)" although Linux is confined since AD-20 | roadmap §2.6 N1 (not amended silently) |
 | `secrets.store: "auto"` keeps the file fallback once chosen; switching needs `"os"` | AD-18 residual risk |
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
-| Re-granting a revoked remote client; revoking tokens or devices at the identity provider | WP-28 |
+| Revoking a client's authorization at the identity provider from the tray (best effort after the device-side revocation; hook exists, reports "not available") | WP-36 (CROT account service holds the provider credentials) |
+| No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); no release configuration pins an identity environment, so every build honours the development override until then | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
+| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | OD-4 (AD before WP-29), WP-29, WP-30 |
 | Remote full-control opt-in is recorded only; how it takes effect (per-principal profile; `principalKinds` exists only in approval rules) | AD-19 point 7; WP-31 |
 | Preset `autonomous-browser` (rule set not implemented yet) | WP-31 |
 | Any process of the same OS user can read the control credential and act like the tray | AD-19 residual risk; confined Linux children: closed by WP-23a; macOS, Windows, `full_control` and other processes of the user: open (WP-23b/c) |
 | Tray packaging, signing and autostart (Electron is a dev dependency today) | WP-34 |
-| Identity provider and the token claims carrying the subject, account, device and `clientId` | Decided by ARCHITECTURE.md §27 AD-21 (roadmap OD-2): WorkOS AuthKit; `sub` → principal id and `accountId`, device id in `aud`, `client_id` → `clientId`; implementation WP-28 |
+| Identity provider and the token claims carrying the subject, account, device and `clientId` | Decided by ARCHITECTURE.md §27 AD-21 (roadmap OD-2): WorkOS AuthKit; `sub` → principal id and `accountId`, device id in `aud`, `client_id` → `clientId`; implemented on the device by WP-28 |
 | Exact device resource URI form and PRM location | Decided by AD-21 points 5–6 (roadmap OD-3): `https://<relay-host>/d/<deviceId>/mcp`, PRM at `https://<relay-host>/.well-known/oauth-protected-resource/d/<deviceId>/mcp` (relay: WP-29) |
-| RFC 9207 (`iss` in authorization responses) not provided by the selected provider yet | AD-21 open condition: met before Gate G4 or accepted by a separate AD; does not block WP-28 |
+| RFC 9207 (`iss` in authorization responses) not provided by the selected provider yet | **Still open** — AD-21 open condition: met before Gate G4 or accepted by a separate AD; WP-28 checks `iss` when present but neither requires nor claims it |
 | Revocation at the identity provider reaches the device only through token expiry (≤ 5 min configured, ≤ 15 min device ceiling); device-side revocation is immediate | AD-21 point 4 (accepted bound) |
 | Transport matcher to gate loopback HTTP separately from stdio | ARCHITECTURE.md §26 question 12 (not required for v1) |
 | Relay/tunnel timeouts for gated requests and bounded browser waits | §26 question 13, WP-29 / WP-30 |

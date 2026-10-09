@@ -131,9 +131,12 @@ const RENDERER = `"use strict";
     if (view.connection === "connected") {
       remote.appendChild(button(view.remoteMode ? "Turn remote mode off" : "Turn remote mode on", () => api.action("remote.setMode", { enabled: !view.remoteMode })));
       remote.appendChild(button(view.fullControl ? "Withdraw remote full control opt-in" : "Opt in to remote full control", () => api.action("remote.setFullControl", { enabled: !view.fullControl })));
-      remote.appendChild(button("Pair a device", () => api.action("pairing.start", {})));
+      const pairing = view.pairing;
+      if (pairing.action === "pair") remote.appendChild(button("Pair this device", () => api.action("pairing.start", {}), !pairing.available));
+      if (pairing.action === "cancel") remote.appendChild(button("Cancel pairing", () => api.action("pairing.cancel", {})));
+      if (pairing.action === "unpair") remote.appendChild(button("Unpair this device", () => api.action("device.unpair", {})));
     }
-    for (const n of [view.fullControlNote, view.pairing, ...view.remoteNotes]) if (n) remote.appendChild(el("p", n, "note"));
+    for (const n of [view.fullControlNote, ...view.pairing.lines, ...view.remoteNotes]) if (n) remote.appendChild(el("p", n, "note"));
     const clients = document.getElementById("clients");
     clear(clients);
     for (const c of view.clients) {
@@ -142,7 +145,8 @@ const RENDERER = `"use strict";
       const key = { accountId: c.accountId, deviceId: c.deviceId, clientId: c.clientId };
       const actions = el("div", undefined, "actions");
       actions.appendChild(button("Reset exposure", () => api.action("remote.resetExposure", key), c.exposure !== "exposed"));
-      actions.appendChild(button("Revoke", () => api.action("remote.revokeClient", key), c.revoked));
+      if (c.revoked) actions.appendChild(button("Re-grant", () => api.action("remote.regrantClient", key)));
+      else actions.appendChild(button("Revoke", () => api.action("remote.revokeClient", key)));
       line.appendChild(actions);
       clients.appendChild(line);
     }

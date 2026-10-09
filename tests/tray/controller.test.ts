@@ -8,6 +8,7 @@ import { CrotService } from "../../src/service/service.js";
 import { TrayController } from "../../src/tray/controller.js";
 import type { TrayState } from "../../src/tray/view-model.js";
 import { isWindows, makeTempDirs, testContext, waitFor, type TempDirs } from "../helpers.js";
+import { TestAuthorizationServer } from "../identity/test-authorization-server.js";
 
 /**
  * WP-22 / AD-19 point 1: the tray controller against a real service — it
@@ -50,8 +51,11 @@ function serveCommand(): ServeCommand {
   };
 }
 
-async function startService(): Promise<CrotService> {
+async function startService(authServer?: TestAuthorizationServer): Promise<CrotService> {
   const service = await CrotService.start({
+    identity: authServer
+      ? { environment: authServer.environment(), http: authServer.http() }
+      : { environment: { unavailable: "no identity environment in this test" } },
     command: serveCommand(),
     launch: "managed",
     stateDir,
@@ -70,9 +74,10 @@ interface Sent {
   params?: Readonly<Record<string, unknown>>;
 }
 
-function controller(sent: Sent[] = []): { tray: TrayController; states: TrayState[] } {
+function controller(sent: Sent[] = [], opened: string[] = []): { tray: TrayController; states: TrayState[] } {
   const states: TrayState[] = [];
   const tray = new TrayController({
+    openSignIn: (url) => opened.push(url),
     stateDir,
     privateFiles,
     retryMs: 100,
@@ -165,5 +170,33 @@ describe("WP-22: tray controller", () => {
     await waitFor(() => tray.state.connection === "connected", 10_000);
     expect(states.some((s) => s.connection === "connected")).toBe(true);
     expect(tray.state.overview?.approvals.trays).toBe(1);
+  });
+});
+
+describe("WP-28: tray pairing", () => {
+  it("opens the sign-in page, shows the paired device and unpairs", async () => {
+    const authServer = new TestAuthorizationServer();
+    await startService(authServer);
+    const opened: string[] = [];
+    const { tray } = controller([], opened);
+    await tray.start();
+    expect(await tray.startPairing()).toBe(true);
+    expect(opened).toHaveLength(1);
+    expect(opened[0]).toMatch(/^https:\/\/auth\.crot-dev\.example\/oauth2\/authorize\?/);
+    expect(await tray.cancelPairing()).toBe(true);
+    await waitFor(() => tray.state.overview?.pairing.state === "unpaired");
+    expect(await tray.startPairing()).toBe(true);
+    const callback = await fetch(authServer.authorize(opened[1]!, { sub: "user_tray" }).redirect);
+    await callback.text();
+    await waitFor(async () => {
+      await tray.refresh();
+      return tray.state.overview?.pairing.state === "paired";
+    });
+    expect(tray.state.overview?.pairing.device).toMatchObject({ accountId: "user_tray" });
+    expect(await tray.startPairing()).toBe(false);
+    expect(await tray.unpair()).toBe(true);
+    expect(tray.state.overview?.pairing.state).toBe("unpaired");
+    expect(await tray.unpair()).toBe(true);
+    expect(tray.state.notice).toBe("This device is not paired.");
   });
 });

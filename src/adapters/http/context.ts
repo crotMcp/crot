@@ -28,6 +28,8 @@ export type HttpEntryPoint = "loopback" | "relay";
 
 /** Authentication method of the local token (AD-13 point 6); never accepted on the relay entry point. */
 const LOCAL_TOKEN_AUTH_METHOD = "local-token";
+/** Authentication method of OAuth access tokens for this device (AD-21 point 3); the only one accepted on the relay entry point, never on loopback. */
+const OAUTH_AUTH_METHOD = "oauth";
 
 const nonEmpty = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 
@@ -54,13 +56,16 @@ export function principalFromAuthInfo(
   const authMethod = nonEmpty(extra.authMethod) ? extra.authMethod : "bearer";
   if (!nonEmpty(subject)) return undefined;
   if (entry === "loopback") {
+    // An OAuth token for this device is refused on loopback (AD-21 point 8, last row).
+    if (authMethod === OAUTH_AUTH_METHOD) return undefined;
     return client
       ? { id: subject, kind: "local", transport: HTTP_TRANSPORT, authMethod, client }
       : { id: subject, kind: "local", transport: HTTP_TRANSPORT, authMethod };
   }
-  // Relay: the local token is never accepted through the tunnel (AD-15 point 4),
-  // and a remote principal needs its verified account, device and client.
-  if (authMethod === LOCAL_TOKEN_AUTH_METHOD) return undefined;
+  // Relay: only an OAuth access token for this device (AD-15 point 4, AD-21
+  // point 3) — never the local token or another credential — and a remote
+  // principal needs its verified account, device and client.
+  if (authMethod === LOCAL_TOKEN_AUTH_METHOD || authMethod !== OAUTH_AUTH_METHOD) return undefined;
   const { accountId, deviceId } = extra;
   const clientId = authInfo.clientId;
   if (!nonEmpty(accountId) || !nonEmpty(deviceId) || !nonEmpty(clientId)) return undefined;

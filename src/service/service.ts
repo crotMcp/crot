@@ -44,6 +44,11 @@ import { ControlCenter, type ControlConnection, type RemoteEntry } from "./contr
 import { CoreHolder } from "./core-holder.js";
 import { DeviceSettingsStore, SERVICE_SETTINGS_FILE_NAME } from "./device-settings.js";
 import { REMOTE_CLIENTS_FILE_NAME, RemoteClientRegistry } from "./remote-clients.js";
+import { DEVICE_BINDING_FILE_NAME, DeviceBindingStore, type TunnelCredentialResult } from "./device-binding.js";
+import { DeviceIdentity, type DeviceIdentityOptions } from "./identity.js";
+import { resolveIdentityEnvironment, type IdentityEnvironment } from "../identity/environment.js";
+import type { IdentityHttp } from "../identity/http.js";
+import type { AccessTokenVerifier } from "../adapters/http/auth.js";
 import { configDigest } from "./config-digest.js";
 import { environmentDifferences, environmentFingerprint } from "./environment.js";
 import {
@@ -99,6 +104,17 @@ export interface ServiceOptions {
   readonly windows?: boolean;
   /** Clock and interval of the sleep/wake detector (tests). */
   readonly resume?: { readonly intervalMs?: number; readonly thresholdMs?: number; readonly now?: () => number };
+  /**
+   * Identity seams (tests): the environment instead of the pinned release /
+   * CROT_IDENTITY_DEV_ENVIRONMENT one, the HTTPS client of the issuer, JWKS
+   * cache tuning and the pairing timeout.
+   */
+  readonly identity?: {
+    readonly environment?: IdentityEnvironment | { readonly unavailable: string };
+    readonly http?: IdentityHttp;
+    readonly keys?: DeviceIdentityOptions["keys"];
+    readonly pairingTimeoutMs?: number;
+  };
 }
 
 interface ShimClient {
@@ -126,6 +142,7 @@ export class CrotService {
   private bridge: BrowserBridge | undefined;
   private holder: CoreHolder | undefined;
   private control: ControlCenter | undefined;
+  private deviceIdentity: DeviceIdentity | undefined;
   private readonly controlConnections = new Map<AuthenticatedChannel, ControlConnection>();
   private http: CrotHttpServer | undefined;
   private digest = "";
@@ -178,6 +195,27 @@ export class CrotService {
   addRemoteEntry(entry: RemoteEntry): () => void {
     if (!this.control) throw new Error("CROT service not started");
     return this.control.addRemoteEntry(entry);
+  }
+
+  /** Device identity (WP-28): environment, pairing, canonical URI, PRM URL. */
+  get identity(): DeviceIdentity {
+    if (!this.deviceIdentity) throw new Error("CROT service not started");
+    return this.deviceIdentity;
+  }
+
+  /** Verifier of OAuth access tokens at the relay entry point (AD-21 point 3; WP-30 mounts it). */
+  get remoteVerifier(): AccessTokenVerifier {
+    return this.identity.verifier;
+  }
+
+  /** The PRM URL for the relay entry point's 401 challenges (AD-21 point 6). */
+  resourceMetadataUrl(): string | undefined {
+    return this.deviceIdentity?.resourceMetadataUrl();
+  }
+
+  /** The device credential for the tunnel (WP-29/WP-30); refused while not paired here. */
+  tunnelCredential(): TunnelCredentialResult {
+    return this.deviceIdentity ? this.deviceIdentity.tunnelCredential() : { ok: false, reason: "no_environment" };
   }
 
   get httpUrl(): string | undefined {
@@ -298,6 +336,29 @@ export class CrotService {
         onError: (e) => log(`warning: remote clients: ${e instanceof Error ? e.message : String(e)}`),
       });
       if (clients.error) log(`warning: remote clients: ${clients.error}; every remote request is refused`);
+      // Identity and device binding (AD-21, WP-28): fail closed on unreadable state or an environment mismatch.
+      const binding = await DeviceBindingStore.open(
+        path.join(stateDir, DEVICE_BINDING_FILE_NAME),
+        privateFiles,
+        secrets.store,
+      );
+      if (binding.error) log(`warning: device binding: ${binding.error}; every remote request is refused`);
+      const identity = new DeviceIdentity({
+        environment: await this.identityEnvironment(),
+        binding,
+        log,
+        ...(this.options.identity?.http ? { http: this.options.identity.http } : {}),
+        ...(this.options.identity?.keys ? { keys: this.options.identity.keys } : {}),
+        ...(this.options.identity?.pairingTimeoutMs !== undefined
+          ? { pairingTimeoutMs: this.options.identity.pairingTimeoutMs }
+          : {}),
+      });
+      this.deviceIdentity = identity;
+      const paired = binding.paired;
+      if (paired && identity.environment && paired.issuer !== identity.environment.issuer)
+        log(
+          `warning: device binding: paired in environment ${paired.environment}, this process uses ${identity.environment.id}; every remote request is refused until the device is paired again`,
+        );
       // Secret material (AD-18): neither readable nor modifiable through CROT tools, in any mode.
       const secretPaths = [
         ...stateSecretPaths(stateDir),
@@ -357,6 +418,8 @@ export class CrotService {
         holder,
         settings,
         clients,
+        binding,
+        identity,
         remoteExposure,
         configuredPreset,
         buildCore: (preset) => build(preset, holder.composition.exposure),
@@ -384,6 +447,20 @@ export class CrotService {
     if (this.options.launch === "on-demand" && !this.http) {
       this.armIdleTimer(this.options.firstClientTimeoutMs ?? DEFAULT_FIRST_CLIENT_TIMEOUT_MS, "no client connected");
     }
+  }
+
+  private async identityEnvironment(): Promise<IdentityEnvironment | { unavailable: string }> {
+    const seam = this.options.identity?.environment;
+    if (seam) return seam;
+    const resolved = await resolveIdentityEnvironment();
+    for (const note of resolved.notes) this.log(`note: identity: ${note}`);
+    if (!resolved.ok) {
+      this.log(`identity: ${resolved.reason}`);
+      return { unavailable: resolved.reason };
+    }
+    const env = resolved.environment;
+    this.log(`identity: environment ${env.id} (${env.kind}), issuer ${env.issuer}, relay ${env.relayHost}`);
+    return env;
   }
 
   private banner(): void {
@@ -778,6 +855,7 @@ export class CrotService {
   }
 
   private async releaseRuntime(): Promise<void> {
+    this.deviceIdentity?.cancelPairing();
     if (this.http) await this.http.close();
     if (this.holder) await this.holder.instance.shutdown();
     await this.control?.flush();

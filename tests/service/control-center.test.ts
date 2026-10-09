@@ -14,6 +14,9 @@ import { DeviceSettingsStore, SERVICE_SETTINGS_FILE_NAME } from "../../src/servi
 import type { ControlEvent, ControlOverview, ControlRequest } from "../../src/service/protocol.js";
 import { RemoteClientRegistry, REMOTE_CLIENTS_FILE_NAME } from "../../src/service/remote-clients.js";
 import { createTestCore, isWindows, makeTempDirs, waitFor, type TempDirs } from "../helpers.js";
+import type { DeviceBindingStore } from "../../src/service/device-binding.js";
+import { DeviceIdentity } from "../../src/service/identity.js";
+import { openBinding } from "../identity/helpers.js";
 
 /**
  * WP-22 / AD-19: the device-side controls of the service, with real Cores:
@@ -71,6 +74,7 @@ let clients: RemoteClientRegistry;
 let exposure: RemoteExposureStore;
 let holder: CoreHolder;
 let center: ControlCenter;
+let binding: DeviceBindingStore;
 let configured: UntrustedContentSetting;
 let rules: unknown[];
 
@@ -111,10 +115,18 @@ async function setup(options: { configured?: UntrustedContentSetting; rules?: un
   exposure = RemoteExposureStore.inMemory();
   const initial = await build(ControlCenter.effectivePreset(settings, configured).effective);
   holder = new CoreHolder(initial.core, initial.handle);
+  // A device paired to CLIENT's account and device (WP-28): admission requires the binding.
+  binding = (await openBinding(dirs.outside, { accountId: CLIENT.accountId, deviceId: CLIENT.deviceId })).binding;
   center = new ControlCenter({
     holder,
     settings,
     clients,
+    binding,
+    identity: new DeviceIdentity({
+      environment: { unavailable: "no identity environment in this test" },
+      binding,
+      log: () => undefined,
+    }),
     remoteExposure: exposure,
     configuredPreset: configured,
     buildCore: (preset) => build(preset, holder.composition.exposure),
@@ -144,7 +156,7 @@ async function ask(conn: ControlConnection, request: Record<string, unknown>): P
 }
 
 const local = (): AuthContext => ({ principal: localPrincipal("stdio"), session: newSession() });
-const CLIENT = { accountId: "acct-1", deviceId: "device-1", clientId: "client-a" };
+const CLIENT = { accountId: "acct-1", deviceId: "abcdefghijklmnopqrstuvwxya", clientId: "client-a" };
 const KEY = remoteExposureScope(CLIENT.accountId, CLIENT.deviceId, CLIENT.clientId).remoteKey!;
 
 describe("preset change through a new Core (AD-19 point 5)", () => {
@@ -437,11 +449,15 @@ describe("tray provider (AD-19 point 3)", () => {
     expect(sink.memory.events.at(-1)?.approval).toMatchObject({ status: "cancelled", cancelReason: "provider_gone" });
   });
 
-  it("pairing is not available until WP-28", async () => {
+  it("pairing needs an identity environment; the overview reports why there is none", async () => {
     await setup();
     expect(await ask(new Conn(), { method: "pairing.start" })).toMatchObject({ ok: false, reason: "not_available" });
     const overview = center.overview();
-    expect(overview.pairing.reason).toMatch(/WP-28/);
+    expect(overview.pairing).toMatchObject({
+      available: false,
+      state: "paired",
+      reason: "no identity environment in this test",
+    });
     // Core built on a platform without an L1 mechanism (AD-20 point 12 shape).
     expect(overview.confinement).toMatchObject({ mechanism: "none", available: false, reason: "not_implemented" });
     expect(overview.cdp.reason).toMatch(/WP-24/);

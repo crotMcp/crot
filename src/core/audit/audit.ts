@@ -63,13 +63,16 @@ export const CONTROL_AUDIT_ACTIONS = [
   "remote_full_control",
   "exposure_reset",
   "client_revoke",
+  "client_regrant",
+  "pairing",
+  "unpair",
 ] as const;
 export type ControlAuditAction = (typeof CONTROL_AUDIT_ACTIONS)[number];
 
 /**
  * A user action on the authenticated control channel (AD-19 point 9): preset
  * change, remote mode, remote full-control opt-in, exposure reset, client
- * revocation. The actor is the local user through the control channel; the
+ * revocation and re-grant, device pairing and unpairing (WP-28). The actor is the local user through the control channel; the
  * control channel creates no principal (AD-17 point 7), so there is none here.
  */
 export interface ControlAuditRecord {
@@ -85,6 +88,8 @@ export interface ControlAuditRecord {
   readonly value?: string | boolean;
   /** Remote client of exposure_reset / client_revoke (its exposure scope, AD-15 point 8). */
   readonly client?: { readonly accountId: string; readonly deviceId: string; readonly clientId: string };
+  /** Device of pairing / unpair (WP-28): identifiers only, never a credential or token. */
+  readonly device?: { readonly deviceId: string; readonly accountId?: string; readonly environment?: string };
 }
 
 /**
