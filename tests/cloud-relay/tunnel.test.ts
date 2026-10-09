@@ -221,6 +221,60 @@ describe("streams (AD-22 point 6)", () => {
   });
 });
 
+describe("response complete before the request body (AD-22 point 6)", () => {
+  const resets = (ws: FakeSocket, stream: number) =>
+    ws
+      .of(FrameType.RESET)
+      .filter((f) => f.stream === stream)
+      .map((f) => parseJsonPayload(f.payload).code);
+
+  it("the rest of the request is discarded with RESET cancel and the stream slot is freed", async () => {
+    const { ws, tunnel } = await ready({ maxStreams: 1 });
+    const sink = new Sink(true);
+    const s = open(tunnel, sink);
+    s.write(Buffer.alloc(1000));
+    ws.deliver(response(1, true));
+    expect(sink.ended).toBe(true);
+    expect(sink.aborted).toBeUndefined();
+    expect(resets(ws, 1)).toEqual(["cancel"]);
+    expect(tunnel.openStreams).toBe(0);
+    // Later client bytes for the finished stream are dropped, not sent.
+    const before = sentData(ws, 1);
+    s.write(Buffer.alloc(1000));
+    s.end();
+    expect(sentData(ws, 1)).toBe(before);
+    expect(open(tunnel, new Sink(), true).id).toBe(2);
+  });
+
+  it("also when the request end is queued behind the device's window", async () => {
+    const { ws, tunnel } = await ready({ maxStreams: 1 });
+    const s = open(tunnel, new Sink(true));
+    s.write(Buffer.alloc(2 * 1024 * 1024));
+    s.end();
+    expect(sentData(ws, 1)).toBe(1024 * 1024);
+    ws.deliver(response(1));
+    ws.deliver(data(1, 10, true));
+    expect(resets(ws, 1)).toEqual(["cancel"]);
+    expect(tunnel.openStreams).toBe(0);
+    ws.deliver(encodeWindow(1, 1024 * 1024));
+    ws.deliver(encodeWindow(0, 1024 * 1024));
+    expect(sentData(ws, 1)).toBe(1024 * 1024);
+  });
+
+  it("no RESET when the request ended before the response", async () => {
+    const { ws, tunnel } = await ready();
+    const s = open(tunnel, new Sink(true));
+    s.write(Buffer.alloc(10));
+    s.end();
+    ws.deliver(response(1, true));
+    open(tunnel, new Sink(true), true);
+    ws.deliver(response(2));
+    ws.deliver(data(2, 5, true));
+    expect(ws.of(FrameType.RESET)).toHaveLength(0);
+    expect(tunnel.openStreams).toBe(0);
+  });
+});
+
 describe("flow control (AD-22 point 8)", () => {
   it("relay → device: never beyond the stream window, resumes on WINDOW", async () => {
     const { ws, tunnel } = await ready();

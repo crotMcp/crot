@@ -25,6 +25,7 @@ async function main(): Promise<void> {
   const relay = new CloudRelay({
     relayHost: config.relayHost,
     issuer: config.issuer,
+    pairingClientId: config.pairingClientId,
     environment: config.environment,
     keys,
     registry: await FileDeviceRegistry.open(config.registryFile),

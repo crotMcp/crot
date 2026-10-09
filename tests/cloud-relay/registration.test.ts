@@ -63,6 +63,31 @@ describe("device registration (AD-22 point 4)", () => {
     expect(await h.registry.count()).toBe(0);
   });
 
+  it("accepts only the pairing client's token: other clients of the owner or of another account are refused", async () => {
+    const d = h.newDevice("user_victim");
+    const attacker = { ...d, accountId: "user_attacker" };
+    // An ordinary MCP client token for this device URI — of another account (the provider issues
+    // tokens for any device URI, AD-21) and of the owner — is not a pairing.
+    for (const token of [h.clientToken(attacker), h.clientToken(d)]) {
+      const r = await h.registerRaw(d.deviceId, token, { publicKey: h.newDevice().publicKey });
+      expect(r.status).toBe(403);
+      expect(r.body).toEqual({ error: "pairing_client_required" });
+    }
+    expect(await h.registry.count()).toBe(0);
+    expect(h.logs).toContainEqual(
+      expect.objectContaining({ event: "device.register", status: 403, code: "not_pairing_client" }),
+    );
+    // The device's own pairing token still registers it.
+    expect((await h.registerRaw(d.deviceId, h.pairingToken(d), { publicKey: d.publicKey })).status).toBe(201);
+    // After that, nobody else can take the id over, with any token.
+    const pairingOfAttacker = h.pairingToken(attacker);
+    expect((await h.registerRaw(d.deviceId, pairingOfAttacker, { publicKey: h.newDevice().publicKey })).status).toBe(
+      409,
+    );
+    expect((await h.registry.get(d.deviceId))!.accountId).toBe("user_victim");
+    expect(h.logText()).not.toContain(pairingOfAttacker);
+  });
+
   it("validates the public key and the body", async () => {
     const d = h.newDevice();
     const t = () => h.pairingToken(d);
@@ -216,6 +241,36 @@ describe("tunnel handshake (AD-22 points 3, 10, 14)", () => {
     const closed = await (await h.connect(d)).whenClosed();
     expect(closed.code).toBe(CloseCode.RATE_LIMITED);
     expect(closed.reason).toMatch(/^rate_limited;retryAfterMs=\d+$/);
+  });
+
+  it("failed proofs never use up the device's handshake allowance (no lockout by a third party)", async () => {
+    await h.stop();
+    h = await new RelayHarness().start({ handshakeRate: { max: 2, windowMs: 60_000 } });
+    const victim = h.newDevice();
+    await h.register(victim);
+    const attackerKey = generateKeyPairSync("ed25519").privateKey;
+    // Far more failed attempts than the allowance, with the victim's (public) device id.
+    for (let i = 0; i < 10; i++) {
+      const closed = await (await h.connect(victim, { key: attackerKey })).whenClosed();
+      expect(closed.code).toBe(CloseCode.UNAUTHORIZED);
+    }
+    const otherHost = await (await h.connect(victim, { signHost: "relay.other.example" })).whenClosed();
+    expect(otherHost.code).toBe(CloseCode.UNAUTHORIZED);
+    // The legitimate device still connects, and its own allowance still applies.
+    await h.online(victim);
+    await h.online(victim);
+    const limited = await (await h.connect(victim)).whenClosed();
+    expect(limited.code).toBe(CloseCode.RATE_LIMITED);
+    // Failures after that are still reported as failures, not as rate limiting.
+    expect((await (await h.connect(victim, { key: attackerKey })).whenClosed()).code).toBe(CloseCode.UNAUTHORIZED);
+  });
+
+  it("unknown device ids are refused 4401 however often they are tried", async () => {
+    await h.stop();
+    h = await new RelayHarness().start({ handshakeRate: { max: 1, windowMs: 60_000 } });
+    const unknown = h.newDevice();
+    for (let i = 0; i < 3; i++)
+      expect((await (await h.connect(unknown)).whenClosed()).code).toBe(CloseCode.UNAUTHORIZED);
   });
 
   it("only serves the tunnel path", async () => {

@@ -22,6 +22,7 @@ import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
 import { verifyTunnelProof } from "../identity/device-credential.js";
 import { canonicalDeviceUri, isDeviceId, isRelayHost, protectedResourceMetadataUrl } from "../identity/device-id.js";
+import { isClientId } from "../identity/environment.js";
 import type { SigningKeySource } from "../identity/jwks.js";
 import { checkAccessToken } from "../identity/verifier.js";
 import {
@@ -70,6 +71,8 @@ const MAX_REGISTER_BODY = 4 * 1024;
 const MAX_HEADER_BLOCK = 64 * 1024;
 /** Concurrent WebSocket handshakes (before READY) the relay accepts. */
 const MAX_PENDING_HANDSHAKES = 256;
+/** Default for `discardBodyMs`. */
+const DISCARD_BODY_MS = 10_000;
 
 export type Entitlement = "entitled" | "not_entitled" | "blocked";
 
@@ -83,6 +86,12 @@ export interface CloudRelayOptions {
   readonly relayHost: string;
   /** The authorization server's issuer (AD-21 point 1). */
   readonly issuer: string;
+  /**
+   * The environment's pairing client (`client_id` of the device's pairing grant, AD-21). Only its
+   * tokens register a device (AD-22 point 4): the provider issues tokens for any device URI to any
+   * account and any registered client, so `aud` alone does not show that the caller is the pairing.
+   */
+  readonly pairingClientId: string;
   /** Identity environment id recorded with registrations. */
   readonly environment: string;
   /** The issuer's signing keys, fetched directly from the issuer (AD-21 point 7). */
@@ -96,8 +105,13 @@ export interface CloudRelayOptions {
   readonly exchangeDeadlineMs?: number;
   /** Slow-client limit (AD-22 point 8). */
   readonly stallMs?: number;
+  /**
+   * How long the rest of a body the relay does not forward (refusals before admission, PRM, 404) may
+   * take before the connection is closed; also the time limit for a registration body. Default 10 s.
+   */
+  readonly discardBodyMs?: number;
   readonly timing?: Partial<TunnelTiming>;
-  /** Tunnel handshakes per device (close 4429 beyond). Default 30 per minute. */
+  /** Authenticated tunnel handshakes per device (close 4429 beyond; failed proofs do not count). Default 30 per minute. */
   readonly handshakeRate?: RateLimit;
   /** Supersessions per device (close 4409 beyond). Default 10 per hour (AD-22 point 9). */
   readonly supersessionRate?: RateLimit;
@@ -191,6 +205,12 @@ const REFUSALS = {
     message: "The request headers exceed the relay limit",
   },
   bad_request: { status: 400, code: "bad_request", outcome: "not_executed", message: "Bad request" },
+  request_timeout: {
+    status: 408,
+    code: "request_timeout",
+    outcome: "not_executed",
+    message: "The request body was not received within the relay deadline",
+  },
   tunnel_lost: {
     status: 502,
     code: "tunnel_lost",
@@ -248,6 +268,7 @@ export class CloudRelay {
   private readonly timing: TunnelTiming;
   private readonly deadlineMs: number;
   private readonly stallMs: number;
+  private readonly discardBodyMs: number;
   private readonly handshakes: WindowCounter;
   private readonly supersessions: WindowCounter;
   /** The routable tunnel per device. */
@@ -258,11 +279,13 @@ export class CloudRelay {
 
   constructor(private readonly options: CloudRelayOptions) {
     if (!isRelayHost(options.relayHost)) throw new Error("relayHost must be a lowercase DNS name");
+    if (!isClientId(options.pairingClientId)) throw new Error("pairingClientId must be a non-empty client id");
     this.log = options.log ?? jsonLineLogger();
     this.now = options.now ?? Date.now;
     this.timing = { ...DEFAULT_TUNNEL_TIMING, ...options.timing };
     this.deadlineMs = options.exchangeDeadlineMs ?? DEFAULT_EXCHANGE_DEADLINE_MS;
     this.stallMs = options.stallMs ?? STALL_LIMIT_MS;
+    this.discardBodyMs = options.discardBodyMs ?? DISCARD_BODY_MS;
     this.handshakes = new WindowCounter(options.handshakeRate ?? { max: 30, windowMs: 60_000 }, this.now);
     this.supersessions = new WindowCounter(options.supersessionRate ?? { max: 10, windowMs: 3_600_000 }, this.now);
   }
@@ -354,7 +377,7 @@ export class CloudRelay {
     if ((m = MCP_PATH.exec(pathname))) return this.exchange(req, res, m[1]!);
     if ((m = PRM_PATH.exec(pathname))) return this.metadata(req, res, m[1]!);
     if ((m = REGISTER_PATH.exec(pathname))) return this.register(req, res, m[1]!);
-    req.resume();
+    this.discard(req);
     if (pathname === HEALTH_PATH && req.method === "GET") {
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
       res.end(JSON.stringify({ status: this.closing ? "shutting_down" : "ok" }));
@@ -363,13 +386,29 @@ export class CloudRelay {
     writeRefusal(res, REFUSALS.not_found);
   }
 
+  /**
+   * Drop the rest of a body the relay will not forward. `requestTimeout` is off (an admitted exchange may
+   * wait up to the deadline without bytes, AD-22 point 12), so a body that is not complete within
+   * `discardBodyMs` closes the connection: a peer cannot hold connections open by never finishing a
+   * refused request.
+   */
+  private discard(req: IncomingMessage): void {
+    req.resume();
+    if (req.complete) return;
+    const timer = setTimeout(() => req.socket.destroy(), this.discardBodyMs);
+    timer.unref();
+    const clear = () => clearTimeout(timer);
+    req.once("end", clear);
+    req.once("close", clear);
+  }
+
   private async record(deviceId: string): Promise<DeviceRecord | undefined> {
     return isDeviceId(deviceId) ? this.options.registry.get(deviceId) : undefined;
   }
 
   /** PRM (AD-21 point 6): only for registered devices. */
   private async metadata(req: IncomingMessage, res: ServerResponse, deviceId: string): Promise<void> {
-    req.resume();
+    this.discard(req);
     if (req.method !== "GET") return writeRefusal(res, REFUSALS.method_not_allowed, { allow: "GET" });
     if (!(await this.record(deviceId))) return writeRefusal(res, REFUSALS.not_found);
     const body = JSON.stringify({
@@ -414,10 +453,11 @@ export class CloudRelay {
   /** Device registration at pairing (AD-22 point 4). */
   private async register(req: IncomingMessage, res: ServerResponse, deviceId: string): Promise<void> {
     if (req.method !== "POST") {
-      req.resume();
+      this.discard(req);
       return writeRefusal(res, REFUSALS.method_not_allowed, { allow: "POST" });
     }
     const respond = (status: number, code: string, body: object = {}) => {
+      this.discard(req);
       this.log({ event: "device.register", deviceId, status, code });
       const text = JSON.stringify(body);
       res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
@@ -425,7 +465,7 @@ export class CloudRelay {
     };
     const token = bearerToken(req);
     if (!token || !isDeviceId(deviceId)) {
-      req.resume();
+      this.discard(req);
       this.log({
         event: "device.register",
         deviceId,
@@ -434,11 +474,19 @@ export class CloudRelay {
       });
       return this.unauthorized(res, deviceId, token !== undefined);
     }
-    const body = await readBody(req, MAX_REGISTER_BODY);
-    if (body === "too_large") return respond(413, "too_large", { error: "request_too_large" });
-    if (body === "aborted") return;
+    // The token is checked before the body is read: an unauthenticated caller cannot hold the request open.
     const checked = await this.checkToken(token, deviceId, undefined, "device.register_token_refused");
-    if (!checked.ok) return this.unauthorized(res, deviceId, true);
+    if (!checked.ok) {
+      this.discard(req);
+      return this.unauthorized(res, deviceId, true);
+    }
+    // A valid token for this device URI, but not from a pairing: a client may not register (bind) a device.
+    if (checked.token.clientId !== this.options.pairingClientId)
+      return respond(403, "not_pairing_client", { error: "pairing_client_required" });
+    const body = await readBody(req, MAX_REGISTER_BODY, this.discardBodyMs);
+    if (body === "too_large") return respond(413, "too_large", { error: "request_too_large" });
+    if (body === "timeout") return respond(408, "timeout", { error: "request_timeout" });
+    if (body === "aborted") return;
     let publicKey: unknown;
     try {
       publicKey = (JSON.parse(body.toString("utf8")) as { publicKey?: unknown }).publicKey;
@@ -472,7 +520,7 @@ export class CloudRelay {
       ...(mcpMethod ? { mcpMethod } : {}),
     };
     const refuse = (refusal: Refusal, extra?: Record<string, string>) => {
-      req.resume();
+      this.discard(req);
       writeRefusal(res, refusal, extra);
       this.log({
         ...summary,
@@ -488,7 +536,7 @@ export class CloudRelay {
       return refuse(REFUSALS.method_not_allowed, { allow: "GET, POST, DELETE" });
     const token = bearerToken(req);
     if (!token) {
-      req.resume();
+      this.discard(req);
       this.log({
         ...summary,
         status: 401,
@@ -499,7 +547,7 @@ export class CloudRelay {
     }
     const checked = await this.checkToken(token, deviceId, record.accountId, "admission.refused");
     if (!checked.ok) {
-      req.resume();
+      this.discard(req);
       this.log({ ...summary, status: 401, outcome: "not_executed", code: "invalid_token" });
       return this.unauthorized(res, deviceId, true);
     }
@@ -513,9 +561,11 @@ export class CloudRelay {
     // A body without a length is read completely first, so the size limit is enforced before forwarding.
     let buffered: Buffer | undefined;
     if (length === undefined && req.headers["transfer-encoding"] !== undefined) {
-      const body = await readBody(req, MAX_REQUEST_BODY_BYTES);
+      // Within the exchange deadline (AD-22 point 12), which starts at admission.
+      const body = await readBody(req, MAX_REQUEST_BODY_BYTES, this.deadlineMs - (this.now() - admittedAt));
       if (body === "aborted") return;
       if (body === "too_large") return refuse(REFUSALS.request_too_large);
+      if (body === "timeout") return refuse(REFUSALS.request_timeout);
       buffered = body;
     }
     const noBody = buffered ? buffered.length === 0 : !length;
@@ -611,11 +661,15 @@ export class CloudRelay {
   private async authenticate(hello: Hello, challenge: Buffer, _tunnel: RelayTunnel): Promise<HandshakeDecision> {
     const refuse = (closeCode: number, reason: string): HandshakeDecision => ({ ok: false, closeCode, reason });
     if (!isDeviceId(hello.deviceId)) return refuse(CloseCode.UNAUTHORIZED, "unauthorized");
-    const wait = this.handshakes.take(hello.deviceId);
-    if (wait !== undefined) return refuse(CloseCode.RATE_LIMITED, `rate_limited;retryAfterMs=${wait}`);
     const record = await this.options.registry.get(hello.deviceId);
     if (!record || !verifyTunnelProof(record.publicKey, hello.deviceId, this.options.relayHost, challenge, hello.proof))
       return refuse(CloseCode.UNAUTHORIZED, "unauthorized");
+    // Counted only after the proof: the device id in HELLO is public (it is in every client's URI), so
+    // counting unproven attempts would let anyone exhaust the device's allowance and lock it out.
+    // Unproven attempts cost one registry lookup and one signature check; their volume is bounded per
+    // connection (one HELLO) and by the concurrent-handshake limit.
+    const wait = this.handshakes.take(hello.deviceId);
+    if (wait !== undefined) return refuse(CloseCode.RATE_LIMITED, `rate_limited;retryAfterMs=${wait}`);
     if ((await this.entitled(record)) !== "entitled") return refuse(CloseCode.FORBIDDEN, "forbidden");
     if (this.closing) return refuse(CloseCode.GOING_AWAY, "shutting_down");
     const current = this.routes.get(hello.deviceId);
@@ -640,35 +694,33 @@ export class CloudRelay {
 
 type Summary = { -readonly [K in keyof RelayLogRecord]: RelayLogRecord[K] };
 
-/** Read a whole body up to `max` bytes. */
-function readBody(req: IncomingMessage, max: number): Promise<Buffer | "too_large" | "aborted"> {
+/** Read a whole body up to `max` bytes within `timeoutMs`. */
+function readBody(
+  req: IncomingMessage,
+  max: number,
+  timeoutMs: number,
+): Promise<Buffer | "too_large" | "aborted" | "timeout"> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let size = 0;
     let done = false;
+    const finish = (result: Buffer | "too_large" | "aborted" | "timeout") => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (typeof result === "string") chunks.length = 0;
+      resolve(result);
+    };
+    const timer = setTimeout(() => finish("timeout"), Math.max(1, timeoutMs));
+    timer.unref();
     req.on("data", (chunk: Buffer) => {
       if (done) return;
       size += chunk.length;
-      if (size > max) {
-        done = true;
-        req.resume();
-        resolve("too_large");
-        return;
-      }
+      if (size > max) return finish("too_large");
       chunks.push(chunk);
     });
-    req.on("end", () => {
-      if (!done) {
-        done = true;
-        resolve(Buffer.concat(chunks));
-      }
-    });
-    req.on("close", () => {
-      if (!done) {
-        done = true;
-        resolve("aborted");
-      }
-    });
+    req.on("end", () => finish(Buffer.concat(chunks)));
+    req.on("close", () => finish("aborted"));
   });
 }
 

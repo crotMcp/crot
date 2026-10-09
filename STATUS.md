@@ -7,32 +7,53 @@ package PR updates this file.
 
 ## Last completed
 
-**WP-29 — Cloud Relay v1** (this PR; ARCHITECTURE.md §27 AD-22, included
-as the PR's first commit because it had not been merged yet). User docs:
-[`docs/RELAY.md`](docs/RELAY.md).
+**WP-29 — Cloud Relay v1, relay side — partial** (this PR; ARCHITECTURE.md
+§27 AD-22, included as the PR's first commit because it had not been merged
+yet). User docs: [`docs/RELAY.md`](docs/RELAY.md). WP-29 is **not complete**:
+the open items below are release-blocking (before WP-38 exposes a public
+relay); they do not block WP-30.
+
+- **Open WP-29 items:** per-client / per-device request rate and
+  concurrency limits at the relay (AD-15 point 10, WP-29 scope "size/rate
+  limits"); per-source limits on connections and pending handshakes (the
+  256 pending-handshake limit is global); a registration rate limit per
+  account; the load/backpressure test of the WP-29 card. Either done in a
+  WP-29 follow-up PR or explicitly reassigned to WP-39.
 
 - **Tunnel protocol, shared code** (`src/tunnel/`): `crot-tunnel.v1` frame
   codec, limits, close/RESET/GOAWAY codes, header validation and hop-by-hop
   removal, version negotiation; a minimal RFC 6455 WebSocket client and
   server (Node 20 has no built-in WebSocket; no new dependency).
 - **Relay** (`src/cloud-relay/`): PRM per registered device; device
-  registration endpoint (owner token, Ed25519 key, idempotent);
+  registration endpoint (pairing-client token only, checked before the body;
+  Ed25519 key; first registration binds the account; idempotent);
   `/d/<id>/mcp` admission (token signature, `iss`, `aud` = canonical URI,
   times, `sub` = owner; entitlement hook for WP-36); routing by device id,
   one tunnel per device with supersession; challenge-signed handshake with
-  timeout, rate limit and version refusal (4426); multiplexed streams with
+  timeout, a per-device rate limit counted only after a valid proof, and
+  version refusal (4426); multiplexed streams with
   credit flow control in both directions; keep-alive, GOAWAY/drain,
-  connection loss; 4 MiB / 32 MiB limits; absolute exchange deadline
-  (15 min) and stall limit; refusals with the AD-22 outcome
+  connection loss; a response completed before the request body frees the
+  stream with `RESET cancel`; 4 MiB / 32 MiB limits; absolute exchange
+  deadline (15 min, also for bodies buffered before forwarding: 408) and
+  stall limit; WebSocket memory per connection bounded by one message
+  (fragments, segments, pings), bodies of refused requests dropped within
+  10 s; refusals with the AD-22 outcome
   (`not_executed` / `unknown`), never a retry; structured logs without
   tokens, headers or bodies. Binary `src/bin/crot-cloud-relay.ts`
-  (`--config`), not yet in `package.json` `bin`.
-- **Clarification to confirm** (no AD text changed): standard WebSocket
-  clients fail a 101 response without a requested subprotocol, so for
-  AD-22 point 10 the relay echoes the device's highest offered
-  `crot-tunnel.v<N>` before closing with 4426.
+  (`--config`, requires `pairingClientId`), not yet in `package.json` `bin`.
+- **AD-22 clarifications** (in this PR, no wire change): the 4426 upgrade
+  names the device's highest offered `crot-tunnel.v<N>` (point 10);
+  malformed stream-0 frames are connection errors, malformed `OPEN` /
+  `RESPONSE` heads stream errors (points 5, 14); a response completed before
+  the request ends closes the stream with `RESET cancel`, which never
+  affects the completed request (points 6, 13); handshake rate limiting
+  counts only valid proofs (point 14); registration requires the pairing
+  client (point 4).
 
-Tests: `tests/cloud-relay/` — registration and proofs, forwarding and
+Tests: `tests/cloud-relay/` — WebSocket endpoint limits (fragments,
+byte-wise segments, ping backlog), registration and proofs (pairing client,
+ownership, failed proofs do not lock a device out), forwarding and
 outcomes, tunnel state machine (fake socket), tunnel over real sockets
 (handshakes, versions, limits, flow control, keep-alive, connection loss,
 supersession/reconnect), end to end with the MCP SDK (2026-07-28 and every
@@ -187,7 +208,7 @@ tunnel codec in `src/tunnel/`.
 
 | WP | What | State |
 | --- | --- | --- |
-| WP-30 | Device tunnel adapter (AD-22, device side) | next; WP-20, WP-28, WP-29 done; OD-5 decided (AD-22); per-principal profile AD (§26 Q25) needed before WP-31, not WP-30 |
+| WP-30 | Device tunnel adapter (AD-22, device side) | next; WP-20, WP-28 done; WP-29 relay side done (its open rate-limit/load items do not block WP-30); OD-5 decided (AD-22); per-principal profile AD (§26 Q25) needed before WP-31, not WP-30 |
 | WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to WP-30 |
 | WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13), needed before WP-31 |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
@@ -239,7 +260,8 @@ and no external service has a CROT integration.
 | GUI control of desktop applications ("never in scope: OS-level input") | unchanged for v1; reassessed by OD-22 after spike WP-69 |
 | Vendor API facts (YouTube, ElevenLabs, TikTok, Canva) | unverified; confirmed by WP-60, WP-62 and the first step of WP-58/WP-59 ([`docs/design/integration-map.md`](docs/design/integration-map.md)) |
 | Transport matcher to gate loopback HTTP separately from stdio | ARCHITECTURE.md §26 question 12 (not required for v1) |
-| Relay/tunnel timeouts for gated requests and bounded browser waits | §26 question 13, WP-29 / WP-30 |
+| Relay/tunnel timeouts for gated requests and bounded browser waits | Decided by ARCHITECTURE.md §27 AD-22 points 12–13 (§26 question 13); relay side implemented (WP-29), device side WP-30; measured client timeouts WP-32 (AD-22 open question 5) |
+| Relay request rate and concurrency limits, per-source connection and handshake limits, registration rate limit, relay load test | Open WP-29 items (AD-15 point 10; ARCHITECTURE.md §27 AD-22, Implementation (WP-29)); release-blocking before WP-38 exposes a public relay, or reassigned to WP-39 |
 | Approval policy in general (beyond presets) | §26 question 6 |
 | Limit remote agents to tabs they opened | §26 question 14 (opened by AD-16; not required for v1) |
 | Input into background tabs on real sites; validation on at least three real sites | WP-24 |

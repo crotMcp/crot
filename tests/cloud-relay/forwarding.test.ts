@@ -1,3 +1,5 @@
+import { request as httpRequest } from "node:http";
+import { connect } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { OUTCOME_HEADER } from "../../src/tunnel/protocol.js";
 import { RelayHarness, sleep, waitFor } from "./harness.js";
@@ -241,6 +243,37 @@ describe("limits (AD-22 points 6 and 11)", () => {
     expect(await (await h.post(paired)).json()).toEqual({ second: true });
   });
 
+  it("a response completed before the client finished its body frees the stream (RESET cancel)", async () => {
+    await start();
+    const { paired, device } = await h.ready({ maxStreams: 1 });
+    device.onOpen = (s) => s.respond(503, [["content-length", "0"]], true);
+    const total = 1024 * 1024;
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = httpRequest(h.url(paired), {
+        method: "POST",
+        headers: { authorization: `Bearer ${h.clientToken(paired)}`, "content-length": String(total) },
+      });
+      req.on("response", (res) => {
+        res.resume();
+        resolve(res.statusCode!);
+        // The client keeps sending after the complete response.
+        setTimeout(() => req.end(Buffer.alloc(total - 65536)), 50);
+      });
+      req.on("error", reject);
+      req.write(Buffer.alloc(65536));
+    });
+    expect(status).toBe(503);
+    expect(await device.opened[0]!.reset()).toBe("cancel");
+    await waitFor(() => h.relay.status().openStreams === 0);
+    device.onOpen = answer('{"next":true}');
+    const next = await h.post(paired);
+    expect(next.status).toBe(200);
+    expect(await next.json()).toEqual({ next: true });
+    const exchanges = h.logs.filter((l) => l.event === "exchange");
+    expect(exchanges[0]).toMatchObject({ status: 503, code: "complete" });
+    expect(exchanges[0]!.outcome).toBeUndefined();
+  });
+
   it("refuses request bodies over 4 MiB with 413 not_executed (declared or chunked)", async () => {
     await start();
     const { paired, device } = await h.ready({ onOpen: answer("{}") });
@@ -300,6 +333,63 @@ describe("limits (AD-22 points 6 and 11)", () => {
       expect.objectContaining({ event: "exchange", outcome: "unknown", code: "response_too_large" }),
     );
   }, 60_000);
+});
+
+describe("bodies the relay does not forward are bounded in time", () => {
+  /** A raw HTTP/1.1 request whose body is never completed; resolves with the status line and the close time. */
+  function stalled(port: number, head: string, partialBody = "") {
+    return new Promise<{ statusLine: string; closedAfterMs: number }>((resolve, reject) => {
+      const started = Date.now();
+      const sock = connect(port, "127.0.0.1", () => sock.write(head + partialBody));
+      let text = "";
+      sock.on("data", (d) => (text += d.toString()));
+      sock.on("error", reject);
+      sock.on("close", () => resolve({ statusLine: text.split("\r\n")[0]!, closedAfterMs: Date.now() - started }));
+      setTimeout(() => {
+        sock.destroy();
+        reject(new Error(`connection still open; received: ${text.split("\r\n")[0]}`));
+      }, 3_000).unref();
+    });
+  }
+
+  it("an unauthenticated request that never finishes its body does not hold the connection", async () => {
+    await start({ discardBodyMs: 200 });
+    const { paired } = await h.ready();
+    for (const path of ["/elsewhere", `/d/${paired.deviceId}/mcp`]) {
+      const r = await stalled(h.relay.port, `POST ${path} HTTP/1.1\r\nHost: x\r\nContent-Length: 100000\r\n\r\n`, "{");
+      expect(r.statusLine).toMatch(/^HTTP\/1\.1 (404|401) /);
+      expect(r.closedAfterMs).toBeLessThan(2_000);
+    }
+  });
+
+  it("registration refuses a bad token before reading the body", async () => {
+    await start({ discardBodyMs: 200 });
+    const d = h.newDevice();
+    const r = await stalled(
+      h.relay.port,
+      `POST /d/${d.deviceId}/register HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer abc.def.ghi\r\nContent-Length: 4000\r\n\r\n`,
+    );
+    expect(r.statusLine).toMatch(/^HTTP\/1\.1 401 /);
+  });
+
+  it("a chunked body that is not complete within the exchange deadline is refused 408 not_executed", async () => {
+    await start({ exchangeDeadlineMs: 300 });
+    const { paired, device } = await h.ready();
+    const res = await new Promise<{ status: number; outcome: unknown }>((resolve, reject) => {
+      const req = httpRequest(h.url(paired), {
+        method: "POST",
+        headers: { authorization: `Bearer ${h.clientToken(paired)}`, "transfer-encoding": "chunked" },
+      });
+      req.on("response", (r) => {
+        r.resume();
+        resolve({ status: r.statusCode!, outcome: r.headers[OUTCOME_HEADER] });
+      });
+      req.on("error", reject);
+      req.write("{");
+    });
+    expect(res).toEqual({ status: 408, outcome: "not_executed" });
+    expect(device.opened).toHaveLength(0);
+  });
 });
 
 describe("outcomes, cancellation, deadline (AD-22 points 12–13)", () => {

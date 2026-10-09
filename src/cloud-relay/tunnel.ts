@@ -686,6 +686,15 @@ export class RelayTunnel {
   private remoteEnd(s: Stream): void {
     s.remoteEnded = true;
     s.sink.onEnd();
+    if (s.closed) return;
+    if (!s.localEnded) {
+      // The device's response is complete while request body bytes (or their END_STREAM) are still
+      // unsent: the exchange is over, the rest of the request is discarded with RESET `cancel`.
+      // A RESET after the device's complete response never changes its outcome (AD-22 points 6, 13);
+      // without it the half-closed stream would hold a stream slot for the life of the tunnel.
+      this.resetStream(s.id, "cancel");
+      return;
+    }
     this.maybeComplete(s);
   }
 

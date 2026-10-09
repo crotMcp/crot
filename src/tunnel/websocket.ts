@@ -9,6 +9,15 @@
  * `maxMessageBytes` before they are buffered. The server side requires
  * masked frames, the client side unmasked ones (RFC 6455 section 5.1).
  *
+ * Memory a peer can make one connection retain is bounded independently of
+ * how it sends: received bytes are queued as received and copied once per
+ * complete frame (no re-copy per TCP segment), the fragments of a message
+ * are copied into one buffer of at most `maxMessageBytes` (no per-fragment
+ * objects, so any number of empty fragments costs nothing), and pongs are
+ * not queued behind an output backlog the peer does not read (only the
+ * most recent ping is answered then, RFC 6455 section 5.5.3). This holds
+ * before the tunnel handshake, when the peer is not yet authenticated.
+ *
  * The server side is used by the Cloud Relay (WP-29). The client side exists
  * for tests on every supported Node version (the built-in WebSocket client
  * starts with Node 22); the device adapter is WP-30.
@@ -28,6 +37,8 @@ const OP_PONG = 0xa;
 
 export const WS_PROTOCOL_ERROR = 1002;
 export const WS_TOO_BIG = 1009;
+/** Output backlog above which pongs wait for `drain` (only the latest ping is answered). */
+export const CONTROL_BACKLOG_BYTES = 64 * 1024;
 
 export function acceptKey(key: string): string {
   return createHash("sha1")
@@ -44,11 +55,16 @@ export interface WebSocketHandlers {
 }
 
 export class WebSocketConnection {
-  private buffer: Buffer = Buffer.alloc(0);
-  private fragments: Buffer[] = [];
+  /** Received bytes not yet parsed, in arrival order. */
+  private input: Buffer[] = [];
+  private inputBytes = 0;
+  /** The fragments of the current message, copied into one buffer (grown up to `maxMessageBytes`). */
+  private fragment: Buffer | undefined;
   private fragmentBytes = 0;
   private fragmentBinary = false;
   private fragmenting = false;
+  /** Payload of the latest ping not answered yet because of an output backlog. */
+  private pendingPong: Buffer | undefined;
   private closeSent = false;
   private closed = false;
   private failed = false;
@@ -68,6 +84,7 @@ export class WebSocketConnection {
     // HTTP servers create half-open sockets: the peer's FIN ends the connection.
     socket.on("end", () => this.socket.destroy());
     socket.on("error", () => this.socket.destroy());
+    socket.on("drain", () => this.flushPong());
     if (head.length > 0) this.pending.push(head);
   }
 
@@ -85,6 +102,11 @@ export class WebSocketConnection {
   /** Bytes queued in the socket (backpressure indicator). */
   get bufferedAmount(): number {
     return (this.socket as unknown as { writableLength?: number }).writableLength ?? 0;
+  }
+
+  /** Bytes retained for incomplete frames and messages (at most `maxMessageBytes` plus one frame). */
+  get retainedBytes(): number {
+    return this.inputBytes + (this.fragment?.length ?? 0);
   }
 
   send(data: Buffer): boolean {
@@ -143,10 +165,33 @@ export class WebSocketConnection {
   /** Stop parsing and close; the socket is ended after the close frame (destroyed after a grace period). */
   private fail(code: number): void {
     this.failed = true;
-    this.buffer = Buffer.alloc(0);
+    this.input = [];
+    this.inputBytes = 0;
+    this.fragment = undefined;
     if (code === WS_TOO_BIG && this.handlers?.onTooLarge) this.handlers.onTooLarge();
     this.close(code, "");
     if (this.role === "client") this.socket.end();
+  }
+
+  /** The first `n` queued input bytes as one buffer (coalesces only when they span chunks). */
+  private peek(n: number): Buffer {
+    if (this.input[0]!.length < n) this.input = [Buffer.concat(this.input, this.inputBytes)];
+    return this.input[0]!;
+  }
+
+  /** Remove `n` queued input bytes. */
+  private consume(n: number): void {
+    this.inputBytes -= n;
+    while (n > 0) {
+      const first = this.input[0]!;
+      if (first.length <= n) {
+        this.input.shift();
+        n -= first.length;
+      } else {
+        this.input[0] = first.subarray(n);
+        n = 0;
+      }
+    }
   }
 
   private receive(chunk: Buffer): void {
@@ -155,11 +200,13 @@ export class WebSocketConnection {
       this.pending.push(chunk);
       return;
     }
-    this.buffer = this.buffer.length === 0 ? chunk : Buffer.concat([this.buffer, chunk]);
+    if (chunk.length === 0) return;
+    this.input.push(chunk);
+    this.inputBytes += chunk.length;
     for (;;) {
       if (this.closed || this.failed || this.socket.destroyed) return;
-      const b = this.buffer;
-      if (b.length < 2) return;
+      if (this.inputBytes < 2) return;
+      let b = this.peek(2);
       const fin = (b[0]! & 0x80) !== 0;
       const rsv = b[0]! & 0x70;
       const opcode = b[0]! & 0x0f;
@@ -169,11 +216,13 @@ export class WebSocketConnection {
       if (rsv !== 0) return this.fail(WS_PROTOCOL_ERROR);
       if (masked !== (this.role === "server")) return this.fail(WS_PROTOCOL_ERROR);
       if (len === 126) {
-        if (b.length < 4) return;
+        if (this.inputBytes < 4) return;
+        b = this.peek(4);
         len = b.readUInt16BE(2);
         offset = 4;
       } else if (len === 127) {
-        if (b.length < 10) return;
+        if (this.inputBytes < 10) return;
+        b = this.peek(10);
         const big = b.readBigUInt64BE(2);
         if (big > BigInt(this.maxMessageBytes)) return this.fail(WS_TOO_BIG);
         len = Number(big);
@@ -183,20 +232,54 @@ export class WebSocketConnection {
       if (control && (len > 125 || !fin)) return this.fail(WS_PROTOCOL_ERROR);
       if (!control && this.fragmentBytes + len > this.maxMessageBytes) return this.fail(WS_TOO_BIG);
       const maskBytes = masked ? 4 : 0;
-      if (b.length < offset + maskBytes + len) return;
-      const mask = masked ? b.subarray(offset, offset + 4) : undefined;
-      const payload = Buffer.from(b.subarray(offset + maskBytes, offset + maskBytes + len));
-      if (mask) for (let i = 0; i < payload.length; i++) payload[i] = payload[i]! ^ mask[i & 3]!;
-      this.buffer = b.subarray(offset + maskBytes + len);
+      const total = offset + maskBytes + len;
+      // Wait for the whole frame without copying (bounded: the frame fits the message limit).
+      if (this.inputBytes < total) return;
+      b = this.peek(total);
+      const payload = Buffer.from(b.subarray(offset + maskBytes, total));
+      if (masked) {
+        const mask = b.subarray(offset, offset + 4);
+        for (let i = 0; i < payload.length; i++) payload[i] = payload[i]! ^ mask[i & 3]!;
+      }
+      this.consume(total);
       if (!this.frame(fin, opcode, payload)) return;
     }
+  }
+
+  /** Append a fragment to the message buffer (grown by doubling, never above `maxMessageBytes`). */
+  private appendFragment(payload: Buffer): void {
+    const needed = this.fragmentBytes + payload.length;
+    if (!this.fragment || this.fragment.length < needed) {
+      const capacity = Math.min(this.maxMessageBytes, Math.max(needed, 2 * (this.fragment?.length ?? 0), 1024));
+      const grown = Buffer.allocUnsafe(capacity);
+      if (this.fragment) this.fragment.copy(grown, 0, 0, this.fragmentBytes);
+      this.fragment = grown;
+    }
+    payload.copy(this.fragment, this.fragmentBytes);
+    this.fragmentBytes = needed;
+  }
+
+  /** Answer a ping, or keep only the latest one while the peer does not read our output. */
+  private pong(payload: Buffer): void {
+    if (!this.isOpen) return;
+    if (this.bufferedAmount > CONTROL_BACKLOG_BYTES) {
+      this.pendingPong = payload;
+      return;
+    }
+    this.write(OP_PONG, payload);
+  }
+
+  private flushPong(): void {
+    const payload = this.pendingPong;
+    this.pendingPong = undefined;
+    if (payload) this.pong(payload);
   }
 
   /** Handle one frame; false stops parsing. */
   private frame(fin: boolean, opcode: number, payload: Buffer): boolean {
     switch (opcode) {
       case OP_PING:
-        if (this.isOpen) this.write(OP_PONG, payload);
+        this.pong(payload);
         return true;
       case OP_PONG:
         return true;
@@ -227,19 +310,18 @@ export class WebSocketConnection {
         }
         this.fragmenting = true;
         this.fragmentBinary = opcode === OP_BINARY;
-        this.fragments = [payload];
-        this.fragmentBytes = payload.length;
+        this.fragmentBytes = 0;
+        this.appendFragment(payload);
         return true;
       case OP_CONTINUATION:
         if (!this.fragmenting) {
           this.fail(WS_PROTOCOL_ERROR);
           return false;
         }
-        this.fragments.push(payload);
-        this.fragmentBytes += payload.length;
+        if (payload.length > 0) this.appendFragment(payload);
         if (fin) {
-          const message = Buffer.concat(this.fragments);
-          this.fragments = [];
+          const message = Buffer.from(this.fragment!.subarray(0, this.fragmentBytes));
+          this.fragment = undefined;
           this.fragmentBytes = 0;
           this.fragmenting = false;
           this.handlers!.onMessage(message, this.fragmentBinary);

@@ -988,12 +988,12 @@ The tray app is a UI; control logic stays in Core/service.
 | Native Host (OS platform layer) | **[Implemented]** |
 | Browser bridge, relay, extension (Chromium), basic commands | **[Implemented]** |
 | Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | Contract decided (AD-16, WP-18: CDP); implementation **[Target]** (v1: WP-24…WP-27) |
-| Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); request pipeline **[Implemented]** (WP-19: sessionless 2026-07-28, supported versions, principal kinds by entry point, exposure scopes, persisted remote exposure); verifier **[Implemented]** (WP-28); relay **[Implemented]** (WP-29, AD-22); device tunnel **[Target]** (v1: WP-30) |
+| Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); request pipeline **[Implemented]** (WP-19: sessionless 2026-07-28, supported versions, principal kinds by entry point, exposure scopes, persisted remote exposure); verifier **[Implemented]** (WP-28); relay **[Partial]** (WP-29, AD-22: relay side of the tunnel implemented; per-client rate limits and the load test open); device tunnel **[Target]** (v1: WP-30) |
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
 | User confirmations | **[Implemented]** (mechanism: WP-15, §27 AD-5…AD-11; tray provider and preset selection: WP-22, §27 AD-19); *Autonomous browser* preset and remote profile **[Target]** (WP-31) |
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | Provider, claim model, revocation model and device resource URI decided (§27 AD-21: WorkOS AuthKit); device side **[Implemented]** (WP-28: verifier, pairing, device id and credential, unpair, re-grant; development environment only); staging/production environments **[Target]** (WP-38, WP-39); provider-side revocation and accounts **[Target]** (WP-36) |
-| Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); Cloud Relay v1 and the relay side of the tunnel **[Implemented]** (WP-29, §27 AD-22); device tunnel **[Target]** (mandatory in v1, AD-13; WP-30); deployment WP-38/WP-39 |
+| Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); Cloud Relay v1 and the relay side of the tunnel **[Partial]** (WP-29, §27 AD-22; per-client rate limits and the load test open); device tunnel **[Target]** (mandatory in v1, AD-13; WP-30); deployment WP-38/WP-39 |
 | Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); macOS, Windows **[Target]** (v1, AD-13; WP-23b/c) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
 | Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
@@ -4509,14 +4509,25 @@ two independently deployed components and its time limits. Facts at `main`
    successful pairing (WP-28 flow), the device calls
    `POST https://<relay-host>/d/<deviceId>/register` with the pairing access
    token as `Authorization: Bearer` and body `{publicKey}` (the
-   `DevicePublicKey` JWK). The relay verifies the token exactly as for
-   admission (AD-21 point 7: signature, `iss`, `aud` = this device URI,
-   `exp`/`iat`) and records `(deviceId, accountId = sub, publicKey,
-   environment, registeredAt)`. A `deviceId` registers once; a second
+   `DevicePublicKey` JWK). The relay verifies the token as the device
+   verifies its pairing token (AD-21 point 7 and the WP-28 pairing note:
+   signature, `iss`, `aud` = this device URI, `exp`/`iat`) **and** that
+   `client_id` is the environment's pairing client; a valid token of any
+   other client for the same URI is refused (403) — the provider issues
+   tokens for any device URI to any account and client (AD-21 residual
+   risks), so `aud` alone does not show a pairing. The token is checked
+   before the body is read. The relay then records `(deviceId, accountId =
+   sub, publicKey, environment, registeredAt)`. A `deviceId` registers once; a second
    registration with a different key or account is refused (409) — every
    pairing has a new device id and key (AD-21 implementation note), so a
-   legitimate re-pair never needs it. The token is not stored by either
-   side. Pairing succeeds on the device only after registration succeeded
+   legitimate re-pair never needs it. The first successful registration
+   binds the id to its account; residual risk (accepted): someone who
+   learns a new device id before the device registered it (seconds after
+   the pairing authorization) and completes a pairing grant of their own
+   for that URI can take the id first — the legitimate pairing then fails
+   with 409 and is repeated with a new id; no request of the victim's
+   clients is admitted to the other account (`sub` check, point 3 / AD-21
+   point 7). The token is not stored by either side. Pairing succeeds on the device only after registration succeeded
    (else the binding is not written, as for any pairing failure).
    Removal of registrations after unpair is open question 3.
 
@@ -4548,9 +4559,19 @@ two independently deployed components and its time limits. Facts at `main`
    - Limits: `DATA` payload ≤ 64 KiB; JSON payloads ≤ 64 KiB, UTF-8,
      objects; unknown JSON members are ignored and never used for
      authority; a header block must fit in one `OPEN`/`RESPONSE` (no
-     continuation frames). A larger frame, an unknown type below 0x80, a
-     wrong direction, non-zero reserved flag bits or invalid JSON are
-     connection errors (point 14).
+     continuation frames).
+   - **Malformed frames.** A larger frame, an unknown type below 0x80, a
+     wrong direction, non-zero reserved flag bits, a `WINDOW` payload that
+     is not 4 bytes, a `PING`/`PONG` payload that is not 8 bytes, and
+     invalid JSON or content in a **stream-0** frame (`CHALLENGE`,
+     `HELLO`, `READY`, `GOAWAY`) are **connection errors** (point 14):
+     they leave the connection state unknown. Invalid JSON or content in a
+     **stream** head (`OPEN`, `RESPONSE`: not a UTF-8 JSON object, a bad
+     header list or status, a limit exceeded inside the head) is a
+     **stream error**: the receiver resets that stream with
+     `protocol_error`, the connection and other streams continue. A
+     `RESET` whose payload cannot be read still ends its stream and counts
+     as `internal_error`.
    - Rationale for JSON in head/control frames: rare, small, debuggable,
      extensible by ignored members; bodies stay opaque binary.
 
@@ -4569,6 +4590,15 @@ two independently deployed components and its time limits. Facts at `main`
      answered by the relay with 503 `busy` + `Retry-After: 1` without
      forwarding. The device's own pipeline limits still apply (its 503s are
      ordinary responses). No queueing in the relay in v1.
+   - **Response before the request ended.** When the device has sent its
+     complete response (`END_STREAM` on its last `RESPONSE`/`DATA`) while
+     the relay has not yet sent `END_STREAM` for the request (the client
+     is still sending, or body bytes wait for the device's window), the
+     exchange is complete: the relay forwards no more request bytes and
+     sends `RESET` (`cancel`) for the stream, which closes it on both
+     sides. Such a `RESET` never affects the completed request: the device
+     ignores it for the operation (its result and audit stand, point 13);
+     it only releases the stream's state.
    - **Refusal before dispatch.** The device answers an `OPEN` it does not
      hand to the pipeline (over `maxStreams`, shutting down, remote mode
      just switched off) with `RESET refused`; a refused stream is
@@ -4661,10 +4691,18 @@ two independently deployed components and its time limits. Facts at `main`
       supports. A change that an old peer could misread (frame layout,
       semantics of an existing frame/code, limits that would be exceeded) is
       a new major. A relay that supports none of the offered majors accepts
-      the upgrade and closes with **4426** and reason
+      the upgrade, sends no frame and closes with **4426** and reason
       `unsupported_version;supported=v1[,v2]` (a WebSocket client cannot read
       a refused upgrade's body); the device then reports "update required"
-      and retries per point 9.
+      and retries per point 9. To let standard clients see that close, the
+      relay's `101` response then names the **highest
+      `crot-tunnel.v<N>` the device offered** in `Sec-WebSocket-Protocol`:
+      WebSocket clients (the WHATWG API, Node's built-in client) fail an
+      upgrade that selects none of the requested subprotocols before any
+      close frame can be read. On such a connection the selected
+      subprotocol means nothing; the device acts on the close code only.
+      If the device offered no `crot-tunnel.v<N>` at all, the `101` names no
+      subprotocol and the relay closes with 4426 the same way.
     - **Minor additions** are negotiated `features` (strings in `HELLO`
       ∩ `READY`): new optional JSON members, extension frame types
       0x80–0xFF, new `RESET`/`GOAWAY` codes that the peer may treat as
@@ -4727,6 +4765,10 @@ two independently deployed components and its time limits. Facts at `main`
       tray, audited as cancelled). Neither the relay nor the device injects
       keep-alive bytes or progress notifications into responses in v1.
       Measured client timeouts are documented by WP-32.
+    - The deadline also bounds a request body the relay must receive
+      before forwarding (a body without `Content-Length` is received
+      completely, so the 4 MiB limit is enforced before anything reaches
+      the device): not complete in time → 408, `not_executed` (point 13).
     - Handshake 10 s (point 3); liveness 20/60 s (point 9); drain 60 s.
 
 13. **Cancellation, outcomes, retries.**
@@ -4740,8 +4782,9 @@ two independently deployed components and its time limits. Facts at `main`
       above), finishes or times out by itself, is audited with its real
       outcome, and its result is discarded. A legacy
       `notifications/cancelled` is an ordinary request on its own stream.
-    - **Cancel after completion:** a `RESET` for a stream that already ended
-      is ignored; the operation's result and audit stand.
+    - **Cancel after completion:** a `RESET` for a stream that already ended,
+      or whose response the device already completed (point 6), is ignored;
+      the operation's result and audit stand.
     - **Tunnel loss** (either side, any reason): every open stream is treated
       as cancelled on the device (same path) and as failed at the relay.
     - **Outcome reported to the client** by the relay for exchanges that do
@@ -4751,7 +4794,7 @@ two independently deployed components and its time limits. Facts at `main`
 
       | Situation | Status | `CROT-Request-Outcome` |
       | --- | --- | --- |
-      | refused before forwarding (offline, remote off, busy, too large, not entitled) | 503 / 413 / 403 | `not_executed` |
+      | refused before forwarding (offline, remote off, busy, too large, not entitled, request body not received within the deadline) | 503 / 413 / 403 / 408 | `not_executed` |
       | device `RESET` `refused` (device guarantees the request did not reach MCP dispatch) | 503 + `Retry-After` | `not_executed` |
       | tunnel lost, device reset (`cancel` excluded), deadline, `response_too_large`, any reset after `OPEN` was delivered, before a response head | 502 / 504 | `unknown` |
       | the same after a response head was sent | client stream aborted (HTTP/1.1 connection closed without the final chunk; HTTP/2 `RST_STREAM`) | — (incomplete = unknown) |
@@ -4783,9 +4826,10 @@ two independently deployed components and its time limits. Facts at `main`
     | not entitled / blocked | close 4403 |
     | no common major version | close 4426 (point 10) |
     | handshake not finished in 10 s | close 4408 |
-    | malformed frame, frame too large, unknown type < 0x80, wrong direction, reserved flags, invalid JSON on stream 0, id order violation, flow-control violation, text message | connection error: `GOAWAY` (`protocol_error`), close 4400; all streams reset; device aborts their requests |
+    | malformed frame, frame too large, unknown type < 0x80, wrong direction, reserved flags, invalid JSON on stream 0, bad `WINDOW`/`PING`/`PONG` size, id order violation, flow-control violation, text message | connection error: `GOAWAY` (`protocol_error`), close 4400; all streams reset; device aborts their requests |
     | invalid `OPEN` content (bad JSON, header list, limits) | `RESET` `protocol_error` for that stream; nothing reaches the pipeline |
-    | rate limit at handshake | close 4429 with `retryAfterMs` in the reason |
+    | invalid `RESPONSE` content (bad JSON, header list, status) | relay: `RESET` `protocol_error` for that stream; the exchange's outcome is `unknown` (502) |
+    | rate limit at handshake | close 4429 with `retryAfterMs` in the reason; counted per device only for handshakes with a valid proof (a failed proof is 4401 and never uses up the device's allowance — the device id is public) |
     | relay deploy / device service stop | `GOAWAY` `shutting_down`, drain ≤ 60 s |
 
     Close reasons and log lines never contain tokens, headers, bodies or
@@ -4920,3 +4964,32 @@ two independently deployed components and its time limits. Facts at `main`
   (§26 question 25).
 - It does not define jobs, artifacts, progress or out-of-band transfers
   (OD-15, OD-17).
+
+**Implementation (WP-29).** **[Partial]** — relay side (`src/tunnel/`,
+`src/cloud-relay/`, `src/bin/crot-cloud-relay.ts`; operator docs
+[`docs/RELAY.md`](docs/RELAY.md)). Implemented: registration (point 4,
+pairing client only), PRM, admission, routing, handshake, framing, streams,
+flow control, liveness, draining, versioning, limits, deadline, outcomes and
+validation (points 2–3, 5–15). Notes, none of which relaxes this decision:
+
+- *Bounded unauthenticated resources.* The WebSocket endpoint retains at
+  most one message (64 KiB + header) per connection however a peer
+  fragments or segments it, and answers only the latest WebSocket-level
+  ping while the peer does not read its output; at most 256 handshakes are pending; a body the relay does
+  not forward (refusals before admission) is dropped and the connection
+  closed if it is not complete within 10 s; registration checks the token
+  before reading its body.
+- *Open WP-29 items (release-blocking, before WP-38 exposes a public
+  relay):* per-client / per-device request rate and concurrency limits at
+  the relay (AD-15 point 10; buffered bodies without length are bounded
+  only by the device's stream limit after admission and by the deadline),
+  per-source limits on connections and pending handshakes (the 256 limit is
+  global), a registration rate limit per account, and the load/backpressure
+  test of the WP-29 card. Owned by WP-29 follow-up or WP-39 (capacity and
+  rate limits); WP-29 is not complete until they are done or explicitly
+  reassigned.
+- *Later work packages:* entitlement hook default "entitled" until WP-36;
+  no deregistration or key rotation (open question 3, WP-36/WP-39);
+  single relay instance with a file registry (open question 8, WP-39); no
+  CORS/`OPTIONS` (open question 7); the binary is not in `package.json`
+  `bin` and ships in the device package's `dist` (WP-34/WP-38).

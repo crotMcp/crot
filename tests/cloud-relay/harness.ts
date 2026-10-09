@@ -29,6 +29,7 @@ export class RelayHarness {
     this.relay = new CloudRelay({
       relayHost: TEST_RELAY,
       issuer: this.as.issuer,
+      pairingClientId: PAIRING_CLIENT,
       environment: "test",
       keys: new IssuerKeySet({ issuer: this.as.issuer, http: this.as.http() }),
       registry: this.registry,

@@ -4,12 +4,14 @@
  * (staging) and WP-39 (production).
  */
 import { isRelayHost } from "../identity/device-id.js";
-import { isIssuer } from "../identity/environment.js";
+import { isClientId, isIssuer } from "../identity/environment.js";
 import { DEFAULT_EXCHANGE_DEADLINE_MS, MIN_EXCHANGE_DEADLINE_MS } from "../tunnel/protocol.js";
 
 export interface RelayConfig {
   readonly relayHost: string;
   readonly issuer: string;
+  /** `client_id` of the environment's pairing client; only its tokens register devices (AD-22 point 4). */
+  readonly pairingClientId: string;
   readonly environment: string;
   readonly host: string;
   readonly port: number;
@@ -18,7 +20,17 @@ export interface RelayConfig {
   readonly exchangeDeadlineMs: number;
 }
 
-const FIELDS = ["relayHost", "issuer", "environment", "host", "port", "registryFile", "tls", "exchangeDeadlineMs"];
+const FIELDS = [
+  "relayHost",
+  "issuer",
+  "pairingClientId",
+  "environment",
+  "host",
+  "port",
+  "registryFile",
+  "tls",
+  "exchangeDeadlineMs",
+];
 
 /** Validate a configuration object; throws with the first problem. */
 export function parseRelayConfig(value: unknown): RelayConfig {
@@ -28,6 +40,7 @@ export function parseRelayConfig(value: unknown): RelayConfig {
   if (unknown.length > 0) throw new Error(`unknown field(s): ${unknown.join(", ")}`);
   if (!isRelayHost(v.relayHost)) throw new Error("relayHost must be a lowercase DNS name without port");
   if (!isIssuer(v.issuer)) throw new Error("issuer must be an HTTPS origin");
+  if (!isClientId(v.pairingClientId)) throw new Error("pairingClientId must be a non-empty client id without spaces");
   const environment = v.environment ?? "development";
   if (typeof environment !== "string" || !/^[a-z0-9][a-z0-9-]{0,31}$/.test(environment))
     throw new Error("environment must be a short lowercase name");
@@ -55,6 +68,7 @@ export function parseRelayConfig(value: unknown): RelayConfig {
   return {
     relayHost: v.relayHost,
     issuer: v.issuer,
+    pairingClientId: v.pairingClientId,
     environment,
     host,
     port,

@@ -129,6 +129,7 @@ describe("relay configuration", () => {
     relayHost: "relay.crot.example",
     issuer: "https://auth.crot.example",
     registryFile: "/var/lib/crot/devices.json",
+    pairingClientId: "client_pairing_native",
   };
   it("defaults to a 15 minute deadline and refuses values outside 60 s … 15 min", () => {
     expect(parseRelayConfig(base)).toMatchObject({
@@ -141,6 +142,14 @@ describe("relay configuration", () => {
     expect(() => parseRelayConfig({ ...base, relayHost: "Relay.Example" })).toThrow();
     expect(() => parseRelayConfig({ ...base, issuer: "http://auth.example" })).toThrow();
     expect(() => parseRelayConfig({ ...base, extra: 1 })).toThrow(/unknown/);
+  });
+
+  it("requires the pairing client id (AD-22 point 4)", () => {
+    expect(parseRelayConfig(base).pairingClientId).toBe("client_pairing_native");
+    const { pairingClientId: _omitted, ...without } = base;
+    expect(() => parseRelayConfig(without)).toThrow(/pairingClientId/);
+    expect(() => parseRelayConfig({ ...base, pairingClientId: "" })).toThrow(/pairingClientId/);
+    expect(() => parseRelayConfig({ ...base, pairingClientId: "has space" })).toThrow(/pairingClientId/);
   });
 });
 
