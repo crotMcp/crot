@@ -13,6 +13,9 @@
 > **Verified against:** `main` at `22abf89` (2026-10-08: WP-23a merged in
 > PR #6 `e1d1f61`, followed by the CI test fixes PR #9 `4df63c6`, PR #11
 > `2b803eb` and PR #7 `22abf89`). First verification: `8169b1f` (WP-19).
+> Docs-only changes since: PR #12 `74352c2` (this audit) and PR #14
+> `ff571c2` (AD-21; OD-2, OD-3 decided); code status claims still hold at
+> `ff571c2`.
 > Status claims below were checked against the repository tree, the source
 > files named, the CI workflows and the merged history, not taken from earlier
 > plans.
@@ -126,8 +129,8 @@ OD-1). In the tree for WP-20:
   `tests/adapters/http-modern.test.ts` (concurrency limit), the existing stdio
   and browser E2E through the shim. User docs: `docs/SERVICE.md`.
 
-Previous: **WP-19 — Remote MCP request pipeline per AD-15**, merged in PR #14
-(`8169b1f`). Verified in the tree:
+Previous: **WP-19 — Remote MCP request pipeline per AD-15**, merged in
+mcp-crot PR #14 (`8169b1f`). Verified in the tree:
 
 - `src/adapters/mcp/modern.ts` and `@modelcontextprotocol/server` (SDK v2)
   serve sessionless 2026-07-28 requests; SDK v1 (`@modelcontextprotocol/sdk`)
