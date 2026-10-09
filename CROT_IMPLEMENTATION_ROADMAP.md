@@ -79,6 +79,10 @@ Non-negotiables used throughout this roadmap:
 
 ### 2.1 Last completed work package
 
+**WP-28 — Identity and device binding** (§27 AD-21), merged in crot-mcp
+PR #16 (`4d574f0`); details in `STATUS.md` and `docs/IDENTITY.md`. The
+previous one:
+
 **WP-23a — Linux command confinement L1** (§27 AD-20, decides the Linux part
 of OD-9 and OD-14), merged in PR #6 (`e1d1f61`). In the tree:
 
@@ -225,6 +229,33 @@ Recorded for the WP that owns them; this roadmap does not change any AD.
 | N1 | AD-18 and AD-19 (scope, residual risks, AD-19 point 10) still say "until L1 (WP-23)" / "L1 not available until WP-23". Since AD-20 / WP-23a the tray and `crot_status` report the real L1 state, and the residual risks are closed for confined Linux children only. The AD texts describe the state at their decision; they are not amended silently | WP-23b/c (when the residual risks close on macOS/Windows) or a docs PR with an explicit cross-reference amendment |
 | N2 | WP-34 depends on WP-23a for the Linux L1 components (AD-20 point 3, D4), but not on WP-23b/c. Whether macOS (Seatbelt profile) and Windows (OD-6 mechanism) need installer-shipped components is unknown until OD-9 (macOS/Windows) and OD-6 are decided | OD-9 / OD-6 decisions; add WP-23b/c to WP-34's dependencies if they ship components |
 | N3 | WP-28 card scope lists "provider-side revocation"; AD-21 point 4 makes it best effort and forbids a provider client secret on devices, so the device cannot call the provider. WP-28 ships a hook reporting "not available"; the AD-21 point 4 (a) bound holds without it. Also: no release configuration pins an identity environment yet, so the development override (`CROT_IDENTITY_DEV_ENVIRONMENT`) is honoured by every build until it is pinned (AD-21 point 5) | WP-36 (provider-side revocation through the account service); WP-38/WP-39 pin the environment and WP-34 ships only pinned builds — release-gate item before G4 |
+| N4 | §6.2 forbade "work on … other post-v1 items" for every card. The expanded product goal (§2.7) schedules post-v1 milestones (phases 5–8) that may run in parallel; §6.2 now allows them only as their own WPs, after their OD/AD, without changing or blocking any release-blocking WP | this roadmap (§6.2 amended explicitly) |
+
+### 2.7 Expanded product goal (reassessment)
+
+The product goal grows from remote access to an extensible execution
+environment for local and remote agents: full media work (inspection to
+render and verification), video editors and applications, and external
+services (YouTube, ElevenLabs, TikTok, Canva, other APIs). The
+reassessment ([`docs/plan/product-reassessment.md`](docs/plan/product-reassessment.md),
+evidence in [`docs/design/extensibility-audit.md`](docs/design/extensibility-audit.md))
+finds that no rewrite of Core, MCP, relay, identity or permissions is
+needed; it adds open decisions OD-15…OD-23 (§4.2), phases 5–8 (§3) and
+WP-41…WP-70 (§6.1; cards in
+[`docs/plan/extension-work-packages.md`](docs/plan/extension-work-packages.md)).
+What changed in this roadmap and why:
+
+- **v1 scope unchanged** (recommended OD-23 (a)): phases 5–8 are post-v1
+  milestones (v1.1 media, v1.2 integrations, v1.3+ editors/applications)
+  and are not release-blocking.
+- **Priority raised, scope unchanged:** WP-24…WP-27 (browser workflows and
+  the browser path of publishing) and the OD-9 → WP-23b/c chain (remote
+  media on macOS/Windows needs L1 there, OD-17).
+- **New inputs to OD-4:** message size ≥ largest tool result; media data
+  never through the relay; long work as jobs (OD-15).
+- **New input to WP-31:** every new capability needs a remote default.
+- **§6.2 and §11 amended explicitly** (N4; §11 notes) — nothing removed
+  silently.
 
 ---
 
@@ -238,6 +269,10 @@ Recorded for the WP that owns them; this roadmap does not change any AD.
 | 2B Browser v1 | AD-16 contract | WP-24, WP-25, WP-26, WP-27 |
 | 3 Remote | Identity → relay → tunnel → profile → acceptance → review | WP-28, WP-29, WP-30, WP-31, WP-38, WP-32, WP-33 |
 | 4 Commercial | Ship and operate | WP-34, WP-35, WP-36, WP-37, WP-39, WP-40 |
+| 5 Extension foundation (post-v1; WP-41/42 now, the rest after their ADs) | Invariant tests, image view, components, jobs, connections, connector runtime | WP-41…WP-48 (OD-15, OD-16, OD-19, OD-20) |
+| 6 Media (milestone v1.1) | Inspect, audio, speech, edit description, render, QC, presets, acceptance | WP-49…WP-57 (OD-17, OD-18) |
+| 7 Integrations (milestone v1.2) | ElevenLabs, YouTube, TikTok, Canva, acceptance | WP-58…WP-64 |
+| 8 Editors and applications (v1.3+) | Editor spike, interchange, MLT, bridge, application control | WP-65…WP-70 (OD-21, OD-22) |
 
 Technical completion = Gate 6 (security review ready, §9). Commercial
 readiness = Gates 7 and 8. Both are required for v1.
@@ -287,6 +322,22 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | OD-12 | Diagnostics and crash reporting under "no hidden telemetry" (§12): none, or explicit opt-in; scope of relay operational logs (metadata only) | Operability vs privacy promise; must be stated in the privacy policy | WP-39, WP-37 | Before WP-39 |
 | OD-13 | Commercial model: plans, what is entitled (remote mode, device count, other cloud features), trial, payment provider, legal entity and jurisdictions, data residency of relay/account data | Entitlement schema, billing integration, legal documents | WP-36, WP-37, WP-39 | Before WP-36 (product/business decision, not an AD unless it touches §23 boundaries) |
 | OD-14 | ARCHITECTURE.md §26 question 15: host endpoints that give code execution to a local caller without a CROT credential (Docker on TCP without TLS, an SSH server on this host accepting the user's keys, debugging ports of the user's processes, unauthenticated notebook/IDE servers, container engines that put containers in the host network without the CROT container profile), reachable because network `on` shares the host network (AD-20 point 8) | Through such an endpoint a confined command can run unconfined code and reach CROT's state; options (a) host configuration outside L1, documented and reported, or (b) mediated localhost replacing AD-20 point 8 `on` | WP-23a (security acceptance), WP-31, WP-33, WP-37 | **Decided by ARCHITECTURE.md §27 AD-20 point 14:** option (a) — documented residual risk of the host-network model, best-effort notes in the confinement `detail`, never a refusal; network `on` stays the host network |
+
+Open decisions of the expanded product goal (§2.7; briefs with options,
+trade-offs and recommendations in `docs/plan/product-reassessment.md` §5;
+ARCHITECTURE.md §26 questions 16–24). None blocks a v1 WP.
+
+| ID | Question | Why it matters | Blocks | Decide by |
+| --- | --- | --- | --- | --- |
+| OD-15 | Long-running jobs and artifacts (start/status/cancel/result, persistence, retention, Core activity) | renders, transcription, uploads outlive a request; relay requests stay short | WP-44 and every job-based WP | AD before WP-44; input to OD-4 |
+| OD-16 | Optional components: declaration, detection, versions, model paths, provisioning | clear "missing tool" reporting for local and remote agents | WP-43, WP-49…WP-51, WP-67, WP-68 (WP-65 research only informs it) | AD (or AD addendum) before WP-43 |
+| OD-17 | Media capability: names, fixed operations, placement (confined vs in-service), exposure sources, remote defaults | security of media parsers; remote use on macOS/Windows | WP-49…WP-57 | AD before WP-49 |
+| OD-18 | Edit description format and renderer; interchange exports | deterministic, verifiable editing | WP-52…WP-56, WP-66, WP-67 | AD after a short spike, before WP-52 |
+| OD-19 | Service integration contract: connector manifests, generic tools, per-connection grants, publish gates; relation to §18 gateway | new APIs without Core/relay changes | WP-46, WP-47, WP-58, WP-59, WP-61, WP-63, WP-64 (spikes WP-60/62 inform it) | AD before WP-46 |
+| OD-20 | Credentials of external services (device vault, cloud broker, user-owned apps, browser session); OAuth app ownership | user tokens outside the agent; confidential-client services | WP-45, WP-48, WP-58, WP-59, WP-61, WP-63 (spikes WP-60/62 inform it) | AD before WP-45 |
+| OD-21 | Application bridges inside editors | editor-native features | WP-68 | AD after WP-65 stage 2 |
+| OD-22 | Scoped desktop application control (reassesses "never in scope: OS-level input", §11) | GUI-only applications | WP-70 | AD after WP-69; not for v1 |
+| OD-23 | Release staging: is any of phases 5–8 release-blocking for v1? | v1 schedule | — | product decision now (recommended: no) |
 
 Implementation choices that are **not** architectural but have release impact
 (the implementing WP decides and documents them): tray UI technology (WP-22: Electron, AD-19 point 1),
@@ -343,7 +394,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
 | WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | Not started |
 | WP-27 | 2B | Browser: per-tab queue, explicit `tabId` for remote, `openedBy` | WP-24 | S–M | yes | with 25, 26 | Not started |
-| WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | **In review** (AD-21; crot-mcp PR #16; Done on merge) |
+| WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | **Done** (AD-21; crot-mcp PR #16, `4d574f0`) |
 | WP-29 | 3 | Cloud Relay v1 | WP-28 (verifier facts), OD-3 (decided: AD-21), OD-4 | XL | yes | with phase 1/2/2B | Not started |
 | WP-30 | 3 | Device tunnel adapter | WP-20, WP-28, WP-29, OD-5 | M–L | yes | — | Not started |
 | WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a/b/c, WP-30, OD-7 | M | yes | — | Not started |
@@ -356,6 +407,36 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-37 | 4 | Documentation, privacy/security docs, legal | content from all WPs; final after WP-33 | M | yes | ongoing | Not started |
 | WP-39 | 4 | Production cloud and operational readiness | WP-38, WP-36, OD-12 | L | yes | with WP-33 | Not started |
 | WP-40 | 4 | Release candidate, beta and GA release | all RB WPs | M | yes | — | Not started |
+| WP-41 | 5 | Extensibility invariant tests | — | S | no | now | Not started |
+| WP-42 | 5 | Workspace image view | — | S | no | now | Not started |
+| WP-43 | 5 | Component availability and diagnostics | OD-16 | S–M | no | with phase 3 | Not started |
+| WP-44 | 5 | Jobs and artifacts | OD-15 | M | no | with phase 3 | Not started |
+| WP-45 | 5 | Connections and credential vault | OD-20, WP-21 | M | no | with phase 3 | Not started |
+| WP-46 | 5 | Connector runtime: requests | OD-19, WP-45 | M | no | — | Not started |
+| WP-47 | 5 | Connector runtime: files and async | WP-46, WP-44 | M | no | — | Not started |
+| WP-48 | 5 | OAuth connections | WP-45, OD-20 | M | no | with WP-46 | Not started |
+| WP-49 | 6 | Media inspect and frames | OD-17, WP-43, WP-42, WP-44 | M | no | — | Not started |
+| WP-50 | 6 | Audio analysis and processing | WP-49, WP-44 | M | no | with WP-51 | Not started |
+| WP-51 | 6 | Speech to text and subtitles | WP-49, WP-44, WP-43, OD-16 | M | no | with WP-50 | Not started |
+| WP-52 | 6 | Edit description v1 | OD-18, OD-17 | S–M | no | with WP-50/51 | Not started |
+| WP-53 | 6 | Render core | WP-52, WP-44, WP-49 | L | no | — | Not started |
+| WP-54 | 6 | Render composition | WP-53, WP-50, WP-51 | M–L | no | with WP-55 | Not started |
+| WP-55 | 6 | Render QC and verification | WP-53, WP-50 | M | no | with WP-54 | Not started |
+| WP-56 | 6 | Delivery presets | WP-53 | S | no | with WP-54/55 | Not started |
+| WP-57 | 6 | Media acceptance suite | WP-49…WP-56 | M | no | — | Not started |
+| WP-58 | 7 | ElevenLabs connector | WP-45, WP-46, WP-47, WP-44 | M | no | with WP-59 | Not started |
+| WP-59 | 7 | YouTube connector | WP-47, WP-48 (+ Google app setup) | M–L | no | with WP-58 | Not started |
+| WP-60 | 7 | TikTok spike (research) | — | S | no | now | Not started |
+| WP-61 | 7 | TikTok connector (conditional) | WP-60, WP-47, OD-20 | M | no | — | Not started |
+| WP-62 | 7 | Canva spike (research) | — | S | no | now | Not started |
+| WP-63 | 7 | Canva connector (conditional) | WP-62, WP-47, WP-48 | M | no | — | Not started |
+| WP-64 | 7 | Integration acceptance suite | WP-57, WP-58, WP-59, WP-24…WP-27 | M | no | — | Not started |
+| WP-65 | 8 | Editor integration spike (research; stage 1 now, stage 2 after WP-52) | — (stage 1); WP-52 (stage 2) | M | no | stage 1 now | Not started |
+| WP-66 | 8 | Interchange export (OTIO, FCPXML, EDL, MLT) | WP-52, WP-65 stage 1 | M | no | with WP-67 | Not started |
+| WP-67 | 8 | MLT project adapter (Kdenlive, Shotcut) | WP-65 stage 1, WP-66, WP-43 | M | no | — | Not started |
+| WP-68 | 8 | Application bridge (first editor) | OD-21 (after WP-65 stage 2) | L | no | — | Not started |
+| WP-69 | 8 | Desktop application control spike (research) | — | M | no | now | Not started |
+| WP-70 | 8 | Application control v1 (conditional) | OD-22, WP-69 | L | no | — | Not started |
 
 ### 6.2 Common rules (apply to every card)
 
@@ -368,6 +449,9 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
   agent-supplied code in the browser; approvals via MCP elicitation or the
   request path; payload logging in the relay; entitlement checks in local
   authorization; work on the external MCP gateway or other post-v1 items.
+  *Amended (§2.6 N4):* WPs of phases 5–8 (§3) are allowed as their own WPs
+  after their OD/AD; they never change or block a release-blocking WP, and
+  the external MCP gateway itself stays post-v1.
 
 ### 6.3 Phase 1 — Local foundation
 
@@ -890,6 +974,7 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
 | Release blockers | every WP except WP-19b |
 | Optional / non-blocking | WP-19b; §26 Q12 transport matcher; §26 Q14 tab-scope matcher |
 | Post-v1 | §11 of this roadmap |
+| Post-v1 milestones that may start now | implementation: WP-41, WP-42 (no open contract, see `docs/plan/product-reassessment.md` §8); research only: WP-60, WP-62, WP-65 stage 1, WP-69, OD-18 spike; AD drafting for OD-15…OD-20, OD-23 |
 
 ### 8.4 Next-WP selection rule
 
@@ -916,8 +1001,34 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
      a live WorkOS environment (WP-38 configures staging).
    - *On the critical path:* **yes**.
 
+4. **Expanded goal (§2.7).** Post-v1 milestone work never displaces the
+   critical path. Capacity beyond chains B and C goes, in order, to: WP-41
+   and WP-42; OD-15/OD-16/OD-17 ADs → WP-44, WP-43; OD-19/OD-20 ADs →
+   WP-45; research spikes WP-60, WP-62, WP-65 stage 1, WP-69. Research may
+   start before an AD; implementation of a contract never does. The full milestone order is
+   in `docs/plan/product-reassessment.md` §6.
+
 
 ---
+
+### 8.5 Post-v1 milestone graph (phases 5–8)
+
+Never on the v1 critical path; details and rationale in
+`docs/plan/product-reassessment.md` §6.
+
+```text
+now:  WP-41, WP-42 (no open contract); research WP-60, WP-62, WP-65 stage 1, WP-69; AD drafts OD-15…OD-20, OD-23
+OD-15 ─► WP-44 ─┐
+OD-16 ─► WP-43 ─┼─► (OD-17) WP-49 ─┬─► WP-50 ─┐   (WP-49 also needs WP-44)
+WP-42 ──────────┘                  └─► WP-51 ─┤
+OD-18 ─► WP-52 ─► WP-53 ─┬─► WP-55 ───────────┼─► WP-54, WP-56 ─► WP-57   (v1.1 media)
+                         │                    │
+OD-20 ─► WP-45 ─┬─► (OD-19) WP-46 ─► WP-47 ─┬─► WP-58 (ElevenLabs)
+                └─► WP-48 ──────────────────┴─► WP-59 (YouTube) ─► WP-64  (v1.2; also WP-24…27)
+WP-60 ─► WP-61 (if feasible)     WP-62 ─► WP-63 (if feasible)
+WP-52 + WP-65 st.1 ─► WP-66 ─► WP-67;  WP-52 ─► WP-65 st.2 ─► OD-21 ─► WP-68;  WP-69 ─► OD-22 ─► WP-70   (v1.3+)
+OD-9 ─► WP-23b/c  (also prerequisite of remote media on macOS/Windows, OD-17 (b))
+```
 
 ## 9. Release gates
 
@@ -1011,3 +1122,16 @@ for a development checkout:
 - Own authorization server; any local licensing.
 - Never in scope: remote desktop, screen streaming, OS-level input, arbitrary
   JavaScript in the browser.
+
+Notes of the product reassessment (§2.7), explicit rather than silent:
+
+- *OS-level input:* unchanged for v1. OD-22 reassesses a **scoped
+  application control** capability (granted applications only, no screen
+  streaming, not a remote desktop) for after v1; remote desktop and screen
+  streaming stay never in scope.
+- *External MCP gateway:* stays post-v1; OD-19 decides how it relates to
+  the connector contract (phase 5).
+- *MCP Tasks extension:* stays post-v1; long work uses tool-level jobs
+  (OD-15), which every client can call.
+- New post-v1 milestones (phases 5–8) are planned in §3 and §6.1; they are
+  outside the v1 release.

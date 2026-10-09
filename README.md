@@ -67,6 +67,15 @@ the work plan are in `ARCHITECTURE.md` (§1, §27 AD-13 and AD-14) and
 [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md).
 New contributors and agents start with [`AGENTS.md`](AGENTS.md).
 
+**Direction after v1 (planned, not available).** CROT is planned to grow
+into an extensible execution environment for local and remote agents:
+media work (inspection, audio, speech, rendering, verification), video
+editor projects and applications, and connections to external services
+such as YouTube, ElevenLabs, TikTok and Canva. None of this exists yet;
+today media tools can only be run as ordinary commands through
+`shell_run` / `process_exec`. Plan:
+[`docs/plan/product-reassessment.md`](docs/plan/product-reassessment.md).
+
 ## Requirements
 
 - Node.js 20 or newer

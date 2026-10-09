@@ -37,6 +37,23 @@ The product has three parts:
 | User's browser | the user's real browser session through the browser bridge and extension | **[Implemented]** Chromium browsers |
 | External MCP services | tools of external MCP-compatible servers, reached through CROT | **[Target]** (§18), **post-v1** (§27 AD-13) |
 
+**Expanded product goal (proposal; not decided, not implemented).** Beyond
+v1, CROT is to become an extensible execution environment in which a local
+or remote agent completes complex tasks with media, applications and
+external services through the same Core: media work from inspection to
+render and verification, video-editor projects and applications, and
+external service connections (for example YouTube, ElevenLabs, TikTok,
+Canva). The v1 goal below is unchanged. The additions need decisions
+OD-15…OD-23 (§26 questions 16–24) before implementation; plan and evidence:
+[`docs/plan/product-reassessment.md`](docs/plan/product-reassessment.md),
+[`docs/design/extensibility-audit.md`](docs/design/extensibility-audit.md).
+
+| Planned part | What the agent gets | Status |
+| --- | --- | --- |
+| Media | inspection, frames, audio, speech, edit description, render, verification as fixed operations | **[Target]**, post-v1 milestone (OD-15…OD-18; `docs/design/media-and-editors.md`) |
+| External services | user-created connections with device-held credentials, guarded requests, uploads, async jobs | **[Target]**, post-v1 milestone (OD-19, OD-20; `docs/design/integration-map.md`) |
+| Applications | editor projects, interchange, application bridges; scoped GUI control only if OD-22 accepts it | **[Target]**, post-v1 (OD-21, OD-22) |
+
 **v1 goal (§27 AD-13, AD-14).** CROT v1, the first commercial release, is
 this chain:
 
@@ -265,7 +282,7 @@ When the user grants them, CROT can provide:
 - Git — **[Partial]**: read operations (`status`, `diff`, `log`, `branch`, `show`) are a dedicated capability gated by `git.read` (§27 AD-1); local write operations (`add`, `commit`, branch create/rename/delete, checkout of a branch or a detached commit) are gated by `git.write` (§27 AD-2); network operations (fetch, pull, push) and destructive operations (amend, force, reset) are not implemented and remain usable only through `shell.execute`
 - Docker — **[Partial]**: dedicated operations gated by `docker.use` (§27 AD-3): list containers, read container logs, `compose up` and `compose down` with a reviewed Compose model; build, pull, push, run, exec and every other Docker command are not implemented and remain usable only through `shell.execute`
 - Network — **[Partial]**: HTTP(S) requests made by CROT itself, gated by `network.access` and the host policy `permissions.network` (§27 AD-4); no OS-level egress control for processes or containers
-- Python, Node.js, FFmpeg, project tools — **[Partial]**: usable through `shell.execute` / `process.manage`
+- Python, Node.js, FFmpeg, project tools — **[Partial]**: usable through `shell.execute` / `process.manage` (not covered by tests; remote principals on macOS/Windows in workspace mode are refused until L1 exists there, AD-20 point 11). Dedicated media operations are **[Target]** (§26 question 18)
 
 New local capabilities are added as Core capability services that go through
 the ExecutionGuard, with their own capability names in the PermissionEngine.
@@ -484,6 +501,13 @@ triggers local operations by itself (§19).
 
 Specific service integrations must not be hard-coded into CROT Core unless necessary.
 
+> Note (product reassessment, proposal): media and publishing workflows keep
+> media data on the device — the agent gets metadata, previews, reports and
+> artifact references, and uploads go from the device to the service, never
+> through the agent or the relay. External services are reached through
+> user-created connections described as data (§26 questions 20–21), not
+> through service-specific Core code.
+
 ## 10. Installation UX
 
 **[Target]** (today: `npm install`, `npm run build`, CLI commands, unpacked extension).
@@ -658,6 +682,11 @@ packages, their order and dependencies are in
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
 24. Command confinement L1 (Linux, macOS, Windows) [Partial: Linux implemented (WP-23a, §27 AD-20); macOS, Windows Target, v1, §27 AD-13]
 25. Browser contract v1                           [Target, v1, §7.1, §27 AD-14; contract AD-16]
+26. Jobs, artifacts, optional components          [Target, post-v1 foundation, §26 q16–17]
+27. Media operations and rendering                [Target, post-v1, §26 q18–19]
+28. External service connections                 [Target, post-v1, §26 q20–21]
+29. Editor integrations and application bridges   [Target, post-v1, §26 q22]
+30. Scoped desktop application control            [Under reassessment, §26 q23; excluded in v1]
 ```
 
 The order may change when technically justified, but architectural boundaries must remain intact.
@@ -871,7 +900,9 @@ Boundaries:
   can be stopped/revoked at any time.
 - **Not a remote desktop.** Remote mode exposes only the CROT tool set under
   the same permissions — no screen streaming, no OS-level input, no hidden
-  access.
+  access. (Unchanged for v1. §26 question 23 reassesses a *scoped
+  application control* capability — granted applications only, no screen
+  streaming — for after v1; until an AD decides it, this boundary holds.)
 - **Separate trust boundary.** Remote principals are distinguishable from
   local ones in authorization and audit (`kind: remote`). Since WP-19
   (AD-15 point 6) loopback HTTP principals are `local` and only the relay
@@ -966,6 +997,10 @@ The tray app is a UI; control logic stays in Core/service.
 | CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children: Linux **[Implemented]** (L1, WP-23a, §27 AD-20), macOS/Windows **[Target]** (WP-23b/c) |
 | Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (Linux: closed for confined children by WP-23a; macOS/Windows: WP-23b/c) |
 | Installer, tray packaging, autostart of the service | **[Target]** (v1, AD-13; WP-34) |
+| Jobs and artifacts, optional-component availability | **[Target]** (post-v1 foundation; §26 q16–17; WP-43, WP-44) |
+| Media operations, edit description, render, verification | **[Target]** (post-v1; §26 q18–19; WP-49…WP-57) |
+| External service connections (YouTube, ElevenLabs, TikTok, Canva, other APIs) | **[Target]** (post-v1; §26 q20–21; WP-45…WP-48, WP-58…WP-64) |
+| Editor integrations, application bridges, scoped application control | **[Target]** / under reassessment (post-v1; §26 q22–23; WP-65…WP-70) |
 
 ## 26. Open Architectural Questions
 
@@ -1074,6 +1109,41 @@ These need explicit decisions before the corresponding work packages.
     host's loopback services except identified execution endpoints — a new
     boundary that replaces AD-20 point 8 `on` and cannot know every such
     endpoint.
+
+16. **Long-running jobs and artifacts.** *Opened by the product
+    reassessment (roadmap OD-15).* How an agent starts, observes, cancels
+    and collects work that outlives one request (render, transcription,
+    uploads, service-side jobs); persistence, retention, Core activity.
+17. **Optional components.** *Roadmap OD-16.* Declaration, PATH-only
+    detection, versions and reporting of external executables and models;
+    whether CROT ever installs them.
+18. **Media capability.** *Roadmap OD-17.* Capability names, fixed
+    operations, placement (confined vs in-service like AD-3), exposure
+    sources (transcripts, subtitles, metadata), remote defaults.
+19. **Edit description and renderer.** *Roadmap OD-18.* Format of the edit
+    description and the render engine; interchange exports; the editing
+    model (saved, versioned projects edited by atomic operations, QC
+    findings that reference timeline items) for the full
+    select–edit–render–verify–correct loop.
+20. **Service integration contract.** *Roadmap OD-19.* Connector manifests,
+    generic service tools, per-connection grants, least privilege per
+    operation, a separate publish capability and approval, publication
+    states verified by read-back; relation to the external MCP gateway
+    (§18). Decides part of question 3.
+21. **Credentials of external services.** *Roadmap OD-20.* Device vault,
+    cloud broker, user-owned app credentials, browser session; OAuth app
+    ownership; per-connection secret isolation (unreachable from the
+    agent's own tools) and revocation.
+22. **Application bridges.** *Roadmap OD-21.* CROT-owned components inside
+    editors with a fixed command set over authenticated local IPC;
+    applications outside L1.
+23. **Scoped desktop application control.** *Roadmap OD-22.* Whether and on
+    which terms CROT controls granted desktop applications (accessibility
+    tree, input to the granted application only, window screenshots as
+    exposure sources). Today excluded (§22, roadmap §11) and unchanged for
+    v1.
+24. **Release staging.** *Roadmap OD-23 (product decision).* Whether any of
+    questions 16–23 becomes release-blocking for v1; recommended: no.
 
 ## 27. Architectural Decisions
 
