@@ -157,6 +157,7 @@ mcp-crot PR #14 (`8169b1f`). Verified in the tree:
 | Per-user CROT service, thin stdio shim, authenticated owner-only control channel, sessionless concurrency limit | `src/service`, `docs/SERVICE.md` | AD-17 |
 | CROT secrets in the OS secret store (owner-only file fallback), child-process environment allowlist | `src/service/secrets`, `src/core/platform/child-environment.ts` | AD-18 |
 | Tray v1 (Electron, control-channel client) and service-side approval provider `tray`; preset switching while idle; remote mode, client list, exposure reset, revocation | `src/tray`, `src/service/control-center.ts`, `docs/TRAY.md` | AD-19 |
+| Identity and device binding on the device: OAuth access-token verifier (AD-21 points 2–4), device id and Ed25519 device credential, pairing from the tray (PKCE, loopback redirect), unpair, re-grant of revoked clients; development environment only | `src/identity`, `src/service/device-binding.ts`, `src/service/identity.ts`, `docs/IDENTITY.md` | AD-21 |
 | Command confinement L1 on Linux (Ubuntu 22.04/24.04, x86_64/arm64) | `src/native-host/linux-l1`, `src/core/platform/confinement.ts`, `scripts/l1-install.sh`, `docs/L1.md`, `.github/workflows/l1.yml` | AD-20 |
 | `git.read`, `git.write` | `src/core/capabilities/git` | AD-1, AD-2 |
 | `docker.use` (ps, logs, compose up/down) | `src/core/capabilities/docker` | AD-3 |
@@ -175,9 +176,9 @@ mcp-crot PR #14 (`8169b1f`). Verified in the tree:
 | --- | --- | --- |
 | Browser | 10 tools; `chrome.scripting`, synthetic `element.click()`, main frame only, active-tab screenshots; permissions `nativeMessaging`, `tabs`, `scripting`, `alarms` | Entire AD-16 contract: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history, dialogs, upload, download, background screenshots, tab group, per-tab queue, explicit `tabId` for remote, `openedBy` (WP-24…WP-27) |
 | User confirmations | Mechanism complete; product provider `tray` in the service, CROT tray on the control channel (WP-22, AD-19) | Same-user processes can act like the tray (AD-19 residual risk): closed for confined Linux children by WP-23a; still open on macOS/Windows (WP-23b/c), in `full_control` and for other processes of the user; tray packaging/autostart (WP-34) |
-| Identity | `Principal` with remote fields; `AccessTokenVerifier` seam; static local token | No OAuth verifier, identity provider integration, device identity, pairing or provider-side revocation (WP-28); provider, claim model, revocation model and device URI decided (AD-21) |
+| Identity | Device side complete (WP-28, AD-21): OAuth verifier, device id and credential, pairing, unpair, re-grant; tested against an emulated AuthKit environment | No staging/production identity environment (WP-38, WP-39) and no live WorkOS environment exercised yet; provider-side revocation from the tray needs the CROT account service (WP-36); RFC 9207 open condition before G4 |
 | Relay entry point | HTTP pipeline accepts a `relay` entry point (tests only) | No tunnel (WP-30), no relay (WP-29) |
-| Remote exposure lifecycle | Persisted, fail-closed; per-client reset and revocation in the tray, audited, fail closed (WP-22, AD-19) | No re-grant of a revoked client and no revocation at the identity provider (WP-28) |
+| Remote exposure lifecycle | Persisted, fail-closed; per-client reset, revocation and re-grant in the tray, audited, fail closed (WP-22, AD-19; re-grant WP-28) | No revocation at the identity provider from the tray (WP-36; provider-side revocation reaches the device within the AD-21 point 4 bound) |
 | Process lifecycle | One per-user service (on demand from the shim, or managed by an OS supervisor), shim, control channel (WP-20, AD-17) | No autostart registration / supervisor files (WP-34); background processes are owned by the service, not by the client that started them (follow-up) |
 | Child-process environment | Allowlist for `shell.execute` / `process.manage` plus `environment.allow`; overrides cannot copy withheld variables; Docker and Git keep their rules (WP-21, AD-18) | — |
 | Secrets | OS secret store (Keychain, DPAPI, Secret Service) with owner-only file fallback; verified migration; denied to all CROT tools (WP-21, AD-18) | Unconfined commands can still use the OS store as the user (AD-18 residual risk): closed for Linux workspace mode by WP-23a; open on macOS/Windows (WP-23b/c) and in `full_control` |
@@ -187,8 +188,8 @@ mcp-crot PR #14 (`8169b1f`). Verified in the tree:
 ### 2.4 Missing for v1 (nothing in the repository yet)
 
 Command confinement L1 on macOS and Windows; CDP browser backend and the rest
-of the AD-16 contract; identity provider integration
-and device binding; Cloud Relay; device tunnel; remote permission profile and
+of the AD-16 contract; staging and production identity environments (the
+device side of identity and device binding is done, WP-28); Cloud Relay; device tunnel; remote permission profile and
 presets; acceptance suite through a relay; external security review;
 installers, signing, updates, autostart; published extension; accounts, plans,
 billing, entitlements, device management; staging and production cloud
@@ -341,7 +342,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
 | WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | Not started |
 | WP-27 | 2B | Browser: per-tab queue, explicit `tabId` for remote, `openedBy` | WP-24 | S–M | yes | with 25, 26 | Not started |
-| WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | Not started (**recommended next**, §8.4; OD-2/OD-3 decided by AD-21) |
+| WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | **Done** (AD-21; in review: PR WP28_PR) |
 | WP-29 | 3 | Cloud Relay v1 | WP-28 (verifier facts), OD-3 (decided: AD-21), OD-4 | XL | yes | with phase 1/2/2B | Not started |
 | WP-30 | 3 | Device tunnel adapter | WP-20, WP-28, WP-29, OD-5 | M–L | yes | — | Not started |
 | WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a/b/c, WP-30, OD-7 | M | yes | — | Not started |
@@ -882,8 +883,8 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
 
 | Class | WPs |
 | --- | --- |
-| Sequential on critical path | (done: WP-20 → WP-22); WP-28 → WP-29 → WP-30 → WP-31 → WP-32 → WP-33 → WP-40 |
-| Parallelizable now | WP-24, WP-28, WP-35 (prep), WP-37 (drafting), WP-19b; OD-9 macOS/Windows decision (unblocks WP-23b/c) |
+| Sequential on critical path | (done: WP-20 → WP-22, WP-28); WP-29 → WP-30 → WP-31 → WP-32 → WP-33 → WP-40 |
+| Parallelizable now | WP-24, WP-35 (prep), WP-37 (drafting), WP-19b; OD-9 macOS/Windows decision (unblocks WP-23b/c) |
 | Parallel after prerequisites | WP-23b ∥ WP-23c (after OD-9); WP-25 ∥ WP-26 ∥ WP-27; WP-34, WP-36, WP-38 with phase 3; WP-37 ∥ WP-39 ∥ WP-33 |
 | Release blockers | every WP except WP-19b |
 | Optional / non-blocking | WP-19b; §26 Q12 transport matcher; §26 Q14 tab-scope matcher |
@@ -895,27 +896,23 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
    decision (docs-only PR or first commit of the WP).
 2. Otherwise choose, in order: an unblocked WP on chain A or B; then WP-23x;
    then WP-24…WP-27; then phase-4 WPs whose dependencies are done.
-3. **Right now (after WP-23a, audit at `22abf89`):**
+3. **Right now (after WP-28):**
 
-   **Recommended next WP: WP-28 — Identity and device binding.**
+   **Next: the OD-4 architecture decision (relay and tunnel protocol), then
+   WP-29 — Cloud Relay v1.**
 
-   - *Why:* chain A is complete, so WP-28 is the lowest-numbered unstarted
-     WP on the critical path (§8.2 chain B, the longest remaining chain:
-     WP-28 → WP-29 (XL) → WP-30 → WP-31 → WP-32 → WP-33 → WP-40); WP-29,
-     WP-30, WP-36 and WP-38 all wait on it.
-   - *Dependencies satisfied:* WP-17 (AD-15) for the verifier; WP-21 for
-     device key storage (AD-18 secret store); WP-22 for the pairing UI (the
-     tray's pairing screen and `pairing.start` answer "not available"
-     today); the `AccessTokenVerifier` seam and the `relay` entry point exist
-     since WP-19.
-   - *ODs to close first:* none. **OD-2** (managed identity provider and
-     token claims) and **OD-3** (device resource URI form) are decided by
-     AD-21 (WorkOS AuthKit; canonical URI `https://<relay-host>/d/<deviceId>/mcp`).
-     The RFC 9207 open condition in AD-21 must be closed before Gate G4 and
-     does not block WP-28.
+   - *Why:* WP-29 is next on chain B (WP-29 (XL) → WP-30 → WP-31 → WP-32 →
+     WP-33 → WP-40), the longest remaining chain, and its dependencies are
+     done: WP-28 provides the verifier facts, the device id, the canonical
+     URI / PRM URL and the device credential for the tunnel; OD-3 is
+     decided by AD-21. By rule 1 the undecided **OD-4** blocks it, so the
+     next task is that AD (docs-only PR or the first commit of WP-29).
    - *Can run in parallel:* WP-24 (unblocked, no open OD; starts chain C);
      the OD-9 macOS/Windows decision, then WP-23b and the WP-23c spike
-     (OD-6); WP-35 preparation, WP-37 drafting, WP-19b.
+     (OD-6); WP-36 preparation (account service; needed for provider-side
+     revocation from the tray); WP-35 preparation, WP-37 drafting, WP-19b.
+   - *Still open from WP-28:* the AD-21 RFC 9207 condition (before G4);
+     a live WorkOS environment (WP-38 configures staging).
    - *On the critical path:* **yes**.
 
 

@@ -58,10 +58,10 @@ npx electron dist/tray/main.js --state-dir=<state directory>
 | Remote mode | Off by default. While off, the relay entry point refuses every request before MCP or Core work. The relay tunnel itself is WP-30. | `<state>/service-settings.json` |
 | Remote full-control opt-in | Off by default. **Recorded and audited only** in WP-22: it changes no permission; WP-31 decides how it takes effect. | `<state>/service-settings.json` |
 | Reset exposure | For one remote client (account, device, client): its persisted untrusted-content exposure becomes clean. | `<state>/remote-exposure.json` |
-| Revoke | For one remote client: persisted; resets its exposure, aborts its requests in flight, closes its sessions; later requests are refused. Re-granting is WP-28. | `<state>/remote-clients.json` |
-| Pair a device | Not available until WP-28 (identity and device binding). | — |
+| Revoke | For one remote client: persisted; resets its exposure, aborts its requests in flight, closes its sessions; later requests are refused. A revoked client shows **Re-grant** (WP-28): audited first; tokens issued before the re-grant stay refused, so the client signs in again. | `<state>/remote-clients.json` |
+| Pair / unpair this device | WP-28, [`IDENTITY.md`](IDENTITY.md): **Pair this device** opens the sign-in of the identity environment in the default browser; the section shows the environment, the paired account, the device id and the device's address for MCP clients (`https://<relay>/d/<deviceId>/mcp`). **Cancel pairing** while waiting; **Unpair this device** ends remote access at once. Without an identity environment (this build pins none) pairing shows why it is not available. | `<state>/device-binding.json`; device key in the secret store (`device-key`) |
 
-- All three files are owner-only and protected paths (no CROT tool can write
+- All these files are owner-only and protected paths (no CROT tool can write
   them). If one cannot be read, the most restrictive value applies
   (preset `require-approval`, remote mode off, every remote request refused)
   and the tray shows the error.
@@ -73,7 +73,7 @@ npx electron dist/tray/main.js --state-dir=<state directory>
   the browser connection, command confinement L1 with its reason code (Linux:
   WP-23a, [`L1.md`](L1.md); macOS and Windows: not available until WP-23b/c),
   and the components that are not available yet: the CDP browser backend
-  (WP-24) and pairing (WP-28).
+  (WP-24).
 
 ## Security
 

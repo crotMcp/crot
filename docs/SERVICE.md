@@ -196,13 +196,16 @@ mechanism: its credential only shows that the peer runs as the same OS user
 | Request | What it does |
 | --- | --- |
 | `ping`, `status`, `shutdown` | WP-20 |
-| `overview` | service, mode, workspace, preset and its source, remote mode, full-control opt-in, remote clients, agents, browser, trays, L1/CDP/pairing availability |
+| `overview` | service, mode, workspace, preset and its source, remote mode, full-control opt-in, remote clients, agents, browser, trays, L1/CDP availability, pairing (environment, state, device id, account, canonical URI; never a token) |
 | `approvals.subscribe` / `approvals.unsubscribe` | the connection becomes (stops being) an approval UI; subscribe returns the pending requests, then events `approval.requested`, `approval.resolved`, `state.changed` follow |
 | `approvals.decide { requestId, decision, subjectDigest }` | approve (with the presented digest) or reject one request that was presented to this connection |
 | `preset.set { value }` | `require-approval` or `off` (`autonomous-browser`: WP-31); refused unless CROT is idle |
 | `remote.setMode { enabled }`, `remote.setFullControl { enabled }` | device switches (full control: recorded only) |
 | `remote.resetExposure`, `remote.revokeClient` `{ accountId, deviceId, clientId }` | one remote client |
-| `pairing.start` | refused: not available until WP-28 |
+| `remote.regrantClient` `{ accountId, deviceId, clientId }` | re-grant a revoked client (WP-28): audited first, written before it takes effect; tokens issued before or in the second of the re-grant are refused |
+| `pairing.start` | start pairing (WP-28, [`IDENTITY.md`](IDENTITY.md)): returns the sign-in URL; refused without an identity environment or while paired |
+| `pairing.cancel` | cancel a pairing waiting for the sign-in |
+| `device.unpair` | unpair: no token accepted, remote requests in flight end, device key removed; also resets an unusable binding |
 
 - The service's approval provider `tray` is registered with the broker while
   at least one connection is subscribed; the decisions stay in the broker and
