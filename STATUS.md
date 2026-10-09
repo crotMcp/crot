@@ -5,10 +5,10 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
-## In review
+## Last completed
 
-**WP-28 — Identity and device binding** (crot-mcp PR #16, branch
-`wp-28/identity-device-binding`, based on `main` at `5b91c82`;
+**WP-28 — Identity and device binding** (merged in crot-mcp PR #16,
+`4d574f0`;
 ARCHITECTURE.md §27 AD-21 with its implementation note). User docs:
 [`docs/IDENTITY.md`](docs/IDENTITY.md), [`docs/TRAY.md`](docs/TRAY.md),
 [`docs/SERVICE.md`](docs/SERVICE.md), README.
@@ -54,7 +54,7 @@ pair the device and use the real verifier (`tests/service/tray-control.test.ts`,
 new WP-28 block covering the AD-21 point 8 device column), tray controller
 and view model. No live WorkOS environment was available for this PR.
 
-## Last completed
+## Previously completed
 
 **WP-23a — Linux command confinement L1** (ARCHITECTURE.md §27 AD-20,
 decides the Linux part of OD-9 and OD-14; PR #6, `e1d1f61`). User docs:
@@ -152,7 +152,7 @@ the device credential (`CrotService.tunnelCredential()`).
 
 | WP | What | State |
 | --- | --- | --- |
-| OD-4 → WP-29 | Tunnel protocol AD, then Cloud Relay v1 | next; WP-28 in review; OD-3 decided (AD-21) |
+| OD-4 → WP-29 | Tunnel protocol AD, then Cloud Relay v1 | next; WP-28 done; OD-3 decided (AD-21) |
 | WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to OD-4/WP-29 |
 | WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13), needed before WP-31 |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
@@ -186,6 +186,7 @@ the device credential (`CrotService.tunnelCredential()`).
 | Exact device resource URI form and PRM location | Decided by AD-21 points 5–6 (roadmap OD-3): `https://<relay-host>/d/<deviceId>/mcp`, PRM at `https://<relay-host>/.well-known/oauth-protected-resource/d/<deviceId>/mcp` (relay: WP-29) |
 | RFC 9207 (`iss` in authorization responses) not provided by the selected provider yet | **Still open** — AD-21 open condition: met before Gate G4 or accepted by a separate AD; WP-28 checks `iss` when present but neither requires nor claims it |
 | Revocation at the identity provider reaches the device only through token expiry (≤ 5 min configured, ≤ 15 min device ceiling); device-side revocation is immediate | AD-21 point 4 (accepted bound) |
+| Extensibility beyond v1 (media tools, video editors, publishing, optional-tool availability) | Audit: [`docs/design/extensibility-audit.md`](docs/design/extensibility-audit.md) — no redesign needed; a dedicated media capability (C4) and CROT-held credentials for external APIs (C5) need an AD first |
 | Transport matcher to gate loopback HTTP separately from stdio | ARCHITECTURE.md §26 question 12 (not required for v1) |
 | Relay/tunnel timeouts for gated requests and bounded browser waits | §26 question 13, WP-29 / WP-30 |
 | Approval policy in general (beyond presets) | §26 question 6 |

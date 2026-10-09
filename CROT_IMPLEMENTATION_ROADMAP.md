@@ -79,6 +79,10 @@ Non-negotiables used throughout this roadmap:
 
 ### 2.1 Last completed work package
 
+**WP-28 — Identity and device binding** (§27 AD-21), merged in crot-mcp
+PR #16 (`4d574f0`); details in `STATUS.md` and `docs/IDENTITY.md`. The
+previous one:
+
 **WP-23a — Linux command confinement L1** (§27 AD-20, decides the Linux part
 of OD-9 and OD-14), merged in PR #6 (`e1d1f61`). In the tree:
 
@@ -343,7 +347,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
 | WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | Not started |
 | WP-27 | 2B | Browser: per-tab queue, explicit `tabId` for remote, `openedBy` | WP-24 | S–M | yes | with 25, 26 | Not started |
-| WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | **In review** (AD-21; crot-mcp PR #16; Done on merge) |
+| WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | **Done** (AD-21; crot-mcp PR #16, `4d574f0`) |
 | WP-29 | 3 | Cloud Relay v1 | WP-28 (verifier facts), OD-3 (decided: AD-21), OD-4 | XL | yes | with phase 1/2/2B | Not started |
 | WP-30 | 3 | Device tunnel adapter | WP-20, WP-28, WP-29, OD-5 | M–L | yes | — | Not started |
 | WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a/b/c, WP-30, OD-7 | M | yes | — | Not started |
