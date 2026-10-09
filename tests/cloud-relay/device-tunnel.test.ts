@@ -38,6 +38,8 @@ import { RelayHarness, sleep, waitFor, type PairedDevice } from "./harness.js";
  */
 
 const MODERN = "2026-07-28";
+/** `initialize` exists only in the legacy (session) protocol; 2026-07-28 is stateless and answers it 400. */
+const INIT_VERSION = [...LEGACY_PROTOCOL_VERSIONS].at(-1)!;
 const ADMIT_ALL: RemoteAdmission = { admit: () => ({ admitted: true }) };
 
 let h: RelayHarness;
@@ -160,7 +162,7 @@ const text = (r: unknown) => {
   return first && first.type === "text" ? first.text : "";
 };
 
-function initialize(token: string, version = MODERN, signal?: AbortSignal): Promise<Response> {
+function initialize(token: string, version: string = INIT_VERSION, signal?: AbortSignal): Promise<Response> {
   return fetch(h.url(paired), {
     method: "POST",
     ...(signal ? { signal } : {}),
@@ -323,6 +325,8 @@ describe("tokens never execute for another device or account", () => {
     const before = toolEvents().length;
     const res = await initialize(h.clientToken(other));
     expect([401, 403]).toContain(res.status);
+    // The refusal comes from token verification, not from the tunnel's Host check.
+    expect(await res.text()).not.toContain("invalid_host");
     expect(toolEvents().length).toBe(before);
   });
 
@@ -331,6 +335,7 @@ describe("tokens never execute for another device or account", () => {
     const before = toolEvents().length;
     const res = await initialize(h.clientToken(foreign));
     expect([401, 403]).toContain(res.status);
+    expect(await res.text()).not.toContain("invalid_host");
     expect(toolEvents().length).toBe(before);
   });
 
