@@ -11,6 +11,13 @@ multi-step browser tasks. Concrete clients (Notion, Claude, Cursor, …) are onl
 compatibility examples. The external MCP gateway (CROT as an MCP client) is
 post-v1 and not part of current work.
 
+**After v1 (planned, not implemented):** CROT grows into an extensible
+execution environment for local and remote agents — media, video editors,
+external services — through the same Core (ARCHITECTURE.md §1 "Expanded
+product goal", [`docs/plan/product-reassessment.md`](docs/plan/product-reassessment.md)).
+Its work packages (WP-41…WP-70) start only after their decisions (OD-15…
+OD-23) and never displace v1 work.
+
 ## Read in this order
 
 1. [`ARCHITECTURE.md`](ARCHITECTURE.md) — the source of truth: §1 (goal), §2

@@ -17,6 +17,30 @@ Target capabilities named in this audit (video/audio inspection, FFmpeg
 processing, video editors, YouTube publishing, general browser workflows,
 additional tools) are **product targets, not existing features**.
 
+## Revision 2 — expanded product goal (what changed)
+
+Revision 1 (sections 1–10 below, unchanged) answered "can capabilities be
+added without redesign?" for the v1 product. The expanded goal (CROT as an
+execution environment for local and remote agents with full media work,
+video editors and external services) keeps its facts but changes these
+conclusions. The plan is in
+[`docs/plan/product-reassessment.md`](../plan/product-reassessment.md).
+
+| Revision 1 | Revision 2 | Why |
+| --- | --- | --- |
+| Dedicated media capability "only if demand", decided later (C4) | **Required**; scope grows from inspection to a full pipeline (inspect, audio, speech, edit description, render, verify) — OD-17, OD-18, WP-49…WP-57 | media work is now a mandatory product goal; shell commands give no verifiable result |
+| GUI control of editors "out of scope — not recommended" (§1, §5.4 L-d) | **Reassessed** by OD-22 (scoped application control, not remote desktop); stays out of v1; spike WP-69 first | autonomous work in GUI-only applications is a goal; the prohibition was a v1 boundary |
+| Credential broker C5 "post-v1, larger" | **Planned** (milestone v1.2) as connections + connector runtime; storage model compared and chosen by OD-20 (device vault default, cloud broker only where unavoidable) | integrations (YouTube, ElevenLabs, TikTok, Canva) are product goals |
+| Editor levels L-a…L-e, generic | Replaced by a **per-editor matrix** (docs/design/media-and-editors.md §5) | editors differ; no equal depth promised |
+| — | **New gap G9: long-running jobs and artifacts** (only background processes have state; they block Core replacement, `src/service/core-holder.ts`) → OD-15, WP-44 | render, transcription and uploads outlive one request |
+| C1, C2, C3 | Unchanged in substance; now WP-41, WP-43 (after OD-16), WP-42 | — |
+| Sequence §7 | Superseded by product-reassessment.md §6 (v1 chain unchanged; new milestones v1.1–v1.3) | wider scope |
+
+Unchanged: no rewrite of Core, MCP, relay, identity or permissions; one
+catalogue for local and remote agents; text generation stays in the agent;
+no service-specific code in Core (§9); browser contract v1 remains the main
+enabler of web workflows; tests T1–T8.
+
 ## 1. Short answer
 
 **Extend the existing architecture; add one small, targeted extension, and
