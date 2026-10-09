@@ -8,7 +8,7 @@ import { DEFAULT_CONFIG_FILE_NAME } from "../core/platform/directories.js";
 import { hostDirectories } from "../core/platform/node-platform.js";
 import type { PlatformDirectories } from "../core/platform/types.js";
 import { CrotError } from "../core/errors.js";
-import { isSecretName, SECRET_NAMES, type SecretName } from "../service/secrets/types.js";
+import { isSecretName, ROTATABLE_SECRET_NAMES, SECRET_NAMES, type SecretName } from "../service/secrets/types.js";
 
 export const USAGE = `Usage: crot-mcp [options]
        crot-mcp service run [options] | service status | service stop
@@ -244,8 +244,12 @@ async function parseSecretsCommand(
   if (action === "rotate") {
     if (parsed.values.all) {
       if (names.length > 0) throw usage("Use either --all or names with 'secrets rotate'.");
-      names = [...SECRET_NAMES];
+      names = [...ROTATABLE_SECRET_NAMES];
     }
+    if (names.includes("device-key"))
+      throw usage(
+        "The device key is not rotated with 'secrets rotate': it changes only when the device is paired again (unpair it in the tray, then pair it).",
+      );
     if (names.length === 0) throw usage("'crot-mcp secrets rotate' needs secret names or --all.");
     names = [...new Set(names)];
   }

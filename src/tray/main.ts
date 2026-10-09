@@ -20,6 +20,7 @@ import {
   nativeImage,
   protocol,
   session,
+  shell,
   Tray,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -100,6 +101,10 @@ const controller = new TrayController({
   onUpdate: (state) => {
     view = trayView(state);
     publish();
+  },
+  // Pairing sign-in (WP-28): only HTTPS URLs, re-checked here, open in the user's browser.
+  openSignIn: (url) => {
+    if (!smokeReport && new URL(url).protocol === "https:") void shell.openExternal(url);
   },
   onNewApproval: () => {
     if (!smokeReport) showWindow();
@@ -196,7 +201,10 @@ const ACTIONS = new Set([
   "remote.setFullControl",
   "remote.resetExposure",
   "remote.revokeClient",
+  "remote.regrantClient",
   "pairing.start",
+  "pairing.cancel",
+  "device.unpair",
 ]);
 
 function clientKey(p: Record<string, unknown>): { accountId: string; deviceId: string; clientId: string } | undefined {
@@ -224,8 +232,16 @@ async function runAction(name: unknown, params: unknown): Promise<boolean> {
       const key = clientKey(params);
       return key ? controller.revokeClient(key) : false;
     }
+    case "remote.regrantClient": {
+      const key = clientKey(params);
+      return key ? controller.regrantClient(key) : false;
+    }
     case "pairing.start":
       return controller.startPairing();
+    case "pairing.cancel":
+      return controller.cancelPairing();
+    case "device.unpair":
+      return controller.unpair();
   }
   return false;
 }

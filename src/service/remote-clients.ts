@@ -8,8 +8,12 @@
  * point, and when the user revoked it — no names, tokens, addresses or other
  * personal data. It is stored in the service's protected private state.
  *
- * - Revocation is a user action on the control channel only; there is no
- *   re-grant in WP-22 (WP-28). A revoked client stays refused.
+ * - Revocation and re-grant are user actions on the control channel only.
+ *   A revoked client stays refused until the user re-grants it (WP-28).
+ *   A re-grant records `grantedAt`: access tokens issued before it are not
+ *   accepted for that client (the relay entry point answers 401, the client
+ *   gets a fresh token), so a token obtained before the revocation never
+ *   becomes usable again.
  * - Fail closed: if the stored state cannot be read or is malformed, every
  *   remote request is refused, and the file is left untouched.
  */
@@ -35,6 +39,8 @@ export interface RemoteClientRecord extends RemoteClientId {
   readonly firstSeen: string;
   readonly lastSeen: string;
   readonly revokedAt?: string;
+  /** Last re-grant by the user: tokens issued before it are not accepted for this client. */
+  readonly grantedAt?: string;
 }
 
 export function isValidRemoteId(value: unknown): value is string {
@@ -59,6 +65,8 @@ function parse(text: string): Map<string, RemoteClientRecord> | undefined {
     if (!isValidRemoteId(c.accountId) || !isValidRemoteId(c.deviceId) || !isValidRemoteId(c.clientId)) return undefined;
     if (typeof c.firstSeen !== "string" || typeof c.lastSeen !== "string") return undefined;
     if (c.revokedAt !== undefined && typeof c.revokedAt !== "string") return undefined;
+    if (c.grantedAt !== undefined && (typeof c.grantedAt !== "string" || !Number.isFinite(Date.parse(c.grantedAt))))
+      return undefined;
     const record: RemoteClientRecord = {
       accountId: c.accountId,
       deviceId: c.deviceId,
@@ -66,6 +74,7 @@ function parse(text: string): Map<string, RemoteClientRecord> | undefined {
       firstSeen: c.firstSeen,
       lastSeen: c.lastSeen,
       ...(c.revokedAt !== undefined ? { revokedAt: c.revokedAt } : {}),
+      ...(c.grantedAt !== undefined ? { grantedAt: c.grantedAt } : {}),
     };
     clients.set(remoteClientKey(record), record);
   }
@@ -77,6 +86,10 @@ export interface RemoteClientRegistryOptions {
   readonly onError?: (error: unknown) => void;
   readonly now?: () => number;
 }
+
+export type RegrantResult =
+  | { readonly ok: true; readonly persisted: true; readonly grantedAt: string }
+  | { readonly ok: false; readonly reason: "unknown_client" | "not_revoked" | "state_unavailable" | "write_failed" };
 
 export type RevokeResult =
   | { readonly ok: true; readonly persisted: boolean }
@@ -135,7 +148,7 @@ export class RemoteClientRegistry {
   }
 
   list(): RemoteClientRecord[] {
-    return [...this.clients.values()].sort((a, b) => (a.lastSeen < b.lastSeen ? 1 : a.lastSeen > b.lastSeen ? -1 : 0));
+    return sortByLastSeen(this.clients);
   }
 
   get(id: RemoteClientId): RemoteClientRecord | undefined {
@@ -194,6 +207,46 @@ export class RemoteClientRegistry {
     }
   }
 
+  /**
+   * Whether an access token issued at `issuedAt` (seconds) does not
+   * postdate the client's last re-grant. `iat` has second precision, so a
+   * token issued in the second of the re-grant is refused as well (it may
+   * have been issued before it); the client gets a new token a second later.
+   */
+  predatesGrant(id: RemoteClientId, issuedAt: number | undefined): boolean {
+    const grantedAt = this.clients.get(remoteClientKey(id))?.grantedAt;
+    if (grantedAt === undefined) return false;
+    if (issuedAt === undefined || !Number.isFinite(issuedAt)) return true;
+    return issuedAt <= Math.floor(Date.parse(grantedAt) / 1000);
+  }
+
+  /**
+   * Re-grant a revoked client (user action). It widens access, so it takes
+   * effect only when it was written: on a write failure the client stays
+   * revoked.
+   */
+  async regrant(id: RemoteClientId): Promise<RegrantResult> {
+    if (this.failedClosed) return { ok: false, reason: "state_unavailable" };
+    const key = remoteClientKey(id);
+    const existing = this.clients.get(key);
+    if (!existing) return { ok: false, reason: "unknown_client" };
+    if (existing.revokedAt === undefined) return { ok: false, reason: "not_revoked" };
+    const grantedAt = new Date(this.now()).toISOString();
+    const { revokedAt: _revoked, ...rest } = existing;
+    const regranted: RemoteClientRecord = { ...rest, grantedAt };
+    // Written before it takes effect: no request is admitted on a re-grant that is not on disk.
+    const next = new Map(this.clients).set(key, regranted);
+    try {
+      await this.write(next);
+    } catch (error) {
+      this.onError(error);
+      return { ok: false, reason: "write_failed" };
+    }
+    const { revokedAt: _r, ...current } = this.clients.get(key) ?? regranted;
+    this.clients.set(key, { ...current, grantedAt });
+    return { ok: true, persisted: true, grantedAt };
+  }
+
   /** Wait for background writes (tests, shutdown). */
   async flush(): Promise<void> {
     await this.writing.catch(() => undefined);
@@ -215,14 +268,19 @@ export class RemoteClientRegistry {
     this.write().catch((error: unknown) => this.onError(error));
   }
 
-  private write(): Promise<void> {
+  private write(snapshot?: ReadonlyMap<string, RemoteClientRecord>): Promise<void> {
     const run = async () => {
       if (this.file === undefined || this.privateFiles === undefined) return;
-      const text = JSON.stringify({ version: FORMAT_VERSION, clients: this.list() }) + "\n";
+      const text =
+        JSON.stringify({ version: FORMAT_VERSION, clients: sortByLastSeen(snapshot ?? this.clients) }) + "\n";
       await writeStateFile(this.file, text, this.privateFiles);
     };
     const next = this.writing.catch(() => undefined).then(run);
     this.writing = next.catch(() => undefined);
     return next;
   }
+}
+
+function sortByLastSeen(clients: ReadonlyMap<string, RemoteClientRecord>): RemoteClientRecord[] {
+  return [...clients.values()].sort((a, b) => (a.lastSeen < b.lastSeen ? 1 : a.lastSeen > b.lastSeen ? -1 : 0));
 }

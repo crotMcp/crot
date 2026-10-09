@@ -53,9 +53,9 @@ class FakeBrowser implements BrowserConnection {
   }
 }
 
-/** Test stand-in for the relay's OAuth verifier (WP-28): remote identity from the token. */
+/** Stand-in for the relay entry point's OAuth verifier (tests/identity covers the real one): remote identity from the token. */
 class RelayTestVerifier implements AccessTokenVerifier {
-  readonly method = "oauth-test";
+  readonly method = "oauth";
   static readonly tokens: Record<string, { accountId?: string; deviceId?: string; clientId?: string }> = {
     "relay-token-a-0123456789abcdef0123": { accountId: "acct-1", deviceId: "device-1", clientId: "client-a" },
     "relay-token-a2-0123456789abcdef012": { accountId: "acct-1", deviceId: "device-1", clientId: "client-a" },
@@ -489,7 +489,7 @@ describe("WP-19: principal kinds (AD-15 point 6)", () => {
       id: "acct-1",
       kind: "remote",
       transport: "relay",
-      authMethod: "oauth-test",
+      authMethod: "oauth",
       accountId: "acct-1",
       deviceId: "device-1",
       clientId: "client-a",

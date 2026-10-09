@@ -36,6 +36,7 @@ import type { PrivateFileProtection } from "../core/platform/types.js";
 import { SERVICE_SETTINGS_FILE_NAME } from "./device-settings.js";
 import { acquireDirectoryLock, releaseDirectoryLock } from "./locks.js";
 import { REMOTE_CLIENTS_FILE_NAME } from "./remote-clients.js";
+import { DEVICE_BINDING_FILE_NAME } from "./device-binding.js";
 import { openSecretStore, type SecretStore, type SecretStoreHost } from "./secrets/store.js";
 import type { SecretName } from "./secrets/types.js";
 
@@ -76,6 +77,8 @@ export function serviceProtectedPaths(stateDir: string): string[] {
     // Device state of the tray controls (AD-19): changed only through the control channel.
     path.join(stateDir, SERVICE_SETTINGS_FILE_NAME),
     path.join(stateDir, REMOTE_CLIENTS_FILE_NAME),
+    // Device binding (WP-28): changed only by pairing and unpairing on the control channel.
+    path.join(stateDir, DEVICE_BINDING_FILE_NAME),
   ];
 }
 

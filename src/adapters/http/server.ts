@@ -84,6 +84,14 @@ export interface CrotHttpServerOptions {
    * for the relay entry point (fail closed); ignored on loopback.
    */
   readonly remoteAdmission?: RemoteAdmission;
+  /**
+   * Relay entry point: the Protected Resource Metadata URL of this device
+   * (AD-21 point 6), built from the device's own canonical URI. Every 401 then
+   * carries `WWW-Authenticate: Bearer resource_metadata="<url>"` (with
+   * `error="invalid_token"` when a token was presented). Undefined while the
+   * device is not paired. Ignored on loopback.
+   */
+  readonly resourceMetadataUrl?: () => string | undefined;
 }
 
 /** The remote client of a request: its exposure scope (AD-15 point 8). */
@@ -93,7 +101,14 @@ export interface RemoteClientKey {
   readonly clientId: string;
 }
 
-export type RemoteAdmissionRefusal = "remote_mode_off" | "client_revoked" | "state_unavailable" | "invalid_client";
+export type RemoteAdmissionRefusal =
+  "remote_mode_off" | "client_revoked" | "state_unavailable" | "invalid_client" | "not_paired" | "token_predates_grant";
+
+/** Verified token facts the admission may use (set by the verifier, AuthInfo.extra). */
+export interface RemoteTokenFacts {
+  /** `iat` of the access token (seconds since the epoch). */
+  readonly issuedAt?: number;
+}
 
 export type RemoteAdmissionDecision =
   { readonly admitted: true } | { readonly admitted: false; readonly reason: RemoteAdmissionRefusal };
@@ -104,7 +119,7 @@ export type RemoteAdmissionDecision =
  * PermissionEngine, the approval gates and the ExecutionGuard.
  */
 export interface RemoteAdmission {
-  admit(client: RemoteClientKey): RemoteAdmissionDecision;
+  admit(client: RemoteClientKey, token?: RemoteTokenFacts): RemoteAdmissionDecision;
 }
 
 const ADMISSION_MESSAGES: Readonly<Record<RemoteAdmissionRefusal, string>> = {
@@ -112,7 +127,12 @@ const ADMISSION_MESSAGES: Readonly<Record<RemoteAdmissionRefusal, string>> = {
   client_revoked: "Forbidden: this client's access to the device was revoked",
   state_unavailable: "Forbidden: the device cannot read its remote access state",
   invalid_client: "Forbidden: the client identifiers are not accepted by this device",
+  not_paired: "Forbidden: this device is not paired with the token's account",
+  token_predates_grant: "Unauthorized",
 };
+
+/** Refusals answered as an invalid token (401): the client gets a new token and retries. */
+const ADMISSION_INVALID_TOKEN: ReadonlySet<RemoteAdmissionRefusal> = new Set(["token_predates_grant"]);
 
 function remoteKeyOf(client: RemoteClientKey): string {
   return JSON.stringify([client.accountId, client.deviceId, client.clientId]);
@@ -340,6 +360,7 @@ export class CrotHttpServer {
   /** Responses of remote requests in flight, per remote client (endRemoteClient). */
   private readonly remoteResponses = new Map<string, Set<ServerResponse>>();
   private readonly remoteAdmission: RemoteAdmission | undefined;
+  private readonly resourceMetadataUrl: (() => string | undefined) | undefined;
 
   private constructor(
     private readonly core: CrotCore,
@@ -348,10 +369,12 @@ export class CrotHttpServer {
     log: ((message: string) => void) | undefined,
     entryPoint: HttpEntryPoint,
     remoteAdmission: RemoteAdmission | undefined,
+    resourceMetadataUrl: (() => string | undefined) | undefined,
   ) {
     this.log = log ?? (() => undefined);
     this.entryPoint = entryPoint;
     this.remoteAdmission = remoteAdmission;
+    this.resourceMetadataUrl = entryPoint === "relay" ? resourceMetadataUrl : undefined;
     this.modern = createMcpHandler((ctx) => this.modernServer(ctx.authInfo), {
       // Legacy traffic never reaches this handler: route() serves it with sessions.
       legacy: "reject",
@@ -374,7 +397,15 @@ export class CrotHttpServer {
     const entryPoint = options.entryPoint ?? "loopback";
     if (entryPoint === "relay" && !options.remoteAdmission)
       throw new CrotError("CONFIG_ERROR", "The relay entry point requires the device's remote admission.");
-    const server = new CrotHttpServer(core, config, options.verifier, options.log, entryPoint, options.remoteAdmission);
+    const server = new CrotHttpServer(
+      core,
+      config,
+      options.verifier,
+      options.log,
+      entryPoint,
+      options.remoteAdmission,
+      options.resourceMetadataUrl,
+    );
     await server.listen();
     return server;
   }
@@ -487,23 +518,27 @@ export class CrotHttpServer {
     const modernHeader = headerVersion !== undefined && MODERN_PROTOCOL_VERSIONS.includes(headerVersion);
 
     const auth = await this.authenticate(req);
-    if (auth === "missing") return sendError(res, UNAUTHORIZED);
-    if (auth === "invalid") return sendError(res, INVALID_TOKEN);
+    if (auth === "missing") return sendError(res, this.challenge(false));
+    if (auth === "invalid") return sendError(res, this.challenge(true));
     // The principal comes only from the verified facts and the entry point (AD-15 point 6).
     const principal = principalFromAuthInfo(this.entryPoint, auth);
     if (!principal) {
       this.log("http: rejected a credential that does not establish a principal for this entry point");
-      return sendError(res, INVALID_TOKEN);
+      return sendError(res, this.challenge(true));
     }
     let remote: string | undefined;
     if (principal.kind === "remote") {
       // principalFromAuthInfo guarantees the fields of a remote principal.
       const client = { accountId: principal.accountId!, deviceId: principal.deviceId!, clientId: principal.clientId! };
+      const issuedAt = auth.extra?.issuedAt;
+      const facts: RemoteTokenFacts = typeof issuedAt === "number" ? { issuedAt } : {};
       const decision: RemoteAdmissionDecision = this.remoteAdmission
-        ? this.remoteAdmission.admit(client)
+        ? this.remoteAdmission.admit(client, facts)
         : { admitted: false, reason: "state_unavailable" };
-      if (!decision.admitted)
+      if (!decision.admitted) {
+        if (ADMISSION_INVALID_TOKEN.has(decision.reason)) return sendError(res, this.challenge(true));
         return sendError(res, { status: 403, code: -32000, message: ADMISSION_MESSAGES[decision.reason] });
+      }
       remote = remoteKeyOf(client);
       this.trackRemote(remote, res);
     }
@@ -627,6 +662,18 @@ export class CrotHttpServer {
       return sendError(res, unsupportedVersion(headerVersion));
     session.lastSeen = Date.now();
     await session.transport.handleRequest(withAuth(req, auth), res, body);
+  }
+
+  /**
+   * The 401 answer. Relay entry point of a paired device: the challenge names
+   * the device's Protected Resource Metadata (AD-21 point 6); otherwise the
+   * loopback challenge.
+   */
+  private challenge(tokenPresented: boolean): Rejection {
+    const prm = this.resourceMetadataUrl?.();
+    if (prm === undefined || /["\\\r\n]/.test(prm)) return tokenPresented ? INVALID_TOKEN : UNAUTHORIZED;
+    const value = `Bearer resource_metadata="${prm}"${tokenPresented ? ', error="invalid_token"' : ""}`;
+    return { status: 401, code: -32001, message: "Unauthorized", headers: { "WWW-Authenticate": value } };
   }
 
   private async authenticate(req: IncomingMessage): Promise<AuthInfo | "missing" | "invalid"> {

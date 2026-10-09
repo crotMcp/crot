@@ -11,7 +11,8 @@
  *     ping | status | shutdown (WP-20);
  *     overview | approvals.subscribe | approvals.unsubscribe | approvals.decide |
  *     preset.set | remote.setMode | remote.setFullControl | remote.resetExposure |
- *     remote.revokeClient | pairing.start (WP-22)
+ *     remote.revokeClient | pairing.start (WP-22);
+ *     remote.regrantClient | pairing.cancel | device.unpair (WP-28)
  *   service -> client: response { id, result } | response { id, error }
  *     and, only to connections that subscribed: event { event, ... }
  *     (approval.requested, approval.resolved, state.changed)
@@ -66,6 +67,9 @@ export const CONTROL_METHODS = [
   "remote.resetExposure",
   "remote.revokeClient",
   "pairing.start",
+  "pairing.cancel",
+  "device.unpair",
+  "remote.regrantClient",
 ] as const;
 export type ControlMethod = (typeof CONTROL_METHODS)[number];
 
@@ -91,6 +95,7 @@ export type ControlRequest =
         | "remote.setFullControl"
         | "remote.resetExposure"
         | "remote.revokeClient"
+        | "remote.regrantClient"
       >;
     }
   | {
@@ -118,7 +123,7 @@ export type ControlRequest =
   | {
       readonly t: "request";
       readonly id: number;
-      readonly method: "remote.resetExposure" | "remote.revokeClient";
+      readonly method: "remote.resetExposure" | "remote.revokeClient" | "remote.regrantClient";
       readonly params: RemoteClientParams;
     };
 
@@ -147,8 +152,45 @@ export interface RemoteClientView {
   readonly firstSeen: string;
   readonly lastSeen: string;
   readonly revokedAt?: string;
+  /** Last re-grant (WP-28): tokens issued before it are not accepted for this client. */
+  readonly grantedAt?: string;
   /** Persisted exposure of the client's scope (AD-15 point 8); unknown when the exposure state failed closed or is absent. */
   readonly exposure: "exposed" | "clean" | "unknown";
+}
+
+/** Device pairing and identity (WP-28, AD-21) as shown in the tray. No credential or token is ever part of it. */
+export interface PairingView {
+  /** Whether pairing can be started in this process (an identity environment exists). */
+  readonly available: boolean;
+  /** Why it cannot (no identity environment), when it cannot. */
+  readonly reason?: string;
+  readonly state: "unpaired" | "pairing" | "paired" | "unavailable";
+  readonly environment?: {
+    readonly id: string;
+    readonly kind: "release" | "development";
+    readonly issuer: string;
+    readonly relayHost: string;
+    /** RFC 9207 as advertised by the issuer: reported only (AD-21 open condition R7). */
+    readonly rfc9207: "advertised" | "not_advertised" | "unknown";
+  };
+  /** The paired device (state "paired"). */
+  readonly device?: {
+    readonly deviceId: string;
+    readonly accountId: string;
+    readonly environment: string;
+    readonly pairedAt: string;
+    /** The canonical device URI clients connect to (AD-21 point 5); absent when paired in another environment. */
+    readonly resourceUri?: string;
+    readonly protectedResourceMetadata?: string;
+    /** Public key of the device credential (Ed25519, base64url `x`). */
+    readonly publicKey?: string;
+  };
+  /** A pairing waiting for the user's sign-in (state "pairing"). */
+  readonly pending?: { readonly authorizationUrl: string; readonly expiresAt: string };
+  /** The last pairing attempt's result, when it did not succeed. */
+  readonly lastFailure?: { readonly reason: string; readonly at: string };
+  /** Why the binding cannot be used (state "unavailable"), or why it does not apply in this environment. */
+  readonly error?: string;
 }
 
 /** Result of `overview` and payload of `state.changed` (AD-19 point 10). */
@@ -198,7 +240,7 @@ export interface ControlOverview {
   /** Command confinement L1 as reported by the Core (AD-20 point 12). */
   readonly confinement: ConfinementStatus;
   readonly cdp: { readonly available: false; readonly reason: string };
-  readonly pairing: { readonly available: false; readonly reason: string };
+  readonly pairing: PairingView;
 }
 
 export type ControlResponse =
@@ -343,6 +385,7 @@ export function parseControlRequest(value: unknown): ControlRequest | undefined 
       return { t: "request", id, method: method as "remote.setMode", params: { enabled: p.enabled } };
     case "remote.resetExposure":
     case "remote.revokeClient":
+    case "remote.regrantClient":
       if (!onlyKeys(p, ["accountId", "deviceId", "clientId"])) return undefined;
       if (!isRemoteId(p.accountId) || !isRemoteId(p.deviceId) || !isRemoteId(p.clientId)) return undefined;
       return {

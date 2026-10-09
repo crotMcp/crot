@@ -24,9 +24,22 @@ export interface TrayControllerOptions {
   readonly pollMs?: number;
   /** Test seam: how to reach the service. */
   readonly connect?: () => Promise<ControlClient | undefined>;
+  /**
+   * Open the identity provider's sign-in page of a pairing (WP-28) in the
+   * user's browser. Only HTTPS URLs reach it.
+   */
+  readonly openSignIn?: (url: string) => void;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
@@ -129,8 +142,38 @@ export class TrayController {
     return this.action("remote.revokeClient", { ...client }, () => "The remote client was revoked.");
   }
 
+  /** Start pairing (WP-28): the service returns the sign-in URL, which opens in the user's browser. */
   startPairing(): Promise<boolean> {
-    return this.action("pairing.start", undefined, () => "Pairing started.");
+    return this.action("pairing.start", undefined, (r) => {
+      const url = isRecord(r) && typeof r.authorizationUrl === "string" ? r.authorizationUrl : undefined;
+      if (url !== undefined && isHttpsUrl(url) && this.options.openSignIn) {
+        this.options.openSignIn(url);
+        return "Pairing started: sign in to your CROT account in the browser window that opened.";
+      }
+      return "Pairing started: open the sign-in page shown in the pairing section.";
+    });
+  }
+
+  cancelPairing(): Promise<boolean> {
+    return this.action("pairing.cancel", undefined, (r) =>
+      isRecord(r) && r.unchanged === true ? "No pairing was in progress." : "Pairing cancelled.",
+    );
+  }
+
+  /** Unpair this device (AD-21 point 4 (b)): every remote request ends at once. */
+  unpair(): Promise<boolean> {
+    return this.action("device.unpair", undefined, (r) =>
+      isRecord(r) && r.unchanged === true ? "This device is not paired." : "This device was unpaired.",
+    );
+  }
+
+  /** Re-grant a revoked remote client (WP-28); tokens issued before now are not accepted for it. */
+  regrantClient(client: RemoteClientParams): Promise<boolean> {
+    return this.action(
+      "remote.regrantClient",
+      { ...client },
+      () => "The remote client was re-granted; it must sign in again to get a new token.",
+    );
   }
 
   /** Clear the last notice (the user dismissed it). */

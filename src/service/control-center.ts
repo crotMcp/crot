@@ -2,14 +2,21 @@
  * Device-side controls of the service on the authenticated control channel
  * (ARCHITECTURE.md §27, AD-19): the tray approval provider, the preset,
  * remote mode, the remote full-control opt-in, exposure reset, client
- * revocation, the overview and the admission of remote requests.
+ * revocation and re-grant, device pairing and unpairing (WP-28), the
+ * overview and the admission of remote requests.
  *
  * This is the only code that changes these settings, and it runs only for
  * requests on the control channel (AD-17 point 7). It makes no permission
  * decision: approvals are decided by the user through the broker's tickets,
  * and the preset becomes policy only by building a new Core (AD-19 point 5).
  */
-import type { RemoteAdmission, RemoteAdmissionDecision, RemoteClientKey } from "../adapters/http/server.js";
+import type {
+  RemoteAdmission,
+  RemoteAdmissionDecision,
+  RemoteClientKey,
+  RemoteTokenFacts,
+} from "../adapters/http/server.js";
+import type { PairingOutcome } from "../identity/pairing.js";
 import type { UntrustedContentSetting } from "../core/approvals/exposure.js";
 import type { RemoteExposureResettable, RemoteExposureStore } from "../core/approvals/remote-exposure.js";
 import type { PresentedApproval, TerminalApprovalStatus } from "../core/approvals/types.js";
@@ -19,12 +26,15 @@ import type { CoreCompositionHandle, CrotCore } from "../core/crot-core.js";
 import type { BrowserConnectionState } from "../core/capabilities/browser/connection.js";
 import type { ServiceStatus } from "../core/service-status.js";
 import type { CoreHolder } from "./core-holder.js";
+import type { DeviceBindingStore } from "./device-binding.js";
 import type { DeviceSettingsStore } from "./device-settings.js";
+import type { DeviceIdentity } from "./identity.js";
 import type {
   ControlEvent,
   ControlOverview,
   ControlRefusal,
   ControlRequest,
+  PairingView,
   PresetValue,
   RemoteClientParams,
   RemoteClientView,
@@ -47,7 +57,12 @@ export const FULL_CONTROL_NOTE =
   "Recorded and audited only: it does not change any permission yet. How it takes effect is decided by WP-31.";
 export const TUNNEL_NOTE = "The relay tunnel is not available yet (WP-30); no remote request can reach this device.";
 export const CDP_REASON = "The CDP browser backend is implemented by WP-24.";
-export const PAIRING_REASON = "Device pairing requires identity and device binding (WP-28).";
+export const PROVIDER_REVOCATION_NOTE =
+  "The authorization at the identity provider is not revoked from this device (that needs the CROT account service, WP-36). " +
+  "The client is refused on this device now; tokens it already holds expire within 15 minutes and cannot be used here.";
+
+/** Result of asking the identity provider to revoke a client's authorization (AD-21 point 4, best effort). */
+export type ProviderRevocationResult = "requested" | "not_available" | "failed";
 
 /** Something that can end a remote client's sessions and requests (the relay entry point). */
 export interface RemoteEntry {
@@ -63,6 +78,16 @@ export interface ControlCenterHost {
   readonly holder: CoreHolder;
   readonly settings: DeviceSettingsStore;
   readonly clients: RemoteClientRegistry;
+  /** Device binding (WP-28): the paired account, device id and device credential. */
+  readonly binding: DeviceBindingStore;
+  /** Identity runtime: environment, verifier, pairing flow (WP-28). */
+  readonly identity: DeviceIdentity;
+  /**
+   * Ask the identity provider to revoke a client's authorization after a
+   * device-side revocation (AD-21 point 4, best effort). Absent: not
+   * available on this device (WP-36 provides the account service).
+   */
+  readonly providerRevocation?: (client: RemoteClientKey) => Promise<ProviderRevocationResult>;
   /** The persisted remote exposure (absent when HTTP, and so any remote entry, is disabled). */
   readonly remoteExposure:
     (RemoteExposureResettable & Pick<RemoteExposureStore, "isExposed" | "failedClosed">) | undefined;
@@ -87,6 +112,7 @@ export class ControlCenter implements RemoteAdmission {
   private readonly remoteEntries = new Set<RemoteEntry>();
   /** Device-control requests run one at a time. */
   private queue: Promise<unknown> = Promise.resolve();
+  private lastPairingFailure: { reason: string; at: string } | undefined;
 
   constructor(private readonly host: ControlCenterHost) {
     this.provider = new TrayApprovalProvider({
@@ -140,13 +166,20 @@ export class ControlCenter implements RemoteAdmission {
 
   // ---- remote admission (AD-19 points 6 and 8) -------------------------------------------------
 
-  admit(client: RemoteClientKey): RemoteAdmissionDecision {
+  admit(client: RemoteClientKey, token: RemoteTokenFacts = {}): RemoteAdmissionDecision {
     if (this.host.settings.error !== undefined) return { admitted: false, reason: "state_unavailable" };
     if (!this.host.settings.settings.remoteMode) return { admitted: false, reason: "remote_mode_off" };
+    // The verifier bound the token to the paired account and device; checked again against the current binding.
+    const binding = this.host.binding.view();
+    if (binding.state === "unavailable") return { admitted: false, reason: "state_unavailable" };
+    if (binding.state !== "paired" || binding.deviceId !== client.deviceId || binding.accountId !== client.accountId)
+      return { admitted: false, reason: "not_paired" };
     if (this.host.clients.failedClosed) return { admitted: false, reason: "state_unavailable" };
     if (!isValidRemoteId(client.accountId) || !isValidRemoteId(client.deviceId) || !isValidRemoteId(client.clientId))
       return { admitted: false, reason: "invalid_client" };
     if (this.host.clients.isRevoked(client)) return { admitted: false, reason: "client_revoked" };
+    if (this.host.clients.predatesGrant(client, token.issuedAt))
+      return { admitted: false, reason: "token_predates_grant" };
     if (this.host.clients.seen(client)) this.stateChanged();
     return { admitted: true };
   }
@@ -190,8 +223,16 @@ export class ControlCenter implements RemoteAdmission {
         return this.serial(() => this.resetExposure(request.params));
       case "remote.revokeClient":
         return this.serial(() => this.revokeClient(request.params));
+      case "remote.regrantClient":
+        return this.serial(() => this.regrantClient(request.params));
       case "pairing.start":
-        return Promise.resolve(refusal("not_available", PAIRING_REASON));
+        return this.serial(() => this.startPairing());
+      case "pairing.cancel":
+        return Promise.resolve(
+          this.host.identity.cancelPairing() ? { ok: true } : refusal("not_pairing", "No pairing is in progress."),
+        );
+      case "device.unpair":
+        return this.serial(() => this.unpair());
       default:
         return undefined;
     }
@@ -245,7 +286,7 @@ export class ControlCenter implements RemoteAdmission {
   private async audit(
     action: ControlAuditAction,
     outcome: ControlAuditRecord["outcome"],
-    fields: Partial<Pick<ControlAuditRecord, "reason" | "previous" | "value" | "client">> = {},
+    fields: Partial<Pick<ControlAuditRecord, "reason" | "previous" | "value" | "client" | "device">> = {},
   ): Promise<void> {
     const record: ControlAuditRecord = {
       kind: "control",
@@ -442,6 +483,11 @@ export class ControlCenter implements RemoteAdmission {
       client,
       ...(revoked.persisted ? {} : { reason: "not_persisted" }),
     });
+    // Recorded on the device first; the provider is asked afterwards, best effort (AD-21 point 4).
+    let provider: ProviderRevocationResult = "not_available";
+    if (this.host.providerRevocation) {
+      provider = await this.host.providerRevocation(client).catch(() => "failed" as const);
+    }
     this.host.log("control: a remote client was revoked");
     this.stateChanged();
     return {
@@ -449,7 +495,191 @@ export class ControlCenter implements RemoteAdmission {
       persisted: revoked.persisted,
       exposure,
       ended,
+      provider,
+      ...(provider !== "requested" ? { providerNote: PROVIDER_REVOCATION_NOTE } : {}),
       ...(warning ? { warning } : {}),
+    };
+  }
+
+  /**
+   * Re-grant a revoked client (WP-28). It widens access: its audit record
+   * comes first (AD-19 point 9), and it takes effect only once written. The
+   * client starts with the exposure its revocation left (clean, AD-15 point
+   * 8); tokens issued before the re-grant are not accepted for it.
+   */
+  private async regrantClient(params: RemoteClientParams): Promise<Result> {
+    const client = { accountId: params.accountId, deviceId: params.deviceId, clientId: params.clientId };
+    const unknown = this.knownClient(client);
+    if (unknown) return unknown;
+    if (this.host.clients.get(client)?.revokedAt === undefined)
+      return refusal("not_revoked", "This remote client is not revoked.");
+    try {
+      await this.audit("client_regrant", "applied", { client });
+    } catch (error) {
+      return refusal("audit_failed", `Not re-granted: the audit record could not be written (${errorText(error)}).`);
+    }
+    const result = await this.host.clients.regrant(client);
+    if (!result.ok) {
+      await this.auditBestEffort("client_regrant", "failed", { reason: result.reason, client });
+      return refusal(result.reason, REGRANT_MESSAGES[result.reason]);
+    }
+    this.host.log("control: a remote client was re-granted");
+    this.stateChanged();
+    return { ok: true, grantedAt: result.grantedAt };
+  }
+
+  // ---- pairing and unpairing (WP-28, AD-21) -----------------------------------------------------
+
+  private async startPairing(): Promise<Result> {
+    const identity = this.host.identity;
+    const environment = identity.environment;
+    if (!environment)
+      return refusal("not_available", identity.unavailableReason ?? "No identity environment is configured.");
+    const binding = this.host.binding;
+    if (binding.error !== undefined)
+      return refusal(
+        "state_unavailable",
+        `The device binding cannot be used (${binding.error}). Unpair the device to reset it, then pair it again.`,
+      );
+    if (binding.paired) return refusal("already_paired", "This device is already paired. Unpair it first.");
+    let pending;
+    try {
+      pending = await identity.startPairing((outcome, deviceId) => void this.pairingFinished(outcome, deviceId));
+    } catch (error) {
+      return refusal("pairing_failed", `Pairing could not start: ${errorText(error)}`);
+    }
+    this.lastPairingFailure = undefined;
+    this.host.log("control: pairing started; waiting for the user to sign in");
+    this.stateChanged();
+    return { ok: true, authorizationUrl: pending.authorizationUrl, expiresAt: pending.expiresAt };
+  }
+
+  /** The sign-in of a pairing completed (or failed): record the binding, audit first (it widens remote reachability). */
+  private pairingFinished(outcome: PairingOutcome, deviceId: string): Promise<void> {
+    return this.serial(async () => {
+      const environment = this.host.identity.environment;
+      const fail = async (reason: string) => {
+        this.lastPairingFailure = { reason, at: new Date().toISOString() };
+        await this.auditBestEffort("pairing", outcome.ok ? "failed" : "refused", {
+          reason,
+          device: { deviceId, ...(environment ? { environment: environment.id } : {}) },
+        });
+        this.host.log(`control: pairing did not complete (${reason})`);
+        this.stateChanged();
+      };
+      if (!outcome.ok) return fail(outcome.detail ? `${outcome.reason}: ${outcome.detail}` : outcome.reason);
+      if (!environment) return fail("no_environment");
+      if (this.host.binding.error !== undefined || this.host.binding.paired) return fail("not_unpaired");
+      const device = { deviceId, accountId: outcome.accountId, environment: environment.id };
+      try {
+        await this.audit("pairing", "applied", { device });
+      } catch (error) {
+        return fail(`audit_failed: ${errorText(error)}`);
+      }
+      try {
+        await this.host.binding.pair(
+          {
+            deviceId,
+            accountId: outcome.accountId,
+            environment: environment.id,
+            issuer: environment.issuer,
+            relayHost: environment.relayHost,
+          },
+          environment,
+        );
+      } catch (error) {
+        return fail(`state_write_failed: ${errorText(error)}`);
+      }
+      this.lastPairingFailure = undefined;
+      this.host.log(`control: device paired (device ${deviceId}, environment ${environment.id})`);
+      this.stateChanged();
+    });
+  }
+
+  /**
+   * Unpair (AD-21 point 4 (b)): narrowing, effective at once — no token is
+   * accepted, every remote request in flight is ended and the device
+   * credential is removed. Also resets an unusable binding.
+   */
+  private async unpair(): Promise<Result> {
+    const binding = this.host.binding;
+    const before = binding.paired;
+    if (!before && binding.error === undefined) {
+      this.host.identity.cancelPairing();
+      return { ok: true, unchanged: true };
+    }
+    this.host.identity.cancelPairing();
+    const result = await binding.unpair();
+    let ended = { sessions: 0, requests: 0 };
+    for (const client of this.host.clients.list()) {
+      const r = await this.endRemote(client);
+      ended = { sessions: ended.sessions + r.sessions, requests: ended.requests + r.requests };
+    }
+    const warning = await this.auditBestEffort("unpair", "applied", {
+      ...(before
+        ? { device: { deviceId: before.deviceId, accountId: before.accountId, environment: before.environment } }
+        : {}),
+      ...(result.errors.length > 0 ? { reason: "not_persisted" } : {}),
+    });
+    this.host.log("control: device unpaired");
+    this.stateChanged();
+    const warnings = [...result.errors, ...(warning ? [warning] : [])];
+    return {
+      ok: true,
+      persisted: result.persisted,
+      keyRemoved: result.keyRemoved,
+      ended,
+      ...(warnings.length > 0 ? { warning: warnings.join("; ") } : {}),
+    };
+  }
+
+  private pairingView(): PairingView {
+    const identity = this.host.identity;
+    const environment = identity.environment;
+    const binding = this.host.binding;
+    const paired = binding.paired;
+    const pending = identity.pending;
+    const state: PairingView["state"] =
+      binding.error !== undefined ? "unavailable" : paired ? "paired" : pending ? "pairing" : "unpaired";
+    const here =
+      paired && environment && paired.issuer === environment.issuer && paired.relayHost === environment.relayHost;
+    const error =
+      binding.error ??
+      (paired && !here
+        ? `Paired in the identity environment '${paired.environment}' (${paired.issuer}), which is not active: no remote token is accepted.`
+        : undefined);
+    return {
+      available: environment !== undefined,
+      ...(environment ? {} : { reason: identity.unavailableReason ?? "No identity environment is configured." }),
+      state,
+      ...(environment
+        ? {
+            environment: {
+              id: environment.id,
+              kind: environment.kind,
+              issuer: environment.issuer,
+              relayHost: environment.relayHost,
+              rfc9207: identity.rfc9207,
+            },
+          }
+        : {}),
+      ...(paired
+        ? {
+            device: {
+              deviceId: paired.deviceId,
+              accountId: paired.accountId,
+              environment: paired.environment,
+              pairedAt: paired.pairedAt,
+              ...(here
+                ? { resourceUri: identity.resourceUri()!, protectedResourceMetadata: identity.resourceMetadataUrl()! }
+                : {}),
+              ...(binding.publicKey ? { publicKey: binding.publicKey.x } : {}),
+            },
+          }
+        : {}),
+      ...(pending ? { pending: { authorizationUrl: pending.authorizationUrl, expiresAt: pending.expiresAt } } : {}),
+      ...(this.lastPairingFailure ? { lastFailure: this.lastPairingFailure } : {}),
+      ...(error ? { error } : {}),
     };
   }
 
@@ -517,7 +747,7 @@ export class ControlCenter implements RemoteAdmission {
       approvals: { trays: this.provider.subscriberCount, pending: this.provider.pendingCount },
       confinement: core.confinement,
       cdp: { available: false, reason: CDP_REASON },
-      pairing: { available: false, reason: PAIRING_REASON },
+      pairing: this.pairingView(),
     };
   }
 }
@@ -526,6 +756,15 @@ const DECIDE_MESSAGES: Readonly<Record<"not_pending" | "digest_mismatch" | "unkn
   not_pending: "The request is no longer pending.",
   digest_mismatch: "The request changed; it was not approved.",
   unknown_request: "No such pending request was shown to this tray.",
+};
+
+const REGRANT_MESSAGES: Readonly<
+  Record<"unknown_client" | "not_revoked" | "state_unavailable" | "write_failed", string>
+> = {
+  unknown_client: "This remote client is not known on this device.",
+  not_revoked: "This remote client is not revoked.",
+  state_unavailable: "The remote client list cannot be read; every remote request is refused.",
+  write_failed: "Not re-granted: the remote client list could not be written; the client stays revoked.",
 };
 
 const REVOKE_MESSAGES: Readonly<Record<"unknown_client" | "already_revoked" | "state_unavailable", string>> = {

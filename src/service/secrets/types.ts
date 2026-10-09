@@ -9,11 +9,18 @@
 import { CrotError } from "../../core/errors.js";
 
 /**
- * Names of the stored secrets. `device-key` (device binding, later work
- * packages) will be added here; it uses the same store.
+ * Names of the stored secrets. `device-key` is the seed of the device
+ * credential (WP-28, AD-21): created at pairing, removed at unpairing, never
+ * shown and never rotated by `crot-mcp secrets rotate` (a new key needs a new
+ * pairing, so the CROT cloud learns it).
  */
-export const SECRET_NAMES = ["service-token", "control-token", "browser-token", "http-token"] as const;
+export const SECRET_NAMES = ["service-token", "control-token", "browser-token", "http-token", "device-key"] as const;
 export type SecretName = (typeof SECRET_NAMES)[number];
+
+/** Secrets `crot-mcp secrets rotate` may replace (the device key changes only by pairing). */
+export const ROTATABLE_SECRET_NAMES: readonly SecretName[] = Object.freeze(
+  SECRET_NAMES.filter((n) => n !== "device-key"),
+);
 
 export function isSecretName(value: string): value is SecretName {
   return (SECRET_NAMES as readonly string[]).includes(value);
@@ -55,6 +62,8 @@ const HTTP_TOKEN = /^[\x21-\x7e]{32,1024}$/;
 export function isValidSecret(name: SecretName, value: string): boolean {
   if (name === "http-token") return HTTP_TOKEN.test(value);
   if (name === "browser-token") return /^[A-Za-z0-9_-]{32,256}$/.test(value);
+  // An Ed25519 seed: exactly 32 bytes, base64url.
+  if (name === "device-key") return /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/.test(value);
   return GENERATED.test(value);
 }
 

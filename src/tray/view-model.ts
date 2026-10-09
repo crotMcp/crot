@@ -13,7 +13,7 @@
  *   page-supplied values are marked prominently; `client` is self-reported.
  */
 import type { PresentedApproval } from "../core/approvals/types.js";
-import type { ControlOverview, PresetValue, RemoteClientView } from "../service/protocol.js";
+import type { ControlOverview, PairingView, PresetValue, RemoteClientView } from "../service/protocol.js";
 
 /** Characters that are invisible or reorder text: shown as [U+XXXX] (ASCII, so every font can show it). */
 // The class deliberately lists variation selectors and other combining characters one by one.
@@ -146,6 +146,16 @@ export interface RemoteClientRow {
   readonly revoked: boolean;
 }
 
+/** Pairing and identity (WP-28): state lines and the one action that applies. */
+export interface PairingRow {
+  readonly state: PairingView["state"] | "offline";
+  /** Whether pairing can be started in this process. */
+  readonly available: boolean;
+  readonly action: "pair" | "cancel" | "unpair" | "none";
+  /** Display lines (visible characters); never a token or credential. */
+  readonly lines: readonly string[];
+}
+
 export interface TrayView {
   readonly connection: Connection;
   readonly headline: string;
@@ -159,7 +169,7 @@ export interface TrayView {
   readonly fullControlNote: string;
   readonly remoteNotes: readonly string[];
   readonly clients: readonly RemoteClientRow[];
-  readonly pairing: string;
+  readonly pairing: PairingRow;
   /** Tray icon: attention while approvals wait, remote while remote mode is on. */
   readonly icon: "idle" | "remote" | "attention" | "offline";
   readonly tooltip: string;
@@ -251,10 +261,41 @@ export function trayView(state: TrayState): TrayView {
     fullControlNote: o?.remote.fullControlNote ?? "",
     remoteNotes,
     clients,
-    pairing: o?.pairing.reason ?? "",
+    pairing: pairingRow(o?.pairing),
     icon,
     tooltip,
   };
+}
+
+/** The pairing section (WP-28, AD-21): environment, device URI, pending sign-in, last failure. */
+export function pairingRow(p: PairingView | undefined): PairingRow {
+  if (!p) return { state: "offline", available: false, action: "none", lines: [] };
+  const lines: string[] = [];
+  const env = p.environment;
+  if (env)
+    lines.push(
+      `Identity environment: ${env.id} (${env.kind}), issuer ${env.issuer}, relay ${env.relayHost}; RFC 9207 ${env.rfc9207.replace("_", " ")}`,
+    );
+  if (!p.available && p.reason) lines.push(`Pairing is not available: ${p.reason}`);
+  if (p.state === "paired" && p.device) {
+    lines.push(`Paired to account ${p.device.accountId} as device ${p.device.deviceId} (since ${p.device.pairedAt})`);
+    if (p.device.resourceUri) lines.push(`Device address for MCP clients: ${p.device.resourceUri}`);
+  } else if (p.state === "pairing" && p.pending) {
+    lines.push(`Waiting for sign-in until ${p.pending.expiresAt}: ${p.pending.authorizationUrl}`);
+  } else if (p.state === "unpaired") {
+    lines.push("This device is not paired: no remote request is accepted.");
+  }
+  if (p.error) lines.push(`Device binding: ${p.error}`);
+  if (p.lastFailure) lines.push(`Last pairing attempt failed (${p.lastFailure.at}): ${p.lastFailure.reason}`);
+  const action =
+    p.state === "pairing"
+      ? "cancel"
+      : p.state === "paired" || p.state === "unavailable"
+        ? "unpair"
+        : p.available
+          ? "pair"
+          : "none";
+  return { state: p.state, available: p.available, action, lines: lines.map(visibleText) };
 }
 
 /** The L1 row: state, reason code and its explanation as reported by the service (AD-20 point 12). */

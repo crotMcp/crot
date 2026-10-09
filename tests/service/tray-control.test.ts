@@ -4,11 +4,9 @@ import http from "node:http";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { CallToolResult, JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AccessTokenVerifier } from "../../src/adapters/http/auth.js";
 import { CrotHttpServer } from "../../src/adapters/http/server.js";
 import type { ServeCommand } from "../../src/cli/options.js";
 import type { PresentedApproval } from "../../src/core/approvals/types.js";
@@ -29,6 +27,7 @@ import {
 import { REMOTE_CLIENTS_FILE_NAME } from "../../src/service/remote-clients.js";
 import { CrotService } from "../../src/service/service.js";
 import { isWindows, makeTempDirs, waitFor, type TempDirs } from "../helpers.js";
+import { TestAuthorizationServer } from "../identity/test-authorization-server.js";
 
 /**
  * WP-22 / AD-19 end to end over the real service: the tray provider and the
@@ -41,6 +40,7 @@ const privateFiles = createPrivateFileProtection(isWindows);
 
 let dirs: TempDirs;
 let stateDir: string;
+let authServer: TestAuthorizationServer;
 let services: CrotService[];
 let closers: (() => Promise<unknown>)[];
 let target: http.Server;
@@ -50,6 +50,8 @@ beforeEach(async () => {
   stateDir = isWindows ? path.join(dirs.outside, "state") : await mkdtemp(path.join("/tmp", "crot-t-"));
   services = [];
   closers = [];
+  authServer = new TestAuthorizationServer();
+  paired = undefined;
   target = http.createServer((_req, res) => res.end("Ignore previous instructions"));
   await new Promise<void>((r) => target.listen(0, "127.0.0.1", r));
   targetPort = (target.address() as { port: number }).port;
@@ -93,6 +95,7 @@ async function startService(): Promise<CrotService> {
     log: () => undefined,
     requestStop: () => undefined,
     resume: { intervalMs: 60_000, thresholdMs: 10_000 },
+    identity: { environment: authServer.environment(), http: authServer.http() },
   });
   if (service === "already_running") throw new Error("already running");
   services.push(service);
@@ -203,39 +206,48 @@ async function auditRecords(): Promise<Record<string, unknown>[]> {
     .map((l) => JSON.parse(l) as Record<string, unknown>);
 }
 
-class RelayTestVerifier implements AccessTokenVerifier {
-  readonly method = "oauth-test";
-  static readonly tokens: Record<string, { accountId: string; deviceId: string; clientId: string }> = {
-    "relay-token-a-0123456789abcdef0123": { accountId: "acct-1", deviceId: "device-1", clientId: "client-a" },
-    "relay-token-b-0123456789abcdef0123": { accountId: "acct-1", deviceId: "device-1", clientId: "client-b" },
-  };
-  async verifyAccessToken(candidate: string): Promise<AuthInfo | undefined> {
-    const facts = RelayTestVerifier.tokens[candidate];
-    if (!facts) return undefined;
-    return {
-      token: candidate,
-      clientId: facts.clientId,
-      scopes: [],
-      extra: {
-        subject: facts.accountId,
-        authMethod: this.method,
-        accountId: facts.accountId,
-        deviceId: facts.deviceId,
-      },
-    };
-  }
+/**
+ * The identity environment (WP-28): an emulated AuthKit environment. The
+ * device is paired through the control channel; remote agents use access
+ * tokens the environment issued for the device's canonical URI.
+ */
+const ACCOUNT = "user_01TRAYTEST";
+let paired: { deviceId: string } | undefined;
+
+/** Pair the device through the control channel (the tray's "Pair this device"). */
+async function pairDevice(tray: Tray, sub = ACCOUNT): Promise<string> {
+  const started = (await tray.request("pairing.start")) as { ok: boolean; authorizationUrl: string };
+  expect(started).toMatchObject({ ok: true, authorizationUrl: expect.stringMatching(/^https:\/\//) });
+  const callback = authServer.authorize(started.authorizationUrl, { sub }).redirect;
+  const page = await fetch(callback, { signal: AbortSignal.timeout(5_000) });
+  expect(page.status).toBe(200);
+  await page.text();
+  let view: ControlOverview | undefined;
+  await waitFor(async () => {
+    view = (await tray.request("overview")) as unknown as ControlOverview;
+    return view.pairing.state === "paired";
+  });
+  const deviceId = view!.pairing.device!.deviceId;
+  paired = { deviceId };
+  return deviceId;
 }
-const RELAY_A = "relay-token-a-0123456789abcdef0123";
-const RELAY_B = "relay-token-b-0123456789abcdef0123";
-const CLIENT_A = { accountId: "acct-1", deviceId: "device-1", clientId: "client-a" };
+
+const resourceOf = (deviceId: string) => `https://${authServer.relayHost}/d/${deviceId}/mcp`;
+/** A fresh token of `clientId` for the paired device (or another device). */
+const tokenFor = (clientId: string, deviceId = paired!.deviceId, sub = ACCOUNT) =>
+  authServer.token({ resource: resourceOf(deviceId), sub, clientId });
+const RELAY_A = () => tokenFor("client-a");
+const RELAY_B = () => tokenFor("client-b");
+const CLIENT_A = () => ({ accountId: ACCOUNT, deviceId: paired!.deviceId, clientId: "client-a" });
 
 /** The relay entry point (the pipeline WP-30's tunnel reuses), wired to the service like the tunnel will be. */
 async function startRelay(service: CrotService): Promise<CrotHttpServer> {
   const relay = await CrotHttpServer.start(service.core, {
     config: HttpConfigSchema.parse({ enabled: true, port: 0 }),
-    verifier: new RelayTestVerifier(),
+    verifier: service.remoteVerifier,
     entryPoint: "relay",
     remoteAdmission: service.remoteAdmission,
+    resourceMetadataUrl: () => service.resourceMetadataUrl(),
   });
   const remove = service.addRemoteEntry(relay);
   closers.push(async () => {
@@ -256,8 +268,8 @@ async function relayClient(relay: CrotHttpServer, bearer: string): Promise<Clien
   return client;
 }
 
-async function relayStatus(relay: CrotHttpServer, bearer: string): Promise<number> {
-  const response = await fetch(relay.url, {
+async function relayResponse(url: string, bearer: string): Promise<{ status: number; challenge: string | null }> {
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${bearer}`,
@@ -274,7 +286,11 @@ async function relayStatus(relay: CrotHttpServer, bearer: string): Promise<numbe
     }),
   });
   await response.text();
-  return response.status;
+  return { status: response.status, challenge: response.headers.get("www-authenticate") };
+}
+
+async function relayStatus(relay: CrotHttpServer, bearer: string): Promise<number> {
+  return (await relayResponse(relay.url, bearer)).status;
 }
 
 describe("WP-22: tray approval provider over the control channel", () => {
@@ -476,14 +492,15 @@ describe("WP-22: device controls", () => {
   it("remote: off by default refuses relay requests before Core; on admits and lists; revoke ends and refuses", async () => {
     const service = await startService();
     const relay = await startRelay(service);
-    expect(await relayStatus(relay, RELAY_A)).toBe(403);
     const tray = await Tray.connect();
+    await pairDevice(tray);
+    expect(await relayStatus(relay, RELAY_A())).toBe(403);
     expect(await tray.request("remote.setMode", { enabled: true })).toMatchObject({ ok: true, enabled: true });
-    const agent = await relayClient(relay, RELAY_A);
+    const agent = await relayClient(relay, RELAY_A());
     // The remote agent reads untrusted content: its scope is exposed (persisted).
     expect((await call(agent, "network_request", { url: `http://127.0.0.1:${targetPort}/` })).isError).toBe(false);
     let view = (await tray.request("overview")) as unknown as ControlOverview;
-    expect(view.remote.clients).toEqual([expect.objectContaining({ ...CLIENT_A, exposure: "exposed" })]);
+    expect(view.remote.clients).toEqual([expect.objectContaining({ ...CLIENT_A(), exposure: "exposed" })]);
     expect(view.agents.remoteClients).toBe(1);
 
     // A remote client cannot change its own state: no such tool exists.
@@ -492,7 +509,7 @@ describe("WP-22: device controls", () => {
     });
 
     // Reset its exposure (user action), then it reads again.
-    expect(await tray.request("remote.resetExposure", CLIENT_A)).toMatchObject({ ok: true, result: "reset" });
+    expect(await tray.request("remote.resetExposure", CLIENT_A())).toMatchObject({ ok: true, result: "reset" });
     view = (await tray.request("overview")) as unknown as ControlOverview;
     expect(view.remote.clients[0]?.exposure).toBe("clean");
 
@@ -501,18 +518,18 @@ describe("WP-22: device controls", () => {
     void agent.callTool({ name: "fs_write_file", arguments: { path: "r.txt", content: "x" } }).catch(() => undefined);
     const request = await tray.nextApproval();
     expect(request.subject.principal).toMatchObject({ kind: "remote", clientId: "client-a" });
-    const revoked = await tray.request("remote.revokeClient", CLIENT_A);
+    const revoked = await tray.request("remote.revokeClient", CLIENT_A());
     expect(revoked).toMatchObject({ ok: true, persisted: true });
     await waitFor(() =>
       tray.events.some(
         (e) => e.event === "approval.resolved" && e.requestId === request.requestId && e.status === "cancelled",
       ),
     );
-    expect(await relayStatus(relay, RELAY_A)).toBe(403);
+    expect(await relayStatus(relay, RELAY_A())).toBe(403);
     // Another client of the same account is not affected.
-    expect(await relayStatus(relay, RELAY_B)).toBe(200);
+    expect(await relayStatus(relay, RELAY_B())).toBe(200);
     const controls = (await auditRecords()).filter((r) => r.kind === "control").map((r) => r.action);
-    expect(controls).toEqual(["remote_mode", "exposure_reset", "client_revoke"]);
+    expect(controls).toEqual(["pairing", "remote_mode", "exposure_reset", "client_revoke"]);
     expect(await readFile(path.join(dirs.workspace, "r.txt"), "utf8").catch(() => "missing")).toBe("missing");
   });
 
@@ -520,21 +537,201 @@ describe("WP-22: device controls", () => {
     let service = await startService();
     let relay = await startRelay(service);
     const tray = await Tray.connect();
+    await pairDevice(tray);
     await tray.request("remote.setMode", { enabled: true });
-    expect(await relayStatus(relay, RELAY_A)).toBe(200);
-    await tray.request("remote.revokeClient", CLIENT_A);
+    expect(await relayStatus(relay, RELAY_A())).toBe(200);
+    await tray.request("remote.revokeClient", CLIENT_A());
     tray.client.close();
     await stopService(service);
     service = await startService();
     relay = await startRelay(service);
-    expect(await relayStatus(relay, RELAY_A)).toBe(403);
-    expect(await relayStatus(relay, RELAY_B)).toBe(200);
+    expect(await relayStatus(relay, RELAY_A())).toBe(403);
+    expect(await relayStatus(relay, RELAY_B())).toBe(200);
     await stopService(service);
     await writeFile(path.join(stateDir, REMOTE_CLIENTS_FILE_NAME), "not json");
     service = await startService();
     relay = await startRelay(service);
-    expect(await relayStatus(relay, RELAY_B)).toBe(403);
+    expect(await relayStatus(relay, RELAY_B())).toBe(403);
     const status = service.status() as ServiceStatus;
     expect(status.controls?.remoteMode).toBe(true);
+  });
+});
+
+describe("WP-28: identity and device binding", () => {
+  it("pairing through the control channel binds the account and a new device id; tokens for it are accepted", async () => {
+    const service = await startService();
+    const relay = await startRelay(service);
+    const tray = await Tray.connect();
+    let view = (await tray.request("overview")) as unknown as ControlOverview;
+    expect(view.pairing).toMatchObject({
+      available: true,
+      state: "unpaired",
+      environment: { id: "test", rfc9207: "unknown" },
+    });
+    // Not paired: no tunnel credential, no PRM, every token rejected (401) without resource_metadata.
+    expect(service.tunnelCredential()).toEqual({ ok: false, reason: "not_paired" });
+    expect(service.resourceMetadataUrl()).toBeUndefined();
+    const before = await relayResponse(relay.url, tokenFor("client-a", "abcdefghijklmnopqrstuvwxya"));
+    expect(before.status).toBe(401);
+    expect(before.challenge).not.toMatch(/resource_metadata/);
+
+    const deviceId = await pairDevice(tray);
+    expect(deviceId).toMatch(/^[a-z2-7]{26}$/);
+    view = (await tray.request("overview")) as unknown as ControlOverview;
+    expect(view.pairing).toMatchObject({
+      state: "paired",
+      device: {
+        deviceId,
+        accountId: ACCOUNT,
+        environment: "test",
+        resourceUri: resourceOf(deviceId),
+        protectedResourceMetadata: `https://${authServer.relayHost}/.well-known/oauth-protected-resource/d/${deviceId}/mcp`,
+        publicKey: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      },
+    });
+    // The pairing token and its code never reach the overview, the audit or the state.
+    const serialized = JSON.stringify(view) + JSON.stringify(await auditRecords());
+    expect(serialized).not.toMatch(/eyJ|access_token|refresh_token|code_verifier/);
+    const pairingAudit = (await auditRecords()).filter((r) => r.kind === "control" && r.action === "pairing");
+    expect(pairingAudit).toEqual([
+      expect.objectContaining({ outcome: "applied", device: { deviceId, accountId: ACCOUNT, environment: "test" } }),
+    ]);
+
+    // The tunnel credential proves possession of the device key, domain separated.
+    const credential = service.tunnelCredential();
+    expect(credential.ok).toBe(true);
+    if (credential.ok) {
+      expect(credential.credential).toMatchObject({ deviceId, relayHost: authServer.relayHost });
+      expect(credential.credential.prove(Buffer.alloc(32, 7)).length).toBe(64);
+    }
+
+    await tray.request("remote.setMode", { enabled: true });
+    const agent = await relayClient(relay, RELAY_A());
+    expect((await call(agent, "crot_status", {})).isError).toBe(false);
+    view = (await tray.request("overview")) as unknown as ControlOverview;
+    expect(view.remote.clients).toEqual([expect.objectContaining(CLIENT_A())]);
+  });
+
+  it("rejects tokens for another device or account with 401 and resource_metadata; never on loopback", async () => {
+    const service = await startService();
+    const relay = await startRelay(service);
+    const tray = await Tray.connect();
+    const deviceId = await pairDevice(tray);
+    await tray.request("remote.setMode", { enabled: true });
+    const prm = `https://${authServer.relayHost}/.well-known/oauth-protected-resource/d/${deviceId}/mcp`;
+    const other = await relayResponse(relay.url, tokenFor("client-a", "abcdefghijklmnopqrstuvwxya"));
+    expect(other.status).toBe(401);
+    expect(other.challenge).toBe(`Bearer resource_metadata="${prm}", error="invalid_token"`);
+    expect((await relayResponse(relay.url, tokenFor("client-a", deviceId, "user_other"))).status).toBe(401);
+    const missing = await fetch(relay.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    await missing.text();
+    expect(missing.status).toBe(401);
+    expect(missing.headers.get("www-authenticate")).toBe(`Bearer resource_metadata="${prm}"`);
+    // An OAuth token is not a local credential: the loopback entry point refuses it.
+    expect((await relayResponse(service.httpUrl!, RELAY_A())).status).toBe(401);
+    expect((await relayResponse(relay.url, RELAY_A())).status).toBe(200);
+  });
+
+  it("re-grant: tokens issued before it stay refused, new ones are accepted; audit first", async () => {
+    const service = await startService();
+    const relay = await startRelay(service);
+    const tray = await Tray.connect();
+    await pairDevice(tray);
+    await tray.request("remote.setMode", { enabled: true });
+    const old = RELAY_A();
+    expect(await relayStatus(relay, old)).toBe(200);
+    expect(await tray.request("remote.regrantClient", CLIENT_A())).toMatchObject({ ok: false, reason: "not_revoked" });
+    await tray.request("remote.revokeClient", CLIENT_A());
+    expect(await relayStatus(relay, old)).toBe(403);
+    // A token issued in the second of the re-grant could predate it: the boundary is the next second.
+    await new Promise((r) => setTimeout(r, 1_100));
+    const regrant = await tray.request("remote.regrantClient", CLIENT_A());
+    expect(regrant).toMatchObject({ ok: true, grantedAt: expect.any(String) });
+    const refused = await relayResponse(relay.url, old);
+    expect(refused.status).toBe(401);
+    expect(refused.challenge).toMatch(/error="invalid_token"/);
+    await new Promise((r) => setTimeout(r, 1_100));
+    expect(await relayStatus(relay, RELAY_A())).toBe(200);
+    const view = (await tray.request("overview")) as unknown as ControlOverview;
+    expect(view.remote.clients[0]).toMatchObject({ ...CLIENT_A(), grantedAt: expect.any(String) });
+    expect(view.remote.clients[0]).not.toHaveProperty("revokedAt");
+    const controls = (await auditRecords()).filter((r) => r.kind === "control").map((r) => r.action);
+    expect(controls).toEqual(["pairing", "remote_mode", "client_revoke", "client_regrant"]);
+  });
+
+  it("unpair ends remote access at once, removes the credential, and a new pairing is a new device", async () => {
+    let service = await startService();
+    let relay = await startRelay(service);
+    const tray = await Tray.connect();
+    const first = await pairDevice(tray);
+    await tray.request("remote.setMode", { enabled: true });
+    const token = RELAY_A();
+    expect(await relayStatus(relay, token)).toBe(200);
+    expect(await tray.request("pairing.start")).toMatchObject({ ok: false, reason: "already_paired" });
+    const result = await tray.request("device.unpair");
+    expect(result).toMatchObject({ ok: true, persisted: true, keyRemoved: true });
+    expect(await relayStatus(relay, token)).toBe(401);
+    expect(service.tunnelCredential()).toEqual({ ok: false, reason: "not_paired" });
+    tray.client.close();
+    await stopService(service);
+    // The unpaired state survives a restart.
+    service = await startService();
+    relay = await startRelay(service);
+    const tray2 = await Tray.connect();
+    expect(((await tray2.request("overview")) as unknown as ControlOverview).pairing.state).toBe("unpaired");
+    expect(await relayStatus(relay, token)).toBe(401);
+    const second = await pairDevice(tray2);
+    expect(second).not.toBe(first);
+    expect(await relayStatus(relay, token)).toBe(401);
+    expect(await relayStatus(relay, RELAY_A())).toBe(200);
+  });
+
+  it("a pairing can be cancelled; a failed sign-in is reported and leaves the device unpaired", async () => {
+    await startService();
+    const tray = await Tray.connect();
+    const started = (await tray.request("pairing.start")) as { authorizationUrl: string };
+    expect(((await tray.request("overview")) as unknown as ControlOverview).pairing.state).toBe("pairing");
+    expect(await tray.request("pairing.cancel")).toMatchObject({ ok: true });
+    await waitFor(
+      async () => ((await tray.request("overview")) as unknown as ControlOverview).pairing.state === "unpaired",
+    );
+    // The callback of the cancelled flow is gone.
+    await expect(fetch(authServer.authorize(started.authorizationUrl, { sub: ACCOUNT }).redirect)).rejects.toThrow();
+    const again = (await tray.request("pairing.start")) as { authorizationUrl: string };
+    const denied = await fetch(authServer.authorize(again.authorizationUrl, { sub: ACCOUNT, deny: true }).redirect);
+    expect(denied.status).toBe(400);
+    await denied.text();
+    await waitFor(async () => {
+      const p = ((await tray.request("overview")) as unknown as ControlOverview).pairing;
+      return p.state === "unpaired" && p.lastFailure?.reason.startsWith("access_denied") === true;
+    });
+  });
+
+  it("without an identity environment pairing is unavailable and every remote token is rejected", async () => {
+    const service = await CrotService.start({
+      command: serveCommand(),
+      launch: "managed",
+      stateDir,
+      privateFiles,
+      log: () => undefined,
+      requestStop: () => undefined,
+      identity: { environment: { unavailable: "no identity environment in this build" } },
+    });
+    if (service === "already_running") throw new Error("already running");
+    services.push(service);
+    const tray = await Tray.connect();
+    expect(await tray.request("pairing.start")).toMatchObject({ ok: false, reason: "not_available" });
+    expect(((await tray.request("overview")) as unknown as ControlOverview).pairing).toMatchObject({
+      available: false,
+      reason: "no identity environment in this build",
+    });
+    expect(service.tunnelCredential()).toEqual({ ok: false, reason: "not_paired" });
+    expect(
+      await service.remoteVerifier.verifyAccessToken(tokenFor("client-a", "abcdefghijklmnopqrstuvwxya")),
+    ).toBeUndefined();
   });
 });
