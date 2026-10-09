@@ -370,15 +370,19 @@ describe("handshake refusals", () => {
   });
 });
 
+/** The relay end of an accepted WebSocket (acceptWebSocket resolves to undefined for a refused upgrade). */
+type RelaySocket = NonNullable<Awaited<ReturnType<typeof acceptWebSocket>>>;
+
 /** A minimal fake relay for refusals the real relay never produces on purpose. */
 async function fakeRelay(
-  behave: (conn: Awaited<ReturnType<typeof acceptWebSocket>>, frames: number[]) => void,
+  behave: (conn: RelaySocket, frames: number[]) => void,
   protocol = "crot-tunnel.v1",
 ): Promise<{ url: string; frames: number[]; server: Server }> {
   const frames: number[] = [];
   const srv = createServer();
   srv.on("upgrade", (req, socket, head) => {
     void Promise.resolve(acceptWebSocket(req, socket, head, { protocol, maxMessageBytes: 64 * 1024 })).then((conn) => {
+      if (!conn) return;
       conn.attach({
         onMessage: (data) => frames.push(decodeFrame(Buffer.from(data as Uint8Array)).type),
         onClose: () => undefined,
