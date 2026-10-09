@@ -253,13 +253,23 @@ describe("limits (AD-22 points 6 and 11)", () => {
         method: "POST",
         headers: { authorization: `Bearer ${h.clientToken(paired)}`, "content-length": String(total) },
       });
-      req.on("response", (res) => {
-        res.resume();
-        resolve(res.statusCode!);
-        // The client keeps sending after the complete response.
-        setTimeout(() => req.end(Buffer.alloc(total - 65536)), 50);
+      let responded = false;
+      // After the early response the relay may close the connection, so the
+      // late write can fail with EPIPE or ECONNRESET depending on platform and
+      // timing (Node 20 no longer routes it to the request): expected here.
+      req.on("socket", (socket) => socket.on("error", () => {}));
+      req.on("error", (e) => {
+        if (!responded) reject(e);
       });
-      req.on("error", reject);
+      req.on("response", (res) => {
+        responded = true;
+        res.resume();
+        // The client keeps sending after the complete response.
+        setTimeout(() => {
+          req.end(Buffer.alloc(total - 65536));
+          resolve(res.statusCode!);
+        }, 50);
+      });
       req.write(Buffer.alloc(65536));
     });
     expect(status).toBe(503);
@@ -343,7 +353,9 @@ describe("bodies the relay does not forward are bounded in time", () => {
       const sock = connect(port, "127.0.0.1", () => sock.write(head + partialBody));
       let text = "";
       sock.on("data", (d) => (text += d.toString()));
-      sock.on("error", reject);
+      // The relay may reset a connection it closes with unread data; "close"
+      // still follows, and the received status line is what is checked.
+      sock.on("error", () => {});
       sock.on("close", () => resolve({ statusLine: text.split("\r\n")[0]!, closedAfterMs: Date.now() - started }));
       setTimeout(() => {
         sock.destroy();
@@ -380,9 +392,11 @@ describe("bodies the relay does not forward are bounded in time", () => {
         method: "POST",
         headers: { authorization: `Bearer ${h.clientToken(paired)}`, "transfer-encoding": "chunked" },
       });
+      req.on("socket", (socket) => socket.on("error", () => {}));
       req.on("response", (r) => {
         r.resume();
         resolve({ status: r.statusCode!, outcome: r.headers[OUTCOME_HEADER] });
+        req.destroy();
       });
       req.on("error", reject);
       req.write("{");
