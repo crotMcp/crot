@@ -280,6 +280,15 @@ tests point 19). The cards below implement it and must not weaken it.
   the AD-22 constraint T4 tests pass.
 
 ### WP-30 — Device tunnel adapter
+- **Status:** Partial — PR #20 (`docs/DEVICE_TUNNEL.md`). Implemented: the
+  tunnel (handshake, refusals, reconnect, streams, limits, cancellation,
+  connection loss without replay), the pipeline entry, remote mode on/off
+  and registration at pairing (point 4,
+  `src/identity/relay-registration.ts`); OD-5 decided (the tunnel ends a
+  request 5 s before the exchange deadline; measured client timeouts in
+  WP-32). Open before Done: the OD-5 entry and the registration reference
+  in ARCHITECTURE.md (patch prepared, not yet applied) and the roadmap
+  status. Not WP-30: deregistration (AD-22 open question 3).
 - **Size:** M–L. **Depends on:** WP-20, WP-28, WP-29.
 - **Scope:** tunnel requests enter the **existing** HTTP pipeline
   (authentication -> session or stateless handling per WP-19 ->
