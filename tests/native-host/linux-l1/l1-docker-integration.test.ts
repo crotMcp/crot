@@ -26,7 +26,11 @@ import { assertAvailable, homeLayerDiagnostics, l1Fixture, type L1Fixture } from
 import { isLinux, l1Required } from "./l1-support.js";
 
 const run = isLinux && l1Required;
-const IMAGE = "alpine:3.20";
+/**
+ * The official alpine:3.20 image from the public ECR mirror of Docker Official Images:
+ * the same image as on Docker Hub, without its unauthenticated pull rate limit on CI runners.
+ */
+const IMAGE = "public.ecr.aws/docker/library/alpine:3.20";
 const REFUSED = "CROT L1 Docker endpoint refused";
 const { container: containerProfile } = profileNames();
 const DAEMON_SOCKET = "/var/run/docker.sock";
