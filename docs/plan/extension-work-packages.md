@@ -15,6 +15,19 @@ rule (source / effect / read) and has a remote default for WP-31; audit
 never contains media contents, transcripts, tokens or response bodies; a WP
 whose "Depends" lists an OD starts only after that OD's AD is accepted.
 
+**Research vs implementation.** Research (spikes, reading terms, test
+accounts, throwaway prototypes outside `main`, AD drafts) may start before
+the AD it informs. Implementation of a contract — a tool schema, a
+capability, a persistence format, a protocol, a manifest schema — starts
+only after the AD that fixes it is accepted. A WP marked "Depends: —"
+must not create or anticipate such a contract (product-reassessment.md §8
+lists what each early WP may and may not touch).
+
+**Evidence over claims.** "Supported" (an editor, a service, a scenario)
+means a recorded, repeatable scenario run passed, with the product
+version/edition, OS and date; a matrix row or a vendor statement is not
+support.
+
 Card format: **Goal** · **Problem** · **Depends** · **Scope / not in
 scope** · **Requirements** · **Acceptance** · **Tests** · **Risks /
 questions** · size.
@@ -44,15 +57,20 @@ questions** · size.
 
 - **Goal:** vision-capable agents see frames and thumbnails. **Problem:**
   only browser screenshots return MCP image content (audit G4).
-- **Depends:** —. **Scope:** one read tool returning an image file from the
-  workspace as MCP image content (`filesystem.read`), formats PNG/JPEG/WebP,
-  size limit, optional downscale. **Not:** video, conversions beyond
-  downscale.
+- **Depends:** — (no open contract). **Scope:** one read tool returning an
+  image file from the workspace as MCP image content under the existing
+  `filesystem.read` capability (no new capability, no job, no component),
+  formats PNG/JPEG/WebP detected by signature, a fixed size limit as a
+  constant no larger than what browser screenshots already return.
+  **Not:** downscaling or any conversion (needs an image engine → OD-16
+  component; later via WP-49 frames), video, new capabilities.
 - **Requirements:** path rules as `fs_read_file`; audit path and size only;
-  same on every transport.
+  same on every transport; the limit is reported to OD-4 as an input, not
+  decided by this WP.
 - **Acceptance:** an image in the workspace is returned as image content;
   outside the workspace denied in sandbox mode; oversize refused with a
-  clear error. **Tests:** adapters (image encoding), permissions, audit.
+  clear error; non-image files refused. **Tests:** adapters (image
+  encoding), permissions, audit, invariant tests of WP-41.
   **Risks:** large responses through the relay (OD-4 size). Size S.
 
 ### WP-43 — Component availability and diagnostics
@@ -101,10 +119,20 @@ questions** · size.
   **Not:** OAuth (WP-48), requests (WP-46).
 - **Requirements:** agents can list but never create, read or change
   connections or credentials; secret names outside `SECRET_NAMES` rotation
-  rules; delete removes the secret; failures fail closed.
+  rules; delete removes the secret; failures fail closed. **Token
+  isolation:** one secret entry per connection (never shared between
+  connections, services or principals); secrets are read only by the
+  connector runtime at injection time, never placed in environment
+  variables, command lines, child processes, files in the workspace, logs,
+  audit, results or relay traffic. **Revocation:** disabling or deleting a
+  connection takes effect for the next request and cancels running jobs
+  that use it.
 - **Acceptance:** a connection is created in the tray, listed for agents
   without secret material, deleted with its secret; audit of control
-  actions. **Tests:** secrets, control channel, tray controller. **Risks:**
+  actions; a revoked connection fails the next request and its running
+  test job with `connection_revoked`; a shell or network tool of the same
+  agent cannot obtain the secret (test: environment, process list, workspace
+  scan). **Tests:** secrets, control channel, tray controller. **Risks:**
   secret store limits per OS. Size M.
 
 ### WP-46 — Connector runtime: requests
@@ -115,11 +143,20 @@ questions** · size.
   capabilities `service.read/write/publish` and `permissions.services`,
   host binding, retries/backoff, rate-limit reporting, exposure source,
   publish gate. **Not:** file-backed bodies, async jobs (WP-47).
+- **Requirements:** least privilege — every typed operation declares the
+  scopes and effect class it needs; a connection grants a subset of
+  operations, and `service_request` (raw) is a separate, narrower grant per
+  connection; `service.publish` is a capability of its own, never implied
+  by `service.write` or a preset, and each publish action needs an
+  approval naming the connection, target account and visibility (standing
+  publish grants only if OD-19 allows them).
 - **Acceptance:** a fixture REST service added by a manifest only (no
   change in `src/core` or relay) passes: credential injected and never
   returned/audited; other hosts refused; cross-origin redirect strips
   credentials; 429 handled with retry hints; publish operations gated in
-  exposed sessions and in both presets. **Tests:** local test server,
+  exposed sessions and in both presets; an operation outside the
+  connection's granted set is denied before any network call; a write grant
+  does not allow a publish operation. **Tests:** local test server,
   permissions, approvals, audit. **Risks:** manifest expressiveness. Size M.
 
 ### WP-47 — Connector runtime: files and async operations
@@ -141,8 +178,16 @@ questions** · size.
   authorization flow in the browser from the tray (reusing the WP-28 pairing
   pattern), scope display, refresh on device, revoke (local + provider
   endpoint where offered), expiry status. **Not:** cloud broker (M3).
+- **Requirements:** request the minimal scopes of the operations the user
+  enables; additional scopes only by a new, user-confirmed authorization
+  (incremental consent); granted scopes shown and stored per connection;
+  refresh tokens per connection, rotated when the provider rotates them;
+  revoke attempts provider revocation and always deletes local tokens.
 - **Acceptance:** against a test authorization server: connect, refresh,
-  revoke; tokens never visible to agents; state/iss checks as in pairing.
+  revoke; tokens never visible to agents; state/iss checks as in pairing;
+  requested scopes equal the enabled operations' scopes; provider-side
+  revocation (refresh fails) moves the connection to `revoked` and stops
+  its jobs.
   **Tests:** emulator as in `tests/identity`. **Risks:** per-provider
   quirks. Size M.
 
@@ -190,12 +235,20 @@ questions** · size.
 - **Goal:** the validated edit format. **Problem:** without one, every
   render is an ad-hoc command line. **Depends:** OD-18. **Scope:** JSON
   Schema (v1 features of media-and-editors.md §3), validation errors with
-  paths, timeline summary/explain, duration estimate. **Not:** rendering.
+  paths, timeline summary/explain, duration estimate; the editing model of
+  media-and-editors.md §4.1: stable item ids, edit operations (insert,
+  remove, trim, move, split, replace, track add/remove/mute, gain and fade
+  changes) applied as validated patches, project save as a workspace file
+  with revision number, revision history, undo to a revision, diff between
+  revisions. **Not:** rendering.
 - **Requirements:** versioned; sources resolved by workspace rules; no
-  free-form engine options.
+  free-form engine options; a patch is atomic (all or nothing) and is
+  rejected against a stale revision.
 - **Acceptance:** invalid descriptions rejected with precise errors; schema
   published through the tool's input schema; explain output matches the
-  fixture timelines. **Tests:** schema and validation tests. **Risks:**
+  fixture timelines; a project saved, reopened and re-explained is
+  identical; every operation of the list has a test; undo restores the
+  exact earlier revision. **Tests:** schema and validation tests. **Risks:**
   format churn before WP-53. Size S–M.
 
 ### WP-53 — Render core
@@ -227,7 +280,10 @@ questions** · size.
 - **Goal:** `verify` an output against description and preset, with a
   timestamped report. **Problem:** agents cannot check results objectively.
   **Depends:** WP-53, WP-50. **Scope:** the criteria of media-and-editors.md
-  §4. **Not:** aesthetic judgement (agent's job, using frames).
+  §4; every finding names the output time range **and** the timeline item
+  id(s) of the edit description that produced it, so an agent can correct
+  the project and re-render. **Not:** aesthetic judgement (agent's job,
+  using frames).
   **Acceptance:** detects
   injected defects (black segment, clipping, wrong fps, desync of 3 frames,
   missing subtitles) and passes clean renders. **Tests:** defect fixtures.
@@ -245,11 +301,14 @@ questions** · size.
 ### WP-57 — Media acceptance suite
 
 - **Goal:** scenarios A (local part) and B (with a stub TTS) end to end for
-  local and remote principals. **Problem:** single-operation tests do not
+  local and remote principals, and the autonomous editing loop L1–L4 of
+  media-and-editors.md §4.1. **Problem:** single-operation tests do not
   prove an agent can finish a task. **Depends:** WP-49…WP-56. **Scope:**
   scripted agent runs through MCP (no specific AI client). **Acceptance:**
-  the scenario definitions of product-reassessment.md §4 pass in CI on
-  Linux; audit and gates as specified. **Tests:** the suite itself.
+  the scenario definitions of product-reassessment.md §4 and loop scenarios
+  L1–L4 pass in CI on Linux; in L3 the injected defects are found by QC and
+  fixed by project edits (not by hand-written engine commands) within the
+  stated number of iterations; audit and gates as specified. **Tests:** the suite itself.
   **Risks:** CI time; fixture licences. Size M.
 
 ## Phase 7 — Integrations (milestone v1.2)
@@ -272,8 +331,12 @@ questions** · size.
   verify quotas, verification and private-lock rules (integration-map.md
   §1.1).
 - **Acceptance:** scenario A API path to a test channel as private; publish
-  to public gated; read-back matches metadata; quota and processing errors
-  reported. **Tests:** fixture server in CI; live checklist. **Risks:** app
+  to public gated; publication verified per integration-map.md §3.2 — an
+  accepted upload is reported as `submitted`, not as published, until
+  read-back shows processing finished, the requested privacy status and
+  matching metadata/thumbnail/captions; a public video is additionally
+  fetched without credentials; quota, processing and rejection errors
+  reported with the final state. **Tests:** fixture server in CI; live checklist. **Risks:** app
   verification, quotas. Size M–L.
 
 ### WP-60 — TikTok spike
@@ -295,7 +358,9 @@ questions** · size.
   creator-info query. **Not:** browser automation of TikTok.
   **Acceptance:** draft upload to a test account; direct post only if the
   app is audited; mandatory UX steps surfaced to the user, not faked by the
-  agent. **Tests:** fixture server; live checklist. **Risks:** policy
+  agent; result states per integration-map.md §3.2 (a draft in the inbox is
+  `submitted`, never reported as published; direct post verified by the
+  publish-status query). **Tests:** fixture server; live checklist. **Risks:** policy
   changes. Size M.
 
 ### WP-62 — Canva spike
@@ -314,7 +379,8 @@ questions** · size.
   WP-48. **Scope:** manifest + typed operations; async exports as jobs.
   **Not:** editing inside the Canva editor. **Acceptance:** create a design
   from a preset size, upload an asset from the workspace, export PNG/MP4 to
-  the workspace as artifacts; edit URL handed to the user. **Tests:**
+  the workspace as artifacts (verified by Inspect, not by the API status
+  alone); edit URL handed to the user. **Tests:**
   fixture server; live checklist. **Risks:** review requirements. Size M.
 
 ### WP-64 — Integration acceptance suite
@@ -323,7 +389,10 @@ questions** · size.
   documented live checklist. **Problem:** connectors tested alone do not
   prove the workflows. **Depends:** WP-57, WP-58, WP-59, WP-24…27.
   **Acceptance:** scenario definitions of product-reassessment.md §4 for A,
-  B, D. **Risks:** live-service flakiness (kept out of CI). Size M.
+  B, D; fixture servers also simulate "accepted but failed later",
+  "processing never finishes" and "published but not publicly reachable",
+  and the suite requires the correct final state for each. **Risks:**
+  live-service flakiness (kept out of CI). Size M.
 
 ## Phase 8 — Editors and applications (milestone v1.3+)
 
@@ -331,12 +400,17 @@ questions** · size.
 
 - **Goal:** verify media-and-editors.md §5 for Kdenlive/Shotcut, Blender,
   DaVinci Resolve, Premiere Pro, Final Cut Pro, CapCut: levels, editions,
-  APIs, platforms, licences. **Depends:** WP-52 (for realistic tests).
+  APIs, platforms, licences. **Depends:** stage 1 — none (research, may
+  start now); stage 2 — WP-52 (scenario runs from an edit description).
   **Problem:** editor capabilities are unverified claims. **Scope:**
-  installed editors on test machines, scripts outside `main`.
-  **Output:** updated matrix with evidence (version, edition, date); pick
-  the bridge target for OD-21. No product code. **Acceptance:** every cell
-  of the matrix verified or marked "not reachable". **Risks:** licences for
+  installed editors on test machines, scripts outside `main`; stage 1:
+  levels, editions, APIs, licences; stage 2: run the editor scenario set
+  E1–E8 (media-and-editors.md §5.1) per editor and level with throwaway
+  scripts. **Output:** updated matrix with evidence (scenario ids passed,
+  version, edition, OS, date); pick the bridge target for OD-21. No product
+  code. **Acceptance:** every cell of the matrix verified or marked "not
+  reachable"; every "expected depth" replaced by the list of scenarios that
+  actually passed. **Risks:** licences for
   paid editors. Size M.
 
 ### WP-66 — Interchange export
@@ -346,8 +420,9 @@ questions** · size.
   WP-65. **Scope:** exporters + loss report. **Not:** import of proprietary
   formats. **Tests:** OTIO round-trip, schema validation of FCPXML.
   **Acceptance:** exports open in the target
-  editors (manual checklist) and round-trip through OTIO tooling without
-  loss of v1 features; unsupported features listed in the result. Size M.
+  editors (manual checklist recording scenario E7 per target editor,
+  version and date) and round-trip through OTIO tooling without loss of v1
+  features; unsupported features listed in the result. Size M.
 
 ### WP-67 — MLT project adapter (Kdenlive, Shotcut)
 
@@ -355,9 +430,11 @@ questions** · size.
   with WP-55. **Problem:** first editor integration that works without a
   GUI. **Depends:** WP-65, WP-66, WP-43. **Scope:** MLT XML parse/write for
   the supported subset, `melt` render as a job. **Not:** Kdenlive-specific
-  effects outside the subset (reported). **Acceptance:** scenario C on
-  fixture projects for both editors at the documented level; the projects
-  still open in the editors (manual check). **Tests:** fixture projects of
+  effects outside the subset (reported). **Acceptance:** scenarios E1–E8
+  (media-and-editors.md §5.1) on fixture projects pass for both
+  editors at pinned versions, with results recorded as the support
+  statement; the saved projects still open and play in the editors (manual
+  check, recorded). **Tests:** fixture projects of
   pinned editor versions. **Risks:** format drift. Size M.
 
 ### WP-68 — Application bridge (first editor)
@@ -366,9 +443,11 @@ questions** · size.
   **Problem:** editor-native features need the running application.
   **Depends:** OD-21, WP-65. **Scope:** bridge component, IPC, commands
   (open project, list/modify timeline items supported by the API, render,
-  status). **Not:** arbitrary script execution. **Acceptance:** scenario C
-  at the bridge's documented level; authenticated IPC; every command a
-  guard operation; owner grant per application. **Tests:** contract tests
+  status). **Not:** arbitrary script execution. **Acceptance:** the subset
+  of E1–E8 declared for the bridge passes against the real editor (pinned
+  version, edition, OS) and is the published support statement;
+  authenticated IPC; every command a guard operation; owner grant per
+  application. **Tests:** contract tests
   with a fake bridge; manual checklist with the editor. **Risks:** API
   changes per editor version. Size L.
 

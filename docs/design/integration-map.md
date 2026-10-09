@@ -106,6 +106,63 @@ an API (browser path) or desktop-only tools (OD-21/OD-22).
   never bodies or tokens.
 - **Relay:** unchanged; all connector traffic leaves from the device.
 
+### 3.1 Credential isolation, revocation, least privilege, publish control
+
+- **Isolation:** one secret per connection — never shared between
+  connections, services, devices or principals. Only the connector runtime
+  reads it, at injection time. It never appears in environment variables,
+  command lines, child processes, workspace files, logs, audit, results or
+  relay traffic, so `shell.execute` or `network_request` of the same agent
+  cannot reach it. A remote principal never receives anything from which
+  the secret can be derived.
+- **Revocation:** the user can disable or delete a connection at any time
+  (tray/CLI). It takes effect on the next request, cancels running jobs that
+  use it, attempts provider-side revocation where offered and always deletes
+  local tokens. Provider-side revocation or expiry (refresh fails) moves the
+  connection to `revoked`/`expired` and stops its jobs. Removing a device
+  from the account must remove its connections too (to be fixed in OD-20).
+- **Least privilege:** the manifest declares scopes and effect class per
+  operation. OAuth requests only the scopes of the operations the user
+  enables, with more scopes only through a new user-confirmed authorization.
+  A connection grants a subset of operations. Raw `service_request` is a
+  separate, narrower grant per connection, limited to the manifest's hosts
+  and paths.
+- **Publish control:** `service.publish` is its own capability, never
+  implied by `service.write`, a preset or `full_control`. Each publish
+  action (making content visible to others: public/unlisted video, post,
+  scheduled publication, sending) needs an approval that names the
+  connection, target account/channel, item and visibility. Standing publish
+  grants exist only if OD-19 allows them, and then per connection with an
+  expiry. Exposed sessions (AD-12) always require the approval. Changing
+  visibility of existing content is also a publish action.
+
+### 3.2 Publication result and verification
+
+A successful API response means the service **accepted a request**, not
+that content is published and reachable. Connector results therefore use
+explicit states:
+
+| State | Meaning | How it is established |
+| --- | --- | --- |
+| `submitted` | request accepted (upload finished, draft created, post queued) | API response |
+| `processing` | service still processing | status read-back (polled as a job) |
+| `published` | service reports the requested visibility | status read-back: visibility/privacy, processing finished, no rejection |
+| `verified` | content is reachable as intended and matches | read-back of metadata, thumbnail, captions equals the request; for public content a fetch **without credentials** succeeds; for private content an anonymous fetch fails |
+| `failed` / `rejected` | processing failed, policy rejection, quota, timeout | error or status read-back, with the service's reason |
+
+Acceptance rules for every publishing connector (WP-59, WP-61, WP-63,
+WP-64):
+
+- the agent and the user are told the actual state; `submitted` is never
+  reported as published;
+- verification has a timeout and ends in `verified`, `failed`/`rejected` or
+  an explicit "still processing" result, never in silence;
+- drafts that the user must finish in the vendor's app (TikTok inbox) stay
+  `submitted` with a hand-over note;
+- fixture servers cover "accepted but later failed", "processing never
+  finishes", "published but not publicly reachable" and "metadata differs";
+- audit records state changes, not bodies.
+
 ## 4. Per-service order
 
 1. ElevenLabs (API key, M2) — proves the runtime, async jobs and audio

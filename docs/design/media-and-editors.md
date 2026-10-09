@@ -47,6 +47,7 @@ description and verification reports**, not with command lines.
 | Speech | transcribe with word timestamps, language detection, speaker turns (if the engine supports it), subtitles SRT/VTT | `media.read` (exposure source) | transcript JSON + subtitle artifacts |
 | Synthesis (local) | local TTS if a component is installed | `media.process` | audio artifact; remote TTS goes through connectors (integration-map.md) |
 | Edit | validate an edit description, explain it (timeline summary), estimate output | `media.read` | report |
+| Project | create a project, apply edit operations as patches (insert, remove, trim, split, move, replace, track add/remove/mute, gain, fade), save with revision, history, undo, diff | workspace write (`filesystem.write`; exact capability fixed by OD-17/OD-18) | project file + revision id + timeline summary |
 | Render | render an edit description to a delivery preset; proxy/preview render | `media.process` (job) | video/audio artifacts + render manifest |
 | Verify | compare an output with its description and a preset | `media.read` | QC report |
 | Export | OTIO / FCPXML / EDL / MLT from an edit description | `media.process` | project files |
@@ -78,7 +79,54 @@ Edit description features, in two steps:
 | Safety | inputs/outputs outside the workspace need `filesystem.full`; no network protocol inputs; audit has paths, sizes and durations only |
 | Agents | every operation works identically for a local and a remote principal (subject to OD-17 placement) |
 
+### 4.1 Autonomous editing loop (the product goal, not a pipeline)
+
+Rendering a description once is not editing. The goal is that an agent
+completes the whole loop on its own and can repeat it until the result is
+right:
+
+1. **Select** fragments from sources using Inspect, Analysis, Speech and
+   Frames (candidate list: source id, in/out, reason);
+2. **Create** a project (edit description) from the selection;
+3. **Change** it with edit operations on stable item ids — clips, order,
+   tracks, levels, fades, ducking, titles;
+4. **Save** it as a workspace file with a revision (history, undo, diff);
+5. **Render** a preview or the delivery preset as a job;
+6. **Verify** with QC (findings point to timeline item ids) and with frames
+   the agent looks at;
+7. **Correct** the project by edit operations and go back to 5.
+
+| Loop step | Criterion |
+| --- | --- |
+| Select | every selected fragment lies within its source; when cutting speech, no cut point falls inside a word according to the word timestamps (tolerance ±1 frame) |
+| Create / change | each operation is validated, atomic and touches only the addressed items (diff shows nothing else); a patch against a stale revision is rejected |
+| Tracks and audio | track add/remove/mute reflected in the render; per-item gain within ±0.5 dB, ducking depth within ±1 dB, fades of the stated length ±1 frame |
+| Save / reopen | save → reopen (also from another session or principal) → explain gives an identical timeline; undo to revision *n* renders with the same duration and frame count as the earlier render of *n* |
+| Render / verify | §4 criteria; QC findings name time range and item ids |
+| Correct | a finding can be fixed by edit operations only (no hand-written engine commands) |
+
+Loop acceptance scenarios (CI on Linux, scripted agent through MCP; part of
+WP-57):
+
+- **L1 Assemble:** from ≥ 3 raw clips with speech and music, select
+  fragments, build and save a project, render, QC passes.
+- **L2 Revise:** apply a change request (remove a segment, reorder, replace
+  music, lower music by 6 dB, add a voice-over track) to the saved project;
+  the diff shows only the requested changes; untouched segments keep their
+  timing; QC passes.
+- **L3 Detect and correct:** a project with injected defects (black gap
+  from a wrong in-point, music masking speech, one clip 3 frames out of
+  sync, clipping) fails QC with item ids; the agent fixes it by edit
+  operations; QC passes within ≤ 3 render iterations.
+- **L4 Resume:** a new session (local, then remote principal) reopens the
+  project, continues from the last revision, undoes one revision and
+  re-renders identically to the earlier render of that revision.
+
 ## 5. Video editors — per-editor integration matrix (to verify in WP-65)
+
+The "reachable levels" and "expected depth" columns are **hypotheses**. An
+editor counts as supported only at the levels and for the scenarios of §5.1
+that passed in a recorded run; until then it is "not supported".
 
 Integration levels: **F** project files; **C** CLI/headless render;
 **S** scripting API (running or headless app); **B** CROT bridge inside the
@@ -95,6 +143,27 @@ browser contract.
 | Final Cut Pro | macOS | F (FCPXML import/export), limited automation (Apple Events/workflow extensions — verify) | low–medium: build timelines by FCPXML, render by the user or Compressor (verify) | macOS only, paid | limited automation | interchange only (WP-66) |
 | CapCut (desktop) | Windows, macOS | G only (no public desktop API known — verify); project format not documented | low without GUI control | OD-22; terms of service | fragile, ToS | not before OD-22; prefer CROT render |
 | Web editors (CapCut web, Canva video, Clipchamp …) | browser | W | medium, fragile (canvas UIs) | WP-24…27 | UI changes, bot detection | case by case |
+
+### 5.1 Editor scenario set and support statement
+
+Support for an editor is measured by these scenarios, run per editor, level
+(F/C/S/B/G/W), editor version, edition and OS:
+
+| Id | Scenario | Pass condition |
+| --- | --- | --- |
+| E1 | Open an existing fixture project and report its timeline | items, tracks, in/out and durations equal the fixture's reference |
+| E2 | Create a new project from sources or an edit description | the editor opens it; timeline equals the description |
+| E3 | Cut, trim, split and move clips | resulting timeline equals the expected one (±1 frame) |
+| E4 | Track and audio operations: add/remove/mute tracks, gain, fades | reflected in the editor and in the render |
+| E5 | Titles / text overlays (where the level allows) | present at the stated times and positions |
+| E6 | Save and reopen in the editor | identical timeline; no repair or missing-media prompts; untouched items preserved |
+| E7 | Render/export through the editor or its renderer | output passes WP-55 against the expected description |
+| E8 | Request an unsupported operation | reported as unsupported; nothing silently approximated; the project stays valid |
+
+Support statement (published per editor, replaces the matrix guess):
+editor · version · edition · OS · level · scenarios passed · date ·
+evidence (test id or recorded checklist). A version not in the statement is
+"unverified".
 
 Achievable result without any editor: the CROT render path (WP-52…56) gives
 fully autonomous editing on every OS where its components are installed.

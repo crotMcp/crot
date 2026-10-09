@@ -26,7 +26,11 @@ packages start (AGENTS.md "Decision before code").
 The current architecture fits the expanded goal **without a rewrite of
 Core, MCP, Cloud Relay, identity or permissions**. The expanded goal adds
 four things the contracts do not cover yet, and each is a bounded addition
-behind the existing ExecutionGuard / PermissionEngine / audit pipeline:
+behind the existing ExecutionGuard / PermissionEngine / audit pipeline.
+The one Core, the one permission check and the one execution environment
+stay the foundation for every transport and every new capability; no
+addition gets its own permission path, its own executor or Core code per
+service or editor (WP-41 makes this a regression test):
 
 1. **Long-running jobs and artifacts** (render, transcription, uploads):
    today only background processes have state (`process_start` /
@@ -49,7 +53,8 @@ unchanged: none of the additions moves execution into the relay; media and
 service traffic stay on the device; the agent orchestrates through tool
 calls. Recommended release staging (OD-23): **v1 = remote access + browser
 contract v1 as decided (AD-13/AD-14)**, with the cheap extension foundation
-(WP-41…WP-44) built in parallel; media (v1.1), integrations (v1.2) and
+built in parallel (WP-41, WP-42 now; WP-43, WP-44 after OD-16/OD-15 ADs;
+§8); media (v1.1), integrations (v1.2) and
 editors/application control (v1.3+) follow as separate milestones that never
 block v1.
 
@@ -136,9 +141,13 @@ remote agent through the same tools, with audit and gates as specified.
 - **Ready when:** a fixture project (≥ 3 clips, music, speech) becomes a
   rendered 16:9 video that passes WP-55 QC; a thumbnail 1280×720 is
   produced; the video is uploaded as **private** to a test channel (API
-  path) or through YouTube Studio (browser path); the agent reads back the
-  processing status and metadata and reports a match; publishing to public
-  needed the user's approval; audit shows every step without contents.
+  path) or through YouTube Studio (browser path); the agent reports the
+  publication state of integration-map.md §3.2 (`submitted` →
+  `processing` → `published` → `verified`, never "published" on the upload
+  response alone) with read-back of metadata, thumbnail and captions;
+  publishing to public needed the user's approval and is verified by an
+  anonymous fetch; the editing part passes loop scenarios L1–L3 of
+  media-and-editors.md §4.1; audit shows every step without contents.
 
 ### Scenario B — audio and voice-over
 
@@ -166,10 +175,12 @@ remote agent through the same tools, with audit and gates as specified.
   (WP-68, OD-21); GUI control only if OD-22 accepts it (WP-70).
 - **Blockers today:** no project adapters; graphical sessions not reachable
   from L1; no bridge contract.
-- **Ready when (per supported editor, at its documented level):** the agent
-  modifies a fixture project, the editor (or its renderer) exports it, and
-  WP-55 verifies the export against the edit description; unsupported
-  operations are reported, never silently approximated.
+- **Ready when (per supported editor, at its documented level):** the
+  editor scenarios E1–E8 of media-and-editors.md §5.1 that the level
+  promises pass in a recorded run (editor version, edition, OS, date), the
+  export passes WP-55 against the edit description, and unsupported
+  operations are reported, never silently approximated. An editor without
+  such a record is not supported, whatever the matrix says.
 
 ### Scenario D — browser and external services
 
@@ -287,6 +298,12 @@ not need multi-hour requests. Depends: — · Blocks: WP-29.
 - **Trade-offs:** OTIO is an interchange standard but has no render
   semantics for effects; a CROT spec can be validated strictly and rendered
   deterministically; MLT renders well but ties CROT to one framework.
+- **Editing model (part of the decision):** the description is a saved,
+  versioned project, not a one-shot render input — stable item ids, edit
+  operations as atomic patches against a revision, history/undo/diff, and
+  QC findings that reference item ids, so the full loop of
+  media-and-editors.md §4.1 (select → create → change → save → render →
+  verify → correct) works without hand-written engine commands.
 - **Security/operations:** spec is data; only validated, allowlisted
   operations; render manifest (inputs' digests, toolchain versions) for
   reproducibility.
@@ -309,9 +326,16 @@ not need multi-hour requests. Depends: — · Blocks: WP-29.
 - **Security/operations:** connections are created only by the user
   (tray/CLI), never by an agent; requests only to the connection's hosts;
   credentials injected by CROT, never returned; responses are exposure
-  sources; publish-class operations gated in both presets by default;
-  quotas, retries with backoff and idempotency keys; audit records
-  connection, operation, status, sizes.
+  sources; quotas, retries with backoff and idempotency keys; audit records
+  connection, operation, status, sizes. Least privilege: scopes and effect
+  class declared per operation, a connection grants a subset, raw requests
+  are a separate grant. Publish control: `service.publish` is never implied
+  by write, a preset or `full_control`; every publish action is approved
+  with connection, account, item and visibility named (standing grants: to
+  decide here). Publication is reported as states
+  (`submitted`/`processing`/`published`/`verified`/`failed`) established by
+  read-back, never from the API response alone (integration-map.md §3.1,
+  §3.2).
 - **Recommended:** (b) as the primary path; (d) stays post-v1 and plugs into
   the same grants when built; capabilities `service.read`, `service.write`,
   `service.publish` plus `permissions.services` per connection (decides part
@@ -331,9 +355,14 @@ not need multi-hour requests. Depends: — · Blocks: WP-29.
   but makes CROT's cloud a high-value store of user tokens and the
   responsible app owner; M5 avoids CROT verification but is poor UX; M6
   needs no API approval but is fragile and may conflict with terms.
-- **Security/operations:** consent per connection and scope; revocation in
-  the tray (local delete + provider revocation where offered); refresh on the
-  device; tokens never in audit, results, logs or the relay.
+- **Security/operations:** consent per connection and scope (minimal scopes,
+  incremental consent); one secret per connection, readable only by the
+  connector runtime (never in environment, child processes, workspace,
+  audit, results, logs or the relay, so the agent's shell cannot reach it);
+  revocation in the tray takes effect on the next request and cancels
+  running jobs (local delete + provider revocation where offered); provider
+  revocation detected on refresh; device removal removes its connections;
+  refresh on the device.
 - **Recommended:** M2 as default, M5 as an advanced option, M6 as fallback;
   M3 only per service where a confidential client is unavoidable, with its
   own security review (likely TikTok; verify Canva).
@@ -400,19 +429,20 @@ not need multi-hour requests. Depends: — · Blocks: WP-29.
   Prerequisite of scenario D and the browser path of A.
 - **L1 macOS/Windows:** OD-9 → WP-23b / WP-23c — now also a prerequisite of
   remote media on those OS (OD-17 (b)).
-- **Media milestone (v1.1):** OD-15, OD-16, OD-17 → WP-41, WP-42, WP-43,
-  WP-44 → WP-49 → WP-50, WP-51 → OD-18 → WP-52 → WP-53 → WP-55 → WP-54,
-  WP-56 → WP-57.
+- **Media milestone (v1.1):** WP-41, WP-42 (no open contract, start now);
+  OD-16 → WP-43; OD-15 → WP-44; OD-17 + WP-42 + WP-43 → WP-49 → WP-50,
+  WP-51 (+WP-44); OD-18 → WP-52 → WP-53 → WP-55 → WP-54, WP-56 → WP-57.
 - **Integrations milestone (v1.2):** OD-19, OD-20 → WP-45 → WP-46 → WP-47 →
   WP-58 (ElevenLabs; simplest auth) → WP-48 → WP-59 (YouTube) → WP-64;
   WP-60/WP-62 spikes any time → WP-61/WP-63 if feasible.
-- **Editors and applications (v1.3+):** WP-65 spike (after WP-52) → WP-66 →
-  WP-67; OD-21 → WP-68; WP-69 spike → OD-22 → WP-70.
+- **Editors and applications (v1.3+):** WP-65 stage 1 (research, now);
+  WP-52 → WP-65 stage 2 (scenario runs) → WP-66 → WP-67; OD-21 → WP-68;
+  WP-69 spike → OD-22 → WP-70.
 
 ### 6.2 Parallelism
 
-Foundation WP-41 and WP-42 need no AD and can start now next to OD-4 and
-WP-24. AD drafting for OD-15…OD-20 is documentation work and runs in
+Foundation WP-41 and WP-42 depend on no open contract (see §8) and can
+start now next to OD-4 and WP-24. AD drafting for OD-15…OD-20 is documentation work and runs in
 parallel with WP-29. Service spikes (WP-60, WP-62) and the editor spike
 (WP-65) need test accounts and installed applications, not code in `src/`.
 
@@ -443,12 +473,35 @@ part of WP-59's first step.
 | Disk use (staging copies, renders, proxies) | full disks | artifact retention limits (OD-15), WP-26 size limits |
 | Licences (FFmpeg builds, ASR/TTS models, editor licences, voice cloning consent) | legal | OD-16 (user-installed first), WP-37, consent gate for voice cloning |
 | Scope growth delays v1 | late remote release | OD-23 (a): new milestones never block v1 |
+| API success taken as publication (processing failure, policy rejection, wrong visibility) | false "published" reports to user and agent | publication states and read-back verification (integration-map.md §3.2) in every publishing connector's acceptance |
+| Editor "support" claimed from documentation or a matrix row | users rely on integrations that do not work | support only by recorded E1–E8 runs (media-and-editors.md §5.1) |
+| Implementation starts ahead of an AD (e.g. job or capability shapes invented in an early WP) | contracts fixed by accident, rework | research vs implementation rule (extension-work-packages.md); §8 start gates |
+| Token leakage through the agent's own tools (shell, network) | credential theft by a manipulated agent | per-connection secrets readable only by the connector runtime (integration-map.md §3.1); WP-45 tests |
 
 ## 8. Ready to issue
 
-- **Work packages without a preceding AD:** WP-41 (extensibility invariant
-  tests), WP-42 (workspace image view); research spikes WP-60, WP-62, WP-65,
-  WP-69 (documentation output only).
-- **Decisions to take first:** OD-4 (with the inputs above) for WP-29;
-  OD-15, OD-16, OD-17 for the media milestone; OD-19, OD-20 for the
-  integrations milestone; OD-23 to confirm staging.
+Rule: research may start before the AD it informs; implementation of a
+contract (tool schema, capability, persistence format, protocol, manifest
+schema) only after that AD is accepted.
+
+| Item | Kind | Open contracts it touches | May start now | Must wait for |
+| --- | --- | --- | --- | --- |
+| WP-41 invariant tests | implementation (tests only) | none — tests existing guard, operations and capability tables | yes | — (new capabilities later extend its tables) |
+| WP-42 workspace image view | implementation | none if kept to: existing `filesystem.read`, no new capability, no job, no component, no downscale, fixed size constant | yes, within these limits | downscale/conversion → OD-16 + WP-49; size limit is an input to OD-4, not decided here |
+| WP-43 components | implementation | OD-16 (declaration, reason codes, status fields) | no | OD-16 AD |
+| WP-44 jobs | implementation | OD-15 (tool names, persistence, retention) | no | OD-15 AD |
+| WP-49 media inspect | implementation | OD-17 (capabilities, placement) | no | OD-17 AD, WP-42, WP-43 |
+| WP-45…48 connections/runtime | implementation | OD-19, OD-20 | no | OD-19/OD-20 ADs |
+| OD-18 spike | research (throwaway outside `main`) | informs OD-18 | yes | — |
+| WP-60 TikTok, WP-62 Canva | research | inform OD-20 (M3) and WP-61/63 | yes (developer accounts) | — |
+| WP-65 stage 1 editors | research | informs OD-21 | yes | stage 2 waits for WP-52 |
+| WP-69 desktop control | research (throwaway outside `main`) | informs OD-22 | yes | — |
+
+- **Implementation that may start now:** WP-41, WP-42 (within the limits
+  above).
+- **Research that may start now:** WP-60, WP-62, WP-65 stage 1, WP-69, the
+  OD-18 spike; AD drafting for OD-15…OD-20, OD-23.
+- **Decisions to accept first:** OD-4 (with the inputs above) for WP-29;
+  OD-15, OD-16, OD-17 before any media implementation (WP-43, WP-44,
+  WP-49); OD-19, OD-20 before any connector implementation; OD-23 to confirm
+  staging.

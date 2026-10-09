@@ -431,7 +431,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-62 | 7 | Canva spike (research) | — | S | no | now | Not started |
 | WP-63 | 7 | Canva connector (conditional) | WP-62, WP-47, WP-48 | M | no | — | Not started |
 | WP-64 | 7 | Integration acceptance suite | WP-57, WP-58, WP-59, WP-24…WP-27 | M | no | — | Not started |
-| WP-65 | 8 | Editor integration spike (research) | WP-52 | M | no | — | Not started |
+| WP-65 | 8 | Editor integration spike (research; stage 1 now, stage 2 after WP-52) | — (stage 1); WP-52 (stage 2) | M | no | stage 1 now | Not started |
 | WP-66 | 8 | Interchange export (OTIO, FCPXML, EDL, MLT) | WP-52, WP-65 | M | no | with WP-67 | Not started |
 | WP-67 | 8 | MLT project adapter (Kdenlive, Shotcut) | WP-65, WP-66, WP-43 | M | no | — | Not started |
 | WP-68 | 8 | Application bridge (first editor) | OD-21, WP-65 | L | no | — | Not started |
@@ -974,7 +974,7 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
 | Release blockers | every WP except WP-19b |
 | Optional / non-blocking | WP-19b; §26 Q12 transport matcher; §26 Q14 tab-scope matcher |
 | Post-v1 | §11 of this roadmap |
-| Post-v1 milestones that may start now | WP-41, WP-42 (no AD); research spikes WP-60, WP-62, WP-69; AD drafting for OD-15…OD-20, OD-23 |
+| Post-v1 milestones that may start now | implementation: WP-41, WP-42 (no open contract, see `docs/plan/product-reassessment.md` §8); research only: WP-60, WP-62, WP-65 stage 1, WP-69, OD-18 spike; AD drafting for OD-15…OD-20, OD-23 |
 
 ### 8.4 Next-WP selection rule
 
@@ -1004,7 +1004,8 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
 4. **Expanded goal (§2.7).** Post-v1 milestone work never displaces the
    critical path. Capacity beyond chains B and C goes, in order, to: WP-41
    and WP-42; OD-15/OD-16/OD-17 ADs → WP-44, WP-43; OD-19/OD-20 ADs →
-   WP-45; research spikes WP-60, WP-62, WP-69. The full milestone order is
+   WP-45; research spikes WP-60, WP-62, WP-65 stage 1, WP-69. Research may
+   start before an AD; implementation of a contract never does. The full milestone order is
    in `docs/plan/product-reassessment.md` §6.
 
 
@@ -1016,7 +1017,7 @@ Never on the v1 critical path; details and rationale in
 `docs/plan/product-reassessment.md` §6.
 
 ```text
-now:  WP-41, WP-42, spikes WP-60, WP-62, WP-69, AD drafts OD-15…OD-20, OD-23
+now:  WP-41, WP-42 (no open contract); research WP-60, WP-62, WP-65 stage 1, WP-69; AD drafts OD-15…OD-20, OD-23
 OD-15 ─► WP-44 ─┐
 OD-16 ─► WP-43 ─┼─► (OD-17) WP-49 ─┬─► WP-50 ─┐
 WP-42 ──────────┘                  └─► WP-51 ─┤
@@ -1025,7 +1026,7 @@ OD-18 ─► WP-52 ─► WP-53 ─┬─► WP-55 ─────────�
 OD-20 ─► WP-45 ─┬─► (OD-19) WP-46 ─► WP-47 ─┬─► WP-58 (ElevenLabs)
                 └─► WP-48 ──────────────────┴─► WP-59 (YouTube) ─► WP-64  (v1.2; also WP-24…27)
 WP-60 ─► WP-61 (if feasible)     WP-62 ─► WP-63 (if feasible)
-WP-52 ─► WP-65 ─► WP-66 ─► WP-67;  OD-21 ─► WP-68;  WP-69 ─► OD-22 ─► WP-70   (v1.3+)
+WP-52 ─► WP-65 stage 2 ─► WP-66 ─► WP-67;  OD-21 ─► WP-68;  WP-69 ─► OD-22 ─► WP-70   (v1.3+)
 OD-9 ─► WP-23b/c  (also prerequisite of remote media on macOS/Windows, OD-17 (b))
 ```
 

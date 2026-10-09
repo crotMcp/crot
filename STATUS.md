@@ -156,7 +156,7 @@ the device credential (`CrotService.tunnelCredential()`).
 | WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to OD-4/WP-29 |
 | WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13), needed before WP-31 |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
-| WP-41, WP-42 | Extensibility invariant tests; workspace image view (post-v1 phase 5, no AD needed) | can start now with spare capacity; never displace the critical path |
+| WP-41, WP-42 | Extensibility invariant tests; workspace image view (post-v1 phase 5; depend on no open contract — WP-42 without downscale, see product-reassessment §8) | can start now with spare capacity; never displace the critical path; WP-43/44/49 wait for OD-16/15/17 ADs |
 | OD-15…OD-20, OD-23 | ADs of the expanded product goal (jobs, components, media, edit description, connectors, credentials; release staging) | documentation work, parallel to WP-29; see roadmap §4.2 |
 
 **Expanded product goal (proposal, not implemented).** CROT is to become an
