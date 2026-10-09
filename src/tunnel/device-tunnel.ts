@@ -107,6 +107,12 @@ export interface DeviceTunnelOptions {
   readonly target: { readonly host: string; readonly port: number; readonly path?: string };
   /** Announced in HELLO; capped at 1024 (point 6). */
   readonly maxStreams: number;
+  /**
+   * The one Host (authority) a relay request must name (AD-22 point 7).
+   * Default: the pinned relay host of the credential. Only tests whose relay
+   * listens on a loopback port set it; it is never a list of hosts.
+   */
+  readonly relayAuthority?: string;
   readonly software?: string;
   readonly timing?: Partial<DeviceTunnelTiming>;
   readonly log?: (message: string) => void;
@@ -541,8 +547,8 @@ export class DeviceTunnel {
     for (const name of SINGLETON_HEADERS)
       if ((counts.get(name) ?? 0) > 1) return { status: 400, error: "invalid_headers" };
     const host = headers.find(([n]) => n === "host")?.[1];
-    if (!host || host.toLowerCase() !== this.options.credential.relayHost.toLowerCase())
-      return { status: 403, error: "invalid_host" };
+    const authority = (this.options.relayAuthority ?? this.options.credential.relayHost).toLowerCase();
+    if (!host || host.toLowerCase() !== authority) return { status: 403, error: "invalid_host" };
     if (headers.some(([n]) => n === "transfer-encoding")) return { status: 400, error: "invalid_headers" };
     const out: OutgoingHttpHeaders = {};
     let length: number | undefined;
@@ -832,6 +838,8 @@ export interface DeviceTunnelManagerOptions {
   readonly url: (credential: DeviceTunnelCredential) => string;
   readonly target: DeviceTunnelOptions["target"];
   readonly maxStreams: number;
+  /** See DeviceTunnelOptions.relayAuthority (tests only). */
+  readonly relayAuthority?: string;
   readonly software?: string;
   readonly timing?: Partial<DeviceTunnelTiming>;
   readonly backoff?: {
@@ -930,6 +938,7 @@ export class DeviceTunnelManager {
         credential,
         target: this.options.target,
         maxStreams: this.options.maxStreams,
+        ...(this.options.relayAuthority ? { relayAuthority: this.options.relayAuthority } : {}),
         ...(this.options.software ? { software: this.options.software } : {}),
         ...(this.options.timing ? { timing: this.options.timing } : {}),
         ...(this.options.log ? { log: this.options.log } : {}),

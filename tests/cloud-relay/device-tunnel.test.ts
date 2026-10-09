@@ -52,6 +52,8 @@ let tunnelLogs: string[];
 const closers: (() => Promise<unknown>)[] = [];
 
 const tunnelUrl = () => h.origin.replace(/^http/, "ws") + TUNNEL_PATH;
+/** The test relay listens on a loopback port, so clients name `127.0.0.1:<port>` as Host. */
+const relayAuthority = () => new URL(h.origin).host;
 
 function credentialFor(device: PairedDevice, key = device.key): DeviceTunnelCredential {
   return {
@@ -72,6 +74,7 @@ async function openTunnel(device = paired, credential = credentialFor(device)): 
     credential,
     target: target(),
     maxStreams: 64,
+    relayAuthority: relayAuthority(),
     log: (m) => tunnelLogs.push(m),
   });
   closers.push(() => t.stop("shutting_down"));
@@ -357,6 +360,7 @@ describe("handshake refusals", () => {
       url: () => tunnelUrl(),
       target: target(),
       maxStreams: 64,
+      relayAuthority: relayAuthority(),
       backoff: { baseMs: 10, capMs: 50 },
     });
     closers.push(() => manager.stop("shutting_down"));
@@ -428,5 +432,23 @@ describe("handshake refusals (fake relay)", () => {
     expect(err.ready).toBe(false);
     expect(err.local).toBe("relay_host_mismatch");
     expect(relay.frames).not.toContain(FrameType.HELLO);
+  });
+
+  it("a request naming another Host is answered 403 by the tunnel and never forwarded", async () => {
+    const before = toolEvents().length;
+    const strict = new DeviceTunnel({
+      url: tunnelUrl(),
+      credential: credentialFor(paired),
+      target: target(),
+      maxStreams: 8,
+    });
+    await tunnel.stop("shutting_down");
+    closers.push(() => strict.stop("shutting_down"));
+    await strict.open();
+    // Clients of the loopback test relay name 127.0.0.1:<port>, not the pinned relay host.
+    const res = await initialize(h.clientToken(paired));
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("invalid_host");
+    expect(toolEvents().length).toBe(before);
   });
 });
