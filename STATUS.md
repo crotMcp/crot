@@ -7,7 +7,7 @@ package PR updates this file.
 
 ## In review
 
-**WP-28 — Identity and device binding** (PR WP28_PR, branch
+**WP-28 — Identity and device binding** (crot-mcp PR #16, branch
 `wp-28/identity-device-binding`, based on `main` at `5b91c82`;
 ARCHITECTURE.md §27 AD-21 with its implementation note). User docs:
 [`docs/IDENTITY.md`](docs/IDENTITY.md), [`docs/TRAY.md`](docs/TRAY.md),
@@ -131,7 +131,7 @@ approval gates, remote exposure reset) and HTTP relay admission.
 
 Before: **WP-21 — Secret storage and child-process environment allowlist**
 (PR #1, `881663b`; AD-18), **WP-20 — Supervised service, thin stdio
-shim, local control channel** (PR #16, `92cce3b`; AD-17,
+shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 [`docs/SERVICE.md`](docs/SERVICE.md)).
 
 ## Next
