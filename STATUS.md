@@ -9,7 +9,9 @@ package PR updates this file.
 
 Nothing. The last audit of `main` (`22abf89`, 2026-10-08) synchronized this
 file and `CROT_IMPLEMENTATION_ROADMAP.md` §2, §6.1 and §8 with the merged
-state.
+state. Since then only documentation changed: PR #12 (`74352c2`, the audit
+itself) and PR #14 (`ff571c2`, ARCHITECTURE.md §27 AD-21, decides OD-2 and
+OD-3); no code, test or CI change. Current `main`: `ff571c2`.
 
 ## Last completed
 
