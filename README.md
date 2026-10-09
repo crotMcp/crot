@@ -279,7 +279,7 @@ kind:
 | --- | --- |
 | stdio | `{ id: "local-user", kind: "local", transport: "stdio" }` |
 | loopback HTTP (local token) | `{ id: "local-token:<fingerprint>", kind: "local", transport: "http", authMethod: "local-token", client }` |
-| Cloud Relay (planned, WP-28/WP-30) | `{ kind: "remote", transport: "relay", accountId, deviceId, clientId, … }` |
+| Cloud Relay (planned, WP-28/WP-30; token model: ARCHITECTURE.md §27 AD-21) | `{ id: <sub>, kind: "remote", transport: "relay", authMethod: "oauth", accountId: <sub>, deviceId: <from aud>, clientId: <client_id> }` |
 
 The principal is recorded in every audit event. Credentials never reach Core or
 the audit log. `kind: "remote"` is reserved for relay clients, identified by

@@ -253,17 +253,22 @@ tests point 19). The cards below implement it and must not weaken it.
 ## Phase 3 — Remote MCP
 
 ### WP-28 — Identity and device binding
-- **Size:** L. **Depends on:** WP-17, WP-21, WP-22 (pairing UI).
-- **Scope:** managed identity provider meeting AD-15 (DCR, CIMD, PKCE,
-  RFC 8707, JWT); device pairing from the tray; OAuth verifier behind the
-  existing `AccessTokenVerifier` (JWKS, `aud`, `exp`, device id); `Principal`
-  carries account and device ids; revocation.
+- **Size:** L. **Depends on:** WP-17, WP-21, WP-22 (pairing UI); AD-21
+  (normative: provider, claim model, revocation model, device URI).
+- **Scope:** the managed identity provider of AD-21 (WorkOS AuthKit: DCR,
+  CIMD, PKCE, RFC 8707, JWT); device pairing from the tray; OAuth verifier
+  behind the existing `AccessTokenVerifier` (AD-21 points 2–4: JWKS, `iss`,
+  `aud` = canonical device URI, `exp`/`iat`/`nbf`, `sub` = paired account,
+  `client_id`, device-side revocation); `Principal` carries account and
+  device ids; revocation.
 - **Done when:** a paired device verifies tokens locally, revocation ends
   access, credentials never reach Core or the audit log.
 
 ### WP-29 — Cloud Relay v1
 - **Size:** XL. **Depends on:** WP-17, WP-28.
-- **Scope:** `https://…/d/<device>/mcp`; PRM and 401 with `WWW-Authenticate`;
+- **Scope:** `https://<relay-host>/d/<deviceId>/mcp` and the PRM location
+  of AD-21 points 5–6; 401 with `WWW-Authenticate`; admission of AD-21
+  point 7;
   outbound multiplexed tunnel with streaming responses; routing without
   parsing bodies (2026-07-28 `Mcp-Method` headers); no payload logging; hook
   for the entitlement check (WP-36). The relay does not implement MCP.

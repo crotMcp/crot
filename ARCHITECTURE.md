@@ -768,6 +768,12 @@ Target model:
   reach Core or the audit log.
 - **Local mode** — stdio and loopback use do not require an account.
 
+Provider and token model (§27 AD-21, implementation WP-28): WorkOS AuthKit
+as the managed authorization server; the remote principal's `id` and
+`accountId` from `sub`, `deviceId` from the provider-signed `aud` (the
+device's canonical resource URI), `clientId` from `client_id`; revocation
+is decided on the device.
+
 ## 21. User Confirmations
 
 **[Implemented]** — the mechanism (approval gates) is implemented in Core
@@ -875,7 +881,9 @@ Boundaries:
   publishes Protected Resource Metadata (RFC 9728); tokens are requested with
   a resource indicator (RFC 8707) and are audience-bound to CROT; the identity
   provider supports CIMD and DCR with PKCE. The device verifies the same token
-  again as part of the same logical resource server (AD-15).
+  again as part of the same logical resource server (AD-15). Provider,
+  claims, the canonical device URI `https://<relay-host>/d/<deviceId>/mcp`
+  and the PRM location are fixed by §27 AD-21.
 - Remote mode requires an account, device binding and the corresponding
   entitlement (§23).
 
@@ -942,7 +950,7 @@ The tray app is a UI; control logic stays in Core/service.
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
 | User confirmations | **[Implemented]** (mechanism: WP-15, §27 AD-5…AD-11; tray provider and preset selection: WP-22, §27 AD-19); *Autonomous browser* preset and remote profile **[Target]** (WP-31) |
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
-| OAuth/OIDC identity, accounts, device binding | **[Target]** (v1, AD-13) |
+| OAuth/OIDC identity, accounts, device binding | Provider, claim model, revocation model and device resource URI decided (§27 AD-21: WorkOS AuthKit); implementation **[Target]** (v1, AD-13; WP-28) |
 | Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); relay and tunnel **[Target]** (mandatory in v1, AD-13; WP-29, WP-30) |
 | Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); macOS, Windows **[Target]** (v1, AD-13; WP-23b/c) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
@@ -996,9 +1004,9 @@ These need explicit decisions before the corresponding work packages.
     request model, entry-point-based principal kinds, request-scoped execution
     context, exposure scopes (remote: account, device, client; persistent),
     supported versions 2026-07-28, 2025-11-25 and 2025-06-18, resource and
-    audience rules, relay and device responsibilities.* Remaining details are
-    assigned to WP-28 (token claims) and WP-29 (device URI form), and to
-    questions 12 and 13. The SDK line was settled in WP-19: SDK v1 for stdio
+    audience rules, relay and device responsibilities.* The token claims and
+    the device URI form are decided by §27 AD-21; remaining details are
+    assigned to questions 12 and 13. The SDK line was settled in WP-19: SDK v1 for stdio
     and the legacy session versions, SDK v2 (`@modelcontextprotocol/server`)
     for sessionless 2026-07-28 requests, until a full move to SDK v2.
 11. **Browser technology and command set.** *Decided in §27 AD-16 (WP-18):
@@ -2257,7 +2265,8 @@ bypassable (legacy versions).
 5. **Resource and audience.**
    - Each device has exactly one canonical **resource URI**, its MCP endpoint
      at the relay (form `https://<relay-host>/d/<deviceId>/mcp`; the exact
-     form is fixed in WP-29). It is at the same time the URL clients connect
+     form and the PRM location are fixed by AD-21 points 5 and 6). It is at
+     the same time the URL clients connect
      to, the `resource` of the Protected Resource Metadata (RFC 9728) the
      relay serves for it, and the required token audience.
    - Clients request tokens with the resource indicator (RFC 8707) set to that
@@ -2267,7 +2276,8 @@ bypassable (legacy versions).
      relay verifies the token and the device verifies it again is not token
      passthrough; the relay never mints, exchanges or replaces tokens for the
      device.
-   - **Identity-provider criteria** (selection in WP-28): OAuth 2.1 with PKCE
+   - **Identity-provider criteria** (selection: AD-21 point 1, with the
+     open RFC 9207 condition recorded there): OAuth 2.1 with PKCE
      (S256); CIMD, plus DCR for clients of older versions (DCR is deprecated
      in 2026-07-28 but still used); resource indicators (RFC 8707);
      audience-bound JWT access tokens with a custom device claim; issuer
@@ -2440,11 +2450,18 @@ bypassable (legacy versions).
   the SDK v1 line and SDK v2 for 2026-07-28 support (WP-19; settled there:
   SDK v1 for stdio and legacy sessions, SDK v2 for 2026-07-28); which token claim
   carries `clientId` and the device id (WP-28, depends on the identity
-  provider); the exact device URI form (WP-29).
+  provider); the exact device URI form (WP-29). Both are decided by AD-21.
 - Residual risks, accepted: exposure is shared by all agents behind one
   `clientId`; a user who resets exposure or revokes and re-grants access
   starts that client clean, while the model may still hold earlier untrusted
   content (as in AD-12); the relay sees traffic in transit (AD-13 point 6).
+- Amended by AD-21 (roadmap OD-2, OD-3): the identity provider (WorkOS
+  AuthKit), the claim model (`sub` → principal id and `accountId`, the
+  device id in the provider-signed `aud`, `client_id` → `clientId`), the
+  device-side revocation model, the canonical device URI and the PRM
+  location. AD-21 clarifies the "custom device claim" of point 5 as the
+  device id carried in `aud` and adds the paired-account check to the relay
+  admission of point 10; the other points are unchanged.
 
 ### AD-16. Browser contract v1: a fixed command set over `chrome.debugger` (CDP) with tab- and document-bound element references, explicit tabs, per-tab serialization and the two approval presets (WP-18)
 
@@ -4015,3 +4032,239 @@ development capability CROT already offers.
     `userns,` (point 3); profiles that include `abstractions/base` in the
     `crot-bwrap` profile are rejected next to a `px` rule (conflicting exec
     modifiers), which is why that profile includes no abstraction.
+
+### AD-21. Remote identity v1: WorkOS AuthKit is the managed authorization server; account, device and client come only from verified token facts; revocation is decided on the device; one canonical device resource URI with path-inserted Protected Resource Metadata (WP-28 preparation; decides roadmap OD-2 and OD-3)
+
+**Context.** AD-13 points 3 and 6 require a managed third-party identity
+provider (no own authorization server; CROT is the resource server),
+short-lived tokens bound to account, device and CROT audience, local
+verification behind `AccessTokenVerifier`, and revocation. AD-15 fixes the
+verification on the device (point 4), the resource and audience rules and the
+identity-provider criteria (point 5), the remote principal (point 6), the
+exposure triple (point 8) and the relay's and device's responsibilities
+(points 10 and 11). AD-19 point 8 adds device-side client revocation. AD-15
+left open which token claims carry `clientId` and the device id (WP-28,
+roadmap OD-2) and the exact device URI form and PRM location (WP-29, roadmap
+OD-3). WP-28 cannot start without both: the verifier, its tests ("a token for
+another device") and the pairing flow depend on them.
+
+Requirements the provider must meet, taken only from the existing decisions:
+
+| # | Requirement | Source |
+| --- | --- | --- |
+| R1 | OAuth 2.1 authorization code flow with PKCE (S256) | AD-15 point 5 |
+| R2 | Client ID Metadata Documents (CIMD) for clients that have no prior relationship with CROT | AD-15 point 5; MCP 2026-07-28 |
+| R3 | Dynamic Client Registration (DCR) for clients of the older supported versions | AD-15 point 5 |
+| R4 | Resource indicators (RFC 8707): the token audience is the requested device resource URI; one URI per device, for any number of devices, without per-device provider configuration; a token for another device or resource is rejected | AD-15 point 5 |
+| R5 | Signed JWT access tokens, keys published as JWKS, exact `iss` | AD-15 point 4 |
+| R6 | Account, device and client derivable from the verified token; a device claim equal to the local device id | AD-15 points 4 and 6 |
+| R7 | Issuer identification in authorization responses (RFC 9207) | AD-15 point 5 |
+| R8 | Revocation of grants | AD-15 point 5, §20 |
+| R9 | MFA for accounts | AD-15 point 5; AD-13 residual risks |
+| R10 | Managed service; Core depends on no provider; the device verifies standard JWTs | AD-13 point 6, §15, §20 |
+
+Evaluation (vendor documentation and live discovery metadata, 2026-10-08):
+
+| Provider | R1 | R2 CIMD | R3 DCR | R4 per-device audience | R5 | R6 | R7 RFC 9207 | R8 | R9 | Result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| WorkOS AuthKit (WorkOS Connect) | yes (S256 only) | yes (`client_id_metadata_document_supported: true`) | yes | **yes**: one path-wildcard resource indicator covers every device; `aud` is the concrete requested URI; unregistered resources fail with `invalid_target` | yes (RS256, JWKS) | `sub` (user), `client_id`, `sid` (consent); per-resource custom claims not available (one environment-wide JWT template) | **not observed**: not advertised in metadata; error redirects carry no `iss` | delete a user's authorized application; token revocation endpoint | yes (TOTP, can be required) | **selected** |
+| Auth0 (Okta Customer Identity) | yes | admin-imported CIMD clients only; an unknown client cannot use CIMD | yes (open DCR) | resource must be a registered API; no wildcard; one API per device, limited to 100 per tenant (100 000 on Enterprise) | yes | per-resource custom claims through Actions | yes (tenant setting) | yes | yes | rejected: R2 and R4 fail for an open client population and any number of devices |
+| Descope | yes | yes | yes | one MCP-server resource (and its own issuer) per URL; no wildcard | yes | flows add claims | not established | yes | yes | rejected: R4 (a provider resource and issuer per device) |
+| Stytch Connected Apps | yes | not established | yes | audience is the project id, not the resource | yes | not evaluated | not established | yes | yes | rejected: R4 |
+| Okta Workforce / custom authorization server | yes | not documented | authenticated registration only | audience fixed per authorization server; no RFC 8707 | yes | yes | not established | yes | yes | rejected: R2, R4 |
+| Microsoft Entra ID | yes | no | no registration endpoint | scope-based resources, no RFC 8707 | yes | yes | not advertised | yes | yes | rejected: R2, R3, R4 |
+| Amazon Cognito | yes | no | no | registered resource servers only | yes | yes | not established | yes | yes | rejected: R2, R3, R4 |
+| Keycloak, Ory Hydra (self-hosted or hosted) | yes | not established | yes | audience lists or mappers; no RFC 8707 resource parameter documented | yes | yes | not evaluated | yes | yes | rejected: R10 (CROT would operate the authorization server) and R4 |
+
+**Decision.**
+
+1. **Identity provider (decides OD-2).** CROT uses **WorkOS AuthKit**
+   (WorkOS Connect) as its managed OAuth 2.1 authorization server, one
+   WorkOS environment per CROT cloud environment (staging: WP-38;
+   production: WP-39), on a CROT custom authentication domain. The issuer
+   is that domain's HTTPS origin, exactly as published in its authorization
+   server metadata. Environment configuration (normative for WP-28 and
+   WP-38):
+   - CIMD on; DCR on for clients of the older versions (R2, R3);
+   - exactly one resource indicator, the path wildcard
+     `https://<relay-host>/d/*` of that environment (point 5); no default
+     resource indicator, so a request without `resource` yields a token
+     with the environment's client id as audience, which every device and
+     the relay reject;
+   - MFA required for CROT accounts (R9);
+   - the shortest access-token lifetime the environment allows, at most
+     5 minutes (point 4).
+   The provider stays behind `AccessTokenVerifier` and the app-level
+   identity client (§20): the device verifies standard JWTs with JWKS and
+   needs no provider SDK; Core sees only a `Principal`. Replacing the
+   provider is a configuration change (issuer, relay origin) plus re-consent,
+   not a change of this model.
+
+   Why the alternatives are worse for CROT: R4 is the deciding requirement.
+   AD-15 point 5 gives every device its own resource URI, and only a
+   provider that accepts a resource pattern can issue audience-bound tokens
+   for any number of devices without creating a provider resource (and, for
+   Descope, an issuer) per device at pairing time; Auth0 additionally
+   accepts CIMD only for clients an administrator imported, which excludes
+   the open client population of AD-14 point 1. Entra ID, Cognito and Okta
+   lack CIMD or RFC 8707; self-hosted servers contradict AD-13 point 6.
+
+2. **Claim model (decides the claim part of OD-2).** The verifier sets
+   `AuthInfo` from the verified token only; everything else is ignored.
+
+   | Fact | Token source | Rule | Principal / AuthInfo |
+   | --- | --- | --- | --- |
+   | Issuer | `iss` | equal, byte for byte, to the configured issuer | — |
+   | Audience and **device** | `aud` | exactly one value (a string, or an array with one element) equal, byte for byte, to this device's canonical resource URI (point 5). The device id is the `<deviceId>` segment of that URI: `aud` is the device claim of AD-15 point 4, signed by the provider and accepted by it only for the registered pattern | `deviceId` (= the local device id from device binding) |
+   | **Account** and stable **subject** | `sub` (the WorkOS user id) | present, non-empty, and equal to the account this device was paired with (stored in the device's protected state at pairing, WP-28) | `id` = `sub` (the stable subject of the grant, AD-15 point 6); `accountId` = `sub` (v1: one account per user; teams are post-v1) |
+   | **Client** | `client_id` (RFC 9068) | present and non-empty; the provider sets it to the registration that obtained the grant (the CIMD URL or the DCR client id) | `AuthInfo.clientId` → `clientId` |
+   | Validity | `exp`, `iat`, `nbf` | `exp` and `iat` required, `nbf` checked when present, 60 s clock skew; `iat` not more than 15 minutes in the past (point 4) | — |
+   | Signature | JOSE header `alg`, `kid` | RS256 only; key from the issuer's JWKS (point 7) | — |
+
+   Trusted for identity are only `iss`, `aud`, `sub`, `client_id` and the
+   time claims, after the signature check. Never a security authority:
+   `scope` (only `offline_access` is requested, for refresh tokens), `sid`,
+   `jti`, `org_id`, roles or any claim of the provider's JWT template,
+   `email` and profile claims, the self-reported client name and version
+   (`clientInfo`, `_meta`), and any request header (including identity
+   headers a relay or client adds). Token contents never grant
+   capabilities (AD-15 point 4). `client_id` identifies a registration, not
+   the software behind it: DCR is open, so a registration named like a
+   known client gets its own `client_id`, and with it its own exposure
+   scope, revocation key and tray entry (AD-15 point 12).
+
+3. **Device-side verification order (refines AD-15 point 4).** In this
+   order, each failure answering 401 with `WWW-Authenticate` (point 6):
+   signature and `alg`; `iss`; `aud`; `exp`, `nbf`, `iat` bound; `sub`
+   equals the paired account (an unpaired device accepts no token);
+   `client_id` present. Then the grant must not be revoked on this device
+   (point 4): a revoked client is refused with 403 before MCP or Core, as
+   the relay entry point does since WP-22 (AD-19 point 8), and unreadable
+   revocation state refuses every remote request. Steps 3–6 of the AD-15
+   point 2 pipeline then
+   run unchanged; the principal is `kind: "remote"`, `transport: "relay"`,
+   `authMethod: "oauth"`.
+
+4. **Revocation model.**
+   - **Revoked** means any of: (a) the user revoked a client on this device
+     (AD-19 point 8; key: the triple `accountId`, `deviceId`, `clientId` of
+     AD-15 point 8), until
+     the user re-grants it on the device (WP-28); (b) the device is no
+     longer paired (unpaired in the tray, or removed in the account portal,
+     WP-36); (c) the user's authorization of a client was revoked at the
+     provider (WorkOS authorized application deleted, refresh token
+     revoked); (d) the account is disabled or deleted at the provider.
+   - **How CROT learns it.** (a) and (b) are device state, written only by
+     the user through the control channel or by unpairing, persisted in
+     CROT's protected state and checked on every request; unreadable state
+     refuses every remote request (fail closed, as AD-19 point 8). Removing
+     a device in the portal also revokes its device credential, so the
+     relay refuses its tunnel. (c) and (d) stop the provider from issuing
+     or refreshing tokens; already issued access tokens are bearer JWTs
+     and end at their expiry: the documented bound is the configured
+     lifetime (at most 5 minutes), and at most 15 minutes after `iat`
+     whatever the provider issues (the device's own ceiling). Revoking in
+     the tray records (a) first and then asks the provider to revoke the
+     authorization (best effort; (a) holds without it).
+   - **Relation to `AccessTokenVerifier`.** Revocation is part of the
+     device's verification (point 3): the verifier reads the device's own
+     revocation and pairing state; it performs no per-request call to the
+     provider or the relay (no token introspection, which would also need a
+     provider client secret on every device). A notice from the CROT cloud
+     may add a revocation to the device state (narrowing only); nothing
+     outside the user's control channel removes one.
+   - The relay may refuse revoked or unpaired devices and clients earlier
+     (admission), but no relay answer replaces, relaxes or skips the
+     device's checks (AD-15 points 4 and 10).
+
+5. **Canonical device resource URI (decides OD-3).** Each device has
+   exactly one resource URI:
+
+   ```text
+   https://<relay-host>/d/<deviceId>/mcp
+   ```
+
+   - `<relay-host>` is the relay host of the CROT cloud environment (one
+     per environment; the production host is fixed with WP-29/WP-39). It is
+     pinned in the CROT release configuration, not taken from the relay,
+     the user configuration or a request.
+   - `<deviceId>` is assigned once at pairing (WP-28): 16 random bytes as
+     lowercase RFC 4648 base32 without padding (26 characters,
+     `[a-z2-7]`). It is not secret and carries no authority by itself.
+   - The URI is lowercase, has no port, query, fragment, trailing slash or
+     percent-encoding, and is compared byte for byte (no normalization).
+   - It is at the same time: the MCP endpoint clients are configured with
+     and connect to; the `resource` value of the PRM; the RFC 8707
+     `resource` parameter clients send; the only accepted `aud`; and the
+     logical resource of relay and device together (AD-15 point 5). The
+     relay routes by the `<deviceId>` path segment.
+
+6. **Protected Resource Metadata (decides OD-3).**
+   - Location (RFC 9728 section 3.1, well-known suffix inserted before the
+     path): `https://<relay-host>/.well-known/oauth-protected-resource/d/<deviceId>/mcp`.
+   - Served by the relay for every paired device (otherwise 404); there is
+     no host-wide document at `https://<relay-host>/.well-known/oauth-protected-resource`
+     and no authorization server metadata at the relay host.
+   - Content: `resource` = the canonical URI (byte for byte, as RFC 9728
+     section 3.3 requires clients to check); `authorization_servers` = the
+     issuer of point 1; `bearer_methods_supported` = `["header"]`;
+     `scopes_supported` = `["offline_access"]`.
+   - Every 401 for that URI, whether the relay or the device answers,
+     carries `WWW-Authenticate: Bearer resource_metadata="<PRM URL>"` (with
+     `error="invalid_token"` when a token was presented). The device builds
+     the same URL from its own canonical URI.
+
+7. **Relay and keys.** The relay checks the same token for admission only
+   (AD-15 point 10): signature, `iss`, `aud` equal to the canonical URI of
+   the routed device, `exp`/`iat`, `sub` equal to the device's paired
+   account, entitlement (WP-36), device online and remote mode on. It never
+   mints, exchanges or rewrites tokens and forwards `Authorization`
+   unchanged. Device and relay fetch the JWKS directly from the issuer
+   (from its authorization server metadata, over TLS), never through the
+   tunnel, cache it, and refetch on an unknown `kid` at a bounded rate.
+
+8. **Scenarios (acceptance for WP-28 and WP-29).**
+
+   | Scenario | Relay (admission) | Device (authoritative) |
+   | --- | --- | --- |
+   | Token of the right client for the right device | admitted, routed by `<deviceId>` | accepted; principal `remote` with `id`/`accountId` = `sub`, `deviceId`, `clientId` = `client_id`; exposure scope = the triple |
+   | Same account, token for another device | 401: `aud` ≠ this URI | 401: `aud` ≠ own URI |
+   | Token for another audience/resource (another server, environment client id, no `resource`) | 401 | 401 |
+   | Expired token (or `iat` older than the ceiling) | 401 | 401 `invalid_token`; the client refreshes |
+   | Grant revoked on the device | may refuse (if known) | 403 before MCP/Core (AD-19 point 8) |
+   | Grant revoked at the provider | no new or refreshed tokens | accepted until expiry (≤ bound of point 4), then 401 |
+   | Wrong issuer (other WorkOS environment, other provider) | 401 | 401; no key of that issuer is ever fetched |
+   | Wrong device claim: `aud` names another `<deviceId>`, several audiences, or a token of another account for this device's URI | 401 | 401 (`aud` or `sub` check) |
+   | Forged or self-reported `clientId` (header, `_meta`, `initialize`) | ignored | ignored; `clientId` only from the signed `client_id`; a changed claim fails the signature |
+   | Request through the relay | checks above, forwards unchanged | full verification again; relay identity headers ignored; the local token is refused here, an OAuth token on the loopback endpoint is refused there |
+
+**Scope and limits.**
+
+- Documentation only. WP-28 implements the verifier with this claim model,
+  pairing (device id, device credential, paired account), re-grant and
+  provider-side revocation; WP-29 serves the PRM and performs the admission
+  of point 7; WP-38 and WP-39 configure the environments of point 1. The
+  production behaviour of `AccessTokenVerifier` and `Principal` is unchanged
+  by this decision (the fields already exist since WP-19).
+- It decides roadmap OD-2 and OD-3 and the two open items of AD-15 ("which
+  token claim carries `clientId` and the device id"; "the exact device URI
+  form"). It clarifies AD-15 point 5: the "custom device claim" is the
+  device id carried in the provider-signed `aud`, so no provider-specific
+  per-resource claim is needed; the device additionally binds `sub` to the
+  paired account. It adds the paired-account check to the relay admission
+  of AD-15 point 10 (narrowing only). No other decision changes.
+- **Open condition (R7).** RFC 9207 is not provided by the selected provider
+  as of this decision. MCP 2026-07-28 makes it a SHOULD for authorization
+  servers and keys client rejection on the metadata flag, so clients still
+  work without it; the mix-up attack it addresses targets clients that use
+  several authorization servers. The AD-15 criterion stays: before Gate G4
+  the CROT environments must emit and advertise `iss`, or a separate AD must
+  accept the deviation explicitly. It does not block WP-28 (the device does
+  not consume `iss` of authorization responses).
+- Residual risks, accepted: the provider does not know which devices an
+  account owns (the device and the relay enforce the paired account);
+  revocation at the provider takes effect within the bound of point 4; a
+  compromise of the provider or of the account allows remote requests
+  within the device's permissions and approvals (mitigated by MFA,
+  short-lived tokens and revocation, as AD-13); `client_id` of a DCR client
+  is not proof of the software behind it.
