@@ -1121,13 +1121,19 @@ These need explicit decisions before the corresponding work packages.
     operations, placement (confined vs in-service like AD-3), exposure
     sources (transcripts, subtitles, metadata), remote defaults.
 19. **Edit description and renderer.** *Roadmap OD-18.* Format of the edit
-    description and the render engine; interchange exports.
+    description and the render engine; interchange exports; the editing
+    model (saved, versioned projects edited by atomic operations, QC
+    findings that reference timeline items) for the full
+    select–edit–render–verify–correct loop.
 20. **Service integration contract.** *Roadmap OD-19.* Connector manifests,
-    generic service tools, per-connection grants, publish gates; relation
-    to the external MCP gateway (§18). Decides part of question 3.
+    generic service tools, per-connection grants, least privilege per
+    operation, a separate publish capability and approval, publication
+    states verified by read-back; relation to the external MCP gateway
+    (§18). Decides part of question 3.
 21. **Credentials of external services.** *Roadmap OD-20.* Device vault,
     cloud broker, user-owned app credentials, browser session; OAuth app
-    ownership and revocation.
+    ownership; per-connection secret isolation (unreachable from the
+    agent's own tools) and revocation.
 22. **Application bridges.** *Roadmap OD-21.* CROT-owned components inside
     editors with a fixed command set over authenticated local IPC;
     applications outside L1.

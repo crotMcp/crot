@@ -15,8 +15,10 @@ post-v1 and not part of current work.
 execution environment for local and remote agents — media, video editors,
 external services — through the same Core (ARCHITECTURE.md §1 "Expanded
 product goal", [`docs/plan/product-reassessment.md`](docs/plan/product-reassessment.md)).
-Its work packages (WP-41…WP-70) start only after their decisions (OD-15…
-OD-23) and never displace v1 work.
+Its work packages (WP-41…WP-70) never displace v1 work. Research may
+start early, but a WP whose card lists an OD is implemented only after
+that OD's AD is accepted; WP-41 and WP-42 depend on no open decision
+(`docs/plan/product-reassessment.md` §8).
 
 ## Read in this order
 

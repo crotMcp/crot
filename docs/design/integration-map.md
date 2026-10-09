@@ -101,7 +101,9 @@ an API (browser path) or desktop-only tools (OD-21/OD-22).
   or the relay; responses are exposure sources; `publish`-class operations
   gated in both presets by default; retries only for idempotent requests or
   with idempotency keys; quota and rate-limit errors reported with retry
-  hints.
+  hints; known service limits from the manifest (upload size, formats,
+  duration, concurrency, quota cost per operation) checked before the call,
+  and quota use per connection shown in status.
 - **Audit:** connection id, operation, HTTP status, sizes, duration, job id;
   never bodies or tokens.
 - **Relay:** unchanged; all connector traffic leaves from the device.

@@ -7,7 +7,7 @@ packages start (AGENTS.md "Decision before code").
 
 - **Audited tree:** `main` at `4d574f0` (WP-28 merged, crot-mcp PR #16) plus
   the open documentation PR #17 (`docs/design/extensibility-audit.md`), on
-  which this change builds. Open PRs at the time of writing: #17 only.
+  which this change builds. PR #17 is superseded by this PR (#18), which contains its commit.
 - **Companion documents:**
   - [`docs/design/extensibility-audit.md`](../design/extensibility-audit.md) —
     code facts and gaps (revision 2 lists what changed);
@@ -176,7 +176,7 @@ remote agent through the same tools, with audit and gates as specified.
 - **Blockers today:** no project adapters; graphical sessions not reachable
   from L1; no bridge contract.
 - **Ready when (per supported editor, at its documented level):** the
-  editor scenarios E1–E8 of media-and-editors.md §5.1 that the level
+  editor scenarios E1–E9 of media-and-editors.md §5.1 that the level
   promises pass in a recorded run (editor version, edition, OS, date), the
   export passes WP-55 against the edit description, and unsupported
   operations are reported, never silently approximated. An editor without
@@ -261,7 +261,7 @@ not need multi-hour requests. Depends: — · Blocks: WP-29.
   run a shell; model paths only from owner configuration; component
   versions in audit details.
 - **Recommended:** (b) now; (c) decided separately with WP-34.
-- **Dependent:** WP-43, WP-49…WP-51, WP-65…WP-68.
+- **Dependent:** WP-43, WP-49…WP-51, WP-67, WP-68 (WP-65 is research and only informs it).
 
 ### OD-17 — Media capability
 
@@ -340,7 +340,7 @@ not need multi-hour requests. Depends: — · Blocks: WP-29.
   the same grants when built; capabilities `service.read`, `service.write`,
   `service.publish` plus `permissions.services` per connection (decides part
   of §26 question 3).
-- **Dependent:** WP-46, WP-47, WP-58…WP-64.
+- **Dependent:** WP-46, WP-47, WP-58, WP-59, WP-61, WP-63, WP-64 (spikes WP-60/WP-62 only inform it).
 
 ### OD-20 — Credentials for external services
 
@@ -366,7 +366,7 @@ not need multi-hour requests. Depends: — · Blocks: WP-29.
 - **Recommended:** M2 as default, M5 as an advanced option, M6 as fallback;
   M3 only per service where a confidential client is unavoidable, with its
   own security review (likely TikTok; verify Canva).
-- **Dependent:** WP-45, WP-48, WP-58…WP-63.
+- **Dependent:** WP-45, WP-48, WP-58, WP-59, WP-61, WP-63 (spikes WP-60/WP-62 only inform it).
 
 ### OD-21 — Application bridges (editors)
 
@@ -383,6 +383,7 @@ not need multi-hour requests. Depends: — · Blocks: WP-29.
   (`app.use` or editor-specific operation names); apps run outside L1 → only
   with an explicit owner grant per application.
 - **Recommended:** (b) for one editor chosen by the spike WP-65.
+- **Decided after:** WP-65 stage 2 (bridge target from recorded runs).
 - **Dependent:** WP-68.
 
 ### OD-22 — Desktop application control (reassessing "OS-level input")
@@ -430,14 +431,18 @@ not need multi-hour requests. Depends: — · Blocks: WP-29.
 - **L1 macOS/Windows:** OD-9 → WP-23b / WP-23c — now also a prerequisite of
   remote media on those OS (OD-17 (b)).
 - **Media milestone (v1.1):** WP-41, WP-42 (no open contract, start now);
-  OD-16 → WP-43; OD-15 → WP-44; OD-17 + WP-42 + WP-43 → WP-49 → WP-50,
-  WP-51 (+WP-44); OD-18 → WP-52 → WP-53 → WP-55 → WP-54, WP-56 → WP-57.
+  OD-16 → WP-43; OD-15 → WP-44; OD-17 + WP-42 + WP-43 + WP-44 → WP-49 →
+  WP-50, WP-51; OD-17 + OD-18 → WP-52; WP-52 + WP-49 → WP-53; WP-53 +
+  WP-50 → WP-55; WP-53 + WP-50 + WP-51 → WP-54; WP-53 → WP-56; all →
+  WP-57. Critical chain: ADs OD-15/16/17/18 → WP-44 / WP-43 / WP-52 →
+  WP-49 → WP-53 (L) → WP-54 / WP-55 → WP-57; WP-55 is recommended before
+  WP-54 so composition is built against a working QC.
 - **Integrations milestone (v1.2):** OD-19, OD-20 → WP-45 → WP-46 → WP-47 →
   WP-58 (ElevenLabs; simplest auth) → WP-48 → WP-59 (YouTube) → WP-64;
   WP-60/WP-62 spikes any time → WP-61/WP-63 if feasible.
 - **Editors and applications (v1.3+):** WP-65 stage 1 (research, now);
-  WP-52 → WP-65 stage 2 (scenario runs) → WP-66 → WP-67; OD-21 → WP-68;
-  WP-69 spike → OD-22 → WP-70.
+  WP-52 + WP-65 stage 1 → WP-66 → WP-67; WP-52 → WP-65 stage 2 (scenario
+  runs) → OD-21 → WP-68; WP-69 spike → OD-22 → WP-70.
 
 ### 6.2 Parallelism
 
@@ -474,7 +479,7 @@ part of WP-59's first step.
 | Licences (FFmpeg builds, ASR/TTS models, editor licences, voice cloning consent) | legal | OD-16 (user-installed first), WP-37, consent gate for voice cloning |
 | Scope growth delays v1 | late remote release | OD-23 (a): new milestones never block v1 |
 | API success taken as publication (processing failure, policy rejection, wrong visibility) | false "published" reports to user and agent | publication states and read-back verification (integration-map.md §3.2) in every publishing connector's acceptance |
-| Editor "support" claimed from documentation or a matrix row | users rely on integrations that do not work | support only by recorded E1–E8 runs (media-and-editors.md §5.1) |
+| Editor "support" claimed from documentation or a matrix row | users rely on integrations that do not work | support only by recorded E1–E9 runs (media-and-editors.md §5.1) |
 | Implementation starts ahead of an AD (e.g. job or capability shapes invented in an early WP) | contracts fixed by accident, rework | research vs implementation rule (extension-work-packages.md); §8 start gates |
 | Token leakage through the agent's own tools (shell, network) | credential theft by a manipulated agent | per-connection secrets readable only by the connector runtime (integration-map.md §3.1); WP-45 tests |
 

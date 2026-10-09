@@ -159,16 +159,27 @@ Support for an editor is measured by these scenarios, run per editor, level
 | E6 | Save and reopen in the editor | identical timeline; no repair or missing-media prompts; untouched items preserved |
 | E7 | Render/export through the editor or its renderer | output passes WP-55 against the expected description |
 | E8 | Request an unsupported operation | reported as unsupported; nothing silently approximated; the project stays valid |
+| E9 | Correct after verification: a WP-55 finding on the editor's export is fixed in the editor project and re-exported | the new export passes; only the addressed items changed (the loop of §4.1 inside the editor) |
 
 Support statement (published per editor, replaces the matrix guess):
 editor · version · edition · OS · level · scenarios passed · date ·
 evidence (test id or recorded checklist). A version not in the statement is
 "unverified".
 
-Achievable result without any editor: the CROT render path (WP-52…56) gives
-fully autonomous editing on every OS where its components are installed.
-Editors add project hand-over to humans (interchange), editor-native
-features (bridges) and GUI-only tools (OD-22).
+**Level selection rule.** For each editor the integration uses the most
+reliable level that reaches the required scenarios: project files (F), CLI
+(C), scripting API (S), a CROT bridge (B) or the browser for web editors
+(W). GUI control (G) is used only where no other level reaches them, OD-22
+is accepted and the editor's terms allow it. Every level is confirmed by
+evidence: WP-65 for F/C/S/W, a prototype for B (WP-68) and WP-69 for G.
+
+**The CROT render path is a baseline, not a substitute.** WP-52…56 give
+autonomous editing on every OS where the components are installed, without
+any editor. They do not replace editor integration: a user who works in
+Kdenlive, Resolve or Premiere needs the agent to work in *that* project,
+with that editor's features, and to hand the result back (scenario C). So
+phase 8 is part of the product goal, and its completion is measured by
+E1–E9, not by render quality.
 
 ## 6. Order
 

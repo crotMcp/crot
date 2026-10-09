@@ -168,7 +168,7 @@ named limits; **Missing** — needs work (decided WP, small extension, or AD).
 | 6a | Video editors: project files (open/text formats) | Ready | Ready (paths in workspace; else `filesystem.full`) | `fs_*` tools; format knowledge stays in the agent | no arch change |
 | 6b | Video editors: CLI render/export | Partial | Partial (as 1) | `process_*`; per-editor availability unknown (G1) | no arch change; G1 |
 | 6c | Video editors: scripting API of a running application | Missing (case by case) | Missing | needs a running GUI app and local IPC; from L1 host session sockets are denied, TCP loopback works; per-editor spike | per-editor AD/WP; no Core change expected |
-| 6d | Video editors: GUI control | Out of scope | Out of scope | "Never in scope: OS-level input" (roadmap §11, §22) | deeper change — not recommended |
+| 6d | Video editors: GUI control | Out of scope | Out of scope | "Never in scope: OS-level input" (roadmap §11, §22) | deeper change — not recommended *(rev. 2: reassessed by OD-22 after WP-69; still out of v1)* |
 | 6e | Web-based editors | Missing → Ready after WP-24…27 | same | browser contract v1 | decided WPs |
 | 7 | Browser research / collect information | Partial (basic `page_read`, CSS selectors) | Partial | snapshot/refs, waits, frames: WP-24 | decided WPs |
 | 8 | Edit content, fill forms | Missing (synthetic `click`/`type` only) | Missing | trusted input, refs: WP-24/25 | decided WPs |
@@ -299,7 +299,7 @@ supports:
 | L-a Project files | read/write documented or open project/interchange formats in the workspace | Ready (`fs_*`) | format knowledge belongs to the agent or a later dedicated op; proprietary binary formats are not editable |
 | L-b CLI | headless render/export, batch tools | Partial (`process_*`; G1, G3) | same limits as FFmpeg |
 | L-c Scripting API | API of a running application (local IPC, sockets, embedded interpreters) | Missing, per editor | needs the GUI app running; L1 denies host session sockets and graphical sessions (AD-20 points 1 and 6), TCP loopback works; may require `full_control`; vendor licence/edition constraints to verify per editor |
-| L-d GUI automation | OS-level input, screen reading | Out of scope | roadmap §11 "Never in scope"; would reverse AD-13/§22 — not recommended |
+| L-d GUI automation | OS-level input, screen reading | Out of scope | roadmap §11 "Never in scope"; would reverse AD-13/§22 — not recommended *(rev. 2: reassessed by OD-22 after WP-69; still out of v1)* |
 | L-e Web editors | browser contract v1 | after WP-24…27 | same as any web app |
 
 Examples of which editor offers which level are to be verified in the spike;

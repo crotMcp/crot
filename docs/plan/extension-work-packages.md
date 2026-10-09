@@ -196,7 +196,7 @@ questions** · size.
 ### WP-49 — Media inspect and frames
 
 - **Goal:** structured inspection, frames and analysis. **Depends:** OD-17,
-  WP-43, WP-42. **Scope:** inspect, frames, contact sheet, scene/black/
+  WP-43, WP-42, WP-44 (analysis of long files runs as a job). **Scope:** inspect, frames, contact sheet, scene/black/
   frozen/silence detection, loudness measurement (media-and-editors.md §3).
   **Not:** writing media other than image artifacts.
 - **Requirements:** CROT-built engine arguments, file-only protocols,
@@ -233,7 +233,8 @@ questions** · size.
 ### WP-52 — Edit description v1
 
 - **Goal:** the validated edit format. **Problem:** without one, every
-  render is an ad-hoc command line. **Depends:** OD-18. **Scope:** JSON
+  render is an ad-hoc command line. **Depends:** OD-18, OD-17 (capability
+  names). **Scope:** JSON
   Schema (v1 features of media-and-editors.md §3), validation errors with
   paths, timeline summary/explain, duration estimate; the editing model of
   media-and-editors.md §4.1: stable item ids, edit operations (insert,
@@ -405,7 +406,7 @@ questions** · size.
   **Problem:** editor capabilities are unverified claims. **Scope:**
   installed editors on test machines, scripts outside `main`; stage 1:
   levels, editions, APIs, licences; stage 2: run the editor scenario set
-  E1–E8 (media-and-editors.md §5.1) per editor and level with throwaway
+  E1–E9 (media-and-editors.md §5.1) per editor and level with throwaway
   scripts. **Output:** updated matrix with evidence (scenario ids passed,
   version, edition, OS, date); pick the bridge target for OD-21. No product
   code. **Acceptance:** every cell of the matrix verified or marked "not
@@ -417,7 +418,7 @@ questions** · size.
 
 - **Goal:** OTIO, FCPXML, EDL and MLT from an edit description.
   **Problem:** hand-over to editors used by humans. **Depends:** WP-52,
-  WP-65. **Scope:** exporters + loss report. **Not:** import of proprietary
+  WP-65 stage 1 (target formats and versions). **Scope:** exporters + loss report. **Not:** import of proprietary
   formats. **Tests:** OTIO round-trip, schema validation of FCPXML.
   **Acceptance:** exports open in the target
   editors (manual checklist recording scenario E7 per target editor,
@@ -428,9 +429,9 @@ questions** · size.
 
 - **Goal:** read, modify and save MLT projects; render with `melt`; verify
   with WP-55. **Problem:** first editor integration that works without a
-  GUI. **Depends:** WP-65, WP-66, WP-43. **Scope:** MLT XML parse/write for
+  GUI. **Depends:** WP-65 stage 1, WP-66, WP-43. **Scope:** MLT XML parse/write for
   the supported subset, `melt` render as a job. **Not:** Kdenlive-specific
-  effects outside the subset (reported). **Acceptance:** scenarios E1–E8
+  effects outside the subset (reported). **Acceptance:** scenarios E1–E9
   (media-and-editors.md §5.1) on fixture projects pass for both
   editors at pinned versions, with results recorded as the support
   statement; the saved projects still open and play in the editors (manual
@@ -441,10 +442,10 @@ questions** · size.
 
 - **Goal:** a CROT-owned bridge inside one editor with a fixed command set.
   **Problem:** editor-native features need the running application.
-  **Depends:** OD-21, WP-65. **Scope:** bridge component, IPC, commands
+  **Depends:** OD-21 (decided after WP-65 stage 2). **Scope:** bridge component, IPC, commands
   (open project, list/modify timeline items supported by the API, render,
   status). **Not:** arbitrary script execution. **Acceptance:** the subset
-  of E1–E8 declared for the bridge passes against the real editor (pinned
+  of E1–E9 declared for the bridge passes against the real editor (pinned
   version, edition, OS) and is the published support statement;
   authenticated IPC; every command a guard operation; owner grant per
   application. **Tests:** contract tests
@@ -458,7 +459,9 @@ questions** · size.
   throwaway prototypes outside `main`. **Depends:** —. **Output:** findings
   for OD-22 (permissions on macOS, Wayland/X11 on Linux, UIPI on Windows,
   reliability numbers). **Problem:** "OS-level input" is excluded today and
-  its feasibility is unknown. **Acceptance:** a findings document with a
+  its feasibility is unknown. The fixed task set includes editor scenarios
+  E3, E6 and E7 (media-and-editors.md §5.1) on one GUI-only editor.
+  **Acceptance:** a findings document with a
   success rate on a fixed task set per OS. **Risks:** prototypes leaking
   into product code (forbidden). Size M.
 
@@ -468,5 +471,7 @@ questions** · size.
   GUI-only applications. **Depends:** OD-22 accepted, WP-69. **Tests and
   risks:** defined by the AD. **Scope and acceptance:** defined by
   the AD; at least per-application grant, effects gated, visible indicator,
-  kill switch, exposure marking of screenshots and accessibility text.
+  kill switch, exposure marking of screenshots and accessibility text, and
+  the E1–E9 subset declared for the target application passing in recorded
+  runs.
   Size L.

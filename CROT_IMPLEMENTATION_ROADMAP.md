@@ -269,7 +269,7 @@ What changed in this roadmap and why:
 | 2B Browser v1 | AD-16 contract | WP-24, WP-25, WP-26, WP-27 |
 | 3 Remote | Identity → relay → tunnel → profile → acceptance → review | WP-28, WP-29, WP-30, WP-31, WP-38, WP-32, WP-33 |
 | 4 Commercial | Ship and operate | WP-34, WP-35, WP-36, WP-37, WP-39, WP-40 |
-| 5 Extension foundation (post-v1, may start now) | Invariant tests, image view, components, jobs, connections, connector runtime | WP-41…WP-48 (OD-15, OD-16, OD-19, OD-20) |
+| 5 Extension foundation (post-v1; WP-41/42 now, the rest after their ADs) | Invariant tests, image view, components, jobs, connections, connector runtime | WP-41…WP-48 (OD-15, OD-16, OD-19, OD-20) |
 | 6 Media (milestone v1.1) | Inspect, audio, speech, edit description, render, QC, presets, acceptance | WP-49…WP-57 (OD-17, OD-18) |
 | 7 Integrations (milestone v1.2) | ElevenLabs, YouTube, TikTok, Canva, acceptance | WP-58…WP-64 |
 | 8 Editors and applications (v1.3+) | Editor spike, interchange, MLT, bridge, application control | WP-65…WP-70 (OD-21, OD-22) |
@@ -330,12 +330,12 @@ ARCHITECTURE.md §26 questions 16–24). None blocks a v1 WP.
 | ID | Question | Why it matters | Blocks | Decide by |
 | --- | --- | --- | --- | --- |
 | OD-15 | Long-running jobs and artifacts (start/status/cancel/result, persistence, retention, Core activity) | renders, transcription, uploads outlive a request; relay requests stay short | WP-44 and every job-based WP | AD before WP-44; input to OD-4 |
-| OD-16 | Optional components: declaration, detection, versions, model paths, provisioning | clear "missing tool" reporting for local and remote agents | WP-43, WP-49…WP-51, WP-65…WP-68 | AD (or AD addendum) before WP-43 |
+| OD-16 | Optional components: declaration, detection, versions, model paths, provisioning | clear "missing tool" reporting for local and remote agents | WP-43, WP-49…WP-51, WP-67, WP-68 (WP-65 research only informs it) | AD (or AD addendum) before WP-43 |
 | OD-17 | Media capability: names, fixed operations, placement (confined vs in-service), exposure sources, remote defaults | security of media parsers; remote use on macOS/Windows | WP-49…WP-57 | AD before WP-49 |
 | OD-18 | Edit description format and renderer; interchange exports | deterministic, verifiable editing | WP-52…WP-56, WP-66, WP-67 | AD after a short spike, before WP-52 |
-| OD-19 | Service integration contract: connector manifests, generic tools, per-connection grants, publish gates; relation to §18 gateway | new APIs without Core/relay changes | WP-46, WP-47, WP-58…WP-64 | AD before WP-46 |
-| OD-20 | Credentials of external services (device vault, cloud broker, user-owned apps, browser session); OAuth app ownership | user tokens outside the agent; confidential-client services | WP-45, WP-48, WP-58…WP-63 | AD before WP-45 |
-| OD-21 | Application bridges inside editors | editor-native features | WP-68 | AD after WP-65 |
+| OD-19 | Service integration contract: connector manifests, generic tools, per-connection grants, publish gates; relation to §18 gateway | new APIs without Core/relay changes | WP-46, WP-47, WP-58, WP-59, WP-61, WP-63, WP-64 (spikes WP-60/62 inform it) | AD before WP-46 |
+| OD-20 | Credentials of external services (device vault, cloud broker, user-owned apps, browser session); OAuth app ownership | user tokens outside the agent; confidential-client services | WP-45, WP-48, WP-58, WP-59, WP-61, WP-63 (spikes WP-60/62 inform it) | AD before WP-45 |
+| OD-21 | Application bridges inside editors | editor-native features | WP-68 | AD after WP-65 stage 2 |
 | OD-22 | Scoped desktop application control (reassesses "never in scope: OS-level input", §11) | GUI-only applications | WP-70 | AD after WP-69; not for v1 |
 | OD-23 | Release staging: is any of phases 5–8 release-blocking for v1? | v1 schedule | — | product decision now (recommended: no) |
 
@@ -415,10 +415,10 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-46 | 5 | Connector runtime: requests | OD-19, WP-45 | M | no | — | Not started |
 | WP-47 | 5 | Connector runtime: files and async | WP-46, WP-44 | M | no | — | Not started |
 | WP-48 | 5 | OAuth connections | WP-45, OD-20 | M | no | with WP-46 | Not started |
-| WP-49 | 6 | Media inspect and frames | OD-17, WP-43, WP-42 | M | no | — | Not started |
+| WP-49 | 6 | Media inspect and frames | OD-17, WP-43, WP-42, WP-44 | M | no | — | Not started |
 | WP-50 | 6 | Audio analysis and processing | WP-49, WP-44 | M | no | with WP-51 | Not started |
 | WP-51 | 6 | Speech to text and subtitles | WP-49, WP-44, WP-43, OD-16 | M | no | with WP-50 | Not started |
-| WP-52 | 6 | Edit description v1 | OD-18 | S–M | no | with WP-50/51 | Not started |
+| WP-52 | 6 | Edit description v1 | OD-18, OD-17 | S–M | no | with WP-50/51 | Not started |
 | WP-53 | 6 | Render core | WP-52, WP-44, WP-49 | L | no | — | Not started |
 | WP-54 | 6 | Render composition | WP-53, WP-50, WP-51 | M–L | no | with WP-55 | Not started |
 | WP-55 | 6 | Render QC and verification | WP-53, WP-50 | M | no | with WP-54 | Not started |
@@ -432,9 +432,9 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-63 | 7 | Canva connector (conditional) | WP-62, WP-47, WP-48 | M | no | — | Not started |
 | WP-64 | 7 | Integration acceptance suite | WP-57, WP-58, WP-59, WP-24…WP-27 | M | no | — | Not started |
 | WP-65 | 8 | Editor integration spike (research; stage 1 now, stage 2 after WP-52) | — (stage 1); WP-52 (stage 2) | M | no | stage 1 now | Not started |
-| WP-66 | 8 | Interchange export (OTIO, FCPXML, EDL, MLT) | WP-52, WP-65 | M | no | with WP-67 | Not started |
-| WP-67 | 8 | MLT project adapter (Kdenlive, Shotcut) | WP-65, WP-66, WP-43 | M | no | — | Not started |
-| WP-68 | 8 | Application bridge (first editor) | OD-21, WP-65 | L | no | — | Not started |
+| WP-66 | 8 | Interchange export (OTIO, FCPXML, EDL, MLT) | WP-52, WP-65 stage 1 | M | no | with WP-67 | Not started |
+| WP-67 | 8 | MLT project adapter (Kdenlive, Shotcut) | WP-65 stage 1, WP-66, WP-43 | M | no | — | Not started |
+| WP-68 | 8 | Application bridge (first editor) | OD-21 (after WP-65 stage 2) | L | no | — | Not started |
 | WP-69 | 8 | Desktop application control spike (research) | — | M | no | now | Not started |
 | WP-70 | 8 | Application control v1 (conditional) | OD-22, WP-69 | L | no | — | Not started |
 
@@ -1019,14 +1019,14 @@ Never on the v1 critical path; details and rationale in
 ```text
 now:  WP-41, WP-42 (no open contract); research WP-60, WP-62, WP-65 stage 1, WP-69; AD drafts OD-15…OD-20, OD-23
 OD-15 ─► WP-44 ─┐
-OD-16 ─► WP-43 ─┼─► (OD-17) WP-49 ─┬─► WP-50 ─┐
+OD-16 ─► WP-43 ─┼─► (OD-17) WP-49 ─┬─► WP-50 ─┐   (WP-49 also needs WP-44)
 WP-42 ──────────┘                  └─► WP-51 ─┤
 OD-18 ─► WP-52 ─► WP-53 ─┬─► WP-55 ───────────┼─► WP-54, WP-56 ─► WP-57   (v1.1 media)
                          │                    │
 OD-20 ─► WP-45 ─┬─► (OD-19) WP-46 ─► WP-47 ─┬─► WP-58 (ElevenLabs)
                 └─► WP-48 ──────────────────┴─► WP-59 (YouTube) ─► WP-64  (v1.2; also WP-24…27)
 WP-60 ─► WP-61 (if feasible)     WP-62 ─► WP-63 (if feasible)
-WP-52 ─► WP-65 stage 2 ─► WP-66 ─► WP-67;  OD-21 ─► WP-68;  WP-69 ─► OD-22 ─► WP-70   (v1.3+)
+WP-52 + WP-65 st.1 ─► WP-66 ─► WP-67;  WP-52 ─► WP-65 st.2 ─► OD-21 ─► WP-68;  WP-69 ─► OD-22 ─► WP-70   (v1.3+)
 OD-9 ─► WP-23b/c  (also prerequisite of remote media on macOS/Windows, OD-17 (b))
 ```
 
