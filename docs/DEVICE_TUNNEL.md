@@ -15,6 +15,15 @@ The device tunnel is the client side of the relay–device tunnel (ARCHITECTURE.
   - Host must equal the pinned relay host.
   - Path must be `/d/<own deviceId>/mcp`.
 
+## Registration at pairing (AD-22 point 4)
+
+- **When.** During pairing, after the pairing access token has passed every existing check (signature, `iss`, `aud` = the new device's canonical URI, validity times, `sub`, `client_id`), the device registers itself at the relay (`src/identity/relay-registration.ts`).
+- **Request.** `POST https://<relayHost>/d/<deviceId>/register` with the pairing token as bearer and `{"publicKey": <Ed25519 JWK>}` as the only body field. It goes through `IdentityHttp`: HTTPS only, no redirects, no ambient credentials, a timeout and a response size limit.
+- **Result.** `201` (created) and `200` (same account and key again) complete pairing. Any other answer (`401`, `403`, `409`, `400`/`408`/`413`, other statuses) or an unreachable relay fails pairing with `relay_registration_failed`; the device is not paired and the new device key is discarded. A token that fails the device's own checks is never sent to the relay.
+- **Authority.** The relay checks the token itself and binds the device id to the account and the key. It decides nothing else; every request is still verified on the device.
+- **Secrets.** Neither the token nor the relay's response body appears in results, errors or logs.
+- **Not covered (AD-22 open question 3).** There is no deregistration: unpairing does not remove the registration at the relay, and if storing the binding fails after a successful registration, that registration remains orphaned.
+
 ## Safety properties
 
 - **Refusals before forwarding.** A stream refused before it is forwarded gets RESET `refused`, and the relay reports `not_executed`. This covers: over `maxStreams`, a wrong path, a wrong host, a bad method, and a body over 4 MiB.
@@ -35,6 +44,8 @@ The device tunnel is the client side of the relay–device tunnel (ARCHITECTURE.
 - **Deadline.** Each exchange has a hard deadline of 15 minutes, set by the relay. The device aborts the local request at *deadline − 5 s* and resets the stream with `deadline_exceeded`. The relay reports that outcome as `unknown`.
 - **Long approvals and bounded browser waits.** These run inside the deadline. No separate idle timeout applies to an exchange that is waiting for approval.
 - **Cancellation.** Cancellation reaches the pipeline only through the AbortSignal. Neither side ever retries automatically.
+- **Measured client timeouts.** The actual timeouts of remote MCP clients are measured in WP-32 (AD-22 open question 5); the margin is revisited then.
+- **Record.** The entry for this decision in ARCHITECTURE.md is still pending (see STATUS.md, WP-30 Partial).
 
 ## Lifecycle in the service
 
@@ -60,3 +71,10 @@ Local stdio and loopback HTTP are not affected.
 - bad signature or unknown device (4401)
 - unsupported version (4426), and a challenge for another relay host
 - reconnecting with backoff, GOAWAY, and secret-free logs
+
+`tests/cloud-relay/device-registration.test.ts` runs registration against the real relay:
+
+- `201` then `200` (idempotent), after which the device's tunnel comes online
+- `409` for an already registered device, `403` for a token of another client, `401` for an expired token, and a token for another account
+- the request shape (method, no redirects, no credentials, bearer, body), an invalid URL and an unreachable relay (no token in the result)
+- pairing end to end (registration, then the tunnel online, no token in logs); a refused or failing registration fails pairing, and a rejected token never reaches the relay
