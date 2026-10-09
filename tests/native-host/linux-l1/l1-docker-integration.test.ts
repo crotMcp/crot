@@ -39,6 +39,19 @@ function hostDocker(args: string[], env: NodeJS.ProcessEnv = process.env): strin
   return execFileSync("docker", args, { encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
 }
 
+/** Pulls the test image, retrying with backoff: anonymous registry pulls are throttled per runner IP. */
+async function pullImage(attempts = 6): Promise<void> {
+  for (let i = 1; ; i++) {
+    try {
+      hostDocker(["pull", "-q", IMAGE]);
+      return;
+    } catch (err) {
+      if (i >= attempts) throw err;
+      await new Promise((r) => setTimeout(r, 2_000 * 2 ** (i - 1)));
+    }
+  }
+}
+
 /**
  * A TCP (optionally TLS) listener on loopback that forwards every connection to the real daemon socket.
  * Half-open like a daemon: the docker CLI closes its write side of attach/exec streams and keeps reading.
@@ -130,7 +143,7 @@ beforeAll(async () => {
   dockerOk = spawnSync("docker", ["info"], { stdio: "ignore" }).status === 0;
   if (!dockerOk) throw new Error("the L1 Docker tests are mandatory here but no Docker daemon is reachable");
   apparmor = (await readHostFacts("1")).apparmorEnabled;
-  hostDocker(["pull", "-q", IMAGE]);
+  await pullImage();
   tcp = await proxy();
   certDir = await mkdtemp(path.join(os.homedir(), "crot-it-certs-"));
   makeCerts(certDir);
