@@ -17,6 +17,10 @@
  *   logged, stored or shown; the access token is dropped after its check.
  * - The callback listener accepts only `GET /callback` with the loopback Host
  *   of its own port and answers with a static page (no reflected input).
+ * - Registration at the relay (AD-22 point 4; WP-30): when a `register` step
+ *   is given, the verified access token is handed to it only after every
+ *   check above passed, and the pairing succeeds only if the relay accepted
+ *   the device. The token is never retained by this module.
  */
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -40,11 +44,20 @@ export type PairingFailure =
   | "issuer_mismatch"
   | "token_exchange_failed"
   | "token_rejected"
-  | "client_mismatch";
+  | "client_mismatch"
+  | "relay_registration_failed";
 
 export type PairingOutcome =
   | { readonly ok: true; readonly accountId: string }
   | { readonly ok: false; readonly reason: PairingFailure; readonly detail?: string };
+
+/**
+ * Register the new device at the relay with the verified pairing access token
+ * (AD-22 point 4). `detail` must not contain the token.
+ */
+export type PairingRegistration = (
+  accessToken: string,
+) => Promise<{ readonly ok: true } | { readonly ok: false; readonly detail: string }>;
 
 export interface PairingFlowOptions {
   readonly environment: IdentityEnvironment;
@@ -55,6 +68,8 @@ export interface PairingFlowOptions {
   readonly deviceId: string;
   readonly timeoutMs?: number;
   readonly now?: () => number;
+  /** Register the device at the relay after the token passed every check (AD-22 point 4). */
+  readonly register?: PairingRegistration;
 }
 
 export interface PairingFlow {
@@ -172,6 +187,15 @@ export async function startPairing(options: PairingFlowOptions): Promise<Pairing
     });
     if (!checked.ok) return { ok: false, reason: "token_rejected", detail: checked.reason };
     if (checked.token.clientId !== env.pairing.clientId) return { ok: false, reason: "client_mismatch" };
+    if (options.register) {
+      let registered: Awaited<ReturnType<PairingRegistration>>;
+      try {
+        registered = await options.register(body.access_token);
+      } catch {
+        registered = { ok: false, detail: "registration failed" };
+      }
+      if (!registered.ok) return { ok: false, reason: "relay_registration_failed", detail: registered.detail };
+    }
     return { ok: true, accountId: checked.token.subject };
   };
 

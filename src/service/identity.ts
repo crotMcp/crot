@@ -8,15 +8,22 @@
  * control center for requests on the control channel; remote requests are
  * admitted by the control center and authorized by Core. Nothing here
  * reaches Core except, through the verifier, the verified facts of a token.
+ *
+ * Pairing registers the new device at the relay (AD-22 point 4; WP-30): the
+ * device key is generated first, its public key is registered with the
+ * verified pairing token, and only then is the key staged for the binding.
  */
 import type { AccessTokenVerifier } from "../adapters/http/auth.js";
 import { canonicalDeviceUri, generateDeviceId, protectedResourceMetadataUrl } from "../identity/device-id.js";
 import type { IdentityEnvironment } from "../identity/environment.js";
 import { createIdentityHttp, type IdentityHttp } from "../identity/http.js";
 import { IssuerKeySet } from "../identity/jwks.js";
+import { devicePublicKey, deviceKeyFromSeed } from "../identity/device-credential.js";
 import { startPairing, type PairingFlow, type PairingOutcome } from "../identity/pairing.js";
+import { registerDeviceAtRelay, relayRegistrationUrl } from "../identity/relay-registration.js";
 import { OAuthAccessTokenVerifier, UnavailableTokenVerifier, type TokenRejection } from "../identity/verifier.js";
 import type { DeviceBindingStore, TunnelCredentialResult } from "./device-binding.js";
+import { generateSecret } from "./secrets/store.js";
 
 export interface DeviceIdentityOptions {
   /** The environment of this process, or why there is none. */
@@ -118,18 +125,39 @@ export class DeviceIdentity {
     if (!this.environment || !this.keys) throw new Error(this.unavailableReason ?? "no identity environment");
     if (this.flow) return this.pending!;
     const metadata = await this.keys.metadata();
+    const environment = this.environment;
+    const deviceId = generateDeviceId();
+    const seed = generateSecret();
+    const publicKey = devicePublicKey(deviceKeyFromSeed(seed));
     const flow = await startPairing({
-      environment: this.environment,
+      environment,
       metadata,
       http: this.http,
       keys: this.keys,
-      deviceId: generateDeviceId(),
+      deviceId,
+      register: async (accessToken) => {
+        const result = await registerDeviceAtRelay({
+          http: this.http,
+          url: relayRegistrationUrl(environment.relayHost, deviceId),
+          accessToken,
+          publicKey,
+        });
+        if (!result.ok) {
+          const detail = `${result.reason}${result.status !== undefined ? ` (status ${result.status})` : ""}`;
+          this.options.log(`identity: the relay did not register the device: ${detail}`);
+          return { ok: false, detail };
+        }
+        this.options.binding.stageDeviceKey(deviceId, seed);
+        this.options.log(`identity: device ${result.created ? "registered" : "already registered"} at the relay`);
+        return { ok: true };
+      },
       ...(this.options.pairingTimeoutMs !== undefined ? { timeoutMs: this.options.pairingTimeoutMs } : {}),
       ...(this.options.now ? { now: this.options.now } : {}),
     });
     this.flow = flow;
     void flow.outcome.then((outcome) => {
       if (this.flow === flow) this.flow = undefined;
+      if (!outcome.ok) this.options.binding.clearStagedKey(flow.deviceId);
       onOutcome(outcome, flow.deviceId);
     });
     return this.pending!;

@@ -8,6 +8,9 @@
  *   another origin's keys).
  * - Bounded: a timeout and a response size limit.
  * - No ambient credentials: nothing but the explicit form fields is sent.
+ * - The one exception to "issuer only" is the device's registration at the
+ *   relay during pairing (AD-22 point 4; WP-30): a JSON POST carrying the
+ *   pairing access token as an explicit bearer, with the same limits.
  */
 
 const DEFAULT_TIMEOUT_MS = 5_000;
@@ -25,6 +28,13 @@ export interface IdentityHttp {
   getJson(url: string): Promise<unknown>;
   /** POST an application/x-www-form-urlencoded form; the status and the JSON body (undefined when not JSON). */
   postForm(url: string, form: Readonly<Record<string, string>>): Promise<{ status: number; body: unknown }>;
+  /**
+   * POST a JSON body with an explicit bearer token; only the status is
+   * returned (the response body is read within the size limit and dropped).
+   * Used for the relay registration at pairing (AD-22 point 4). Optional:
+   * a client without it cannot register, so pairing fails closed.
+   */
+  postJsonWithBearer?(url: string, bearer: string, body: unknown): Promise<{ status: number }>;
 }
 
 export interface IdentityHttpOptions {
@@ -111,6 +121,19 @@ export function createIdentityHttp(options: IdentityHttpOptions = {}): IdentityH
         body = undefined;
       }
       return { status: response.status, body };
+    },
+    async postJsonWithBearer(url, bearer, body) {
+      const response = await request(url, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${bearer}`,
+        },
+        body: JSON.stringify(body),
+      });
+      await readLimited(response, maxBytes);
+      return { status: response.status };
     },
   };
 }
