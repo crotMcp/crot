@@ -60,7 +60,7 @@ export function isIssuer(value: unknown): value is string {
   return isRelayHost(value.slice("https://".length));
 }
 
-const isClientId = (v: unknown): v is string =>
+export const isClientId = (v: unknown): v is string =>
   typeof v === "string" && v.length > 0 && v.length <= 512 && /^[\x21-\x7e]+$/.test(v);
 
 /** Validate an environment description; returns the reason when it is not acceptable. */

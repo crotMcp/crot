@@ -7,6 +7,64 @@ package PR updates this file.
 
 ## Last completed
 
+**WP-29 — Cloud Relay v1, relay side — partial** (this PR; ARCHITECTURE.md
+§27 AD-22, included as the PR's first commit because it had not been merged
+yet). User docs: [`docs/RELAY.md`](docs/RELAY.md). WP-29 is **not complete**:
+the open items below are release-blocking (before WP-38 exposes a public
+relay); they do not block WP-30.
+
+- **Open WP-29 items:** per-client / per-device request rate and
+  concurrency limits at the relay (AD-15 point 10, WP-29 scope "size/rate
+  limits"); per-source limits on connections and pending handshakes (the
+  256 pending-handshake limit is global); a registration rate limit per
+  account; the load/backpressure test of the WP-29 card. Either done in a
+  WP-29 follow-up PR or explicitly reassigned to WP-39.
+
+- **Tunnel protocol, shared code** (`src/tunnel/`): `crot-tunnel.v1` frame
+  codec, limits, close/RESET/GOAWAY codes, header validation and hop-by-hop
+  removal, version negotiation; a minimal RFC 6455 WebSocket client and
+  server (Node 20 has no built-in WebSocket; no new dependency).
+- **Relay** (`src/cloud-relay/`): PRM per registered device; device
+  registration endpoint (pairing-client token only, checked before the body;
+  Ed25519 key; first registration binds the account; idempotent);
+  `/d/<id>/mcp` admission (token signature, `iss`, `aud` = canonical URI,
+  times, `sub` = owner; entitlement hook for WP-36); routing by device id,
+  one tunnel per device with supersession; challenge-signed handshake with
+  timeout, a per-device rate limit counted only after a valid proof, and
+  version refusal (4426); multiplexed streams with
+  credit flow control in both directions; keep-alive, GOAWAY/drain,
+  connection loss; a response completed before the request body frees the
+  stream with `RESET cancel`; 4 MiB / 32 MiB limits; absolute exchange
+  deadline (15 min, also for bodies buffered before forwarding: 408) and
+  stall limit; WebSocket memory per connection bounded by one message
+  (fragments, segments, pings), bodies of refused requests dropped within
+  10 s; refusals with the AD-22 outcome
+  (`not_executed` / `unknown`), never a retry; structured logs without
+  tokens, headers or bodies. Binary `src/bin/crot-cloud-relay.ts`
+  (`--config`, requires `pairingClientId`), not yet in `package.json` `bin`.
+- **AD-22 clarifications** (in this PR, no wire change): the 4426 upgrade
+  names the device's highest offered `crot-tunnel.v<N>` (point 10);
+  malformed stream-0 frames are connection errors, malformed `OPEN` /
+  `RESPONSE` heads stream errors (points 5, 14); a response completed before
+  the request ends closes the stream with `RESET cancel`, which never
+  affects the completed request (points 6, 13); handshake rate limiting
+  counts only valid proofs (point 14); registration requires the pairing
+  client (point 4).
+
+Tests: `tests/cloud-relay/` — WebSocket endpoint limits (fragments,
+byte-wise segments, ping backlog), registration and proofs (pairing client,
+ownership, failed proofs do not lock a device out), forwarding and
+outcomes, tunnel state machine (fake socket), tunnel over real sockets
+(handshakes, versions, limits, flow control, keep-alive, connection loss,
+supersession/reconnect), end to end with the MCP SDK (2026-07-28 and every
+legacy version, streamed responses, gated approval and its cancellation,
+injected identity headers ignored, log scrubbing) through a protocol-level
+test device into a real `CrotHttpServer` relay entry. The device tunnel
+adapter is WP-30; no deployed relay or live WorkOS environment yet
+(WP-38).
+
+## Previously completed
+
 **WP-28 — Identity and device binding** (merged in crot-mcp PR #16,
 `4d574f0`;
 ARCHITECTURE.md §27 AD-21 with its implementation note). User docs:
@@ -53,8 +111,6 @@ re-grant boundary) against an in-process emulated AuthKit environment
 pair the device and use the real verifier (`tests/service/tray-control.test.ts`,
 new WP-28 block covering the AD-21 point 8 device column), tray controller
 and view model. No live WorkOS environment was available for this PR.
-
-## Previously completed
 
 **WP-23a — Linux command confinement L1** (ARCHITECTURE.md §27 AD-20,
 decides the Linux part of OD-9 and OD-14; PR #6, `e1d1f61`). User docs:
@@ -144,20 +200,20 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 
 ## Next
 
-**Next: the OD-4 decision (relay–device tunnel protocol, an AD), then WP-29 —
-Cloud Relay v1** (roadmap §8.4). Critical path: yes — chain B continues
-WP-29 → WP-30 → WP-31 → WP-32 → WP-33 → WP-40. WP-28 provides what WP-29
-and WP-30 consume: verifier facts, device id, canonical URI and PRM URL,
-the device credential (`CrotService.tunnelCredential()`).
+**Next: WP-30 — Device tunnel adapter** (roadmap §8.4; AD-22, relay side
+done in WP-29). Critical path: yes — chain B continues WP-30 → WP-31 →
+WP-32 → WP-33 → WP-40. The device connects with the WP-28 credential
+(`CrotService.tunnelCredential()`), registers at pairing and reuses the
+tunnel codec in `src/tunnel/`.
 
 | WP | What | State |
 | --- | --- | --- |
-| OD-4 → WP-29 | Tunnel protocol AD, then Cloud Relay v1 | next; WP-28 done; OD-3 decided (AD-21) |
-| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to OD-4/WP-29 |
+| WP-30 | Device tunnel adapter (AD-22, device side) | next; WP-20, WP-28 done; WP-29 relay side done (its open rate-limit/load items do not block WP-30); OD-5 decided (AD-22); per-principal profile AD (§26 Q25) needed before WP-31, not WP-30 |
+| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to WP-30 |
 | WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13), needed before WP-31 |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
 | WP-41, WP-42 | Extensibility invariant tests; workspace image view (post-v1 phase 5; depend on no open contract — WP-42 without downscale, see product-reassessment §8) | can start now with spare capacity; never displace the critical path; WP-43/44/49 wait for OD-16/15/17 ADs |
-| OD-15…OD-20, OD-23 | ADs of the expanded product goal (jobs, components, media, edit description, connectors, credentials; release staging) | documentation work, parallel to WP-29; see roadmap §4.2 |
+| OD-15…OD-20, OD-23 | ADs of the expanded product goal (jobs, components, media, edit description, connectors, credentials; release staging) | documentation work, parallel to WP-30; see roadmap §4.2 |
 
 **Expanded product goal (proposal, not implemented).** CROT is to become an
 extensible execution environment for local and remote agents with full
@@ -190,20 +246,22 @@ and no external service has a CROT integration.
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
 | Revoking a client's authorization at the identity provider from the tray (best effort after the device-side revocation; hook exists, reports "not available") | WP-36 (CROT account service holds the provider credentials) |
 | No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); no release configuration pins an identity environment, so every build honours the development override until then | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
-| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | OD-4 (AD before WP-29), WP-29, WP-30 |
+| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side WP-30; AD-22 open questions 1–8 remain |
 | Remote full-control opt-in is recorded only; how it takes effect (per-principal profile; `principalKinds` exists only in approval rules) | AD-19 point 7; WP-31 |
+| Per-principal permission profile: grants and mode are global per Core, so AD-13 point 5 cannot be enforced with existing matchers | ARCHITECTURE.md §26 question 25 — an AD before WP-31 (does not block WP-30) |
 | Preset `autonomous-browser` (rule set not implemented yet) | WP-31 |
 | Any process of the same OS user can read the control credential and act like the tray | AD-19 residual risk; confined Linux children: closed by WP-23a; macOS, Windows, `full_control` and other processes of the user: open (WP-23b/c) |
 | Tray packaging, signing and autostart (Electron is a dev dependency today) | WP-34 |
 | Identity provider and the token claims carrying the subject, account, device and `clientId` | Decided by ARCHITECTURE.md §27 AD-21 (roadmap OD-2): WorkOS AuthKit; `sub` → principal id and `accountId`, device id in `aud`, `client_id` → `clientId`; implemented on the device by WP-28 |
-| Exact device resource URI form and PRM location | Decided by AD-21 points 5–6 (roadmap OD-3): `https://<relay-host>/d/<deviceId>/mcp`, PRM at `https://<relay-host>/.well-known/oauth-protected-resource/d/<deviceId>/mcp` (relay: WP-29) |
+| Exact device resource URI form and PRM location | Decided by AD-21 points 5–6 (roadmap OD-3): `https://<relay-host>/d/<deviceId>/mcp`, PRM at `https://<relay-host>/.well-known/oauth-protected-resource/d/<deviceId>/mcp` (relay: implemented by WP-29) |
 | RFC 9207 (`iss` in authorization responses) not provided by the selected provider yet | **Still open** — AD-21 open condition: met before Gate G4 or accepted by a separate AD; WP-28 checks `iss` when present but neither requires nor claims it |
 | Revocation at the identity provider reaches the device only through token expiry (≤ 5 min configured, ≤ 15 min device ceiling); device-side revocation is immediate | AD-21 point 4 (accepted bound) |
 | Extensibility beyond v1 (media, video editors, external services, jobs, optional components) | Audit revision 2: [`docs/design/extensibility-audit.md`](docs/design/extensibility-audit.md); open decisions OD-15…OD-23 (roadmap §4.2, ARCHITECTURE.md §26 questions 16–24) |
 | GUI control of desktop applications ("never in scope: OS-level input") | unchanged for v1; reassessed by OD-22 after spike WP-69 |
 | Vendor API facts (YouTube, ElevenLabs, TikTok, Canva) | unverified; confirmed by WP-60, WP-62 and the first step of WP-58/WP-59 ([`docs/design/integration-map.md`](docs/design/integration-map.md)) |
 | Transport matcher to gate loopback HTTP separately from stdio | ARCHITECTURE.md §26 question 12 (not required for v1) |
-| Relay/tunnel timeouts for gated requests and bounded browser waits | §26 question 13, WP-29 / WP-30 |
+| Relay/tunnel timeouts for gated requests and bounded browser waits | Decided by ARCHITECTURE.md §27 AD-22 points 12–13 (§26 question 13); relay side implemented (WP-29), device side WP-30; measured client timeouts WP-32 (AD-22 open question 5) |
+| Relay request rate and concurrency limits, per-source connection and handshake limits, registration rate limit, relay load test | Open WP-29 items (AD-15 point 10; ARCHITECTURE.md §27 AD-22, Implementation (WP-29)); release-blocking before WP-38 exposes a public relay, or reassigned to WP-39 |
 | Approval policy in general (beyond presets) | §26 question 6 |
 | Limit remote agents to tabs they opened | §26 question 14 (opened by AD-16; not required for v1) |
 | Input into background tabs on real sites; validation on at least three real sites | WP-24 |
