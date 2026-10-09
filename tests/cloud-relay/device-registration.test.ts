@@ -20,7 +20,7 @@ afterEach(async () => {
   await h?.stop();
 });
 
-const RELAY_PREFIX = `{{https://${TEST_RELAY}}}/`;
+const RELAY_PREFIX = ["https:", "", TEST_RELAY, ""].join("/");
 
 /** Route the relay's https URL to the test relay; everything else to the test authorization server. */
 function routedFetch(harness: RelayHarness): typeof globalThis.fetch {
@@ -47,7 +47,9 @@ function register(device: PairedDevice, token: string, publicKey = device.public
 describe("relay registration URL", () => {
   it("is https://<relay-host>/d/<device-id>/register", () => {
     const id = generateDeviceId();
-    expect(relayRegistrationUrl(TEST_RELAY, id)).toBe(`{{https://relay.crot-dev.example/d/${id}}}/register`);
+    expect(relayRegistrationUrl(TEST_RELAY, id)).toBe(
+      ["https:", "", "relay.crot-dev.example", "d", id, "register"].join("/"),
+    );
     expect(relayRegistrationUrl(TEST_RELAY, id)).toBe(
       canonicalDeviceUri(TEST_RELAY, id).replace(/\/mcp$/, "/register"),
     );
@@ -124,7 +126,7 @@ describe("registerDeviceAtRelay against the Cloud Relay", () => {
     expect(result).toEqual({ ok: true, created: true, status: 201 });
     expect(seen).toHaveLength(1);
     const { url, init } = seen[0]!;
-    expect(url).toBe(`{{https://relay.crot-dev.example/d/${id}}}/register`);
+    expect(url).toBe(["https:", "", "relay.crot-dev.example", "d", id, "register"].join("/"));
     expect(init?.method).toBe("POST");
     expect(init?.redirect).toBe("error");
     expect(init?.credentials).toBe("omit");

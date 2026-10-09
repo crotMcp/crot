@@ -116,7 +116,7 @@ export class TestAuthorizationServer {
   }
 
   get resourcePattern(): string {
-    return `{{https://${this.relayHost}}}/d/`;
+    return ["https:", "", this.relayHost, "d", ""].join("/");
   }
 
   /** A token as the provider would issue it for `resource`, with claim overrides. */
@@ -221,7 +221,7 @@ export class TestAuthorizationServer {
     const json = (status: number, body: unknown) =>
       new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
     const register = /^\/d\/([a-z2-7]{26})\/register$/.exec(url.pathname);
-    if (url.origin === `{{https://${this.relayHost}}}` && register && init?.method === "POST") {
+    if (url.origin === ["https:", "", this.relayHost].join("/") && register && init?.method === "POST") {
       const auth = new Headers(init.headers).get("authorization") ?? "";
       let body: unknown;
       try {

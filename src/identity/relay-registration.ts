@@ -34,7 +34,7 @@ export type RelayRegistrationResult =
 /** The registration endpoint of a device at its relay (AD-22 point 4). */
 export function relayRegistrationUrl(relayHost: string, deviceId: string): string {
   if (!isRelayHost(relayHost) || !isDeviceId(deviceId)) throw new Error("invalid relay host or device id");
-  return `{{https://${relayHost}}}/d/${deviceId}/register`;
+  return ["https:", "", relayHost, "d", deviceId, "register"].join("/");
 }
 
 export async function registerDeviceAtRelay(options: {
