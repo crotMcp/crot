@@ -144,16 +144,16 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 
 ## Next
 
-**Next: the OD-4 decision (relay–device tunnel protocol, an AD), then WP-29 —
-Cloud Relay v1** (roadmap §8.4). Critical path: yes — chain B continues
+**Next: WP-29 — Cloud Relay v1** (roadmap §8.4; the tunnel protocol, OD-4,
+and the relay timeouts, OD-5, are decided by ARCHITECTURE.md §27 AD-22). Critical path: yes — chain B continues
 WP-29 → WP-30 → WP-31 → WP-32 → WP-33 → WP-40. WP-28 provides what WP-29
 and WP-30 consume: verifier facts, device id, canonical URI and PRM URL,
 the device credential (`CrotService.tunnelCredential()`).
 
 | WP | What | State |
 | --- | --- | --- |
-| OD-4 → WP-29 | Tunnel protocol AD, then Cloud Relay v1 | next; WP-28 done; OD-3 decided (AD-21) |
-| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to OD-4/WP-29 |
+| WP-29 | Cloud Relay v1 (tunnel per AD-22) | next; WP-28 done; OD-3 decided (AD-21), OD-4/OD-5 decided (AD-22) |
+| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to WP-29 |
 | WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13), needed before WP-31 |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
 | WP-41, WP-42 | Extensibility invariant tests; workspace image view (post-v1 phase 5; depend on no open contract — WP-42 without downscale, see product-reassessment §8) | can start now with spare capacity; never displace the critical path; WP-43/44/49 wait for OD-16/15/17 ADs |
@@ -190,8 +190,9 @@ and no external service has a CROT integration.
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
 | Revoking a client's authorization at the identity provider from the tray (best effort after the device-side revocation; hook exists, reports "not available") | WP-36 (CROT account service holds the provider credentials) |
 | No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); no release configuration pins an identity environment, so every build honours the development override until then | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
-| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | OD-4 (AD before WP-29), WP-29, WP-30 |
+| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); implemented by WP-29, WP-30; AD-22 open questions 1–8 remain |
 | Remote full-control opt-in is recorded only; how it takes effect (per-principal profile; `principalKinds` exists only in approval rules) | AD-19 point 7; WP-31 |
+| Per-principal permission profile: grants and mode are global per Core, so AD-13 point 5 cannot be enforced with existing matchers | ARCHITECTURE.md §26 question 25 — an AD before WP-31 (does not block WP-29/WP-30) |
 | Preset `autonomous-browser` (rule set not implemented yet) | WP-31 |
 | Any process of the same OS user can read the control credential and act like the tray | AD-19 residual risk; confined Linux children: closed by WP-23a; macOS, Windows, `full_control` and other processes of the user: open (WP-23b/c) |
 | Tray packaging, signing and autostart (Electron is a dev dependency today) | WP-34 |

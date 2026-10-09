@@ -272,17 +272,27 @@ tests point 19). The cards below implement it and must not weaken it.
   outbound multiplexed tunnel with streaming responses; routing without
   parsing bodies (2026-07-28 `Mcp-Method` headers); no payload logging; hook
   for the entitlement check (WP-36). The relay does not implement MCP.
+  Tunnel protocol, device registration, limits (4 MiB request, 32 MiB
+  response), exchange deadline (15 min) and outcomes: ARCHITECTURE.md §27
+  AD-22 (relay side).
 - **Done when:** an SDK client reaches a test device through the relay with
-  every supported protocol version; payloads never appear in relay logs.
+  every supported protocol version; payloads never appear in relay logs;
+  the AD-22 constraint T4 tests pass.
 
 ### WP-30 — Device tunnel adapter
 - **Size:** M–L. **Depends on:** WP-20, WP-28, WP-29.
 - **Scope:** tunnel requests enter the **existing** HTTP pipeline
   (authentication -> session or stateless handling per WP-19 ->
   `StreamableHTTPServerTransport`) without the loopback address check;
-  reconnect; remote mode on/off from the tray.
+  reconnect; remote mode on/off from the tray. Device side of
+  ARCHITECTURE.md §27 AD-22: registration at pairing (point 4), tunnel
+  handshake with the device key, pinned relay host and
+  `/d/<deviceId>/mcp` instead of the loopback checks (point 7), deadline and
+  cancellation (points 12–13).
 - **Done when:** remote requests run through the unchanged Core pipeline as
-  `kind: "remote"`; turning remote mode off closes the tunnel.
+  `kind: "remote"`; turning remote mode off closes the tunnel; cancellation
+  reaches pending approvals and not-yet-started operations (running
+  operations are not interrupted, AD-22 point 13).
 
 ### WP-31 — Remote permission profile and presets
 - **Size:** M. **Depends on:** WP-19, WP-22, WP-23a/b/c, WP-30.

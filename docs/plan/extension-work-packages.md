@@ -66,12 +66,13 @@ questions** · size.
   component; later via WP-49 frames), video, new capabilities.
 - **Requirements:** path rules as `fs_read_file`; audit path and size only;
   same on every transport; the limit is reported to OD-4 as an input, not
-  decided by this WP.
+  decided by this WP (AD-22 fixes 32 MiB per relay response, so a limit of
+  at most 16 MiB fits).
 - **Acceptance:** an image in the workspace is returned as image content;
   outside the workspace denied in sandbox mode; oversize refused with a
   clear error; non-image files refused. **Tests:** adapters (image
   encoding), permissions, audit, invariant tests of WP-41.
-  **Risks:** large responses through the relay (OD-4 size). Size S.
+  **Risks:** large responses through the relay (AD-22 point 11). Size S.
 
 ### WP-43 — Component availability and diagnostics
 
@@ -106,7 +107,7 @@ questions** · size.
   relay entry point), reports progress, can be cancelled within 5 s, result
   retrievable once finished, survives tool-call disconnects; preset change
   waits or reports busy as AD-19 point 5. **Tests:** core, adapters,
-  service restart. **Risks:** persistence format; relay timeouts (OD-4).
+  service restart. **Risks:** persistence format; relay timeouts (AD-22 point 12: 15 min per exchange).
   Size M.
 
 ### WP-45 — Connections and credential vault

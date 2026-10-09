@@ -225,6 +225,11 @@ Unchanged scope; add: message size ≥ largest tool result; no media payloads
 through the relay by design; long work is a job (OD-15), so the tunnel does
 not need multi-hour requests. Depends: — · Blocks: WP-29.
 
+**Decided by ARCHITECTURE.md §27 AD-22:** responses up to 32 MiB per
+stream (above the 16 MiB screenshot and 10 MiB read limits after base64),
+requests up to 4 MiB, exchange deadline 15 min, no media through the relay,
+room for jobs (OD-15) without defining them.
+
 ### OD-15 — Long-running jobs and artifacts
 
 - **Question:** how does an agent start, observe, cancel and collect the
