@@ -26,19 +26,19 @@ package PR updates this file.
   `src/identity/relay-registration.ts`): after the pairing token has passed
   the device's checks, the device registers its key at the relay; any
   failure fails pairing (`relay_registration_failed`).
-- **OD-5 decided:** the tunnel ends a request 5 s before the relay's
+- **OD-5 decided and recorded** in ARCHITECTURE.md §27 AD-22 points 12–13
+  (commit `37b3126`): the tunnel ends a request 5 s before the relay's
   exchange deadline (`deadline_exceeded`, outcome `unknown`); long approvals
-  and bounded browser waits run inside the deadline; measured client
-  timeouts in WP-32.
-- **Why Partial:** the OD-5 decision and the reference to registration are
-  not yet recorded in ARCHITECTURE.md (required before merge). A targeted
-  patch is prepared but not applied: the tooling used for this PR can only
-  replace whole files, and ARCHITECTURE.md is not rewritten wholesale. The
-  WP-30 status in `CROT_IMPLEMENTATION_ROADMAP.md` is set with that entry.
-  WP-30 becomes Done only when both are in this PR and CI is green.
-- **Left open (outside WP-30):** no deregistration at the relay, a
-  registration stays orphaned if storing the binding fails (AD-22 open
-  question 3); measured client timeouts (WP-32).
+  and bounded browser waits run inside the deadline; no automatic retry;
+  measured client timeouts in WP-32.
+- **Why Partial:** two acceptance items of the remote chain are not closed
+  by this PR and are tracked elsewhere. (a) The relay has no device
+  deregistration or key rotation, and a registration stays orphaned if the
+  device fails to store its binding after registering (AD-22 open
+  question 3; relay side, not WP-30 scope). (b) The 5 s margin of the OD-5
+  decision is not measured against real client timeouts yet; that is done
+  by WP-32 (AD-22 open question 5). WP-30 is marked Done only once both are
+  closed or formally reassigned.
 
 Tests: `tests/cloud-relay/device-tunnel.test.ts` (real relay → tunnel →
 relay entry → Core: SDK clients of every supported version, parallel and
@@ -255,7 +255,7 @@ per-principal profile AD, §26 Q25, and WP-23b/c).
 
 | WP | What | State |
 | --- | --- | --- |
-| WP-30 | Device tunnel adapter (AD-22, device side) | Partial, PR #20: tunnel, pipeline entry and registration at pairing implemented; OD-5 decided, its ARCHITECTURE.md entry pending (patch prepared); per-principal profile AD (§26 Q25) needed before WP-31, not WP-30 |
+| WP-30 | Device tunnel adapter (AD-22, device side) | Partial, PR #20: tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`); open: relay-side deregistration and orphaned registration (AD-22 open question 3), measured client timeouts (WP-32); per-principal profile AD (§26 Q25) needed before WP-31, not WP-30 |
 | WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to WP-30 |
 | WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13), needed before WP-31 |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
@@ -294,7 +294,7 @@ and no external service has a CROT integration.
 | Revoking a client's authorization at the identity provider from the tray (best effort after the device-side revocation; hook exists, reports "not available") | WP-36 (CROT account service holds the provider credentials) |
 | No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); no release configuration pins an identity environment, so every build honours the development override until then | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
 | Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side by WP-30 (PR #20, Partial); AD-22 open questions 1–8 remain |
-| Device deregistration and key rotation at the relay; a registration stays orphaned if the device fails to store its binding after registering | AD-22 open question 3 (not WP-30) |
+| Device deregistration and key rotation at the relay; a registration stays orphaned if the device fails to store its binding after registering | AD-22 open question 3 (relay side, not WP-30); one of the two reasons WP-30 stays Partial |
 | Remote full-control opt-in is recorded only; how it takes effect (per-principal profile; `principalKinds` exists only in approval rules) | AD-19 point 7; WP-31 |
 | Per-principal permission profile: grants and mode are global per Core, so AD-13 point 5 cannot be enforced with existing matchers | ARCHITECTURE.md §26 question 25 — an AD before WP-31 (does not block WP-30) |
 | Preset `autonomous-browser` (rule set not implemented yet) | WP-31 |
@@ -308,7 +308,7 @@ and no external service has a CROT integration.
 | GUI control of desktop applications ("never in scope: OS-level input") | unchanged for v1; reassessed by OD-22 after spike WP-69 |
 | Vendor API facts (YouTube, ElevenLabs, TikTok, Canva) | unverified; confirmed by WP-60, WP-62 and the first step of WP-58/WP-59 ([`docs/design/integration-map.md`](docs/design/integration-map.md)) |
 | Transport matcher to gate loopback HTTP separately from stdio | ARCHITECTURE.md §26 question 12 (not required for v1) |
-| Relay/tunnel timeouts for gated requests and bounded browser waits | Decided by ARCHITECTURE.md §27 AD-22 points 12–13 (§26 question 13); relay side implemented (WP-29); device side WP-30 (PR #20): a request ends 5 s before the exchange deadline (OD-5; ARCHITECTURE.md entry pending); measured client timeouts WP-32 (AD-22 open question 5) |
+| Relay/tunnel timeouts for gated requests and bounded browser waits | Decided by ARCHITECTURE.md §27 AD-22 points 12–13 (§26 question 13); relay side implemented (WP-29); device side WP-30 (PR #20): a request ends 5 s before the exchange deadline (OD-5, recorded in ARCHITECTURE.md by `37b3126`); measured client timeouts WP-32 (AD-22 open question 5) |
 | Relay request rate and concurrency limits, per-source connection and handshake limits, registration rate limit, relay load test | Open WP-29 items (AD-15 point 10; ARCHITECTURE.md §27 AD-22, Implementation (WP-29)); release-blocking before WP-38 exposes a public relay, or reassigned to WP-39 |
 | Approval policy in general (beyond presets) | §26 question 6 |
 | Limit remote agents to tabs they opened | §26 question 14 (opened by AD-16; not required for v1) |
