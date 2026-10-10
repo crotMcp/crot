@@ -165,8 +165,12 @@ export interface TrayView {
   readonly presets: readonly PresetOption[];
   readonly presetBlockedBy?: string;
   readonly remoteMode: boolean;
+  /** The full-control opt-in as recorded in the device settings. */
   readonly fullControl: boolean;
+  /** Whether the running Core applies it (WP-31): recorded and bound to the device paired here. */
+  readonly fullControlEffective: boolean;
   readonly fullControlNote: string;
+  /** Remote notes: tunnel, effective preset and its source, the remote profile and its restrictions (WP-31), errors. */
   readonly remoteNotes: readonly string[];
   readonly clients: readonly RemoteClientRow[];
   readonly pairing: PairingRow;
@@ -180,6 +184,38 @@ const PRESET_LABELS: Readonly<Record<PresetValue, string>> = {
   "autonomous-browser": "Autonomous browser",
   off: "Off (no built-in approvals)",
 };
+
+const PRESET_SOURCES: Readonly<Record<ControlOverview["preset"]["source"], string>> = {
+  device: "chosen on this device",
+  configuration: "from the configuration file",
+  "fail-closed": "device settings unreadable, most restrictive",
+};
+
+/**
+ * The effective preset and the remote profile as reported by the running Core
+ * (WP-31): what remote clients may do, whether the full-control opt-in is in
+ * effect, and the restrictions that always apply to them.
+ */
+export function profileLines(o: ControlOverview): string[] {
+  const lines = [
+    `Approval preset: ${PRESET_LABELS[o.preset.effective]} (${o.preset.effective}), ${PRESET_SOURCES[o.preset.source]}`,
+  ];
+  const p = o.remote.profile;
+  if (!p) return lines;
+  lines.push(
+    `Remote clients: mode ${p.mode}, untrusted-content protection ${p.untrustedContent}, capabilities ${p.capabilities.join(", ") || "none"}`,
+  );
+  const effective = o.remote.fullControlEffective ?? p.fullControl.enabled;
+  lines.push(
+    effective && p.fullControl.deviceId
+      ? `Remote full control: ON for device ${p.fullControl.deviceId}${p.fullControl.accountId ? ` (account ${p.fullControl.accountId})` : ""} only`
+      : o.remote.fullControl
+        ? "Remote full control: recorded but NOT in effect (no device paired here); remote clients stay in the workspace"
+        : "Remote full control: off",
+  );
+  for (const r of p.restrictions) lines.push(`Restriction: ${r}`);
+  return lines;
+}
 
 export function trayView(state: TrayState): TrayView {
   const o = state.overview;
@@ -241,8 +277,9 @@ export function trayView(state: TrayState): TrayView {
         ...(o.preset.source === "fail-closed"
           ? ["The device settings cannot be read: the most restrictive settings apply."]
           : []),
-        ...o.remote.errors.map(visibleText),
-      ]
+        ...profileLines(o),
+        ...o.remote.errors,
+      ].map(visibleText)
     : [];
   const icon = offline ? "offline" : cards.length > 0 ? "attention" : o.remote.mode ? "remote" : "idle";
   const tooltip = offline
@@ -258,6 +295,7 @@ export function trayView(state: TrayState): TrayView {
     ...(o?.preset.blockedBy ? { presetBlockedBy: o.preset.blockedBy } : {}),
     remoteMode: o?.remote.mode ?? false,
     fullControl: o?.remote.fullControl ?? false,
+    fullControlEffective: o?.remote.fullControlEffective ?? o?.remote.profile?.fullControl.enabled ?? false,
     fullControlNote: o?.remote.fullControlNote ?? "",
     remoteNotes,
     clients,
