@@ -24,17 +24,31 @@ const inside: ResolvedPath = { absolute: "/ws/a.txt", relative: "a.txt", insideW
 const outside: ResolvedPath = { absolute: "/etc/hosts", relative: null, insideWorkspace: false };
 
 const remote = (deviceId: string, accountId = "acc-1", clientId = "client-1"): AuthContext => ({
-  principal: remotePrincipal({ id: `remote-${deviceId}`, transport: "http", authMethod: "test", accountId, deviceId, clientId }),
+  principal: remotePrincipal({
+    id: `remote-${deviceId}`,
+    transport: "http",
+    authMethod: "test",
+    accountId,
+    deviceId,
+    clientId,
+  }),
 });
 
 const engine = (policy: PermissionPolicyInput, options: PermissionEngineOptions = {}) =>
   new PermissionEngine(createPermissionPolicy(policy), options);
 
-const withPreset = (untrustedContent: (typeof UNTRUSTED_CONTENT_SETTINGS)[number], extra: PermissionEngineOptions = {}) =>
-  engine({ mode: "full_control" }, { ...extra, approvals: { rules: [], untrustedContent } });
+const withPreset = (
+  untrustedContent: (typeof UNTRUSTED_CONTENT_SETTINGS)[number],
+  extra: PermissionEngineOptions = {},
+) => engine({ mode: "full_control" }, { ...extra, approvals: { rules: [], untrustedContent } });
 
-const gate = (e: PermissionEngine, ctx: AuthContext, capabilities: Capability[], operation = "test.op", exposed = true) =>
-  e.approvalRequirement(ctx, { operation, capabilities, exposed });
+const gate = (
+  e: PermissionEngine,
+  ctx: AuthContext,
+  capabilities: Capability[],
+  operation = "test.op",
+  exposed = true,
+) => e.approvalRequirement(ctx, { operation, capabilities, exposed });
 
 describe("remote default profile (safe remote defaults)", () => {
   it("is limited to the workspace even when the local configuration is full_control; local keeps full_control", () => {
@@ -52,7 +66,10 @@ describe("remote default profile (safe remote defaults)", () => {
   });
 
   it("never grants a remote principal more than the configured capabilities", () => {
-    const e = engine({ mode: "sandbox", capabilities: ["filesystem.read"] }, { remote: { fullControl: { deviceId: "d1" } } });
+    const e = engine(
+      { mode: "sandbox", capabilities: ["filesystem.read"] },
+      { remote: { fullControl: { deviceId: "d1" } } },
+    );
     for (const ctx of [remote("d1"), remote("d2")]) {
       expect(e.authorize({ context: ctx, capability: "shell.execute", paths: [inside] }).allowed).toBe(false);
       expect(e.authorize({ context: ctx, capability: "network.access" }).allowed).toBe(false);
@@ -73,7 +90,11 @@ describe("remote default profile (safe remote defaults)", () => {
     const e = engine({ mode: "sandbox" });
     for (const ctx of [local, remote("d1")])
       expect(gate(e, ctx, ["browser.control"])).toMatchObject({ required: true, rule: UNTRUSTED_CONTENT_RULE_ID });
-    expect(e.remoteProfile).toMatchObject({ mode: "sandbox", untrustedContent: "require-approval", fullControl: { enabled: false } });
+    expect(e.remoteProfile).toMatchObject({
+      mode: "sandbox",
+      untrustedContent: "require-approval",
+      fullControl: { enabled: false },
+    });
   });
 });
 
@@ -101,7 +122,8 @@ describe("presets", () => {
   it("autonomous-browser: shell, filesystem write, Git write, network access and Docker Compose stay gated", () => {
     const e = withPreset("autonomous-browser");
     for (const ctx of [local, remote("d1")]) {
-      for (const c of gated) expect(gate(e, ctx, [c])).toMatchObject({ required: true, rule: UNTRUSTED_CONTENT_RULE_ID });
+      for (const c of gated)
+        expect(gate(e, ctx, [c])).toMatchObject({ required: true, rule: UNTRUSTED_CONTENT_RULE_ID });
       for (const op of ["docker.compose_up", "docker.compose_down"])
         expect(gate(e, ctx, ["shell.execute"], op)).toMatchObject({ required: true });
     }
@@ -127,19 +149,23 @@ describe("presets", () => {
   it("a clean session runs without approval in every preset (default remote profile)", () => {
     for (const preset of UNTRUSTED_CONTENT_SETTINGS) {
       const e = withPreset(preset);
-      for (const ctx of [local, remote("d1")]) expect(gate(e, ctx, ["shell.execute"], "process.exec", false)).toEqual({ required: false });
+      for (const ctx of [local, remote("d1")])
+        expect(gate(e, ctx, ["shell.execute"], "process.exec", false)).toEqual({ required: false });
     }
   });
 
   it("user rules cannot take the ids of built-in rules", () => {
     const policy = createPermissionPolicy({ mode: "sandbox" });
     for (const id of [UNTRUSTED_CONTENT_RULE_ID, BROWSER_UPLOAD_RULE_ID, REMOTE_FULL_CONTROL_RULE_ID])
-      expect(() => validateApprovalRules([{ id, match: { capabilities: ["shell.execute"] } }], policy)).toThrow(CrotError);
+      expect(() => validateApprovalRules([{ id, match: { capabilities: ["shell.execute"] } }], policy)).toThrow(
+        CrotError,
+      );
   });
 });
 
 describe("remote full-control opt-in", () => {
-  const optedIn = () => engine({ mode: "sandbox" }, { remote: { fullControl: { deviceId: "d1", accountId: "acc-1" } } });
+  const optedIn = () =>
+    engine({ mode: "sandbox" }, { remote: { fullControl: { deviceId: "d1", accountId: "acc-1" } } });
 
   it("is denied without the opt-in", () => {
     const e = engine({ mode: "full_control" });
@@ -150,7 +176,13 @@ describe("remote full-control opt-in", () => {
   it("changes real authorization outcomes for the remote clients of the bound device", () => {
     const e = optedIn();
     expect(e.authorize({ context: remote("d1"), capability: "filesystem.read", paths: [outside] }).allowed).toBe(true);
-    expect(e.authorize({ context: remote("d1", "acc-1", "another-client"), capability: "filesystem.write", paths: [outside] }).allowed).toBe(true);
+    expect(
+      e.authorize({
+        context: remote("d1", "acc-1", "another-client"),
+        capability: "filesystem.write",
+        paths: [outside],
+      }).allowed,
+    ).toBe(true);
     expect(e.modeFor(remote("d1"))).toBe("full_control");
   });
 
@@ -190,7 +222,10 @@ describe("remote full-control opt-in", () => {
       { mode: "sandbox" },
       { approvals: { rules: [], untrustedContent: "off" }, remote: { fullControl: { deviceId: "d1" } } },
     );
-    expect(gate(e, remote("d1"), ["filesystem.write"])).toMatchObject({ required: true, rule: UNTRUSTED_CONTENT_RULE_ID });
+    expect(gate(e, remote("d1"), ["filesystem.write"])).toMatchObject({
+      required: true,
+      rule: UNTRUSTED_CONTENT_RULE_ID,
+    });
     expect(gate(e, local, ["filesystem.write"])).toEqual({ required: false });
   });
 
