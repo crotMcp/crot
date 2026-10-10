@@ -472,59 +472,87 @@ export class ControlCenter implements RemoteAdmission {
   /**
    * The remote full-control opt-in (WP-31, AD-19 point 7). It becomes policy only through a new Core whose
    * remote profile binds full control to the device and account paired here. Turning it on needs readable
-   * settings, a paired device and an idle Core, and its audit record comes first. Any failure restores the
-   * previous settings and keeps the previous Core.
+   * settings, a paired device and an idle Core, and its audit record comes first.
+   *
+   * The device settings never hold more than the running Core applies, so the file alone never grants full
+   * control: turning it on installs the new Core first and records the opt-in only afterwards (a failed
+   * write leaves it in effect until the service stops and off after a restart); turning it off records the
+   * narrower value first. No failure writes the opt-in back on.
    */
   private async setFullControl(enabled: boolean): Promise<Result> {
     const action = "remote_full_control";
     const settings = this.host.settings;
     const previous = settings.settings.remoteFullControl;
-    if (previous === enabled && settings.error === undefined) return { ok: true, enabled, unchanged: true };
+    const effective = this.host.holder.instance.permissions.remoteProfile.fullControl.enabled;
+    if (previous === enabled && effective === enabled && settings.error === undefined)
+      return { ok: true, enabled, unchanged: true };
     const refuse = async (reason: string, message: string) => {
       await this.auditBestEffort(action, "refused", { reason, previous, value: enabled });
       return refusal(reason, message);
     };
+    const paired = this.host.binding.paired;
     if (enabled && settings.error !== undefined)
       return refuse(
         "state_unavailable",
         `The device settings cannot be read (${settings.error}); remote full control stays off.`,
       );
-    if (enabled && !this.host.binding.paired)
+    if (enabled && !paired)
       return refuse("not_paired", "Remote full control needs a device paired here: pair this device first.");
     const busy = this.host.holder.busyReason();
     if (busy) return refuse("busy", `Remote full control can be changed only while CROT is idle: ${busy}.`);
-    const widening = enabled;
-    if (widening) {
+    const preset = ControlCenter.effectivePreset(settings, this.host.configuredPreset).effective;
+    if (enabled && paired) {
       try {
-        await this.audit(action, "applied", { previous, value: enabled });
+        await this.audit(action, "applied", { previous, value: true });
       } catch (error) {
         return refusal("audit_failed", `Not changed: the audit record could not be written (${errorText(error)}).`);
       }
+      const failure = await this.replaceCore(
+        preset,
+        { fullControl: { deviceId: paired.deviceId, accountId: paired.accountId } },
+        "Remote full control",
+      );
+      if (failure) {
+        await this.auditBestEffort(action, "failed", { reason: failure.reason, previous, value: true });
+        return refusal(failure.reason, failure.message);
+      }
+      let warning: string | undefined;
+      try {
+        await settings.update({ remoteFullControl: true });
+      } catch (error) {
+        warning =
+          `remote full control is in effect until the service stops, but it could not be saved in the device ` +
+          `settings (${errorText(error)}); it is off after a restart`;
+        await this.auditBestEffort(action, "failed", { reason: "state_write_failed", previous, value: true });
+        this.host.log(`control: ${warning}`);
+      }
+      this.host.log("control: remote full-control opt-in on");
+      this.stateChanged();
+      return { ok: true, enabled, ...(warning ? { persisted: false, warning } : {}) };
     }
-    const failed = async (reason: string, message: string) => {
-      await this.auditBestEffort(action, widening ? "failed" : "refused", { reason, previous, value: enabled });
-      return refusal(reason, message);
-    };
     try {
-      await settings.update({ remoteFullControl: enabled });
+      await settings.update({ remoteFullControl: false });
     } catch (error) {
-      return failed(
+      await this.auditBestEffort(action, "refused", { reason: "state_write_failed", previous, value: false });
+      return refusal(
         "state_write_failed",
         `Not changed: the device settings could not be written (${errorText(error)}).`,
       );
     }
-    const preset = ControlCenter.effectivePreset(settings, this.host.configuredPreset).effective;
-    const failure = await this.replaceCore(preset, this.requestedRemoteProfile(), "Remote full control");
-    if (failure) {
-      try {
-        await settings.update({ remoteFullControl: previous });
-      } catch (error) {
-        this.host.log(`control: cannot restore the remote full-control opt-in: ${errorText(error)}`);
+    if (effective) {
+      const failure = await this.replaceCore(preset, undefined, "Remote full control");
+      if (failure) {
+        await this.auditBestEffort(action, "failed", { reason: failure.reason, previous, value: false });
+        this.stateChanged();
+        return refusal(
+          failure.reason,
+          `${failure.message} It is already off in the device settings, so it does not apply after a restart; ` +
+            "the running Core keeps it until it can be replaced.",
+        );
       }
-      return failed(failure.reason, failure.message);
     }
-    const warning = widening ? undefined : await this.auditBestEffort(action, "applied", { previous, value: enabled });
-    this.host.log(`control: remote full-control opt-in ${enabled ? "on" : "off"}`);
+    const warning = await this.auditBestEffort(action, "applied", { previous, value: false });
+    this.host.log("control: remote full-control opt-in off");
     this.stateChanged();
     return { ok: true, enabled, ...(warning ? { warning } : {}) };
   }
