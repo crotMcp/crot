@@ -5,24 +5,43 @@
  * configuration file, and changed only for requests on the authenticated
  * control channel.
  *
- * Fail closed: if the stored state cannot be read or is malformed, the
- * effective settings are the most restrictive ones (preset
- * `require-approval`, remote mode off, opt-in off) and the error is reported.
+ * The remote full-control opt-in (WP-31) is stored together with its grant:
+ * the device id and account of the pairing it was given for. It is kept
+ * across restarts and applies only while that pairing is in effect
+ * (`ControlCenter.remoteProfile`). Every pairing has a new device id
+ * (AD-21 point 5), so a grant never carries over to a new pairing. An opt-in
+ * recorded before WP-31 has no grant and never applies.
+ *
+ * Fail closed: if the stored state cannot be read or is malformed (including
+ * a malformed grant), the effective settings are the most restrictive ones
+ * (preset `require-approval`, remote mode off, opt-in off) and the error is
+ * reported.
  */
 import { UNTRUSTED_CONTENT_SETTINGS, type UntrustedContentSetting } from "../core/approvals/exposure.js";
 import type { PrivateFileProtection } from "../core/platform/types.js";
+import { isDeviceId } from "../identity/device-id.js";
 import { isRecord, readStateFile, writeStateFile } from "./private-state.js";
+import { isValidRemoteId } from "./remote-clients.js";
 
 export const SERVICE_SETTINGS_FILE_NAME = "service-settings.json";
 const FORMAT_VERSION = 1;
+
+/** The pairing a remote full-control opt-in was given for (WP-31). */
+export interface FullControlGrant {
+  readonly deviceId: string;
+  readonly accountId: string;
+  readonly grantedAt: string;
+}
 
 export interface DeviceSettings {
   /** The preset chosen by the user; absent: the configuration's value applies. */
   readonly preset?: UntrustedContentSetting;
   /** Remote mode (§22): off by default. */
   readonly remoteMode: boolean;
-  /** Remote full-control opt-in (AD-13 point 5): off by default; recorded only until WP-31. */
+  /** Remote full-control opt-in (AD-13 point 5): off by default. */
   readonly remoteFullControl: boolean;
+  /** The pairing the opt-in was given for (WP-31); present only with `remoteFullControl`. */
+  readonly remoteFullControlGrant?: FullControlGrant;
 }
 
 const DEFAULTS: DeviceSettings = Object.freeze({ remoteMode: false, remoteFullControl: false });
@@ -32,6 +51,13 @@ const FAIL_CLOSED: DeviceSettings = Object.freeze({
   remoteMode: false,
   remoteFullControl: false,
 });
+
+function parseGrant(value: unknown): FullControlGrant | undefined {
+  if (!isRecord(value)) return undefined;
+  const { deviceId, accountId, grantedAt } = value;
+  if (!isDeviceId(deviceId) || !isValidRemoteId(accountId) || typeof grantedAt !== "string") return undefined;
+  return { deviceId, accountId, grantedAt };
+}
 
 function parse(text: string): DeviceSettings | undefined {
   let value: unknown;
@@ -46,20 +72,29 @@ function parse(text: string): DeviceSettings | undefined {
     if (typeof value.preset !== "string" || !(UNTRUSTED_CONTENT_SETTINGS as readonly string[]).includes(value.preset))
       return undefined;
   }
+  let grant: FullControlGrant | undefined;
+  if (value.remoteFullControlGrant !== undefined) {
+    grant = parseGrant(value.remoteFullControlGrant);
+    // A grant without the opt-in, or one that is not well formed, is malformed state.
+    if (!grant || value.remoteFullControl !== true) return undefined;
+  }
   return {
     ...(value.preset !== undefined ? { preset: value.preset as UntrustedContentSetting } : {}),
     remoteMode: value.remoteMode,
     remoteFullControl: value.remoteFullControl,
+    ...(grant ? { remoteFullControlGrant: grant } : {}),
   };
 }
 
 function serialize(settings: DeviceSettings): string {
+  const grant = settings.remoteFullControl ? settings.remoteFullControlGrant : undefined;
   return (
     JSON.stringify({
       version: FORMAT_VERSION,
       ...(settings.preset !== undefined ? { preset: settings.preset } : {}),
       remoteMode: settings.remoteMode,
       remoteFullControl: settings.remoteFullControl,
+      ...(grant ? { remoteFullControlGrant: grant } : {}),
     }) + "\n"
   );
 }
@@ -99,15 +134,18 @@ export class DeviceSettingsStore {
   /**
    * Store a change. The file is written first; the effective settings change
    * only when that succeeded. Writing replaces an unreadable file with the
-   * effective (fail-closed) settings plus the change.
+   * effective (fail-closed) settings plus the change. Turning the opt-in off
+   * drops its grant.
    */
   async update(change: Partial<DeviceSettings> & { readonly clearPreset?: boolean }): Promise<DeviceSettings> {
-    const base = this.settings;
     const { clearPreset, ...rest } = change;
-    const merged: DeviceSettings = { ...base, ...rest };
-    const next: DeviceSettings = clearPreset
-      ? { remoteMode: merged.remoteMode, remoteFullControl: merged.remoteFullControl }
-      : merged;
+    const { preset, remoteFullControlGrant, ...flags } = { ...this.settings, ...rest };
+    const next: DeviceSettings = {
+      ...(clearPreset || preset === undefined ? {} : { preset }),
+      remoteMode: flags.remoteMode,
+      remoteFullControl: flags.remoteFullControl,
+      ...(flags.remoteFullControl && remoteFullControlGrant ? { remoteFullControlGrant } : {}),
+    };
     await writeStateFile(this.file, serialize(next), this.privateFiles);
     this.stored = next;
     this.failure = undefined;

@@ -149,16 +149,38 @@ export class ControlCenter implements RemoteAdmission {
   }
 
   /**
-   * The remote profile the device state asks for (WP-31): full control only when the opt-in is recorded in
-   * readable settings and the device is paired here, bound to that device and account. Otherwise none.
+   * The remote profile the device state asks for (WP-31): full control only when readable settings record the
+   * opt-in together with its grant, and the grant names the device id and account of the pairing in effect.
+   * A grant of an earlier pairing, an opt-in without a grant, unreadable settings or an unusable binding give
+   * none. This is how the opt-in is restored after a restart.
    */
   static remoteProfile(
     settings: DeviceSettingsStore,
     binding: Pick<DeviceBindingStore, "paired">,
   ): RemoteProfileOptions | undefined {
-    if (settings.error !== undefined || !settings.settings.remoteFullControl) return undefined;
+    if (settings.error !== undefined) return undefined;
+    const { remoteFullControl, remoteFullControlGrant: grant } = settings.settings;
     const paired = binding.paired;
-    return paired ? { fullControl: { deviceId: paired.deviceId, accountId: paired.accountId } } : undefined;
+    if (!remoteFullControl || !grant || !paired) return undefined;
+    if (grant.deviceId !== paired.deviceId || grant.accountId !== paired.accountId) return undefined;
+    return { fullControl: { deviceId: paired.deviceId, accountId: paired.accountId } };
+  }
+
+  /** Why a recorded full-control opt-in does not apply (overview errors); undefined when it applies or is off. */
+  static fullControlProblem(
+    settings: DeviceSettingsStore,
+    binding: Pick<DeviceBindingStore, "paired" | "error">,
+  ): string | undefined {
+    if (settings.error !== undefined || !settings.settings.remoteFullControl) return undefined;
+    const grant = settings.settings.remoteFullControlGrant;
+    if (!grant)
+      return "remote full control was recorded before WP-31 without a pairing and does not apply; turn it on again";
+    if (binding.error !== undefined) return "remote full control does not apply: the device binding cannot be used";
+    const paired = binding.paired;
+    if (!paired) return "remote full control does not apply: this device is not paired";
+    if (grant.deviceId !== paired.deviceId || grant.accountId !== paired.accountId)
+      return "remote full control was given for another pairing (device or account) and does not apply";
+    return undefined;
   }
 
   /** Wait for pending writes of the device state (shutdown). */
@@ -474,10 +496,11 @@ export class ControlCenter implements RemoteAdmission {
    * remote profile binds full control to the device and account paired here. Turning it on needs readable
    * settings, a paired device and an idle Core, and its audit record comes first.
    *
-   * The device settings never hold more than the running Core applies, so the file alone never grants full
-   * control: turning it on installs the new Core first and records the opt-in only afterwards (a failed
-   * write leaves it in effect until the service stops and off after a restart); turning it off records the
-   * narrower value first. No failure writes the opt-in back on.
+   * The device settings never hold more than the running Core applies: turning it on installs the new Core
+   * first and records the opt-in only afterwards, together with its grant (the paired device id and account;
+   * a failed write leaves it in effect until the service stops and off after a restart); turning it off
+   * records the narrower value first. No failure writes the opt-in back on. A recorded opt-in is restored
+   * after a restart only for the pairing its grant names (`remoteProfile`).
    */
   private async setFullControl(enabled: boolean): Promise<Result> {
     const action = "remote_full_control";
@@ -518,7 +541,14 @@ export class ControlCenter implements RemoteAdmission {
       }
       let warning: string | undefined;
       try {
-        await settings.update({ remoteFullControl: true });
+        await settings.update({
+          remoteFullControl: true,
+          remoteFullControlGrant: {
+            deviceId: paired.deviceId,
+            accountId: paired.accountId,
+            grantedAt: new Date().toISOString(),
+          },
+        });
       } catch (error) {
         warning =
           `remote full control is in effect until the service stops, but it could not be saved in the device ` +
@@ -882,12 +912,14 @@ export class ControlCenter implements RemoteAdmission {
         !store || store.failedClosed ? "unknown" : store.isExposed(key) ? "exposed" : "clean";
       return { ...c, exposure };
     });
+    const fullControlProblem = ControlCenter.fullControlProblem(this.host.settings, this.host.binding);
     const errors = [
       ...(this.host.settings.error !== undefined ? [`device settings: ${this.host.settings.error}`] : []),
       ...(this.host.clients.error !== undefined ? [`remote clients: ${this.host.clients.error}`] : []),
       ...(store?.failedClosed
         ? ["remote exposure state cannot be read: every remote client is treated as exposed"]
         : []),
+      ...(fullControlProblem ? [fullControlProblem] : []),
     ];
     const browser = this.host.browserState();
     const blockedBy = this.host.holder.busyReason();
