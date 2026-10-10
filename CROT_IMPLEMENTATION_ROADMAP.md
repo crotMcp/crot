@@ -743,7 +743,7 @@ Implemented: the outbound tunnel, the relay entry into the unchanged
 pipeline, multiplexing, streaming, cancellation, deadlines, loss without
 replay and registration at pairing (AD-22 point 4); OD-5 recorded in AD-22
 points 12–13 (`37b3126`). Open: relay-side deregistration / key rotation and
-orthaned registration (AD-22 open question 3); measured client timeouts
+orphaned registration (AD-22 open question 3); measured client timeouts
 (WP-32).
 
 - **Objective:** tunnel requests enter the existing HTTP pipeline as
