@@ -27,12 +27,12 @@ import type { AuditConfig, CrotConfig, Limits } from "./config/schema.js";
 import { CrotError } from "./errors.js";
 import { ExecutionGuard } from "./execution/guard.js";
 import { CAPABILITIES, ENFORCED_CAPABILITIES, type Capability } from "./permissions/capabilities.js";
-import { PermissionEngine } from "./permissions/engine.js";
+import { PermissionEngine, type RemoteProfileOptions, type RemoteProfileSummary } from "./permissions/engine.js";
 import { NetworkPolicy, type NetworkPolicySummary } from "./permissions/network/policy.js";
 import { createPermissionPolicy, type PermissionMode } from "./permissions/policy.js";
 import { DEFAULT_AUDIT_FILE_NAME } from "./platform/directories.js";
 import { createChildEnvironment, type ChildEnvironmentSummary } from "./platform/child-environment.js";
-import { notImplementedStatus, unavailableConfinement } from "./platform/confinement.js";
+import { unavailableConfinement } from "./platform/confinement.js";
 import { createNodePlatform } from "./platform/node-platform.js";
 import type {
   ConfinementStatus,
@@ -46,8 +46,10 @@ import { Workspace, type WorkspaceInfo } from "./workspace/workspace.js";
 
 export interface CrotStatus {
   readonly version: string;
+  /** Permission mode of local principals (the configured mode). */
   readonly mode: PermissionMode;
   readonly workspace: WorkspaceInfo;
+  /** Capabilities of local principals. */
   readonly capabilities: readonly { capability: Capability; granted: boolean; enforced: boolean }[];
   readonly limits: Limits;
   readonly audit: {
@@ -69,7 +71,8 @@ export interface CrotStatus {
   /**
    * Command confinement L1 of the children of shell.execute and
    * process.manage (ARCHITECTURE.md §27 AD-20 point 12). In full_control L1
-   * does not apply; the machine's state is reported with a note.
+   * does not apply to local principals; remote principals always need it
+   * (WP-31). The note in detail says so.
    */
   readonly confinement: ConfinementStatus;
   /** Approval gates: configured rules and whether an approval UI is registered (never pending requests). */
@@ -78,10 +81,12 @@ export interface CrotStatus {
     readonly timeoutMs: number;
     readonly maxPending: number;
     readonly providers: number;
-    /** The built-in untrusted-content rule (AD-12). */
+    /** The preset of the built-in rules for local principals (AD-12, WP-31). */
     readonly untrustedContent: UntrustedContentSetting;
     readonly note?: string;
   };
+  /** The effective profile of remote principals (WP-31). */
+  readonly remote: RemoteProfileSummary;
   /** The supervised service running this Core (WP-20); absent when Core is embedded without a service. */
   readonly service?: ServiceStatus;
 }
@@ -144,6 +149,12 @@ export interface CrotCoreOptions {
    */
   readonly exposure?: ExposureTracker;
   /**
+   * How remote principals are authorized (WP-31). Only the composition root
+   * (the service) passes it, from the user's device settings; without it
+   * remote principals get the remote default profile.
+   */
+  readonly remoteProfile?: RemoteProfileOptions;
+  /**
    * Receives the composition-root handle of this Core (AD-19 point 3)
    * synchronously during create(). Only the composition root (the service)
    * passes this option; no adapter, browser side, tool or relay gets the
@@ -170,6 +181,10 @@ export interface CoreActivity {
   readonly runningBackgroundProcesses: number;
 }
 
+/** Note on the L1 status when local principals run in full_control (WP-31). */
+const FULL_CONTROL_CONFINEMENT_NOTE =
+  "permission mode full_control: local commands run unconfined; remote commands need L1";
+
 /**
  * CROT Core: the composition root of the product layer.
  *
@@ -195,10 +210,8 @@ export class CrotCore {
     private readonly auditProtection: PrivateFileStatus | undefined,
     private readonly serviceStatus: (() => ServiceStatus) | undefined,
     private readonly childEnvironment: ChildEnvironmentSummary,
-    /** L1 of this Core (workspace mode); undefined in full_control. */
-    private readonly confinement: CoreConfinement | undefined,
-    /** State of the machine reported in full_control, where L1 does not apply. */
-    private fullControlConfinement: ConfinementStatus | undefined,
+    /** L1 of this Core, opened in every mode (WP-31: remote principals always need it). */
+    private readonly confinement: CoreConfinement,
   ) {}
 
   private shuttingDown: Promise<void> | undefined;
@@ -256,6 +269,7 @@ export class CrotCore {
         timeoutMs: config.permissions.approvals.timeoutMs,
         untrustedContent: config.permissions.approvals.untrustedContent,
       },
+      ...(options.remoteProfile ? { remote: options.remoteProfile } : {}),
     });
     const remoteExposure = options.exposure
       ? undefined
@@ -290,44 +304,38 @@ export class CrotCore {
       config.environment.allow,
       platform.environment.caseInsensitive,
     );
-    // Command confinement L1 (AD-20): one sandbox per Core in workspace mode, started with the first
-    // confined launch. In full_control L1 does not apply and commands stay unconfined.
+    // Command confinement L1 (AD-20): one sandbox per Core, started with the first confined launch.
+    // Opened in every mode (WP-31): local full_control commands stay unconfined, remote commands
+    // always run in L1 or are refused.
     const confinementNetwork = config.confinement.network;
-    let confinement: CoreConfinement | undefined;
-    let fullControlConfinement: ConfinementStatus | undefined;
-    if (config.permissions.mode === "sandbox") {
-      const dockerEnvironment: Record<string, string> = {};
-      for (const [name, value] of Object.entries(platform.baseEnvironment)) {
-        if (DOCKER_FORWARDED_ENV.has(name.toUpperCase())) dockerEnvironment[name] = value;
-      }
-      confinement = platform.confinement
-        ? await platform.confinement.open({
-            workspace: workspace.root,
-            protectedPaths,
-            network: confinementNetwork,
-            dockerEnvironment,
-            audit: (event) => {
-              audit
-                .record({ kind: "confinement", id: newAuditEventId(), timestamp: new Date().toISOString(), ...event })
-                .catch(
-                  options.onAuditError ??
-                    ((e) => process.stderr.write(`crot: audit write failed: ${(e as Error).message}\n`)),
-                );
-            },
-          })
-        : unavailableConfinement(confinementNetwork);
-    } else {
-      fullControlConfinement = platform.confinement
-        ? await platform.confinement.probe(confinementNetwork)
-        : notImplementedStatus(confinementNetwork);
+    const dockerEnvironment: Record<string, string> = {};
+    for (const [name, value] of Object.entries(platform.baseEnvironment)) {
+      if (DOCKER_FORWARDED_ENV.has(name.toUpperCase())) dockerEnvironment[name] = value;
     }
+    const confinement: CoreConfinement = platform.confinement
+      ? await platform.confinement.open({
+          workspace: workspace.root,
+          protectedPaths,
+          network: confinementNetwork,
+          dockerEnvironment,
+          audit: (event) => {
+            audit
+              .record({ kind: "confinement", id: newAuditEventId(), timestamp: new Date().toISOString(), ...event })
+              .catch(
+                options.onAuditError ??
+                  ((e) => process.stderr.write(`crot: audit write failed: ${(e as Error).message}\n`)),
+              );
+          },
+        })
+      : unavailableConfinement(confinementNetwork);
     const processes = new ProcessService({
       workspace,
       guard,
       platform,
       limits: config.limits,
       baseEnv: childEnvironment.base,
-      ...(confinement ? { confinement } : {}),
+      confinement,
+      modeFor: (context) => permissions.modeFor(context),
     });
     const git = new GitService({
       workspace,
@@ -379,7 +387,6 @@ export class CrotCore {
       options.serviceStatus,
       childEnvironment.summary,
       confinement,
-      fullControlConfinement,
     );
   }
 
@@ -399,7 +406,7 @@ export class CrotCore {
       this.browser.shutdown();
       this.network.shutdown();
       await this.processes.shutdown();
-      await this.confinement?.close();
+      await this.confinement.close();
       await this.git.shutdown();
       await this.docker.shutdown();
       await this.guard.drain(SHUTDOWN_DRAIN_MS);
@@ -415,7 +422,7 @@ export class CrotCore {
    */
   terminateProcessesSync(): void {
     this.processes.terminateAllSync();
-    this.confinement?.closeSync();
+    this.confinement.closeSync();
     this.git.terminateAllSync();
     this.docker.terminateAllSync();
   }
@@ -444,23 +451,21 @@ export class CrotCore {
       network: this.permissions.network.summary(),
       confinement: this.confinementStatus(),
       approvals: this.approvalStatus(),
+      remote: this.permissions.remoteProfile,
       ...(this.serviceStatus ? { service: this.serviceStatus() } : {}),
     };
   }
 
   /** Last reported L1 state (AD-20 point 12); no checks run. */
   confinementStatus(): ConfinementStatus {
-    if (this.confinement) return this.confinement.status();
-    const s = this.fullControlConfinement!;
-    const note = "permission mode full_control: commands run unconfined";
-    return { ...s, detail: s.detail ? `${note}; ${s.detail}` : note };
+    const s = this.confinement.status();
+    if (this.permissions.mode !== "full_control") return s;
+    return { ...s, detail: s.detail ? `${FULL_CONTROL_CONFINEMENT_NOTE}; ${s.detail}` : FULL_CONTROL_CONFINEMENT_NOTE };
   }
 
   /** Run the L1 availability checks before crot_status reports (AD-20 point 12). */
   async refreshConfinement(): Promise<ConfinementStatus> {
-    if (this.confinement) await this.confinement.refresh();
-    else if (this.platform.confinement)
-      this.fullControlConfinement = await this.platform.confinement.probe(this.config.confinement.network);
+    await this.confinement.refresh();
     return this.confinementStatus();
   }
 
@@ -473,10 +478,10 @@ export class CrotCore {
         "Approval rules are configured but no approval UI is registered: operations matched by them are denied.",
       );
     const sourceGranted = this.permissions.isGranted("browser.read") || this.permissions.isGranted("network.access");
-    if (untrustedContent === "require-approval" && providers === 0 && sourceGranted)
+    if (untrustedContent !== "off" && providers === 0 && sourceGranted)
       notes.push(
         "No approval UI is registered: after a session reads a web page, screenshot, tab list or network response, " +
-          "its operations with effects are denied (permissions.approvals.untrustedContent).",
+          "its gated operations with effects are denied (permissions.approvals.untrustedContent).",
       );
     return {
       rules: rules.map((r) => r.id),
