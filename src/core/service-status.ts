@@ -42,14 +42,16 @@ export interface ServiceStatus {
   };
   /**
    * Device controls of the tray (WP-22, AD-19): where the preset comes from,
-   * remote mode, the remote full-control opt-in (recorded only until WP-31)
-   * and the number of trays subscribed to approvals. Changed only through
-   * the control channel.
+   * remote mode, the remote full-control opt-in as recorded and whether the
+   * running Core applies it (WP-31), and the number of trays subscribed to
+   * approvals. Changed only through the control channel.
    */
   readonly controls?: {
     readonly preset: { readonly value: string; readonly source: "device" | "configuration" | "fail-closed" };
     readonly remoteMode: boolean;
     readonly remoteFullControl: boolean;
+    /** The running Core applies the opt-in (recorded, readable and the device paired here). */
+    readonly remoteFullControlEffective?: boolean;
     readonly approvalUis: number;
   };
 }
