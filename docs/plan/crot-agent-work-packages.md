@@ -284,11 +284,12 @@ tests point 19). The cards below implement it and must not weaken it.
   tunnel (handshake, refusals, reconnect, streams, limits, cancellation,
   connection loss without replay), the pipeline entry, remote mode on/off
   and registration at pairing (point 4,
-  `src/identity/relay-registration.ts`); OD-5 decided (the tunnel ends a
-  request 5 s before the exchange deadline; measured client timeouts in
-  WP-32). Open before Done: the OD-5 entry and the registration reference
-  in ARCHITECTURE.md (patch prepared, not yet applied) and the roadmap
-  status. Not WP-30: deregistration (AD-22 open question 3).
+  `src/identity/relay-registration.ts`); OD-5 decided and recorded in
+  ARCHITECTURE.md §27 AD-22 points 12–13 and `Implementation (WP-30)`
+  (commit `37b3126`): the tunnel ends a request 5 s before the exchange
+  deadline. Open: measured client timeouts (WP-32, AD-22 open question 5).
+  Not WP-30: deregistration and the orphaned-registration risk (AD-22 open
+  question 3, relay side).
 - **Size:** M–L. **Depends on:** WP-20, WP-28, WP-29.
 - **Scope:** tunnel requests enter the **existing** HTTP pipeline
   (authentication -> session or stateless handling per WP-19 ->
