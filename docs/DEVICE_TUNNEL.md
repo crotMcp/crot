@@ -45,7 +45,7 @@ The device tunnel is the client side of the relay–device tunnel (ARCHITECTURE.
 - **Long approvals and bounded browser waits.** These run inside the deadline. No separate idle timeout applies to an exchange that is waiting for approval.
 - **Cancellation.** Cancellation reaches the pipeline only through the AbortSignal. Neither side ever retries automatically.
 - **Measured client timeouts.** The actual timeouts of remote MCP clients are measured in WP-32 (AD-22 open question 5); the margin is revisited then.
-- **Record.** The entry for this decision in ARCHITECTURE.md is still pending (see STATUS.md, WP-30 Partial).
+- **Record.** The decision is recorded in ARCHITECTURE.md §27 AD-22 points 12–13 and in `Implementation (WP-30)` (commit `37b3126`).
 
 ## Lifecycle in the service
 
