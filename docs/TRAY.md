@@ -54,26 +54,33 @@ npx electron dist/tray/main.js --state-dir=<state directory>
 
 | Control | Effect | Stored in |
 | --- | --- | --- |
-| Approval preset | *Ask for every action* (`require-approval`) or *Off*; *Autonomous browser* comes with WP-31. Applied by switching to a new Core, only while CROT is idle (no operation in flight, no pending approval, no running background process); otherwise refused with the reason. | `<state>/service-settings.json` |
-| Remote mode | Off by default. While off, the relay entry point refuses every request before MCP or Core work. The relay tunnel itself is WP-30. | `<state>/service-settings.json` |
-| Remote full-control opt-in | Off by default. **Recorded and audited only** in WP-22: it changes no permission; WP-31 decides how it takes effect. | `<state>/service-settings.json` |
+| Approval preset | *Ask for every action* (`require-approval`, default), *Autonomous browser* (`autonomous-browser`: browser control without repeated approval; local file uploads, shell, filesystem write, Git write, network and Docker Compose stay gated) or *Off* (`off`: local agents only; remote agents then get *Ask for every action*). ARCHITECTURE.md §27 AD-23 point 5. Applied by switching to a new Core, only while CROT is idle (no operation in flight, no pending approval, no running background process); otherwise refused with the reason; if the new Core cannot be built nothing changes. | `<state>/service-settings.json` |
+| Remote mode | Off by default. While off, the relay entry point refuses every request before MCP or Core work and the device tunnel is closed (WP-30). | `<state>/service-settings.json` |
+| Remote full-control opt-in | Off by default (AD-23 point 6). Can be turned on only while this device is paired, the device settings are readable and CROT is idle. It applies only to remote agents of this pairing (its device id and account): they work in `full_control`, each of their shell commands needs your approval, and their shell and process operations run only where command confinement L1 is available. Local agents and other devices are not affected. It is kept across restarts for the same pairing; unpairing (or pairing again) turns it off. An opt-in recorded before WP-31, or one for another pairing, does not apply and is shown with the reason. | `<state>/service-settings.json` (with the device id and account it was given for) |
 | Reset exposure | For one remote client (account, device, client): its persisted untrusted-content exposure becomes clean. | `<state>/remote-exposure.json` |
 | Revoke | For one remote client: persisted; resets its exposure, aborts its requests in flight, closes its sessions; later requests are refused. A revoked client shows **Re-grant** (WP-28): audited first; tokens issued before the re-grant stay refused, so the client signs in again. | `<state>/remote-clients.json` |
 | Pair / unpair this device | WP-28, [`IDENTITY.md`](IDENTITY.md): **Pair this device** opens the sign-in of the identity environment in the default browser; the section shows the environment, the paired account, the device id and the device's address for MCP clients (`https://<relay>/d/<deviceId>/mcp`). **Cancel pairing** while waiting; **Unpair this device** ends remote access at once. Without an identity environment (this build pins none) pairing shows why it is not available. | `<state>/device-binding.json`; device key in the secret store (`device-key`) |
 
 - All these files are owner-only and protected paths (no CROT tool can write
   them). If one cannot be read, the most restrictive value applies
-  (preset `require-approval`, remote mode off, every remote request refused)
-  and the tray shows the error.
+  (preset `require-approval`, remote mode off, no remote full control, every
+  remote request refused) and the tray shows the error.
 - Every change is audited (`kind: "control"` records in the audit log).
   Changes that widen access (a less restrictive preset, remote mode on,
   full-control opt-in on, exposure reset) are refused if their audit record
   cannot be written; changes that narrow access are applied even then.
 - The status section shows the service, mode, workspace, connected agents,
   the browser connection, command confinement L1 with its reason code (Linux:
-  WP-23a, [`L1.md`](L1.md); macOS and Windows: not available until WP-23b/c),
-  and the components that are not available yet: the CDP browser backend
-  (WP-24).
+  WP-23a, [`L1.md`](L1.md); macOS and Windows: not available until WP-23b/c,
+  so remote shell and process operations are refused there), and the
+  components that are not available yet: the CDP browser backend (WP-24).
+- The profile lines (WP-31) show the effective preset and where it comes
+  from (chosen on this device, the configuration, or unreadable device
+  settings), the remote profile (mode, untrusted-content protection,
+  capabilities) with each restriction, and remote full control: *off*, *ON
+  for device … only*, *ON … (not saved: off after a restart)*, or *recorded
+  in the device settings but NOT in effect* with the reason. A recorded
+  opt-in that the running Core does not apply is never shown as on.
 
 ## Security
 
@@ -92,12 +99,17 @@ npx electron dist/tray/main.js --state-dir=<state directory>
   commands on Linux by WP-23a):** any process of the same
   OS user — including an unconfined command started by CROT — can read the
   control credential and act like the tray (approve its own pending request,
-  change the preset, turn remote mode on). The tray is a UI, not a security
-  boundary against the same user.
+  change the preset, turn remote mode on), or write the protected state
+  files directly (AD-19 residual risk D). A stored full-control opt-in still
+  applies only to the pairing it names (AD-23 point 6), which limits a forged
+  opt-in to what the user could enable but does not prevent it. The tray is a
+  UI, not a security boundary against the same user.
 
 ## Tests
 
 - `tests/tray/view-model.test.ts` — presentation rules.
+- `tests/tray/profile-lines.test.ts` — the preset, remote profile and
+  full-control lines (WP-31).
 - `tests/tray/controller.test.ts` — against a real service: decisions carry
   the presented digest; reconnect after a service restart.
 - `tests/tray/smoke.test.ts` — starts the built Electron tray with
@@ -108,4 +120,6 @@ npx electron dist/tray/main.js --state-dir=<state directory>
 - `tests/service/tray-control.test.ts`, `tests/service/control-center.test.ts`
   — the provider and the device controls in the service, including the
   negative cases (MCP tools, the shim channel and remote clients cannot
-  approve or change device state).
+  approve or change device state); `tests/service/full-control-grant.test.ts`
+  — the full-control opt-in across real service restarts, unpairing and
+  pairing again (WP-31).

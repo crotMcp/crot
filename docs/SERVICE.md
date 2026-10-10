@@ -196,34 +196,49 @@ mechanism: its credential only shows that the peer runs as the same OS user
 | Request | What it does |
 | --- | --- |
 | `ping`, `status`, `shutdown` | WP-20 |
-| `overview` | service, mode, workspace, preset and its source, remote mode, full-control opt-in, remote clients, agents, browser, trays, L1/CDP availability, pairing (environment, state, device id, account, canonical URI; never a token) |
+| `overview` | service, mode, workspace, preset and its source, remote mode, full-control opt-in (recorded and in effect, with the reason when it does not apply), the remote profile (WP-31), remote clients, agents, browser, trays, L1/CDP availability, pairing (environment, state, device id, account, canonical URI; never a token) |
 | `approvals.subscribe` / `approvals.unsubscribe` | the connection becomes (stops being) an approval UI; subscribe returns the pending requests, then events `approval.requested`, `approval.resolved`, `state.changed` follow |
 | `approvals.decide { requestId, decision, subjectDigest }` | approve (with the presented digest) or reject one request that was presented to this connection |
-| `preset.set { value }` | `require-approval` or `off` (`autonomous-browser`: WP-31); refused unless CROT is idle |
-| `remote.setMode { enabled }`, `remote.setFullControl { enabled }` | device switches (full control: recorded only) |
+| `preset.set { value }` | `require-approval`, `autonomous-browser` or `off` (ARCHITECTURE.md §27 AD-23 point 5; `off` applies to local principals only, remote principals then get `require-approval`); refused unless CROT is idle |
+| `remote.setMode { enabled }`, `remote.setFullControl { enabled }` | device switches; full control (AD-23 point 6): turning it on needs a paired device, readable settings and an idle Core, and applies only to remote principals of that pairing |
 | `remote.resetExposure`, `remote.revokeClient` `{ accountId, deviceId, clientId }` | one remote client |
 | `remote.regrantClient` `{ accountId, deviceId, clientId }` | re-grant a revoked client (WP-28): audited first, written before it takes effect; tokens issued before or in the second of the re-grant are refused |
 | `pairing.start` | start pairing (WP-28, [`IDENTITY.md`](IDENTITY.md)): returns the sign-in URL; refused without an identity environment or while paired |
 | `pairing.cancel` | cancel a pairing waiting for the sign-in |
-| `device.unpair` | unpair: no token accepted, remote requests in flight end, device key removed; also resets an unusable binding |
+| `device.unpair` | unpair: no token accepted, remote requests in flight end, device key removed, the full-control opt-in turned off (WP-31); also resets an unusable binding |
 
 - The service's approval provider `tray` is registered with the broker while
   at least one connection is subscribed; the decisions stay in the broker and
   the PermissionEngine, checked against the request and the digest.
-- A preset change switches the service to a new Core with the new policy,
-  only while no operation is in flight, no approval is pending and no
-  background process runs; the exposure state and the browser bridge are
-  carried over. MCP connections stay connected.
+- A preset or full-control change switches the service to a new Core with
+  the new profiles (AD-23 point 10), only while no operation is in flight,
+  no approval is pending and no background process runs; otherwise it is
+  refused with the reason and nothing changes. If the new Core cannot be
+  built, the previous settings and the previous Core stay. The exposure
+  state and the browser bridge are carried over; MCP connections stay
+  connected.
+- Turning full control on installs the new Core first and records the
+  opt-in afterwards, together with the device id and account of the pairing
+  (if that write fails it is in effect until the service stops and off after
+  a restart, and the tray says so); turning it off records the narrower
+  value first. At startup it is restored only when the settings are readable
+  and the device is paired with a usable binding whose device id and account
+  match; otherwise no full control applies (AD-23 points 6 and 11).
 - Device state lives in the state directory as owner-only, protected files:
-  `service-settings.json` (preset, remote mode, full-control opt-in) and
-  `remote-clients.json` (identifiers, first/last seen, revocation time).
-  Unreadable state fails closed. Every change is audited as a `control`
-  record; changes that widen access are refused when the audit record cannot
-  be written.
+  `service-settings.json` (preset, remote mode, full-control opt-in with the
+  device id and account it was given for) and `remote-clients.json`
+  (identifiers, first/last seen, revocation time). Unreadable or malformed
+  state fails closed. Every change is audited as a `control` record; changes
+  that widen access are refused when the audit record cannot be written.
 - `crot-mcp service status` and `crot_status` show `controls` (preset and
-  source, remote mode, full-control opt-in, number of approval UIs).
+  source, remote mode, full-control opt-in as recorded and
+  `remoteFullControlEffective` — whether the running Core applies it —,
+  number of approval UIs); `crot_status` also shows `remote`, the effective
+  remote profile (mode, capabilities, preset, full control and the
+  restrictions).
 - Until L1 (WP-23) any process of the user can read the control credential
-  and use these requests; see TRAY.md, Security.
+  and use these requests, or write the state files directly (AD-19 residual
+  risk D); see TRAY.md, Security.
 
 ## Concurrency
 
