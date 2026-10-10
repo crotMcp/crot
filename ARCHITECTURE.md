@@ -1153,7 +1153,8 @@ These need explicit decisions before the corresponding work packages.
     v1.
 24. **Release staging.** *Roadmap OD-23 (product decision).* Whether any of
     questions 16–23 becomes release-blocking for v1; recommended: no.
-25. **Per-principal permission profile.** *Opened by §27 AD-22 (scope).*
+25. **Per-principal permission profile.** *Opened by §27 AD-22 (scope);
+    decided by §27 AD-23.*
     Permission grants and the permission mode are global per Core
     (`PermissionPolicy`); `PermissionEngine.authorize` does not look at the
     principal, and approval rules can only add approval, not deny. AD-13
@@ -3545,15 +3546,16 @@ them"). Several decisions were still open or assigned elsewhere:
    AD-15 C4) refuses every request before MCP or Core work (AD-15 point 9);
    the tunnel (WP-30) opens only while it is on and closes when it is turned
    off. No other authorization is derived from it.
-7. **Remote full-control opt-in: recorded, not enforced.** A per-device flag
-   in the same protected state, **off by default**, changed or revoked only
-   through the control channel, audited and shown in the tray and in
-   `crot_status`. In WP-22 it has no effect on the PermissionEngine, the
-   PermissionPolicy, the mode or any authorization: no enforcement and no new
-   authorization mechanism. How it takes effect (a per-principal permission
-   profile) is decided and implemented by WP-31; the claim of AD-13 point 5
-   that the existing `principalKinds` matcher suffices is an open item of
-   WP-31, because that matcher exists only in approval rules.
+7. **Remote full-control opt-in.** A per-device flag in the same protected
+   state, **off by default**, changed or revoked only through the control
+   channel, audited and shown in the tray and in `crot_status`. In WP-22 it
+   was recorded only. Since WP-31 it takes effect through the remote profile
+   of §27 AD-23: it is stored with the device id and account of the pairing
+   it was given for, applies only to remote principals of that pairing, never
+   to other devices or local principals, and is restored after a restart only
+   for that pairing; unpairing ends it. The `principalKinds` matcher of
+   approval rules does not suffice for this (AD-13 point 5); AD-23 decides the
+   mechanism.
 8. **Remote clients, exposure reset and revocation (device side).**
    - The service keeps a list of remote clients seen at the relay entry point,
      keyed by (`accountId`, `deviceId`, `clientId`) — the remote exposure
@@ -3622,7 +3624,12 @@ them"). Several decisions were still open or assigned elsewhere:
   What is guaranteed: an MCP tool, a web page, the browser extension and the
   relay cannot reach the control channel or the provider; an approval exists
   only for a pending request with its exact subject digest; negative tests
-  prove both.
+  prove both. This includes writing the service's protected state files
+  (`service-settings.json`, `remote-clients.json`, the device binding)
+  directly; such a change takes effect when the service next reads that
+  state. The remote full-control opt-in is stored with the device id and
+  account of its pairing and applies only to that pairing, which limits a
+  forged opt-in to what the user could enable but does not prevent it.
 - Other residual risks, accepted: a preset change waits for an idle Core
   (background processes must be stopped first); approval deadlines are still
   not extended across system sleep (AD-17); the remote client list keeps
@@ -5019,3 +5026,93 @@ replay (points 12–13, OD-5 as recorded in point 12). Open: no
 deregistration, and a registration stays orphaned if the device fails to
 store its binding after registering (open question 3); measured client
 timeouts (open question 5, WP-32).
+
+### AD-23. Per-principal permission profile: one PermissionEngine resolves exactly one profile per request; remote principals get a narrowed profile; remote full control is bound to its pairing and persists across restarts (WP-31; decides §26 question 25)
+
+**Context.** Before WP-31 the PermissionEngine held one policy (mode,
+grants, untrusted-content preset) per Core, and `authorize` did not look at
+the principal. The `principalKinds` matcher exists only in approval rules,
+which can add an approval gate but cannot change grants or the mode.
+AD-13 point 5 (remote principals get workspace mode; full control only by
+explicit per-device opt-in) and AD-19 point 7 could therefore not be
+enforced (§26 question 25).
+
+**Decision.**
+
+1. **One engine, one profile per request.** The PermissionEngine stays the
+   only authorization mechanism. It holds immutable profiles and resolves
+   exactly one per request from facts Core already verifies:
+   `principal.kind`, and for `remote` the verified `deviceId` and `accountId`
+   (AD-21). No second engine, no new rule language, no approval bypass.
+2. **Profile contents.** A profile holds the mode, the grants and the
+   untrusted-content preset. Protected paths, secret paths and the network
+   policy stay global and apply to every profile.
+3. **Local profile.** The configured policy and preset, unchanged by WP-31.
+4. **Remote default profile.** Workspace (`sandbox`) mode; grants are the
+   sandbox defaults intersected with the configured grants and never include
+   `filesystem.full`; untrusted-content protection is always on. It never
+   grants more than the local configuration; local `full_control` does not
+   widen it. A capability added later is denied to remote principals until
+   its remote default is decided.
+5. **Presets.** `require-approval` (default) keeps the approval behaviour of
+   AD-16. `autonomous-browser` (AD-16 point 17) allows browser control
+   without repeated approval; local file uploads, shell, filesystem write,
+   Git write, network and Docker Compose stay gated. `off` applies to local
+   principals only; remote principals then get `require-approval`.
+6. **Remote full control.** Applies only to remote principals whose verified
+   `deviceId` and `accountId` equal the binding of the opt-in. The opt-in is
+   set only by the user on the control channel (AD-19 point 7) and stored
+   with the device id and account of the pairing it was given for. It
+   persists across service restarts: at startup it is restored when the
+   settings are readable and valid, the device is paired with a usable
+   binding, and both ids match the current pairing; otherwise no full
+   control applies and the reason is reported. Unpairing ends it; a new
+   pairing has a new device id (AD-21 point 5), so an earlier opt-in never
+   applies to it. An opt-in stored without a binding (recorded before WP-31)
+   does not apply and is reported as needing to be turned on again.
+   Granularity is per device, not per client. It never applies to other
+   devices or to local principals.
+7. **Commands under remote full control.** Remote `shell.execute` always
+   needs approval (built-in rule `remote-full-control`, which presets cannot
+   remove). Remote `shell` and `process` operations need L1 confinement and
+   are refused with `CONFINEMENT_UNAVAILABLE` before admission where it is
+   unavailable (AD-20); no mode or preset bypasses this. WP-23b/c remain
+   separate work packages.
+8. **Uploads.** `autonomous-browser` gates local file uploads by the
+   operation `browser.file_upload` (rule `autonomous-browser-upload`). No
+   such operation exists before WP-26, so the rule is defensive; the work
+   package that adds the operation must prove the gate end to end. Until
+   then the real upload path is not verified.
+9. **Who can change it.** Only the user through the authenticated control
+   channel (AD-17, AD-19). No MCP tool, browser page, relay request or tunnel
+   frame reaches a setter, and approvals stay with the approval provider for
+   the presented subject digest (AD-19).
+10. **Applying a change.** The service persists the change, builds a new Core
+    with the new profiles and switches only while the current Core is idle
+    (AD-19 point 5); exposure is carried over. While busy the change is
+    refused with the reason and the previous behaviour stays. If the new Core
+    cannot be built, the previous settings are restored and the previous Core
+    stays. Stored settings alone never grant full control: it applies only
+    while the binding check of point 6 passes.
+11. **Fail closed.** Missing, unreadable, malformed or unknown settings, or
+    an unusable binding, give the remote default profile with
+    `require-approval` and no full control; they never widen access.
+12. **Reporting.** `crot_status`, the control overview and the tray show the
+    effective preset and its source, the remote profile, the remote mode,
+    the opt-in (recorded and in effect, with the reason when not in effect)
+    and the restrictions.
+
+**Alternatives rejected.** Two engines selected outside the engine (an
+authorization decision outside the engine); approval rules only (cannot
+grant full control or change the mode); one Core per principal kind
+(duplicates exposure, audit and browser state); the opt-in in the
+configuration file (writable by tools); resetting the opt-in at every
+restart (worse UX without a stronger guarantee than the binding of
+point 6 against the same OS user, see AD-19 residual risk D).
+
+**Residual risk.** AD-19 residual risk D, including direct writes of the
+protected state files by an unconfined process of the same OS user.
+
+**Implementation (WP-31).** **[Partial]** — PR #21, not merged. Points 1–7
+and 9–12 are implemented and covered by tests. Point 8: the gate exists,
+but no upload operation exists and the real upload path is not tested.
