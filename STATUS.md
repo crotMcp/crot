@@ -10,7 +10,9 @@ package PR updates this file.
 **WP-31 — Remote permission profile and presets — in progress, not Done**
 (PR #21, draft, branch `wp-31-remote-permission-profile`, started from
 `main` `63a7d63`). The per-principal profile decision (ARCHITECTURE.md §26
-question 25) is proposed and not yet recorded in ARCHITECTURE.md.
+question 25, proposed as AD-23) awaits approval; it and the approved
+amendments of AD-19 point 7 and residual risk D are not yet recorded in
+ARCHITECTURE.md.
 
 - **Implemented on the branch:** remote principals get their own profile in
   the one PermissionEngine, local principals are unchanged: workspace only,
@@ -18,21 +20,46 @@ question 25) is proposed and not yet recorded in ARCHITECTURE.md.
   on (with preset `off` they get `require-approval`); preset
   `autonomous-browser` selectable (browser control without repeated
   approval; uploads, shell, filesystem write, Git write, network and Docker
-  Compose stay gated); the remote full-control opt-in is bound to the
-  device and account paired here and applied through a new Core only while
-  CROT is idle, never to other devices or to local principals; remote shell
-  and process operations stay refused without L1
-  (`CONFINEMENT_UNAVAILABLE`, AD-20); the device settings never hold more
-  full control than the running Core applies; `crot_status`, the control
-  overview and the tray report the effective preset and its source, the
-  remote profile, the opt-in (recorded and in effect) and the restrictions.
-- **CI:** each commit of PR #21 is checked by its own CI, L1 and
-  real-chromium runs; see the PR for the result of the latest commit.
-- **Not yet confirmed:** tests that tools, the relay and browser pages
-  cannot change presets or the opt-in or approve their own operations;
-  protection of local file uploads exists only as a defensive rule, because
-  no upload operation exists yet; the documentation changes for WP-31 await
-  approval.
+  Compose stay gated); the remote full-control opt-in is stored with the
+  device id and account of the pairing it was given for and is restored
+  after a restart only for that pairing (unpairing ends it; a new pairing
+  has a new device id); missing, unreadable or mismatching state applies no
+  full control; changes are applied through a new Core only while CROT is
+  idle, never to other devices or to local principals; remote shell and
+  process operations stay refused without L1 (`CONFINEMENT_UNAVAILABLE`,
+  AD-20); `crot_status`, the control overview and the tray report the
+  effective preset and its source, the remote profile, the opt-in (recorded
+  and in effect) and the restrictions.
+- **Confirmed by tests** (CI 11/11 green on `ae6b880`: Node 20/22 on
+  Ubuntu, macOS and Windows, L1 on Ubuntu 22.04/24.04 x64/arm64,
+  real-chromium):
+  - tools cannot reach the device controls: no MCP tool is a control
+    method; writing the settings, the client list or the binding through
+    tools is refused even in `full_control`; control requests naming another
+    device, account or client, and approvals without the subject digest, are
+    malformed (`tests/core/untrusted-sources.test.ts`);
+  - relay entry point: only the MCP tools, no write to the state files,
+    local `full_control` does not widen the remote principal, full control
+    for another device does not apply, a pending approval is decided only by
+    the approval provider; browser bridge: hostile page content changes
+    neither the profile nor approvals and marks the scope untrusted
+    (`tests/adapters/relay-untrusted.test.ts`);
+  - `crot_status` reports the remote profile end to end through the MCP
+    adapter and the relay entry point;
+  - full control across restarts of the real service: restored for the same
+    pairing; unpairing and a new pairing end it; a stored opt-in for another
+    pairing or with an unusable binding does not apply
+    (`tests/service/full-control-grant.test.ts`);
+  - control center: every preset applied, refusal while busy, rollback when
+    a new Core cannot be built, audit record first
+    (`tests/service/control-center.test.ts`).
+- **Not confirmed:** local file uploads: no upload operation exists yet
+  (`browser.file_upload` is not a known operation, WP-26); the upload rule is
+  defensive and matches nothing today, so the real upload scenario is not
+  tested. A process of the same OS user with an unconfined local shell can
+  write the state files directly (AD-19 residual risk D; amendment approved,
+  not yet recorded). Documentation: AD-23 awaits approval; the user docs
+  (TRAY, SERVICE, L1) and the roadmap are not yet updated for WP-31.
 
 ## Last completed
 
@@ -291,7 +318,7 @@ needs the per-principal profile AD (§26 Q25); it does not wait for WP-23b/c
 
 | WP | What | State |
 | --- | --- | --- |
-| WP-31 | Remote permission profile and presets (AD-13, AD-19) | in progress, PR #21 (draft, not Done); per-principal profile AD (§26 Q25) proposed, not yet in ARCHITECTURE.md; see "In progress" |
+| WP-31 | Remote permission profile and presets (AD-13, AD-19) | in progress, PR #21 (draft, not Done); CI green on `ae6b880`; per-principal profile AD (§26 Q25, proposed AD-23) awaits approval, not yet in ARCHITECTURE.md; see "In progress" |
 | WP-30 | Device tunnel adapter (AD-22, device side) | Done, merged (PR #20): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32) |
 | WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to WP-31 |
 | WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13); not a prerequisite of WP-31: where L1 is unavailable (macOS, Windows), remote shell and process operations are refused with `CONFINEMENT_UNAVAILABLE` and an explanation (AD-20, [`docs/L1.md`](docs/L1.md)); WP-23b/c stay open as separate packages |
@@ -332,9 +359,9 @@ and no external service has a CROT integration.
 | No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); no release configuration pins an identity environment, so every build honours the development override until then | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
 | Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side by WP-30 (PR #20, merged); AD-22 open questions 1–8 remain |
 | Device deregistration and key rotation at the relay; a registration stays orphaned if the device fails to store its binding after registering | AD-22 open question 3 — relay side, WP-29 scope (not WP-30); listed in `docs/RELAY.md` "Known limitations" |
-| Remote full-control opt-in is recorded only; how it takes effect (per-principal profile; `principalKinds` exists only in approval rules) | AD-19 point 7; WP-31 |
+| Remote full-control opt-in is recorded only on `main`; how it takes effect (per-principal profile; `principalKinds` exists only in approval rules) | AD-19 point 7; WP-31: implemented in PR #21 (not merged), bound to the device id and account of its pairing and kept across restarts |
 | Per-principal permission profile: grants and mode are global per Core, so AD-13 point 5 cannot be enforced with existing matchers | ARCHITECTURE.md §26 question 25 — an AD before WP-31 (did not block WP-30) |
-| Preset `autonomous-browser` (rule set not implemented yet) | WP-31 |
+| Preset `autonomous-browser` (rule set not on `main` yet) | WP-31: implemented in PR #21 (not merged) |
 | Any process of the same OS user can read the control credential and act like the tray | AD-19 residual risk; confined Linux children: closed by WP-23a; macOS, Windows, `full_control` and other processes of the user: open (WP-23b/c) |
 | Tray packaging, signing and autostart (Electron is a dev dependency today) | WP-34 |
 | Identity provider and the token claims carrying the subject, account, device and `clientId` | Decided by ARCHITECTURE.md §27 AD-21 (roadmap OD-2): WorkOS AuthKit; `sub` → principal id and `accountId`, device id in `aud`, `client_id` → `clientId`; implemented on the device by WP-28 |
