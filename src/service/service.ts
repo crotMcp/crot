@@ -34,6 +34,7 @@ import { REMOTE_EXPOSURE_FILE_NAME, RemoteExposureStore } from "../core/approval
 import { parseConfig } from "../core/config/load.js";
 import { expandHome } from "../core/config/paths.js";
 import { CORE_VERSION, CrotCore, type CoreCompositionHandle, type CrotCoreOptions } from "../core/crot-core.js";
+import type { RemoteProfileOptions } from "../core/permissions/engine.js";
 import { CrotError } from "../core/errors.js";
 import type { ServiceStatus } from "../core/service-status.js";
 import type { PrivateFileProtection } from "../core/platform/types.js";
@@ -411,16 +412,26 @@ export class CrotService {
         serviceStatus: () => this.status(),
       };
       const configuredPreset = parsed.permissions.approvals.untrustedContent;
-      const build = async (preset: UntrustedContentSetting, exposure?: CoreCompositionHandle["exposure"]) => {
+      // Every Core gets the preset and the remote profile (WP-31) of the device state; none widens by default.
+      const build = async (
+        preset: UntrustedContentSetting,
+        exposure?: CoreCompositionHandle["exposure"],
+        remote?: RemoteProfileOptions,
+      ) => {
         let handle: CoreCompositionHandle | undefined;
         const core = await CrotCore.create(withPreset(command.config, preset, configuredPreset), {
           ...coreOptions,
           ...(exposure ? { exposure } : {}),
+          ...(remote ? { remoteProfile: remote } : {}),
           composition: (h) => (handle = h),
         });
         return { core, handle: handle! };
       };
-      const initial = await build(ControlCenter.effectivePreset(settings, configuredPreset).effective);
+      const initial = await build(
+        ControlCenter.effectivePreset(settings, configuredPreset).effective,
+        undefined,
+        ControlCenter.remoteProfile(settings, binding),
+      );
       const holder = new CoreHolder(initial.core, initial.handle);
       this.holder = holder;
       const control = new TunnelControlCenter({
@@ -431,7 +442,7 @@ export class CrotService {
         identity,
         remoteExposure,
         configuredPreset,
-        buildCore: (preset) => build(preset, holder.composition.exposure),
+        buildCore: (preset, remote) => build(preset, holder.composition.exposure, remote),
         serviceStatus: () => this.status(),
         browserState: () => this.bridge?.state(),
         agents: () => ({
