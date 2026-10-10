@@ -870,8 +870,8 @@ the bridge `connectionId` and the extension's expected browser subject check.
 binds to loopback only. The device side of remote identity is
 **[Implemented]** (WP-28: verifier, pairing, device credential for the
 tunnel), and so is the Cloud Relay v1 (WP-29, §27 AD-22,
-[`docs/RELAY.md`](docs/RELAY.md)); the device side of the tunnel (WP-30) is
-not. Remote MCP clients and agents of any compatible type
+[`docs/RELAY.md`](docs/RELAY.md)); the device side of the tunnel is
+**[Partial]** (WP-30, [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)). Remote MCP clients and agents of any compatible type
 connect to CROT and, through it, use the local computer and the user's browser
 with the same tools, permissions, confirmations, exposure and audit as local
 clients.
@@ -1075,7 +1075,9 @@ These need explicit decisions before the corresponding work packages.
     decided by §27 AD-22 points 12–13 (exchange deadline 15 min, no
     per-stream idle timeout, clients with shorter timeouts cancel; running
     operations are not interrupted). Measuring real client timeouts remains
-    with WP-32 (AD-22 open question 5).*
+    with WP-32 (AD-22 open question 5). Device side implemented by WP-30:
+    the tunnel ends a request 5 s before the deadline (AD-22,
+    Implementation (WP-30)).*
     A gated operation waits for its approval (up to 300 s, AD-10) within one
     request (AD-15 point 3). Decide the relay and tunnel timeouts and the
     behaviour towards clients with shorter timeouts; whether the Tasks
@@ -4529,6 +4531,8 @@ two independently deployed components and its time limits. Facts at `main`
    clients is admitted to the other account (`sub` check, point 3 / AD-21
    point 7). The token is not stored by either side. Pairing succeeds on the device only after registration succeeded
    (else the binding is not written, as for any pairing failure).
+   Device side: WP-30 (`src/identity/relay-registration.ts`, called by
+   pairing after the pairing token passed the device's own checks).
    Removal of registrations after unpair is open question 3.
 
 5. **Framing.** Frame = 6-byte header + payload, the WebSocket message
@@ -4765,6 +4769,13 @@ two independently deployed components and its time limits. Facts at `main`
       tray, audited as cancelled). Neither the relay nor the device injects
       keep-alive bytes or progress notifications into responses in v1.
       Measured client timeouts are documented by WP-32.
+    - **OD-5 resolution (WP-30).** The device tunnel ends the local
+      request 5 s before the exchange deadline (`deadlineMs` − 5 s) and
+      resets the stream with `deadline_exceeded`; the relay reports the
+      outcome as `unknown`. Long approval waits and bounded browser waits
+      run inside the deadline; nothing is retried automatically. The
+      actual timeouts of remote MCP clients are measured in WP-32 (open
+      question 5), which may revisit the 5 s margin.
     - The deadline also bounds a request body the relay must receive
       before forwarding (a body without `Content-Length` is received
       completely, so the 4 MiB limit is enforced before anything reaches
@@ -4993,3 +5004,16 @@ validation (points 2–3, 5–15). Notes, none of which relaxes this decision:
   single relay instance with a file registry (open question 8, WP-39); no
   CORS/`OPTIONS` (open question 7); the binary is not in `package.json`
   `bin` and ships in the device package's `dist` (WP-34/WP-38).
+
+**Implementation (WP-30).** **[Partial]** — device side
+(`src/service/remote-tunnel.ts`, `src/identity/relay-registration.ts`;
+user docs [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)). Implemented:
+registration at pairing (point 4), handshake with the device credential
+and the pinned relay host (point 3), streams into the unchanged relay
+entry point with only the two checks of point 7 replaced, limits and
+flow control (points 6, 8, 11), liveness, reconnect and `GOAWAY`
+(point 9), version refusal (point 10), deadline and cancellation without
+replay (points 12–13, OD-5 as recorded in point 12). Open: no
+deregistration, and a registration stays orphaned if the device fails to
+store its binding after registering (open question 3); measured client
+timeouts (open question 5, WP-32).
