@@ -8,6 +8,12 @@
  *
  * Tokens can also be minted directly with arbitrary claims, keys and headers
  * for the verifier's negative tests.
+ *
+ * The shim also answers the relay's registration endpoint
+ * `https://<relay>/d/<id>/register` (AD-22 point 4) with `registrationStatus`
+ * and records each call, so pairing through the service runs unchanged; the
+ * relay's real checks are exercised against the Cloud Relay itself in
+ * tests/cloud-relay/device-registration.test.ts.
  */
 import { createHash, createSign, generateKeyPairSync, randomBytes, type KeyObject } from "node:crypto";
 import { createIdentityHttp, type IdentityHttp } from "../../src/identity/http.js";
@@ -70,6 +76,10 @@ export class TestAuthorizationServer {
   down = false;
   tokenLifetimeSeconds = 300;
   readonly requests = { metadata: 0, jwks: 0, token: 0 };
+  /** The status the emulated relay registration endpoint answers with. */
+  registrationStatus = 201;
+  /** Registration calls seen by the emulated relay endpoint. */
+  readonly registrations: Array<{ deviceId: string; bearer: string | undefined; body: unknown }> = [];
   clock: () => number = Date.now;
   private readonly codes = new Map<string, PendingCode>();
   private readonly registeredClients = new Set([PAIRING_CLIENT, MCP_CLIENT]);
@@ -106,7 +116,7 @@ export class TestAuthorizationServer {
   }
 
   get resourcePattern(): string {
-    return `https://${this.relayHost}/d/`;
+    return ["https:", "", this.relayHost, "d", ""].join("/");
   }
 
   /** A token as the provider would issue it for `resource`, with claim overrides. */
@@ -210,6 +220,22 @@ export class TestAuthorizationServer {
     if (this.down) throw new TypeError("fetch failed");
     const json = (status: number, body: unknown) =>
       new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    const register = /^\/d\/([a-z2-7]{26})\/register$/.exec(url.pathname);
+    if (url.origin === ["https:", "", this.relayHost].join("/") && register && init?.method === "POST") {
+      const auth = new Headers(init.headers).get("authorization") ?? "";
+      let body: unknown;
+      try {
+        body = JSON.parse(String(init.body));
+      } catch {
+        body = undefined;
+      }
+      this.registrations.push({
+        deviceId: register[1]!,
+        bearer: auth.startsWith("Bearer ") ? auth.slice(7) : undefined,
+        body,
+      });
+      return json(this.registrationStatus, {});
+    }
     if (url.origin !== this.issuer) return json(404, { error: "not_found" });
     if (url.pathname === "/.well-known/oauth-authorization-server" && (init?.method ?? "GET") === "GET") {
       this.requests.metadata++;

@@ -26,13 +26,30 @@ import { assertAvailable, homeLayerDiagnostics, l1Fixture, type L1Fixture } from
 import { isLinux, l1Required } from "./l1-support.js";
 
 const run = isLinux && l1Required;
-const IMAGE = "alpine:3.20";
+/**
+ * The official alpine:3.20 image from the public ECR mirror of Docker Official Images:
+ * the same image as on Docker Hub, without its unauthenticated pull rate limit on CI runners.
+ */
+const IMAGE = "public.ecr.aws/docker/library/alpine:3.20";
 const REFUSED = "CROT L1 Docker endpoint refused";
 const { container: containerProfile } = profileNames();
 const DAEMON_SOCKET = "/var/run/docker.sock";
 
 function hostDocker(args: string[], env: NodeJS.ProcessEnv = process.env): string {
   return execFileSync("docker", args, { encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
+}
+
+/** Pulls the test image, retrying with backoff: anonymous registry pulls are throttled per runner IP. */
+async function pullImage(attempts = 6): Promise<void> {
+  for (let i = 1; ; i++) {
+    try {
+      hostDocker(["pull", "-q", IMAGE]);
+      return;
+    } catch (err) {
+      if (i >= attempts) throw err;
+      await new Promise((r) => setTimeout(r, 2_000 * 2 ** (i - 1)));
+    }
+  }
 }
 
 /**
@@ -126,7 +143,7 @@ beforeAll(async () => {
   dockerOk = spawnSync("docker", ["info"], { stdio: "ignore" }).status === 0;
   if (!dockerOk) throw new Error("the L1 Docker tests are mandatory here but no Docker daemon is reachable");
   apparmor = (await readHostFacts("1")).apparmorEnabled;
-  hostDocker(["pull", "-q", IMAGE]);
+  await pullImage();
   tcp = await proxy();
   certDir = await mkdtemp(path.join(os.homedir(), "crot-it-certs-"));
   makeCerts(certDir);

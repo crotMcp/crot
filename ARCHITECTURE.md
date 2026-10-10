@@ -222,7 +222,7 @@ All paths end in the same Core pipeline; no path bypasses it.
 | CROT local service (sidecar) | device, background | one long-running `crot-mcp` service per user; stdio clients attach through a thin shim; authenticated local control channel | **[Implemented]** (WP-20, §27 AD-17); autostart/installer registration **[Target]** (WP-34) |
 | CROT Tray app | device | user UI | **[Target]**, v1 |
 | Installer / packages | device | Linux, Windows, macOS installation | **[Target]**, v1 |
-| CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Partial]**: relay v1 implemented (WP-29, §27 AD-22, [`docs/RELAY.md`](docs/RELAY.md)); device tunnel WP-30, deployment WP-38/WP-39 |
+| CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Partial]**: relay v1 implemented (WP-29, §27 AD-22, [`docs/RELAY.md`](docs/RELAY.md)); device side of the tunnel implemented (WP-30, [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)); remote profile WP-31, acceptance suite WP-32, deployment WP-38/WP-39 |
 | Identity provider (third party) | cloud | user authentication, tokens | **[Target]**, v1 |
 | Account & Commercial service | cloud | accounts, subscriptions, plans, licensing, entitlements, device limits | **[Target]** (v1: entitlements checked at the relay only, AD-13) |
 | User / device / account | identities | see §20 | **[Partial]**: only a local principal and a static local token exist |
@@ -674,7 +674,7 @@ packages, their order and dependencies are in
 ```text
 16. User confirmations                            [Partial: mechanism WP-15; tray provider v1, §21]
 17. Identity, accounts and device binding         [Target, v1, §20]
-18. Remote mode and CROT Cloud Relay              [Partial: relay v1 implemented (WP-29, §27 AD-22); device tunnel Target, v1 (mandatory), §22]
+18. Remote mode and CROT Cloud Relay              [Partial: relay v1 (WP-29) and the device side of the tunnel (WP-30) implemented, §27 AD-22; remote profile (WP-31), acceptance suite (WP-32) and deployment (WP-38/WP-39) Target, v1 (mandatory), §22]
 19. External MCP gateway (CROT as MCP client)     [Target, post-v1, §18]
 20. Tray app and supervised local service         [Partial: service, shim and control channel implemented (WP-20, §27 AD-17); tray and autostart Target, v1, §24]
 21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
@@ -866,12 +866,14 @@ the bridge `connectionId` and the extension's expected browser subject check.
 
 ## 22. Remote Mode and CROT Cloud Relay
 
-**[Target]** — not implemented; **mandatory in v1** (§27 AD-13). Today HTTP
-binds to loopback only. The device side of remote identity is
-**[Implemented]** (WP-28: verifier, pairing, device credential for the
-tunnel), and so is the Cloud Relay v1 (WP-29, §27 AD-22,
-[`docs/RELAY.md`](docs/RELAY.md)); the device side of the tunnel (WP-30) is
-not. Remote MCP clients and agents of any compatible type
+**[Partial]** — **mandatory in v1** (§27 AD-13). The device side of remote
+identity is **[Implemented]** (WP-28: verifier, pairing, device credential
+for the tunnel), and so are the Cloud Relay v1 (WP-29, §27 AD-22,
+[`docs/RELAY.md`](docs/RELAY.md)) and the device side of the tunnel
+(WP-30, §27 AD-22 `Implementation (WP-30)`,
+[`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)); the remote permission
+profile (WP-31), the remote acceptance suite (WP-32) and relay deployment
+(WP-38/WP-39) are **[Target]**. Remote MCP clients and agents of any compatible type
 connect to CROT and, through it, use the local computer and the user's browser
 with the same tools, permissions, confirmations, exposure and audit as local
 clients.
@@ -988,12 +990,12 @@ The tray app is a UI; control logic stays in Core/service.
 | Native Host (OS platform layer) | **[Implemented]** |
 | Browser bridge, relay, extension (Chromium), basic commands | **[Implemented]** |
 | Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | Contract decided (AD-16, WP-18: CDP); implementation **[Target]** (v1: WP-24…WP-27) |
-| Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); request pipeline **[Implemented]** (WP-19: sessionless 2026-07-28, supported versions, principal kinds by entry point, exposure scopes, persisted remote exposure); verifier **[Implemented]** (WP-28); relay **[Partial]** (WP-29, AD-22: relay side of the tunnel implemented; per-client rate limits and the load test open); device tunnel **[Target]** (v1: WP-30) |
+| Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); request pipeline **[Implemented]** (WP-19: sessionless 2026-07-28, supported versions, principal kinds by entry point, exposure scopes, persisted remote exposure); verifier **[Implemented]** (WP-28); relay **[Partial]** (WP-29, AD-22: relay side of the tunnel implemented; per-client rate limits and the load test open); device tunnel: device side **[Implemented]** (WP-30, AD-22 device side: registration at pairing, handshake, streams, limits, deadline and cancellation) |
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
 | User confirmations | **[Implemented]** (mechanism: WP-15, §27 AD-5…AD-11; tray provider and preset selection: WP-22, §27 AD-19); *Autonomous browser* preset and remote profile **[Target]** (WP-31) |
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | Provider, claim model, revocation model and device resource URI decided (§27 AD-21: WorkOS AuthKit); device side **[Implemented]** (WP-28: verifier, pairing, device id and credential, unpair, re-grant; development environment only); staging/production environments **[Target]** (WP-38, WP-39); provider-side revocation and accounts **[Target]** (WP-36) |
-| Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); Cloud Relay v1 and the relay side of the tunnel **[Partial]** (WP-29, §27 AD-22; per-client rate limits and the load test open); device tunnel **[Target]** (mandatory in v1, AD-13; WP-30); deployment WP-38/WP-39 |
+| Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); Cloud Relay v1 and the relay side of the tunnel **[Partial]** (WP-29, §27 AD-22; per-client rate limits and the load test open); device tunnel: device side **[Implemented]** (WP-30, §27 AD-22, [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)); deployment WP-38/WP-39 **[Target]** |
 | Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); macOS, Windows **[Target]** (v1, AD-13; WP-23b/c) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
 | Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
@@ -1075,7 +1077,9 @@ These need explicit decisions before the corresponding work packages.
     decided by §27 AD-22 points 12–13 (exchange deadline 15 min, no
     per-stream idle timeout, clients with shorter timeouts cancel; running
     operations are not interrupted). Measuring real client timeouts remains
-    with WP-32 (AD-22 open question 5).*
+    with WP-32 (AD-22 open question 5). Device side implemented by WP-30:
+    the tunnel ends a request 5 s before the deadline (AD-22,
+    Implementation (WP-30)).*
     A gated operation waits for its approval (up to 300 s, AD-10) within one
     request (AD-15 point 3). Decide the relay and tunnel timeouts and the
     behaviour towards clients with shorter timeouts; whether the Tasks
@@ -4529,6 +4533,8 @@ two independently deployed components and its time limits. Facts at `main`
    clients is admitted to the other account (`sub` check, point 3 / AD-21
    point 7). The token is not stored by either side. Pairing succeeds on the device only after registration succeeded
    (else the binding is not written, as for any pairing failure).
+   Device side: WP-30 (`src/identity/relay-registration.ts`, called by
+   pairing after the pairing token passed the device's own checks).
    Removal of registrations after unpair is open question 3.
 
 5. **Framing.** Frame = 6-byte header + payload, the WebSocket message
@@ -4765,6 +4771,13 @@ two independently deployed components and its time limits. Facts at `main`
       tray, audited as cancelled). Neither the relay nor the device injects
       keep-alive bytes or progress notifications into responses in v1.
       Measured client timeouts are documented by WP-32.
+    - **OD-5 resolution (WP-30).** The device tunnel ends the local
+      request 5 s before the exchange deadline (`deadlineMs` − 5 s) and
+      resets the stream with `deadline_exceeded`; the relay reports the
+      outcome as `unknown`. Long approval waits and bounded browser waits
+      run inside the deadline; nothing is retried automatically. The
+      actual timeouts of remote MCP clients are measured in WP-32 (open
+      question 5), which may revisit the 5 s margin.
     - The deadline also bounds a request body the relay must receive
       before forwarding (a body without `Content-Length` is received
       completely, so the 4 MiB limit is enforced before anything reaches
@@ -4993,3 +5006,16 @@ validation (points 2–3, 5–15). Notes, none of which relaxes this decision:
   single relay instance with a file registry (open question 8, WP-39); no
   CORS/`OPTIONS` (open question 7); the binary is not in `package.json`
   `bin` and ships in the device package's `dist` (WP-34/WP-38).
+
+**Implementation (WP-30).** **[Partial]** — device side
+(`src/service/remote-tunnel.ts`, `src/identity/relay-registration.ts`;
+user docs [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)). Implemented:
+registration at pairing (point 4), handshake with the device credential
+and the pinned relay host (point 3), streams into the unchanged relay
+entry point with only the two checks of point 7 replaced, limits and
+flow control (points 6, 8, 11), liveness, reconnect and `GOAWAY`
+(point 9), version refusal (point 10), deadline and cancellation without
+replay (points 12–13, OD-5 as recorded in point 12). Open: no
+deregistration, and a registration stays orphaned if the device fails to
+store its binding after registering (open question 3); measured client
+timeouts (open question 5, WP-32).

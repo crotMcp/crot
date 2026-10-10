@@ -2,7 +2,7 @@
  * The CROT service (WP-20, ARCHITECTURE.md §27 AD-17).
  *
  * One long-running process per OS user owns Core, the Native Host, the browser
- * bridge and HTTP (later the device tunnel). Local clients reach it through
+ * bridge, HTTP and the device tunnel (WP-30). Local clients reach it through
  * two authenticated endpoints in the user's private state directory:
  *
  * - the shim endpoint: each `crot-mcp` stdio process (thin shim) is one MCP
@@ -46,6 +46,7 @@ import { DeviceSettingsStore, SERVICE_SETTINGS_FILE_NAME } from "./device-settin
 import { REMOTE_CLIENTS_FILE_NAME, RemoteClientRegistry } from "./remote-clients.js";
 import { DEVICE_BINDING_FILE_NAME, DeviceBindingStore, type TunnelCredentialResult } from "./device-binding.js";
 import { DeviceIdentity, type DeviceIdentityOptions } from "./identity.js";
+import { RemoteTunnel, TunnelControlCenter, type RemoteTunnelSeams } from "./remote-tunnel.js";
 import { resolveIdentityEnvironment, type IdentityEnvironment } from "../identity/environment.js";
 import type { IdentityHttp } from "../identity/http.js";
 import type { AccessTokenVerifier } from "../adapters/http/auth.js";
@@ -115,6 +116,8 @@ export interface ServiceOptions {
     readonly keys?: DeviceIdentityOptions["keys"];
     readonly pairingTimeoutMs?: number;
   };
+  /** Device tunnel seams (tests): relay URL, timings, backoff (WP-30). */
+  readonly tunnel?: RemoteTunnelSeams;
 }
 
 interface ShimClient {
@@ -145,6 +148,7 @@ export class CrotService {
   private deviceIdentity: DeviceIdentity | undefined;
   private readonly controlConnections = new Map<AuthenticatedChannel, ControlConnection>();
   private http: CrotHttpServer | undefined;
+  private tunnel: RemoteTunnel | undefined;
   private digest = "";
   private idleTimer: NodeJS.Timeout | undefined;
   private resumes = 0;
@@ -203,7 +207,7 @@ export class CrotService {
     return this.deviceIdentity;
   }
 
-  /** Verifier of OAuth access tokens at the relay entry point (AD-21 point 3; WP-30 mounts it). */
+  /** Verifier of OAuth access tokens at the relay entry point (AD-21 point 3; the tunnel mounts it). */
   get remoteVerifier(): AccessTokenVerifier {
     return this.identity.verifier;
   }
@@ -216,6 +220,11 @@ export class CrotService {
   /** The device credential for the tunnel (WP-29/WP-30); refused while not paired here. */
   tunnelCredential(): TunnelCredentialResult {
     return this.deviceIdentity ? this.deviceIdentity.tunnelCredential() : { ok: false, reason: "no_environment" };
+  }
+
+  /** The device tunnel (WP-30); undefined without an identity environment. */
+  get remoteTunnel(): RemoteTunnel | undefined {
+    return this.tunnel;
   }
 
   get httpUrl(): string | undefined {
@@ -414,7 +423,7 @@ export class CrotService {
       const initial = await build(ControlCenter.effectivePreset(settings, configuredPreset).effective);
       const holder = new CoreHolder(initial.core, initial.handle);
       this.holder = holder;
-      this.control = new ControlCenter({
+      const control = new TunnelControlCenter({
         holder,
         settings,
         clients,
@@ -432,8 +441,31 @@ export class CrotService {
         }),
         log,
       });
+      this.control = control;
       this.banner();
       if (http.enabled) await this.startHttp(http, legacyTokenFile);
+      if (identity.environment) {
+        // The device tunnel (WP-30): open while remote mode is on and the device is paired here.
+        const tunnel = new RemoteTunnel({
+          core: holder.core,
+          http,
+          verifier: identity.verifier,
+          admission: control,
+          resourceMetadataUrl: () => this.resourceMetadataUrl(),
+          addRemoteEntry: (entry) => control.addRemoteEntry(entry),
+          credential: () => this.tunnelCredential(),
+          remoteMode: () => control.statusSummary().remoteMode === true,
+          software: `crot/${CORE_VERSION}`,
+          log,
+          onStatus: () => control.stateChanged(),
+          ...this.options.tunnel,
+        });
+        this.tunnel = tunnel;
+        control.tunnelView = () => tunnel.view();
+        control.onRemoteChange = () => void tunnel.sync();
+        await tunnel.sync();
+        tunnel.watch();
+      }
       log(
         `service: ${this.options.launch}, pid ${process.pid}, local endpoints: ${this.endpoints!.service.kind} (owner only, authenticated)`,
       );
@@ -772,6 +804,8 @@ export class CrotService {
       `service: resumed after about ${Math.round(gapMs / 1000)} s (system sleep or clock change); checking endpoints`,
     );
     void this.verifyEndpoints();
+    // A resumed device reconnects its tunnel at once instead of waiting for the backoff (AD-22 point 9).
+    this.tunnel?.nudge();
   }
 
   /**
@@ -825,9 +859,9 @@ export class CrotService {
 
   /**
    * Graceful shutdown, in an order that keeps AD-7: no new connections or
-   * requests, MCP connections closed, HTTP closed, then Core (terminates
-   * process trees and records them, drains the guard, closes the audit log),
-   * the browser bridge and the Native Host. The shim endpoint goes last.
+   * requests, MCP connections closed, the tunnel and HTTP closed, then Core
+   * (terminates process trees and records them, drains the guard, closes the
+   * audit log), the browser bridge and the Native Host. The shim endpoint goes last.
    */
   shutdown(reason: string): Promise<void> {
     this.stopping ??= this.doShutdown(reason);
@@ -856,6 +890,7 @@ export class CrotService {
 
   private async releaseRuntime(): Promise<void> {
     this.deviceIdentity?.cancelPairing();
+    await this.tunnel?.close();
     if (this.http) await this.http.close();
     if (this.holder) await this.holder.instance.shutdown();
     await this.control?.flush();

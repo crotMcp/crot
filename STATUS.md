@@ -5,9 +5,62 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
+## In progress
+
+**WP-30 — Device tunnel adapter — Done, awaiting merge** (PR #20, branch
+`wp-30-device-tunnel`; ARCHITECTURE.md §27 AD-22, device side). User docs:
+[`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md),
+[`docs/RELAY.md`](docs/RELAY.md).
+
+- **Tunnel** (`DeviceTunnel`, `RemoteTunnel` in
+  `src/service/remote-tunnel.ts`): outbound `crot-tunnel.v1` connection,
+  challenge-signed handshake with the WP-28 device credential, pinned relay
+  host, refusals 4401/4403/4426 (blocked state), reconnect with backoff;
+  streams forwarded to the existing relay entry point of `CrotHttpServer`
+  (token verification, admission, sessions, PermissionEngine,
+  ExecutionGuard, approvals, audit unchanged); stream limit
+  `min(1024, maxConcurrentRequests + maxSessions)`, 4 MiB / 32 MiB, flow
+  control; tunnel loss and RESET abort through the AbortSignal, nothing is
+  replayed; remote mode, unpairing and shutdown close the tunnel.
+- **Registration at pairing** (AD-22 point 4,
+  `src/identity/relay-registration.ts`): after the pairing token has passed
+  the device's checks, the device registers its key at the relay; any
+  failure fails pairing (`relay_registration_failed`).
+- **OD-5 decided and recorded** in ARCHITECTURE.md §27 AD-22 points 12–13
+  (commit `37b3126`): the tunnel ends a request 5 s before the relay's
+  exchange deadline (`deadline_exceeded`, outcome `unknown`); long approvals
+  and bounded browser waits run inside the deadline; no automatic retry;
+  measured client timeouts in WP-32.
+- **Acceptance and Definition of done:** the card's own criteria are met
+  (remote requests run through the unchanged Core pipeline as
+  `kind: "remote"`; remote mode off closes the tunnel; cancellation reaches
+  pending approvals and not-yet-started operations, running ones are not
+  interrupted, AD-22 point 13), the AD-15 C8 tests and the existing local
+  stdio/HTTP behaviour are unchanged, the user docs above are written, and
+  the ARCHITECTURE.md status markers §2.4, §19 item 18, §22 and the two
+  §25 rows now record the device side of the tunnel as implemented
+  (commit `01f4a20`).
+- **Not WP-30, open with their own packages:** the relay has no device
+  deregistration or key rotation, and a registration stays orphaned if the
+  device fails to store its binding after registering (AD-22 open
+  question 3; relay side, WP-29 scope, see `docs/RELAY.md` "Known
+  limitations"); the 5 s margin of the OD-5 decision is measured against
+  real client timeouts by WP-32 (AD-22 open question 5).
+
+Tests: `tests/cloud-relay/device-tunnel.test.ts` (real relay → tunnel →
+relay entry → Core: SDK clients of every supported version, parallel and
+streamed requests, approval and cancellation, tunnel loss with outcome
+`unknown` and no replay, tokens for another device or account and expired
+tokens, bad signature, unknown device, unsupported version, reconnect,
+secret-free logs) and `tests/cloud-relay/device-registration.test.ts`
+(registration against the real relay and pairing end to end). CI test
+setup only: the L1 ARM jobs pull `alpine:3.20` from `public.ecr.aws` with
+retries (Docker Hub rate limit).
+
 ## Last completed
 
-**WP-29 — Cloud Relay v1, relay side — partial** (this PR; ARCHITECTURE.md
+**WP-29 — Cloud Relay v1, relay side — partial** (merged into `main`,
+`515fcb9`; ARCHITECTURE.md
 §27 AD-22, included as the PR's first commit because it had not been merged
 yet). User docs: [`docs/RELAY.md`](docs/RELAY.md). WP-29 is **not complete**:
 the open items below are release-blocking (before WP-38 exposes a public
@@ -17,8 +70,10 @@ relay); they do not block WP-30.
   concurrency limits at the relay (AD-15 point 10, WP-29 scope "size/rate
   limits"); per-source limits on connections and pending handshakes (the
   256 pending-handshake limit is global); a registration rate limit per
-  account; the load/backpressure test of the WP-29 card. Either done in a
-  WP-29 follow-up PR or explicitly reassigned to WP-39.
+  account; device deregistration and key rotation with the orphaned-
+  registration case (AD-22 open question 3); the load/backpressure test of
+  the WP-29 card. Either done in a WP-29 follow-up PR or explicitly
+  reassigned to WP-39.
 
 - **Tunnel protocol, shared code** (`src/tunnel/`): `crot-tunnel.v1` frame
   codec, limits, close/RESET/GOAWAY codes, header validation and hop-by-hop
@@ -60,7 +115,7 @@ supersession/reconnect), end to end with the MCP SDK (2026-07-28 and every
 legacy version, streamed responses, gated approval and its cancellation,
 injected identity headers ignored, log scrubbing) through a protocol-level
 test device into a real `CrotHttpServer` relay entry. The device tunnel
-adapter is WP-30; no deployed relay or live WorkOS environment yet
+adapter is WP-30 (PR #20); no deployed relay or live WorkOS environment yet
 (WP-38).
 
 ## Previously completed
@@ -200,20 +255,21 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 
 ## Next
 
-**Next: WP-30 — Device tunnel adapter** (roadmap §8.4; AD-22, relay side
-done in WP-29). Critical path: yes — chain B continues WP-30 → WP-31 →
+**Current: WP-30 — Device tunnel adapter, Done in PR #20, awaiting merge**
+(see "In progress"). Critical path: yes — chain B continues WP-30 → WP-31 →
 WP-32 → WP-33 → WP-40. The device connects with the WP-28 credential
 (`CrotService.tunnelCredential()`), registers at pairing and reuses the
-tunnel codec in `src/tunnel/`.
+tunnel codec in `src/tunnel/`. **Next after WP-30: WP-31** (needs the
+per-principal profile AD, §26 Q25, and WP-23b/c).
 
 | WP | What | State |
 | --- | --- | --- |
-| WP-30 | Device tunnel adapter (AD-22, device side) | next; WP-20, WP-28 done; WP-29 relay side done (its open rate-limit/load items do not block WP-30); OD-5 decided (AD-22); per-principal profile AD (§26 Q25) needed before WP-31, not WP-30 |
-| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to WP-30 |
+| WP-30 | Device tunnel adapter (AD-22, device side) | Done, PR #20 (awaiting merge): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32); per-principal profile AD (§26 Q25) needed before WP-31, not WP-30 |
+| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to WP-31 |
 | WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13), needed before WP-31 |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
 | WP-41, WP-42 | Extensibility invariant tests; workspace image view (post-v1 phase 5; depend on no open contract — WP-42 without downscale, see product-reassessment §8) | can start now with spare capacity; never displace the critical path; WP-43/44/49 wait for OD-16/15/17 ADs |
-| OD-15…OD-20, OD-23 | ADs of the expanded product goal (jobs, components, media, edit description, connectors, credentials; release staging) | documentation work, parallel to WP-30; see roadmap §4.2 |
+| OD-15…OD-20, OD-23 | ADs of the expanded product goal (jobs, components, media, edit description, connectors, credentials; release staging) | documentation work, parallel to WP-31; see roadmap §4.2 |
 
 **Expanded product goal (proposal, not implemented).** CROT is to become an
 extensible execution environment for local and remote agents with full
@@ -232,7 +288,7 @@ and no external service has a CROT integration.
 | --- | --- |
 | Full move of stdio and legacy sessions to MCP SDK v2 (today: v1 + v2 side by side) | follow-up after WP-19 |
 | `server/discover` lists only 2026-07-28 (legacy versions are reachable via `initialize`) | follow-up / WP-32 |
-| Concurrency limit for the tunnel entry point (loopback has `http.maxConcurrentRequests` since WP-20) | WP-30 |
+| Concurrency limit for the tunnel entry point (loopback has `http.maxConcurrentRequests` since WP-20) | WP-30 (PR #20): the tunnel accepts at most `min(1024, maxConcurrentRequests + maxSessions)` streams; more are refused as `not_executed` |
 | Background processes are owned by the service, not by the stdio client that started them (shared by all clients; they outlive that client until the service stops) | follow-up (AD-17 scope) |
 | Approval deadlines are not extended across system sleep; sleep detection is a clock-jump heuristic (not changed by WP-22) | follow-up |
 | All stdio clients of a user share one configuration and one process environment (supervisor's or starting shim's; differing PATH/shell/home is reported to the client; commands get only the allowlisted part since WP-21) | AD-17 residual risk; WP-34 |
@@ -246,9 +302,10 @@ and no external service has a CROT integration.
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
 | Revoking a client's authorization at the identity provider from the tray (best effort after the device-side revocation; hook exists, reports "not available") | WP-36 (CROT account service holds the provider credentials) |
 | No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); no release configuration pins an identity environment, so every build honours the development override until then | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
-| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side WP-30; AD-22 open questions 1–8 remain |
+| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side by WP-30 (PR #20, Done); AD-22 open questions 1–8 remain |
+| Device deregistration and key rotation at the relay; a registration stays orphaned if the device fails to store its binding after registering | AD-22 open question 3 — relay side, WP-29 scope (not WP-30); listed in `docs/RELAY.md` "Known limitations" |
 | Remote full-control opt-in is recorded only; how it takes effect (per-principal profile; `principalKinds` exists only in approval rules) | AD-19 point 7; WP-31 |
-| Per-principal permission profile: grants and mode are global per Core, so AD-13 point 5 cannot be enforced with existing matchers | ARCHITECTURE.md §26 question 25 — an AD before WP-31 (does not block WP-30) |
+| Per-principal permission profile: grants and mode are global per Core, so AD-13 point 5 cannot be enforced with existing matchers | ARCHITECTURE.md §26 question 25 — an AD before WP-31 (did not block WP-30) |
 | Preset `autonomous-browser` (rule set not implemented yet) | WP-31 |
 | Any process of the same OS user can read the control credential and act like the tray | AD-19 residual risk; confined Linux children: closed by WP-23a; macOS, Windows, `full_control` and other processes of the user: open (WP-23b/c) |
 | Tray packaging, signing and autostart (Electron is a dev dependency today) | WP-34 |
@@ -260,7 +317,7 @@ and no external service has a CROT integration.
 | GUI control of desktop applications ("never in scope: OS-level input") | unchanged for v1; reassessed by OD-22 after spike WP-69 |
 | Vendor API facts (YouTube, ElevenLabs, TikTok, Canva) | unverified; confirmed by WP-60, WP-62 and the first step of WP-58/WP-59 ([`docs/design/integration-map.md`](docs/design/integration-map.md)) |
 | Transport matcher to gate loopback HTTP separately from stdio | ARCHITECTURE.md §26 question 12 (not required for v1) |
-| Relay/tunnel timeouts for gated requests and bounded browser waits | Decided by ARCHITECTURE.md §27 AD-22 points 12–13 (§26 question 13); relay side implemented (WP-29), device side WP-30; measured client timeouts WP-32 (AD-22 open question 5) |
+| Relay/tunnel timeouts for gated requests and bounded browser waits | Decided by ARCHITECTURE.md §27 AD-22 points 12–13 (§26 question 13); relay side implemented (WP-29); device side WP-30 (PR #20): a request ends 5 s before the exchange deadline (OD-5, recorded in ARCHITECTURE.md by `37b3126`); measured client timeouts WP-32 (AD-22 open question 5) |
 | Relay request rate and concurrency limits, per-source connection and handshake limits, registration rate limit, relay load test | Open WP-29 items (AD-15 point 10; ARCHITECTURE.md §27 AD-22, Implementation (WP-29)); release-blocking before WP-38 exposes a public relay, or reassigned to WP-39 |
 | Approval policy in general (beyond presets) | §26 question 6 |
 | Limit remote agents to tabs they opened | §26 question 14 (opened by AD-16; not required for v1) |

@@ -20,10 +20,11 @@ CROT device ◄──── wss /.crot/tunnel (crot-tunnel.v1, device-initiated)
 ```
 
 The device side of the tunnel (connecting, reconnecting, Remote mode,
-feeding requests to the loopback HTTP entry) is **WP-30** and is not part of
-this package. The tests use a protocol-level test device
+feeding requests to the loopback HTTP entry, registration at pairing) is
+**WP-30** and is described in [DEVICE_TUNNEL.md](DEVICE_TUNNEL.md). The
+WP-29 tests use a protocol-level test device
 (`tests/cloud-relay/test-device.ts`) that proxies to a real
-`CrotHttpServer` relay entry.
+`CrotHttpServer` relay entry; the WP-30 tests use the real device side.
 
 ## Running
 
@@ -54,7 +55,7 @@ node dist/bin/crot-cloud-relay.js --config relay.json
 | `host`, `port` | Listen address (default `0.0.0.0:8443`) |
 | `registryFile` | Device registry (JSON, written atomically, mode 0600) |
 | `tls` | Optional; without it the relay speaks plain HTTP and TLS must terminate in front of it |
-| `exchangeDeadlineMs` | Absolute exchange deadline, 60 000…900 000 ms (AD-22 point 12, default 15 min) |
+| `exchangeDeadlineMs` | Absolute exchange deadline, 60 000…900 000 ms (AD-22 point 12, default 15 min); the device ends a request 5 s before it (OD-5) |
 
 When TLS terminates at a load balancer, its idle timeout must be at least the
 exchange deadline and it must pass WebSocket upgrades through. Deployment is
@@ -86,6 +87,10 @@ different account or key, `400` bad body or key, `401` with
 `WWW-Authenticate` for a missing or invalid token, `403` another client's
 token, `408` body not received within 10 s, `413` for a body above 4 KiB.
 There is no deregistration yet (AD-22 open question 3).
+
+The device calls this endpoint during pairing, after it has verified the
+pairing token itself (WP-30, `src/identity/relay-registration.ts`); only
+`201` and `200` complete pairing.
 
 ### Client admission
 
@@ -185,10 +190,12 @@ and proofs are never logged (tested).
 
 ## Known limitations
 
-- No device side (WP-30); no Remote mode or reconnect logic on the device.
+- The device side is WP-30 (PR #20, Partial; see
+  [DEVICE_TUNNEL.md](DEVICE_TUNNEL.md)).
 - Single relay instance: routing is in memory; multi-instance routing is
   open (AD-22 open question 8).
-- No deregistration and no key rotation (AD-22 open question 3).
+- No deregistration and no key rotation (AD-22 open question 3); a
+  registration whose device failed to store its binding stays orphaned.
 - **Open WP-29 items (release-blocking before a public relay, WP-38):** no
   per-client or per-device request rate or concurrency limit beyond the
   device's stream limit (bodies without `Content-Length` are buffered before

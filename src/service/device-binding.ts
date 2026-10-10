@@ -18,6 +18,11 @@
  *   resets that state.
  * - Unpairing takes effect in memory at once, even when the state cannot be
  *   written (reported to the user, as client revocation does, AD-19 point 8).
+ * - The device key is generated before the pairing finishes, because the
+ *   relay registers its public key during pairing (AD-22 point 4; WP-30).
+ *   The pairing stages the seed in memory only (`stageDeviceKey`); `pair`
+ *   for that same device id stores it. Without a staged key `pair` generates
+ *   one as before.
  */
 import type { KeyObject } from "node:crypto";
 import {
@@ -96,6 +101,8 @@ function serialize(stored: Stored): string {
 
 export class DeviceBindingStore {
   private key: KeyObject | undefined;
+  /** The key a pairing registered at the relay, until `pair` stores it (memory only). */
+  private staged: { readonly deviceId: string; readonly seed: string } | undefined;
 
   private constructor(
     readonly file: string,
@@ -170,13 +177,15 @@ export class DeviceBindingStore {
    * changes (a key written before a failed binding write is removed).
    */
   async pair(binding: Omit<PairedBinding, "pairedAt">, environment: IdentityEnvironment): Promise<PairedBinding> {
+    const staged = this.staged?.deviceId === binding.deviceId ? this.staged.seed : undefined;
+    this.staged = undefined;
     if (this.failure !== undefined || this.stored.state !== "unpaired")
       throw new Error("the device is not in the unpaired state");
     if (binding.issuer !== environment.issuer || binding.relayHost !== environment.relayHost)
       throw new Error("the pairing does not belong to the active identity environment");
     if (!isDeviceId(binding.deviceId) || !isValidRemoteId(binding.accountId))
       throw new Error("the pairing has an invalid device id or account");
-    const seed = generateSecret();
+    const seed = staged ?? generateSecret();
     const key = deviceKeyFromSeed(seed);
     await this.secrets.write("device-key", seed);
     const paired: PairedBinding = { ...binding, pairedAt: new Date(this.now()).toISOString() };
@@ -199,6 +208,7 @@ export class DeviceBindingStore {
    * without its key is unavailable (fail closed).
    */
   async unpair(): Promise<{ readonly persisted: boolean; readonly keyRemoved: boolean; readonly errors: string[] }> {
+    this.staged = undefined;
     this.stored = { state: "unpaired", unpairedAt: new Date(this.now()).toISOString() };
     this.failure = undefined;
     this.key = undefined;
@@ -218,6 +228,22 @@ export class DeviceBindingStore {
       errors.push(`the device key could not be removed from ${this.secrets.backend.description}: ${message(error)}`);
     }
     return { persisted, keyRemoved, errors };
+  }
+
+  /**
+   * Stage the device key of a pairing in progress whose public key the relay
+   * registered (AD-22 point 4). Memory only; replaced by the next pairing and
+   * dropped by `pair`, `unpair` and `clearStagedKey`.
+   */
+  stageDeviceKey(deviceId: string, seed: string): void {
+    if (!isDeviceId(deviceId)) throw new Error("invalid device id");
+    deviceKeyFromSeed(seed);
+    this.staged = { deviceId, seed };
+  }
+
+  /** Drop a staged key (the pairing failed); only the given device id's. */
+  clearStagedKey(deviceId: string): void {
+    if (this.staged?.deviceId === deviceId) this.staged = undefined;
   }
 
   /**
