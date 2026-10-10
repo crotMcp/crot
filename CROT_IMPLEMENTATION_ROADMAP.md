@@ -1115,4 +1115,54 @@ for a development checkout:
 2. **Cloud Relay.** Production relay routes per-device, streams responses,
    verifies tokens and entitlements, enforces limits, refuses offline or
    remote-off devices, and provably never stores or logs payloads.
-3. **Local CROT.**
+3. **Local CROT.** One supervised per-user service owns Core, the browser
+   bridge, local HTTP and the tunnel; local stdio and loopback clients keep
+   working offline without an account; every remote request is re-verified
+   on the device and runs as `kind: "remote"` through the unchanged
+   ExecutionGuard / PermissionEngine pipeline.
+4. **Local computer capabilities.** A remote agent can read and modify project
+   files, run commands and processes under L1 on Linux, macOS and Windows, use
+   `git.read`/`git.write` and `docker.use`, within the workspace rules.
+5. **Real browser capabilities.** A remote agent can carry out multi-step tasks
+   in the user's real Chromium browser per AD-16: snapshot and references,
+   trusted input, frames and shadow DOM, waits and history, dialogs, upload
+   and download, multiple tabs and pop-ups, background screenshots, explicit
+   tabs, per-tab ordering, visible CROT tab group.
+6. **Security.** L1 enforced on all supported OS (refusal only on individual
+   machines lacking the mechanism); secrets protected; CDP surface fixed;
+   external review closed with no open critical/high findings.
+7. **Permissions and approvals.** Remote defaults to workspace mode with
+   `untrusted-content` on; the tray approval provider works for every
+   capability; both presets and the per-device full-control opt-in work and are
+   changeable only by the user; exposure reset and revocation exist only on
+   the provider channel.
+8. **Persistence and lifecycle.** Pairing, configuration and remote exposure
+   survive restarts, updates and sleep/wake; failure of persisted state fails
+   closed; the tunnel reconnects; remote off closes it immediately.
+9. **Installation.** A non-developer installs CROT and the store extension on
+   each supported OS without a terminal and reaches "Ready" (§10 flow).
+10. **Updates.** Signed updates with rollback for app and service; store
+    updates for the extension; version-compatibility policy enforced.
+11. **Commercial path.** Sign-up, plan, payment, entitlement, device limits and
+    device revocation from the account portal work end to end; local mode
+    needs none of them.
+12. **Operational readiness.** Production monitoring (metadata only), incident
+    response, key rotation and support processes are in place and exercised.
+13. **Documentation and legal.** User and security documentation, privacy
+    policy, terms and store disclosures are published and disclose every
+    accepted residual risk of AD-13…AD-16.
+
+---
+
+## 11. Post-v1 boundary (explicitly out of scope)
+
+- **External MCP gateway** — CROT as MCP client of external servers (function
+  B, §18, AD-13 point 2); §26 questions 3–5. Keep architectural separation:
+  nothing in v1 may depend on it or pre-build it.
+- OS-level egress allowlists for processes and containers (§16 item 23, AD-4).
+- Confinement level L2 (read-deny of common user secrets), including Windows.
+- Relay end-to-end encryption (TLS terminates at the relay in v1).
+- Firefox and Safari; multiple simultaneously connected browser profiles.
+- Team features; a rule editor; general approval policy beyond the two
+  presets.
+- Dedicated Git network operations and Docker build/pull capab
