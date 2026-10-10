@@ -194,7 +194,7 @@ const PRESET_SOURCES: Readonly<Record<ControlOverview["preset"]["source"], strin
 /**
  * The effective preset and the remote profile as reported by the running Core
  * (WP-31): what remote clients may do, whether the full-control opt-in is in
- * effect, and the restrictions that always apply to them.
+ * effect (and saved), and the restrictions that always apply to them.
  */
 export function profileLines(o: ControlOverview): string[] {
   const lines = [
@@ -206,11 +206,13 @@ export function profileLines(o: ControlOverview): string[] {
     `Remote clients: mode ${p.mode}, untrusted-content protection ${p.untrustedContent}, capabilities ${p.capabilities.join(", ") || "none"}`,
   );
   const effective = o.remote.fullControlEffective ?? p.fullControl.enabled;
+  const account = p.fullControl.accountId ? ` (account ${p.fullControl.accountId})` : "";
+  const unsaved = o.remote.fullControl ? "" : " (not saved: off after a restart)";
   lines.push(
     effective && p.fullControl.deviceId
-      ? `Remote full control: ON for device ${p.fullControl.deviceId}${p.fullControl.accountId ? ` (account ${p.fullControl.accountId})` : ""} only`
+      ? `Remote full control: ON for device ${p.fullControl.deviceId}${account} only${unsaved}`
       : o.remote.fullControl
-        ? "Remote full control: recorded but NOT in effect (no device paired here); remote clients stay in the workspace"
+        ? "Remote full control: recorded in the device settings but NOT in effect; remote clients stay in the workspace"
         : "Remote full control: off",
   );
   for (const r of p.restrictions) lines.push(`Restriction: ${r}`);

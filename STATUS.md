@@ -7,8 +7,38 @@ package PR updates this file.
 
 ## In progress
 
-**WP-30 — Device tunnel adapter — Done, awaiting merge** (PR #20, branch
-`wp-30-device-tunnel`; ARCHITECTURE.md §27 AD-22, device side). User docs:
+**WP-31 — Remote permission profile and presets — in progress, not Done**
+(PR #21, draft, branch `wp-31-remote-permission-profile`, started from
+`main` `63a7d63`). The per-principal profile decision (ARCHITECTURE.md §26
+question 25) is proposed and not yet recorded in ARCHITECTURE.md.
+
+- **Implemented on the branch:** remote principals get their own profile in
+  the one PermissionEngine, local principals are unchanged: workspace only,
+  at most the configured capabilities, untrusted-content protection always
+  on (with preset `off` they get `require-approval`); preset
+  `autonomous-browser` selectable (browser control without repeated
+  approval; uploads, shell, filesystem write, Git write, network and Docker
+  Compose stay gated); the remote full-control opt-in is bound to the
+  device and account paired here and applied through a new Core only while
+  CROT is idle, never to other devices or to local principals; remote shell
+  and process operations stay refused without L1
+  (`CONFINEMENT_UNAVAILABLE`, AD-20); the device settings never hold more
+  full control than the running Core applies; `crot_status`, the control
+  overview and the tray report the effective preset and its source, the
+  remote profile, the opt-in (recorded and in effect) and the restrictions.
+- **CI:** each commit of PR #21 is checked by its own CI, L1 and
+  real-chromium runs; see the PR for the result of the latest commit.
+- **Not yet confirmed:** tests that tools, the relay and browser pages
+  cannot change presets or the opt-in or approve their own operations;
+  protection of local file uploads exists only as a defensive rule, because
+  no upload operation exists yet; the documentation changes for WP-31 await
+  approval.
+
+## Last completed
+
+**WP-30 — Device tunnel adapter** (merged into `main` through PR #20;
+WP-31 starts from `main` `63a7d63`; ARCHITECTURE.md §27 AD-22, device
+side). User docs:
 [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md),
 [`docs/RELAY.md`](docs/RELAY.md).
 
@@ -57,7 +87,7 @@ secret-free logs) and `tests/cloud-relay/device-registration.test.ts`
 setup only: the L1 ARM jobs pull `alpine:3.20` from `public.ecr.aws` with
 retries (Docker Hub rate limit).
 
-## Last completed
+## Previously completed
 
 **WP-29 — Cloud Relay v1, relay side — partial** (merged into `main`,
 `515fcb9`; ARCHITECTURE.md
@@ -117,8 +147,6 @@ injected identity headers ignored, log scrubbing) through a protocol-level
 test device into a real `CrotHttpServer` relay entry. The device tunnel
 adapter is WP-30 (PR #20); no deployed relay or live WorkOS environment yet
 (WP-38).
-
-## Previously completed
 
 **WP-28 — Identity and device binding** (merged in crot-mcp PR #16,
 `4d574f0`;
@@ -255,18 +283,18 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 
 ## Next
 
-**Current: WP-30 — Device tunnel adapter, Done in PR #20, awaiting merge**
-(see "In progress"). Critical path: yes — chain B continues WP-30 → WP-31 →
-WP-32 → WP-33 → WP-40. The device connects with the WP-28 credential
-(`CrotService.tunnelCredential()`), registers at pairing and reuses the
-tunnel codec in `src/tunnel/`. **Next after WP-30: WP-31** (needs the
-per-principal profile AD, §26 Q25, and WP-23b/c).
+**Current: WP-31 — Remote permission profile and presets, in progress in
+PR #21 (draft, not Done)** (see "In progress"). Critical path: yes — chain B
+continues WP-31 → WP-32 → WP-33 → WP-40. WP-30 is merged (PR #20). WP-31
+needs the per-principal profile AD (§26 Q25); it does not wait for WP-23b/c
+(see the WP-23b/c row).
 
 | WP | What | State |
 | --- | --- | --- |
-| WP-30 | Device tunnel adapter (AD-22, device side) | Done, PR #20 (awaiting merge): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32); per-principal profile AD (§26 Q25) needed before WP-31, not WP-30 |
+| WP-31 | Remote permission profile and presets (AD-13, AD-19) | in progress, PR #21 (draft, not Done); per-principal profile AD (§26 Q25) proposed, not yet in ARCHITECTURE.md; see "In progress" |
+| WP-30 | Device tunnel adapter (AD-22, device side) | Done, merged (PR #20): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32) |
 | WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to WP-31 |
-| WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13), needed before WP-31 |
+| WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13); not a prerequisite of WP-31: where L1 is unavailable (macOS, Windows), remote shell and process operations are refused with `CONFINEMENT_UNAVAILABLE` and an explanation (AD-20, [`docs/L1.md`](docs/L1.md)); WP-23b/c stay open as separate packages |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
 | WP-41, WP-42 | Extensibility invariant tests; workspace image view (post-v1 phase 5; depend on no open contract — WP-42 without downscale, see product-reassessment §8) | can start now with spare capacity; never displace the critical path; WP-43/44/49 wait for OD-16/15/17 ADs |
 | OD-15…OD-20, OD-23 | ADs of the expanded product goal (jobs, components, media, edit description, connectors, credentials; release staging) | documentation work, parallel to WP-31; see roadmap §4.2 |
@@ -302,7 +330,7 @@ and no external service has a CROT integration.
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
 | Revoking a client's authorization at the identity provider from the tray (best effort after the device-side revocation; hook exists, reports "not available") | WP-36 (CROT account service holds the provider credentials) |
 | No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); no release configuration pins an identity environment, so every build honours the development override until then | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
-| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side by WP-30 (PR #20, Done); AD-22 open questions 1–8 remain |
+| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side by WP-30 (PR #20, merged); AD-22 open questions 1–8 remain |
 | Device deregistration and key rotation at the relay; a registration stays orphaned if the device fails to store its binding after registering | AD-22 open question 3 — relay side, WP-29 scope (not WP-30); listed in `docs/RELAY.md` "Known limitations" |
 | Remote full-control opt-in is recorded only; how it takes effect (per-principal profile; `principalKinds` exists only in approval rules) | AD-19 point 7; WP-31 |
 | Per-principal permission profile: grants and mode are global per Core, so AD-13 point 5 cannot be enforced with existing matchers | ARCHITECTURE.md §26 question 25 — an AD before WP-31 (did not block WP-30) |
