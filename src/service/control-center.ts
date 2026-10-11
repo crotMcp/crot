@@ -8,7 +8,8 @@
  * This is the only code that changes these settings, and it runs only for
  * requests on the control channel (AD-17 point 7). It makes no permission
  * decision: approvals are decided by the user through the broker's tickets,
- * and the preset becomes policy only by building a new Core (AD-19 point 5).
+ * and the preset and the remote full-control opt-in become policy only by
+ * building a new Core (AD-19 point 5, WP-31).
  */
 import type {
   RemoteAdmission,
@@ -23,6 +24,7 @@ import type { PresentedApproval, TerminalApprovalStatus } from "../core/approval
 import { newAuditEventId, type ControlAuditAction, type ControlAuditRecord } from "../core/audit/audit.js";
 import { remoteExposureScope } from "../core/auth/principal.js";
 import type { CoreCompositionHandle, CrotCore } from "../core/crot-core.js";
+import type { RemoteProfileOptions } from "../core/permissions/engine.js";
 import type { BrowserConnectionState } from "../core/capabilities/browser/connection.js";
 import type { ServiceStatus } from "../core/service-status.js";
 import type { CoreHolder } from "./core-holder.js";
@@ -42,19 +44,21 @@ import type {
 import { isValidRemoteId, type RemoteClientRegistry } from "./remote-clients.js";
 import { TrayApprovalProvider, type ApprovalSubscriber } from "./tray-provider.js";
 
-/** Presets the PermissionEngine implements today (AD-19 point 5). */
-export const SELECTABLE_PRESETS: readonly PresetValue[] = Object.freeze(["require-approval", "off"]);
-const UNAVAILABLE_PRESETS = Object.freeze([
-  {
-    value: "autonomous-browser" as const,
-    reason: "The Autonomous browser preset is implemented by WP-31 (remote permission profile and presets).",
-  },
+/** Presets the PermissionEngine implements (AD-19 point 5, WP-31). */
+export const SELECTABLE_PRESETS: readonly PresetValue[] = Object.freeze([
+  "require-approval",
+  "autonomous-browser",
+  "off",
 ]);
+const UNAVAILABLE_PRESETS: readonly { readonly value: PresetValue; readonly reason: string }[] = Object.freeze([]);
 /** How restrictive a preset is: higher gates more. */
 const PRESET_RANK: Readonly<Record<PresetValue, number>> = { off: 0, "autonomous-browser": 1, "require-approval": 2 };
 
 export const FULL_CONTROL_NOTE =
-  "Recorded and audited only: it does not change any permission yet. How it takes effect is decided by WP-31.";
+  "Applies only to remote clients of the device paired here: they work in full_control (paths outside the " +
+  "workspace are allowed), each of their shell commands needs your approval, and their shell and process " +
+  "operations run only with command confinement L1. Local clients and other devices are not affected. " +
+  "Unpairing or pairing again turns it off.";
 export const TUNNEL_NOTE = "The relay tunnel is not available yet (WP-30); no remote request can reach this device.";
 export const CDP_REASON = "The CDP browser backend is implemented by WP-24.";
 export const PROVIDER_REVOCATION_NOTE =
@@ -93,8 +97,14 @@ export interface ControlCenterHost {
     (RemoteExposureResettable & Pick<RemoteExposureStore, "isExposed" | "failedClosed">) | undefined;
   /** The preset in the configuration file. */
   readonly configuredPreset: UntrustedContentSetting;
-  /** Build (do not install) a Core with this preset and the exposure state of the current one. */
-  buildCore(preset: UntrustedContentSetting): Promise<{ core: CrotCore; handle: CoreCompositionHandle }>;
+  /**
+   * Build (do not install) a Core with this preset, this remote profile (WP-31; none: the remote default
+   * profile) and the exposure state of the current one.
+   */
+  buildCore(
+    preset: UntrustedContentSetting,
+    remote?: RemoteProfileOptions,
+  ): Promise<{ core: CrotCore; handle: CoreCompositionHandle }>;
   serviceStatus(): ServiceStatus;
   browserState(): BrowserConnectionState | undefined;
   agents(): { stdio: number; httpSessions: number; httpSessionlessInFlight: number };
@@ -138,6 +148,41 @@ export class ControlCenter implements RemoteAdmission {
       : { effective: configured, source: "configuration" };
   }
 
+  /**
+   * The remote profile the device state asks for (WP-31): full control only when readable settings record the
+   * opt-in together with its grant, and the grant names the device id and account of the pairing in effect.
+   * A grant of an earlier pairing, an opt-in without a grant, unreadable settings or an unusable binding give
+   * none. This is how the opt-in is restored after a restart.
+   */
+  static remoteProfile(
+    settings: DeviceSettingsStore,
+    binding: Pick<DeviceBindingStore, "paired">,
+  ): RemoteProfileOptions | undefined {
+    if (settings.error !== undefined) return undefined;
+    const { remoteFullControl, remoteFullControlGrant: grant } = settings.settings;
+    const paired = binding.paired;
+    if (!remoteFullControl || !grant || !paired) return undefined;
+    if (grant.deviceId !== paired.deviceId || grant.accountId !== paired.accountId) return undefined;
+    return { fullControl: { deviceId: paired.deviceId, accountId: paired.accountId } };
+  }
+
+  /** Why a recorded full-control opt-in does not apply (overview errors); undefined when it applies or is off. */
+  static fullControlProblem(
+    settings: DeviceSettingsStore,
+    binding: Pick<DeviceBindingStore, "paired" | "error">,
+  ): string | undefined {
+    if (settings.error !== undefined || !settings.settings.remoteFullControl) return undefined;
+    const grant = settings.settings.remoteFullControlGrant;
+    if (!grant)
+      return "remote full control was recorded before WP-31 without a pairing and does not apply; turn it on again";
+    if (binding.error !== undefined) return "remote full control does not apply: the device binding cannot be used";
+    const paired = binding.paired;
+    if (!paired) return "remote full control does not apply: this device is not paired";
+    if (grant.deviceId !== paired.deviceId || grant.accountId !== paired.accountId)
+      return "remote full control was given for another pairing (device or account) and does not apply";
+    return undefined;
+  }
+
   /** Wait for pending writes of the device state (shutdown). */
   async flush(): Promise<void> {
     await this.host.clients.flush();
@@ -150,6 +195,7 @@ export class ControlCenter implements RemoteAdmission {
       preset: { value: preset.effective, source: preset.source },
       remoteMode: this.host.settings.settings.remoteMode,
       remoteFullControl: this.host.settings.settings.remoteFullControl,
+      remoteFullControlEffective: this.host.holder.instance.permissions.remoteProfile.fullControl.enabled,
       approvalUis: this.provider.subscriberCount,
     };
   }
@@ -281,6 +327,40 @@ export class ControlCenter implements RemoteAdmission {
     this.unregisterProvider = handle.registerApprovalProvider(this.provider);
   }
 
+  /** The remote profile the current device state asks for (WP-31). */
+  private requestedRemoteProfile(): RemoteProfileOptions | undefined {
+    return ControlCenter.remoteProfile(this.host.settings, this.host.binding);
+  }
+
+  /**
+   * Build a Core with this preset and remote profile and install it (AD-19 point 5): only while the current
+   * Core is idle, checked again right before the synchronous switch. On a refusal nothing changed.
+   */
+  private async replaceCore(
+    preset: UntrustedContentSetting,
+    remote: RemoteProfileOptions | undefined,
+    what: string,
+  ): Promise<ControlRefusal | undefined> {
+    let built: { core: CrotCore; handle: CoreCompositionHandle };
+    try {
+      built = await this.host.buildCore(preset, remote);
+    } catch (error) {
+      return refusal("core_failed", `Not changed: ${what} could not be applied (${errorText(error)}).`);
+    }
+    // The idle check and the switch are one synchronous step (AD-19 point 5).
+    const busy = this.host.holder.busyReason();
+    if (busy) {
+      await built.core.shutdown().catch(() => undefined);
+      return refusal("busy", `${what} can be changed only while CROT is idle: ${busy}.`);
+    }
+    const previous = this.host.holder.swap(built.core, built.handle);
+    this.moveProvider(built.handle);
+    await previous
+      .shutdown()
+      .catch((error: unknown) => this.host.log(`control: old Core shutdown: ${errorText(error)}`));
+    return undefined;
+  }
+
   // ---- audit (AD-19 point 9) ---------------------------------------------------------------------
 
   private async audit(
@@ -363,25 +443,11 @@ export class ControlCenter implements RemoteAdmission {
       );
     }
     if (needsCore) {
-      let built: { core: CrotCore; handle: CoreCompositionHandle };
-      try {
-        built = await this.host.buildCore(preset);
-      } catch (error) {
+      const failure = await this.replaceCore(preset, this.requestedRemoteProfile(), "The preset");
+      if (failure) {
         await restore();
-        return failed("core_failed", `Not changed: CROT could not apply the preset (${errorText(error)}).`);
+        return failed(failure.reason, failure.message);
       }
-      // The idle check and the switch are one synchronous step (AD-19 point 5).
-      const busy = this.host.holder.busyReason();
-      if (busy) {
-        await built.core.shutdown().catch(() => undefined);
-        await restore();
-        return failed("busy", `The preset can be changed only while CROT is idle: ${busy}.`);
-      }
-      const previous = this.host.holder.swap(built.core, built.handle);
-      this.moveProvider(built.handle);
-      await previous
-        .shutdown()
-        .catch((error: unknown) => this.host.log(`control: old Core shutdown: ${errorText(error)}`));
     }
     const warning = widening
       ? undefined
@@ -391,10 +457,11 @@ export class ControlCenter implements RemoteAdmission {
     return { ok: true, preset, ...(warning ? { warning } : {}) };
   }
 
-  // ---- remote mode and full-control opt-in (AD-19 points 6 and 7) --------------------------------
+  // ---- remote mode and full-control opt-in (AD-19 points 6 and 7, WP-31) -------------------------
 
   private async setFlag(action: "remote_mode" | "remote_full_control", enabled: boolean): Promise<Result> {
-    const key = action === "remote_mode" ? "remoteMode" : "remoteFullControl";
+    if (action === "remote_full_control") return this.setFullControl(enabled);
+    const key = "remoteMode";
     const previous = this.host.settings.settings[key];
     if (previous === enabled && this.host.settings.error === undefined) return { ok: true, enabled, unchanged: true };
     const widening = enabled;
@@ -414,16 +481,147 @@ export class ControlCenter implements RemoteAdmission {
         `Not changed: the device settings could not be written (${errorText(error)}).`,
       );
     }
-    if (action === "remote_mode" && !enabled) {
+    if (!enabled) {
       // Remote mode off: nothing remote keeps running (AD-15 point 9).
       for (const client of this.host.clients.list()) await this.endRemote(client);
     }
     const warning = widening ? undefined : await this.auditBestEffort(action, "applied", { previous, value: enabled });
-    this.host.log(
-      `control: ${action === "remote_mode" ? "remote mode" : "remote full-control opt-in"} ${enabled ? "on" : "off"}`,
-    );
+    this.host.log(`control: remote mode ${enabled ? "on" : "off"}`);
     this.stateChanged();
     return { ok: true, enabled, ...(warning ? { warning } : {}) };
+  }
+
+  /**
+   * The remote full-control opt-in (WP-31, AD-19 point 7). It becomes policy only through a new Core whose
+   * remote profile binds full control to the device and account paired here. Turning it on needs readable
+   * settings, a paired device and an idle Core, and its audit record comes first.
+   *
+   * The device settings never hold more than the running Core applies: turning it on installs the new Core
+   * first and records the opt-in only afterwards, together with its grant (the paired device id and account;
+   * a failed write leaves it in effect until the service stops and off after a restart); turning it off
+   * records the narrower value first. No failure writes the opt-in back on. A recorded opt-in is restored
+   * after a restart only for the pairing its grant names (`remoteProfile`).
+   */
+  private async setFullControl(enabled: boolean): Promise<Result> {
+    const action = "remote_full_control";
+    const settings = this.host.settings;
+    const previous = settings.settings.remoteFullControl;
+    const effective = this.host.holder.instance.permissions.remoteProfile.fullControl.enabled;
+    if (previous === enabled && effective === enabled && settings.error === undefined)
+      return { ok: true, enabled, unchanged: true };
+    const refuse = async (reason: string, message: string) => {
+      await this.auditBestEffort(action, "refused", { reason, previous, value: enabled });
+      return refusal(reason, message);
+    };
+    const paired = this.host.binding.paired;
+    if (enabled && settings.error !== undefined)
+      return refuse(
+        "state_unavailable",
+        `The device settings cannot be read (${settings.error}); remote full control stays off.`,
+      );
+    if (enabled && !paired)
+      return refuse("not_paired", "Remote full control needs a device paired here: pair this device first.");
+    const busy = this.host.holder.busyReason();
+    if (busy) return refuse("busy", `Remote full control can be changed only while CROT is idle: ${busy}.`);
+    const preset = ControlCenter.effectivePreset(settings, this.host.configuredPreset).effective;
+    if (enabled && paired) {
+      try {
+        await this.audit(action, "applied", { previous, value: true });
+      } catch (error) {
+        return refusal("audit_failed", `Not changed: the audit record could not be written (${errorText(error)}).`);
+      }
+      const failure = await this.replaceCore(
+        preset,
+        { fullControl: { deviceId: paired.deviceId, accountId: paired.accountId } },
+        "Remote full control",
+      );
+      if (failure) {
+        await this.auditBestEffort(action, "failed", { reason: failure.reason, previous, value: true });
+        return refusal(failure.reason, failure.message);
+      }
+      let warning: string | undefined;
+      try {
+        await settings.update({
+          remoteFullControl: true,
+          remoteFullControlGrant: {
+            deviceId: paired.deviceId,
+            accountId: paired.accountId,
+            grantedAt: new Date().toISOString(),
+          },
+        });
+      } catch (error) {
+        warning =
+          `remote full control is in effect until the service stops, but it could not be saved in the device ` +
+          `settings (${errorText(error)}); it is off after a restart`;
+        await this.auditBestEffort(action, "failed", { reason: "state_write_failed", previous, value: true });
+        this.host.log(`control: ${warning}`);
+      }
+      this.host.log("control: remote full-control opt-in on");
+      this.stateChanged();
+      return { ok: true, enabled, ...(warning ? { persisted: false, warning } : {}) };
+    }
+    try {
+      await settings.update({ remoteFullControl: false });
+    } catch (error) {
+      await this.auditBestEffort(action, "refused", { reason: "state_write_failed", previous, value: false });
+      return refusal(
+        "state_write_failed",
+        `Not changed: the device settings could not be written (${errorText(error)}).`,
+      );
+    }
+    if (effective) {
+      const failure = await this.replaceCore(preset, undefined, "Remote full control");
+      if (failure) {
+        await this.auditBestEffort(action, "failed", { reason: failure.reason, previous, value: false });
+        this.stateChanged();
+        return refusal(
+          failure.reason,
+          `${failure.message} It is already off in the device settings, so it does not apply after a restart; ` +
+            "the running Core keeps it until it can be replaced.",
+        );
+      }
+    }
+    const warning = await this.auditBestEffort(action, "applied", { previous, value: false });
+    this.host.log("control: remote full-control opt-in off");
+    this.stateChanged();
+    return { ok: true, enabled, ...(warning ? { warning } : {}) };
+  }
+
+  /**
+   * Turn the full-control opt-in off when the pairing it was given for ends or is replaced (WP-31): in the
+   * device settings and, when the running Core applies it, by installing a Core without it. Never widens.
+   */
+  private async resetFullControl(reason: string): Promise<{ readonly ok: boolean; readonly warnings: string[] }> {
+    const warnings: string[] = [];
+    let ok = true;
+    const settings = this.host.settings;
+    if (settings.error === undefined && settings.settings.remoteFullControl) {
+      try {
+        await settings.update({ remoteFullControl: false });
+        const warning = await this.auditBestEffort("remote_full_control", "applied", {
+          reason,
+          previous: true,
+          value: false,
+        });
+        if (warning) warnings.push(warning);
+      } catch (error) {
+        ok = false;
+        const detail = errorText(error);
+        warnings.push(`the remote full-control opt-in could not be turned off in the settings: ${detail}`);
+      }
+    }
+    if (this.host.holder.instance.permissions.remoteProfile.fullControl.enabled) {
+      const preset = ControlCenter.effectivePreset(settings, this.host.configuredPreset).effective;
+      const failure = await this.replaceCore(preset, this.requestedRemoteProfile(), "Remote full control");
+      if (failure) {
+        ok = false;
+        warnings.push(
+          `the running Core keeps the full-control profile of the previous pairing (${failure.message}); ` +
+            "no remote client of that pairing is admitted",
+        );
+      }
+    }
+    return { ok, warnings };
   }
 
   // ---- exposure reset and revocation (AD-19 point 8) ---------------------------------------------
@@ -554,7 +752,10 @@ export class ControlCenter implements RemoteAdmission {
     return { ok: true, authorizationUrl: pending.authorizationUrl, expiresAt: pending.expiresAt };
   }
 
-  /** The sign-in of a pairing completed (or failed): record the binding, audit first (it widens remote reachability). */
+  /**
+   * The sign-in of a pairing completed (or failed): record the binding, audit first (it widens remote
+   * reachability). A new pairing never inherits a full-control opt-in (WP-31).
+   */
   private pairingFinished(outcome: PairingOutcome, deviceId: string): Promise<void> {
     return this.serial(async () => {
       const environment = this.host.identity.environment;
@@ -570,6 +771,8 @@ export class ControlCenter implements RemoteAdmission {
       if (!outcome.ok) return fail(outcome.detail ? `${outcome.reason}: ${outcome.detail}` : outcome.reason);
       if (!environment) return fail("no_environment");
       if (this.host.binding.error !== undefined || this.host.binding.paired) return fail("not_unpaired");
+      const reset = await this.resetFullControl("pairing");
+      if (!reset.ok) return fail(`full_control_not_reset: ${reset.warnings.join("; ")}`);
       const device = { deviceId, accountId: outcome.accountId, environment: environment.id };
       try {
         await this.audit("pairing", "applied", { device });
@@ -598,8 +801,9 @@ export class ControlCenter implements RemoteAdmission {
 
   /**
    * Unpair (AD-21 point 4 (b)): narrowing, effective at once — no token is
-   * accepted, every remote request in flight is ended and the device
-   * credential is removed. Also resets an unusable binding.
+   * accepted, every remote request in flight is ended, the device
+   * credential is removed and the full-control opt-in is turned off (WP-31).
+   * Also resets an unusable binding.
    */
   private async unpair(): Promise<Result> {
     const binding = this.host.binding;
@@ -615,6 +819,7 @@ export class ControlCenter implements RemoteAdmission {
       const r = await this.endRemote(client);
       ended = { sessions: ended.sessions + r.sessions, requests: ended.requests + r.requests };
     }
+    const reset = await this.resetFullControl("unpaired");
     const warning = await this.auditBestEffort("unpair", "applied", {
       ...(before
         ? { device: { deviceId: before.deviceId, accountId: before.accountId, environment: before.environment } }
@@ -623,7 +828,7 @@ export class ControlCenter implements RemoteAdmission {
     });
     this.host.log("control: device unpaired");
     this.stateChanged();
-    const warnings = [...result.errors, ...(warning ? [warning] : [])];
+    const warnings = [...result.errors, ...reset.warnings, ...(warning ? [warning] : [])];
     return {
       ok: true,
       persisted: result.persisted,
@@ -707,12 +912,14 @@ export class ControlCenter implements RemoteAdmission {
         !store || store.failedClosed ? "unknown" : store.isExposed(key) ? "exposed" : "clean";
       return { ...c, exposure };
     });
+    const fullControlProblem = ControlCenter.fullControlProblem(this.host.settings, this.host.binding);
     const errors = [
       ...(this.host.settings.error !== undefined ? [`device settings: ${this.host.settings.error}`] : []),
       ...(this.host.clients.error !== undefined ? [`remote clients: ${this.host.clients.error}`] : []),
       ...(store?.failedClosed
         ? ["remote exposure state cannot be read: every remote client is treated as exposed"]
         : []),
+      ...(fullControlProblem ? [fullControlProblem] : []),
     ];
     const browser = this.host.browserState();
     const blockedBy = this.host.holder.busyReason();
@@ -737,7 +944,9 @@ export class ControlCenter implements RemoteAdmission {
       remote: {
         mode: this.host.settings.settings.remoteMode,
         fullControl: this.host.settings.settings.remoteFullControl,
+        fullControlEffective: core.remote.fullControl.enabled,
         fullControlNote: FULL_CONTROL_NOTE,
+        profile: core.remote,
         tunnel: TUNNEL_NOTE,
         clients,
         errors,

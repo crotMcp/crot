@@ -21,6 +21,7 @@
  */
 import type { UntrustedContentSetting } from "../core/approvals/exposure.js";
 import type { PresentedApproval, TerminalApprovalStatus } from "../core/approvals/types.js";
+import type { RemoteProfileSummary } from "../core/permissions/engine.js";
 import type { ConfinementStatus } from "../core/platform/types.js";
 import type { ServiceStatus } from "../core/service-status.js";
 import { parseEnvironmentFingerprint } from "./environment.js";
@@ -216,8 +217,13 @@ export interface ControlOverview {
   };
   readonly remote: {
     readonly mode: boolean;
+    /** The opt-in as recorded in the device settings. */
     readonly fullControl: boolean;
+    /** Whether the running Core applies it (WP-31); absent from older services. */
+    readonly fullControlEffective?: boolean;
     readonly fullControlNote: string;
+    /** The effective profile of remote principals in the running Core (WP-31); absent from older services. */
+    readonly profile?: RemoteProfileSummary;
     readonly tunnel: string;
     readonly clients: readonly RemoteClientView[];
     /** Device state that cannot be read (settings, client list); remote requests are then refused. */

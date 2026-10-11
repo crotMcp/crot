@@ -1,14 +1,15 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { UntrustedContentSetting } from "../../src/core/approvals/exposure.js";
 import { RemoteExposureStore } from "../../src/core/approvals/remote-exposure.js";
 import { MemoryAuditSink, type AuditEntry, type AuditSink } from "../../src/core/audit/audit.js";
 import { localPrincipal, newSession, remoteExposureScope, type AuthContext } from "../../src/core/auth/principal.js";
 import type { BrowserCommand, BrowserConnection } from "../../src/core/capabilities/browser/connection.js";
 import type { CoreCompositionHandle, CrotCore } from "../../src/core/crot-core.js";
+import type { RemoteProfileOptions } from "../../src/core/permissions/engine.js";
 import { createPrivateFileProtection } from "../../src/core/platform/private-files.js";
-import { ControlCenter, type ControlConnection } from "../../src/service/control-center.js";
+import { ControlCenter, SELECTABLE_PRESETS, type ControlConnection } from "../../src/service/control-center.js";
 import { CoreHolder } from "../../src/service/core-holder.js";
 import { DeviceSettingsStore, SERVICE_SETTINGS_FILE_NAME } from "../../src/service/device-settings.js";
 import type { ControlEvent, ControlOverview, ControlRequest } from "../../src/service/protocol.js";
@@ -19,10 +20,11 @@ import { DeviceIdentity } from "../../src/service/identity.js";
 import { openBinding } from "../identity/helpers.js";
 
 /**
- * WP-22 / AD-19: the device-side controls of the service, with real Cores:
- * preset switch through a new Core (idle only, exposure carried over), audit
- * of control actions (widening changes need their record first), remote
- * admission, exposure reset and revocation, the tray provider.
+ * WP-22 / AD-19 / WP-31: the device-side controls of the service, with real Cores:
+ * preset switch through a new Core (idle only, exposure carried over), the
+ * remote full-control opt-in applied through a new Core bound to the paired
+ * device, audit of control actions (widening changes need their record
+ * first), remote admission, exposure reset and revocation, the tray provider.
  */
 
 const privateFiles = createPrivateFileProtection(isWindows);
@@ -77,18 +79,30 @@ let center: ControlCenter;
 let binding: DeviceBindingStore;
 let configured: UntrustedContentSetting;
 let rules: unknown[];
+/** The next Core build fails (a Core that cannot be built). */
+let failNextBuild: boolean;
 
 beforeEach(async () => {
   dirs = await makeTempDirs();
   cores = [];
   sink = new SwitchableSink();
+  failNextBuild = false;
 });
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const c of cores) await c.shutdown();
   await dirs.cleanup();
 });
 
-async function build(preset: UntrustedContentSetting, handover?: CoreCompositionHandle["exposure"]) {
+async function build(
+  preset: UntrustedContentSetting,
+  handover?: CoreCompositionHandle["exposure"],
+  remote?: RemoteProfileOptions,
+) {
+  if (failNextBuild) {
+    failNextBuild = false;
+    throw new Error("cannot build Core");
+  }
   let handle: CoreCompositionHandle | undefined;
   const core = await createTestCore(
     {
@@ -100,6 +114,7 @@ async function build(preset: UntrustedContentSetting, handover?: CoreComposition
       browser: new FakeBrowser(),
       remoteExposure: exposure,
       ...(handover ? { exposure: handover } : {}),
+      ...(remote ? { remoteProfile: remote } : {}),
       composition: (h) => (handle = h),
     },
   );
@@ -113,10 +128,14 @@ async function setup(options: { configured?: UntrustedContentSetting; rules?: un
   settings = await DeviceSettingsStore.open(path.join(dirs.outside, SERVICE_SETTINGS_FILE_NAME), privateFiles);
   clients = await RemoteClientRegistry.open(path.join(dirs.outside, REMOTE_CLIENTS_FILE_NAME), privateFiles);
   exposure = RemoteExposureStore.inMemory();
-  const initial = await build(ControlCenter.effectivePreset(settings, configured).effective);
-  holder = new CoreHolder(initial.core, initial.handle);
   // A device paired to CLIENT's account and device (WP-28): admission requires the binding.
   binding = (await openBinding(dirs.outside, { accountId: CLIENT.accountId, deviceId: CLIENT.deviceId })).binding;
+  const initial = await build(
+    ControlCenter.effectivePreset(settings, configured).effective,
+    undefined,
+    ControlCenter.remoteProfile(settings, binding),
+  );
+  holder = new CoreHolder(initial.core, initial.handle);
   center = new ControlCenter({
     holder,
     settings,
@@ -129,7 +148,7 @@ async function setup(options: { configured?: UntrustedContentSetting; rules?: un
     }),
     remoteExposure: exposure,
     configuredPreset: configured,
-    buildCore: (preset) => build(preset, holder.composition.exposure),
+    buildCore: (preset, remote) => build(preset, holder.composition.exposure, remote),
     serviceStatus: () => ({
       state: "running",
       pid: process.pid,
@@ -146,6 +165,16 @@ async function setup(options: { configured?: UntrustedContentSetting; rules?: un
     agents: () => ({ stdio: 0, httpSessions: 0, httpSessionlessInFlight: 0 }),
     log: () => undefined,
   });
+}
+
+/** The opt-in as stored in the settings file (undefined: no file or no value). */
+async function storedFullControl(): Promise<unknown> {
+  try {
+    return (JSON.parse(await readFile(settings.file, "utf8")) as { remoteFullControl?: unknown }).remoteFullControl;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
 }
 
 let nextId = 1;
@@ -170,6 +199,8 @@ describe("preset change through a new Core (AD-19 point 5)", () => {
     expect(result).toMatchObject({ ok: true, preset: "off" });
     expect(holder.instance).not.toBe(first);
     expect(adapterCore.status().approvals.untrustedContent).toBe("off");
+    // Remote principals never run without untrusted-content protection (WP-31).
+    expect(adapterCore.status().remote.untrustedContent).toBe("require-approval");
     expect(JSON.parse(await readFile(settings.file, "utf8"))).toMatchObject({ version: 1, preset: "off" });
     expect(sink.memory.controlEvents.at(-1)).toMatchObject({
       kind: "control",
@@ -244,11 +275,16 @@ describe("preset change through a new Core (AD-19 point 5)", () => {
     expect(sink.memory.events.at(-1)?.approval).toMatchObject({ status: "approved", provider: { id: "tray" } });
   });
 
-  it("Autonomous browser is not available until WP-31", async () => {
+  it("the Autonomous browser preset is selectable and applied through a new Core (WP-31)", async () => {
     await setup();
+    const first = holder.instance;
+    expect(center.overview().preset).toMatchObject({ selectable: SELECTABLE_PRESETS, unavailable: [] });
     const result = await ask(new Conn(), { method: "preset.set", params: { value: "autonomous-browser" } });
-    expect(result).toMatchObject({ ok: false, reason: "not_available" });
-    expect(String(result.message)).toMatch(/WP-31/);
+    expect(result).toMatchObject({ ok: true, preset: "autonomous-browser" });
+    expect(holder.instance).not.toBe(first);
+    expect(holder.core.status().approvals.untrustedContent).toBe("autonomous-browser");
+    expect(holder.core.status().remote.untrustedContent).toBe("autonomous-browser");
+    expect(center.statusSummary().preset).toEqual({ value: "autonomous-browser", source: "device" });
   });
 
   it("an unreadable settings file means require-approval, remote mode off (fail closed)", async () => {
@@ -257,6 +293,150 @@ describe("preset change through a new Core (AD-19 point 5)", () => {
     expect(holder.core.status().approvals.untrustedContent).toBe("require-approval");
     expect((center.overview() as ControlOverview).preset).toMatchObject({ source: "fail-closed" });
     expect(center.admit(CLIENT)).toEqual({ admitted: false, reason: "state_unavailable" });
+  });
+});
+
+describe("remote full-control opt-in (WP-31, AD-19 point 7)", () => {
+  it("applies through a new Core bound to the paired device; local principals are not affected", async () => {
+    await setup();
+    const before = holder.core.status();
+    const first = holder.instance;
+    exposure.markExposed(KEY);
+    expect(before.remote.fullControl.enabled).toBe(false);
+    expect(await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: true } })).toMatchObject({
+      ok: true,
+      enabled: true,
+    });
+    expect(holder.instance).not.toBe(first);
+    const after = holder.core.status();
+    expect(after.mode).toBe(before.mode);
+    expect(after.capabilities).toEqual(before.capabilities);
+    expect(after.approvals).toEqual(before.approvals);
+    expect(after.remote.fullControl).toMatchObject({
+      enabled: true,
+      deviceId: CLIENT.deviceId,
+      accountId: CLIENT.accountId,
+    });
+    expect(await storedFullControl()).toBe(true);
+    expect(center.overview().remote).toMatchObject({ fullControl: true, fullControlEffective: true });
+    expect(center.statusSummary()).toMatchObject({ remoteFullControl: true, remoteFullControlEffective: true });
+    expect(exposure.isExposed(KEY)).toBe(true);
+    expect(sink.memory.controlEvents.at(-1)).toMatchObject({
+      action: "remote_full_control",
+      outcome: "applied",
+      value: true,
+    });
+    expect(await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: false } })).toMatchObject({
+      ok: true,
+      enabled: false,
+    });
+    expect(holder.core.status().remote.fullControl.enabled).toBe(false);
+    expect(center.statusSummary()).toMatchObject({ remoteFullControl: false, remoteFullControlEffective: false });
+  });
+
+  it("is refused while CROT is busy, without changing the settings or the Core", async () => {
+    await setup();
+    const first = holder.instance;
+    const started = (await holder.core.processes.start(local(), {
+      command: process.execPath,
+      args: ["-e", "setInterval(() => {}, 1000)"],
+    })) as { id: string };
+    const refused = await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: true } });
+    expect(refused).toMatchObject({ ok: false, reason: "busy" });
+    expect(String(refused.message)).toMatch(/background process/);
+    expect(settings.settings.remoteFullControl).toBe(false);
+    expect(holder.instance).toBe(first);
+    expect(holder.core.status().remote.fullControl.enabled).toBe(false);
+    await holder.core.processes.stop(local(), { id: started.id });
+  });
+
+  it("a Core that cannot be built leaves the settings untouched and keeps the previous Core", async () => {
+    await setup();
+    const first = holder.instance;
+    failNextBuild = true;
+    const result = await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: true } });
+    expect(result).toMatchObject({ ok: false, reason: "core_failed" });
+    expect(settings.settings.remoteFullControl).toBe(false);
+    expect(await storedFullControl()).not.toBe(true);
+    expect(holder.instance).toBe(first);
+    expect(holder.core.status().remote.fullControl.enabled).toBe(false);
+    expect(sink.memory.controlEvents.at(-1)).toMatchObject({ action: "remote_full_control", outcome: "failed" });
+  });
+
+  it("a settings write that fails after the new Core is installed never leaves the opt-in in the file", async () => {
+    await setup();
+    vi.spyOn(settings, "update").mockRejectedValueOnce(new Error("disk full"));
+    const result = await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: true } });
+    expect(result).toMatchObject({ ok: true, enabled: true, persisted: false });
+    expect(String(result.warning)).toMatch(/off after a restart/);
+    expect(holder.core.status().remote.fullControl.enabled).toBe(true);
+    expect(settings.settings.remoteFullControl).toBe(false);
+    expect(await storedFullControl()).not.toBe(true);
+    // A service started from this state builds no full-control profile.
+    expect(ControlCenter.remoteProfile(settings, binding)).toBeUndefined();
+    expect(center.overview().remote).toMatchObject({ fullControl: false, fullControlEffective: true });
+    expect(sink.memory.controlEvents.at(-1)).toMatchObject({
+      action: "remote_full_control",
+      outcome: "failed",
+      reason: "state_write_failed",
+    });
+    // Turning it off still replaces the Core: the recorded value alone is not what the Core applies.
+    expect(await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: false } })).toMatchObject({
+      ok: true,
+      enabled: false,
+    });
+    expect(holder.core.status().remote.fullControl.enabled).toBe(false);
+  });
+
+  it("turning it off records the narrower value first; a failed apply never writes it back on", async () => {
+    await setup();
+    await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: true } });
+    expect(await storedFullControl()).toBe(true);
+    failNextBuild = true;
+    const result = await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: false } });
+    expect(result).toMatchObject({ ok: false, reason: "core_failed" });
+    expect(String(result.message)).toMatch(/does not apply after a restart/);
+    expect(settings.settings.remoteFullControl).toBe(false);
+    expect(await storedFullControl()).not.toBe(true);
+    expect(ControlCenter.remoteProfile(settings, binding)).toBeUndefined();
+    // The running Core keeps it until it can be replaced, and the overview says so.
+    expect(center.overview().remote).toMatchObject({ fullControl: false, fullControlEffective: true });
+    expect(await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: false } })).toMatchObject({
+      ok: true,
+    });
+    expect(holder.core.status().remote.fullControl.enabled).toBe(false);
+  });
+
+  it("needs a device paired here", async () => {
+    await setup();
+    expect(await ask(new Conn(), { method: "device.unpair" })).toMatchObject({ ok: true });
+    expect(await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: true } })).toMatchObject({
+      ok: false,
+      reason: "not_paired",
+    });
+    expect(settings.settings.remoteFullControl).toBe(false);
+    expect(holder.core.status().remote.fullControl.enabled).toBe(false);
+  });
+
+  it("unreadable device settings never give remote full control", async () => {
+    await writeFile(path.join(dirs.outside, SERVICE_SETTINGS_FILE_NAME), "{broken");
+    await setup();
+    expect(ControlCenter.remoteProfile(settings, binding)).toBeUndefined();
+    expect(await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: true } })).toMatchObject({
+      ok: false,
+      reason: "state_unavailable",
+    });
+    expect(holder.core.status().remote.fullControl.enabled).toBe(false);
+  });
+
+  it("unpairing turns the opt-in off in the settings and in the running Core", async () => {
+    await setup();
+    await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: true } });
+    expect(holder.core.status().remote.fullControl.enabled).toBe(true);
+    expect(await ask(new Conn(), { method: "device.unpair" })).toMatchObject({ ok: true });
+    expect(settings.settings.remoteFullControl).toBe(false);
+    expect(holder.core.status().remote.fullControl.enabled).toBe(false);
+    expect(center.overview().remote).toMatchObject({ fullControl: false, fullControlEffective: false });
   });
 });
 
@@ -274,6 +454,8 @@ describe("audit of control actions (AD-19 point 9)", () => {
       ok: false,
       reason: "audit_failed",
     });
+    expect(settings.settings.remoteFullControl).toBe(false);
+    expect(holder.core.status().remote.fullControl.enabled).toBe(false);
     expect(await ask(conn, { method: "preset.set", params: { value: "off" } })).toMatchObject({
       ok: false,
       reason: "audit_failed",
@@ -286,20 +468,6 @@ describe("audit of control actions (AD-19 point 9)", () => {
     expect(off).toMatchObject({ ok: true, enabled: false });
     expect(String(off.warning)).toMatch(/audit record could not be written/);
     expect(settings.settings.remoteMode).toBe(false);
-  });
-
-  it("the remote full-control opt-in is recorded only: mode and policy stay unchanged", async () => {
-    await setup();
-    const before = holder.core.status();
-    expect(await ask(new Conn(), { method: "remote.setFullControl", params: { enabled: true } })).toMatchObject({
-      ok: true,
-    });
-    const after = holder.core.status();
-    expect(after.mode).toBe(before.mode);
-    expect(after.capabilities).toEqual(before.capabilities);
-    expect(after.approvals).toEqual(before.approvals);
-    expect((center.overview() as ControlOverview).remote).toMatchObject({ fullControl: true });
-    expect(sink.memory.controlEvents.at(-1)).toMatchObject({ action: "remote_full_control", value: true });
   });
 });
 

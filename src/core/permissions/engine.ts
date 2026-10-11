@@ -1,11 +1,11 @@
 import { DEFAULT_APPROVAL_TIMEOUT_MS, ruleMatches, validateApprovalRules } from "../approvals/rules.js";
-import { UNTRUSTED_CONTENT_RULES, type UntrustedContentSetting } from "../approvals/exposure.js";
+import { presetRules, REMOTE_FULL_CONTROL_RULES, type UntrustedContentSetting } from "../approvals/exposure.js";
 import type { ApprovalRequirement, ApprovalRule } from "../approvals/types.js";
 import type { AuthContext } from "../auth/principal.js";
 import type { ResolvedPath } from "../workspace/workspace.js";
 import type { Capability } from "./capabilities.js";
 import { NetworkPolicy, type NetworkTarget } from "./network/policy.js";
-import type { PermissionPolicy } from "./policy.js";
+import { SANDBOX_FORBIDDEN_CAPABILITIES, type PermissionMode, type PermissionPolicy } from "./policy.js";
 
 /**
  * A request to perform an operation that needs `capability`, touching the given
@@ -26,6 +26,38 @@ export interface AuthorizationRequest {
 export type AuthorizationDecision =
   | { readonly allowed: true }
   | { readonly allowed: false; readonly reason: string; readonly missing: readonly Capability[] };
+
+/** The device a remote full-control opt-in is bound to (WP-31): the paired device of this service. */
+export interface RemoteFullControlBinding {
+  readonly deviceId: string;
+  /** The paired account; when given, the principal's account must match too. */
+  readonly accountId?: string;
+}
+
+/** How remote principals are authorized (WP-31). Every field is optional; the defaults are the safe ones. */
+export interface RemoteProfileOptions {
+  /**
+   * The user's remote full-control opt-in, bound to one device. Absent (the
+   * default): remote principals stay in the remote default profile.
+   */
+  readonly fullControl?: RemoteFullControlBinding;
+}
+
+/** The effective remote profile, for crot_status and the tray (WP-31). */
+export interface RemoteProfileSummary {
+  /** Permission mode of remote principals without an effective full-control opt-in. */
+  readonly mode: PermissionMode;
+  readonly capabilities: readonly Capability[];
+  /** The preset applied to remote principals (never "off"). */
+  readonly untrustedContent: UntrustedContentSetting;
+  readonly fullControl: {
+    readonly enabled: boolean;
+    readonly deviceId?: string;
+    readonly accountId?: string;
+    readonly capabilities?: readonly Capability[];
+  };
+  readonly restrictions: readonly string[];
+}
 
 export interface PermissionEngineOptions {
   /**
@@ -50,9 +82,11 @@ export interface PermissionEngineOptions {
   readonly approvals?: {
     readonly rules: readonly ApprovalRule[];
     readonly timeoutMs?: number;
-    /** The built-in `untrusted-content` rule (AD-12). Default: "require-approval". */
+    /** The preset of the built-in rules (AD-12, WP-31). Default: "require-approval". */
     readonly untrustedContent?: UntrustedContentSetting;
   };
+  /** Remote principals (WP-31). Without it remote principals get the remote default profile. */
+  readonly remote?: RemoteProfileOptions;
 }
 
 /** The facts approvalRequirement() evaluates (a subset of an OperationDescriptor). */
@@ -72,11 +106,49 @@ export interface ApprovalRequirementRequest {
 const WRITE_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>(["filesystem.write", "git.write"]);
 
 /**
+ * Capabilities whose remote default is decided (ARCHITECTURE.md §27, AD-23
+ * point 4). Remote principals get at most these, intersected with the
+ * configured grants; filesystem.full is never among them
+ * (SANDBOX_FORBIDDEN_CAPABILITIES) and only the full-control opt-in adds it.
+ * A capability added to CAPABILITIES later is denied to every remote principal
+ * until its remote default is decided and it is listed here
+ * (tests/core/remote-capabilities.test.ts fails until then).
+ */
+export const REMOTE_DEFAULT_CAPABILITIES: readonly Capability[] = [
+  "filesystem.read",
+  "filesystem.write",
+  "shell.execute",
+  "process.manage",
+  "git.read",
+  "git.write",
+  "docker.use",
+  "browser.read",
+  "browser.control",
+  "network.access",
+];
+
+const REMOTE_DEFAULT_SET: ReadonlySet<Capability> = new Set<Capability>(REMOTE_DEFAULT_CAPABILITIES);
+
+/** The configured capabilities that may reach a remote principal (AD-23 point 4). */
+function remoteGrants(policy: PermissionPolicy): Capability[] {
+  return [...policy.grants].filter((c) => REMOTE_DEFAULT_SET.has(c) && !SANDBOX_FORBIDDEN_CAPABILITIES.includes(c));
+}
+
+/** One permission profile: the policy, preset and gate rules a principal is evaluated with. */
+interface Profile {
+  readonly policy: PermissionPolicy;
+  readonly untrustedContent: UntrustedContentSetting;
+  /** Built-in rules first, then user rules; the first match wins. */
+  readonly rules: readonly ApprovalRule[];
+}
+
+/**
  * The single authorization mechanism of CROT. Every Core operation is
  * authorized here; no other component makes permission decisions.
  *
  * Rules:
- * 1. The requested capability must be granted by the policy.
+ * 1. The requested capability must be granted by the policy of the
+ *    principal's profile.
  * 2. Any path outside the workspace additionally requires `filesystem.full`
  *    (never grantable in sandbox mode).
  * 3. Write operations never touch CROT's protected paths (audit log,
@@ -86,6 +158,16 @@ const WRITE_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>(["filesy
  *    operations, and every destination must pass the network policy (host
  *    allow/deny rules, non-public addresses only by explicit IP/CIDR rules;
  *    ARCHITECTURE.md §27, AD-4). No other capability grants network access.
+ *
+ * Profiles (WP-31; one engine, one rule language):
+ * - local principals: the configured policy and preset, unchanged;
+ * - remote principals: sandbox mode (the workspace only, never
+ *   filesystem.full), the configured capabilities that have a decided remote
+ *   default (REMOTE_DEFAULT_CAPABILITIES), and the preset with
+ *   untrusted-content protection always on ("off" becomes "require-approval");
+ * - remote principals of the device bound by the user's full-control opt-in:
+ *   full_control with the same capabilities plus filesystem.full, the same
+ *   preset, and their shell commands always need approval.
  */
 export class PermissionEngine {
   private readonly protectedPaths: readonly string[];
@@ -95,8 +177,10 @@ export class PermissionEngine {
   private readonly approvalRules: readonly ApprovalRule[];
   private readonly approvalTimeoutMs: number;
   private readonly untrustedContent: UntrustedContentSetting;
-  /** Built-in rules first, then user rules; the first match wins. */
-  private readonly effectiveRules: readonly ApprovalRule[];
+  private readonly localProfile: Profile;
+  private readonly remoteDefault: Profile;
+  private readonly remoteFullControl: Profile | undefined;
+  private readonly fullControlBinding: RemoteFullControlBinding | undefined;
 
   constructor(
     private readonly policy: PermissionPolicy,
@@ -113,13 +197,66 @@ export class PermissionEngine {
     this.untrustedContent = options.approvals?.untrustedContent ?? "require-approval";
     // Built-in rules are not validated against the policy: a capability that is
     // not granted is simply never authorized, so the rule never fires for it.
-    this.effectiveRules = Object.freeze([
-      ...(this.untrustedContent === "off" ? [] : UNTRUSTED_CONTENT_RULES),
-      ...this.approvalRules,
-    ]);
+    this.localProfile = this.profile(policy, this.untrustedContent);
+    const remoteSetting: UntrustedContentSetting =
+      this.untrustedContent === "off" ? "require-approval" : this.untrustedContent;
+    this.remoteDefault = this.profile(
+      Object.freeze({
+        mode: "sandbox" as const,
+        grants: new Set<Capability>(remoteGrants(policy)),
+      }),
+      remoteSetting,
+    );
+    const binding = options.remote?.fullControl;
+    if (binding && binding.deviceId.length > 0 && (binding.accountId === undefined || binding.accountId.length > 0)) {
+      this.fullControlBinding = Object.freeze({
+        deviceId: binding.deviceId,
+        ...(binding.accountId !== undefined ? { accountId: binding.accountId } : {}),
+      });
+      this.remoteFullControl = this.profile(
+        Object.freeze({
+          mode: "full_control" as const,
+          grants: new Set<Capability>([...remoteGrants(policy), "filesystem.full"]),
+        }),
+        remoteSetting,
+        REMOTE_FULL_CONTROL_RULES,
+      );
+    }
   }
 
-  /** Configured gate rules (immutable) and the setting of the built-in untrusted-content rule. */
+  private profile(
+    policy: PermissionPolicy,
+    untrustedContent: UntrustedContentSetting,
+    extra: readonly ApprovalRule[] = [],
+  ): Profile {
+    return Object.freeze({
+      policy,
+      untrustedContent,
+      rules: Object.freeze([...extra, ...presetRules(untrustedContent), ...this.approvalRules]),
+    });
+  }
+
+  /** The profile a principal is evaluated with. Only Core facts decide it (never principal.client). */
+  private profileFor(context: AuthContext): Profile {
+    const principal = context.principal;
+    if (principal.kind !== "remote") return this.localProfile;
+    const binding = this.fullControlBinding;
+    if (
+      this.remoteFullControl &&
+      binding &&
+      principal.deviceId === binding.deviceId &&
+      (binding.accountId === undefined || principal.accountId === binding.accountId)
+    )
+      return this.remoteFullControl;
+    return this.remoteDefault;
+  }
+
+  /** The permission mode a principal's operations run in. */
+  modeFor(context: AuthContext): PermissionMode {
+    return this.profileFor(context).policy.mode;
+  }
+
+  /** Configured gate rules (immutable) and the preset of local principals. */
   get approvals(): {
     readonly rules: readonly ApprovalRule[];
     readonly timeoutMs: number;
@@ -128,21 +265,55 @@ export class PermissionEngine {
     return { rules: this.approvalRules, timeoutMs: this.approvalTimeoutMs, untrustedContent: this.untrustedContent };
   }
 
+  /** The effective remote profile (WP-31). */
+  get remoteProfile(): RemoteProfileSummary {
+    const d = this.remoteDefault;
+    const fc = this.remoteFullControl;
+    const binding = this.fullControlBinding;
+    const restrictions = [
+      "workspace only: paths outside the workspace are denied (filesystem.full is never granted)",
+      `untrusted-content protection: ${d.untrustedContent}`,
+      "shell and process operations need command confinement L1 and are refused where it is unavailable",
+      ...(fc && binding
+        ? [
+            `full-control opt-in: only for remote clients of device ${binding.deviceId}; ` +
+              "their shell commands always need approval; local clients are not affected",
+          ]
+        : []),
+    ];
+    return {
+      mode: d.policy.mode,
+      capabilities: [...d.policy.grants],
+      untrustedContent: d.untrustedContent,
+      fullControl:
+        fc && binding
+          ? {
+              enabled: true,
+              deviceId: binding.deviceId,
+              ...(binding.accountId !== undefined ? { accountId: binding.accountId } : {}),
+              capabilities: [...fc.policy.grants],
+            }
+          : { enabled: false },
+      restrictions,
+    };
+  }
+
   /**
    * Whether an operation that authorize() allowed needs the user's approval
    * (docs/design/approval-gates.md §5). Pure; the first matching rule wins.
    * It can only add a gate, never allow anything authorize() denied.
    */
   approvalRequirement(context: AuthContext, request: ApprovalRequirementRequest): ApprovalRequirement {
+    const profile = this.profileFor(context);
     const facts = {
       context,
       operation: request.operation,
       capabilities: request.capabilities,
       paths: request.paths ?? [],
-      mode: this.policy.mode,
+      mode: profile.policy.mode,
       exposed: request.exposed ?? false,
     };
-    const rule = this.effectiveRules.find((r) => ruleMatches(r, facts));
+    const rule = profile.rules.find((r) => ruleMatches(r, facts));
     return rule ? { required: true, rule: rule.id, timeoutMs: this.approvalTimeoutMs } : { required: false };
   }
 
@@ -164,10 +335,12 @@ export class PermissionEngine {
     return this.secretPaths.find((secret) => this.contains(secret, absolute));
   }
 
-  get mode() {
+  /** The configured (local) permission mode. */
+  get mode(): PermissionMode {
     return this.policy.mode;
   }
 
+  /** The configured (local) capabilities. */
   get grantedCapabilities(): readonly Capability[] {
     return [...this.policy.grants];
   }
@@ -177,19 +350,21 @@ export class PermissionEngine {
   }
 
   authorize(request: AuthorizationRequest): AuthorizationDecision {
-    if (!this.policy.grants.has(request.capability)) {
+    const policy = this.profileFor(request.context).policy;
+    const scope = request.context.principal.kind === "remote" ? ", remote client" : "";
+    if (!policy.grants.has(request.capability)) {
       return {
         allowed: false,
-        reason: `Capability '${request.capability}' is not granted (mode: ${this.policy.mode}).`,
+        reason: `Capability '${request.capability}' is not granted (mode: ${policy.mode}${scope}).`,
         missing: [request.capability],
       };
     }
     const outside = (request.paths ?? []).filter((p) => !p.insideWorkspace);
-    if (outside.length > 0 && !this.policy.grants.has("filesystem.full")) {
+    if (outside.length > 0 && !policy.grants.has("filesystem.full")) {
       return {
         allowed: false,
         reason:
-          `Path outside the workspace requires 'filesystem.full' (mode: ${this.policy.mode}): ` +
+          `Path outside the workspace requires 'filesystem.full' (mode: ${policy.mode}${scope}): ` +
           outside.map((p) => p.absolute).join(", "),
         missing: ["filesystem.full"],
       };

@@ -60,7 +60,6 @@ describe("decideConfinement (AD-20 point 11)", () => {
     expect(decideConfinement(available, "remote")).toBe("confine");
     expect(decideConfinement(unavailable, "local")).toBe("unconfined");
     expect(decideConfinement(unavailable, "remote")).toBe("refuse");
-    // full_control: L1 does not apply.
     expect(decideConfinement(undefined, "remote")).toBe("unconfined");
     expect(decideConfinement(undefined, "local")).toBe("unconfined");
   });
@@ -222,6 +221,25 @@ describe("ProcessService and L1 (mocked platform confinement)", () => {
       expect(h.confinedLaunch).toHaveBeenCalledTimes(2);
       expect(h.core.processes.runningCount()).toBe(0);
     });
+
+    it(`${name}: local full_control → local runs unconfined, remote runs only through L1 (WP-31)`, async () => {
+      const h = await setup(available, (b) => b.launch.bind(b), "full_control");
+      await run(h.core, local);
+      expect(h.baseLaunch).toHaveBeenCalledTimes(1);
+      expect(h.confinedLaunch).not.toHaveBeenCalled();
+      await run(h.core, remote);
+      expect(h.confinedLaunch).toHaveBeenCalledTimes(1);
+      expect(h.baseLaunch).toHaveBeenCalledTimes(1);
+    });
+
+    it(`${name}: local full_control, L1 unavailable → remote refused before any process starts (WP-31)`, async () => {
+      const h = await setup(unavailable, (b) => b.launch.bind(b), "full_control");
+      await expect(run(h.core, remote)).rejects.toMatchObject({ code: "CONFINEMENT_UNAVAILABLE" });
+      expect(h.baseLaunch).not.toHaveBeenCalled();
+      expect(h.confinedLaunch).not.toHaveBeenCalled();
+      await run(h.core, local);
+      expect(h.baseLaunch).toHaveBeenCalledTimes(1);
+    });
   }
 
   it("an exposed remote scope stays behind the approval gate (AD-12): denied before the L1 decision, nothing launched", async () => {
@@ -249,17 +267,20 @@ describe("ProcessService and L1 (mocked platform confinement)", () => {
     expect(h.baseLaunch).toHaveBeenCalledTimes(1);
   });
 
-  it("full_control: L1 does not apply, commands stay unconfined; status reports the probe", async () => {
+  it("full_control: L1 is opened for remote clients; a failed confined launch is never retried unconfined; status note", async () => {
     const h = await setup(available, failingLaunch, "full_control");
-    expect(h.scopes).toHaveLength(0);
-    await exec(h.core, remote);
+    expect(h.scopes).toHaveLength(1);
+    await exec(h.core, local);
     expect(h.baseLaunch).toHaveBeenCalledTimes(1);
-    expect(h.confinedLaunch).not.toHaveBeenCalled();
-    // CrotStatus.confinement (AD-20 point 12): in full_control the machine's state is reported with a note.
-    const note = "permission mode full_control: commands run unconfined";
+    await expect(exec(h.core, remote)).rejects.toMatchObject({ code: "CONFINEMENT_FAILED" });
+    expect(h.baseLaunch).toHaveBeenCalledTimes(1);
+    expect(h.confinedLaunch).toHaveBeenCalledTimes(1);
+    // CrotStatus.confinement (AD-20 point 12): in full_control the state is reported with a note.
+    const note = "permission mode full_control: local commands run unconfined; remote commands need L1";
     expect(h.core.status().confinement).toEqual({ ...available, detail: note });
     h.setStatus(unavailable);
     expect(await h.core.refreshConfinement()).toEqual({ ...unavailable, detail: `${note}; ${unavailable.detail}` });
+    await expect(exec(h.core, remote)).rejects.toMatchObject({ code: "CONFINEMENT_UNAVAILABLE" });
   });
 
   it("crot_status shape: the status of the Core's L1, refreshed on request", async () => {
@@ -272,26 +293,39 @@ describe("ProcessService and L1 (mocked platform confinement)", () => {
     expect(h.core.status().confinement).toEqual(available);
   });
 
+  it("crot_status reports the remote profile (WP-31)", async () => {
+    const h = await setup(available, (b) => b.launch.bind(b), "full_control");
+    expect(h.core.status().mode).toBe("full_control");
+    expect(h.core.status().remote).toMatchObject({
+      mode: "sandbox",
+      untrustedContent: "require-approval",
+      fullControl: { enabled: false },
+    });
+    expect(h.core.status().remote.capabilities).not.toContain("filesystem.full");
+  });
+
   it("a platform without L1 reports not_implemented and refuses remote commands", async () => {
     const node = await createNodePlatform();
     const { confinement: _none, ...withoutL1 } = node;
-    const core = await createTestCore({ workspace: { root: dirs.workspace } }, undefined, {
-      platform: withoutL1 as Platform,
-      remoteExposure: RemoteExposureStore.inMemory(),
-    });
-    try {
-      expect(core.status().confinement).toMatchObject({
-        mechanism: "none",
-        available: false,
-        reason: "not_implemented",
+    for (const mode of ["sandbox", "full_control"] as const) {
+      const core = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { mode } }, undefined, {
+        platform: withoutL1 as Platform,
+        remoteExposure: RemoteExposureStore.inMemory(),
       });
-      await expect(exec(core, remote)).rejects.toMatchObject({
-        code: "CONFINEMENT_UNAVAILABLE",
-        details: { reason: "not_implemented" },
-      });
-      await expect(exec(core, local)).resolves.toBeDefined();
-    } finally {
-      await core.shutdown();
+      try {
+        expect(core.status().confinement).toMatchObject({
+          mechanism: "none",
+          available: false,
+          reason: "not_implemented",
+        });
+        await expect(exec(core, remote)).rejects.toMatchObject({
+          code: "CONFINEMENT_UNAVAILABLE",
+          details: { reason: "not_implemented" },
+        });
+        await expect(exec(core, local)).resolves.toBeDefined();
+      } finally {
+        await core.shutdown();
+      }
     }
   });
 });

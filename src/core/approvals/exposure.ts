@@ -12,9 +12,28 @@ import type { ApprovalRule } from "./types.js";
 
 /** Reserved id of the built-in rule set; user rules may not use it. */
 export const UNTRUSTED_CONTENT_RULE_ID = "untrusted-content";
+/** Built-in rule of the autonomous-browser preset: local files never leave through the browser unasked (WP-31). */
+export const BROWSER_UPLOAD_RULE_ID = "autonomous-browser-upload";
+/** Built-in rule of the remote full-control opt-in: remote shell commands always need approval (WP-31). */
+export const REMOTE_FULL_CONTROL_RULE_ID = "remote-full-control";
+/** Ids user rules may not use. */
+export const RESERVED_RULE_IDS: readonly string[] = Object.freeze([
+  UNTRUSTED_CONTENT_RULE_ID,
+  BROWSER_UPLOAD_RULE_ID,
+  REMOTE_FULL_CONTROL_RULE_ID,
+]);
 
-export const UNTRUSTED_CONTENT_SETTINGS = ["require-approval", "off"] as const;
+/**
+ * Presets (AD-19 point 5, WP-31):
+ * - require-approval: in an exposed session every operation with effects needs approval (default);
+ * - autonomous-browser: browser control runs without approval; every other effect stays gated;
+ * - off: no built-in gate (local principals only; never applied to remote principals).
+ */
+export const UNTRUSTED_CONTENT_SETTINGS = ["require-approval", "autonomous-browser", "off"] as const;
 export type UntrustedContentSetting = (typeof UNTRUSTED_CONTENT_SETTINGS)[number];
+
+/** Operation name of a browser file upload (a local file handed to a web page). */
+export const BROWSER_FILE_UPLOAD_OPERATION = "browser.file_upload";
 
 /**
  * Operations whose successful result carries externally controlled content.
@@ -26,6 +45,11 @@ export const EXPOSURE_SOURCES: readonly string[] = Object.freeze([
   "browser.tabs_list",
   "network.request",
 ]);
+
+const DOCKER_COMPOSE_RULE: ApprovalRule = Object.freeze({
+  id: UNTRUSTED_CONTENT_RULE_ID,
+  match: Object.freeze({ exposed: true, operations: Object.freeze(["docker.compose_up", "docker.compose_down"]) }),
+});
 
 /**
  * The built-in `untrusted-content` rule set (AD-12 point 4): in an exposed
@@ -46,11 +70,58 @@ export const UNTRUSTED_CONTENT_RULES: readonly ApprovalRule[] = Object.freeze([
       ] as const),
     }),
   }),
+  DOCKER_COMPOSE_RULE,
+]);
+
+/**
+ * The autonomous-browser preset (WP-31): the untrusted-content rule set
+ * without browser.control, so browser workflows run without repeated
+ * approval. Shell, filesystem write, Git write, network access and Docker
+ * Compose stay gated in an exposed session; a local file upload through the
+ * browser always needs approval.
+ */
+export const AUTONOMOUS_BROWSER_RULES: readonly ApprovalRule[] = Object.freeze([
+  Object.freeze({
+    id: BROWSER_UPLOAD_RULE_ID,
+    match: Object.freeze({ operations: Object.freeze([BROWSER_FILE_UPLOAD_OPERATION]) }),
+  }),
   Object.freeze({
     id: UNTRUSTED_CONTENT_RULE_ID,
-    match: Object.freeze({ exposed: true, operations: Object.freeze(["docker.compose_up", "docker.compose_down"]) }),
+    match: Object.freeze({
+      exposed: true,
+      capabilities: Object.freeze(["shell.execute", "filesystem.write", "git.write", "network.access"] as const),
+    }),
+  }),
+  DOCKER_COMPOSE_RULE,
+]);
+
+/**
+ * The remote full-control opt-in (WP-31): it lifts the workspace limit for the
+ * remote clients of the bound device, but their shell commands always need the
+ * user's approval, exposed or not.
+ */
+export const REMOTE_FULL_CONTROL_RULES: readonly ApprovalRule[] = Object.freeze([
+  Object.freeze({
+    id: REMOTE_FULL_CONTROL_RULE_ID,
+    match: Object.freeze({
+      principalKinds: Object.freeze(["remote"] as const),
+      modes: Object.freeze(["full_control"] as const),
+      capabilities: Object.freeze(["shell.execute"] as const),
+    }),
   }),
 ]);
+
+/** The built-in rules of a preset. */
+export function presetRules(setting: UntrustedContentSetting): readonly ApprovalRule[] {
+  switch (setting) {
+    case "require-approval":
+      return UNTRUSTED_CONTENT_RULES;
+    case "autonomous-browser":
+      return AUTONOMOUS_BROWSER_RULES;
+    case "off":
+      return [];
+  }
+}
 
 /** Shown to the agent when an operation gated by the built-in rule is not approved (AD-12 point 6). */
 export const UNTRUSTED_CONTENT_MESSAGE =

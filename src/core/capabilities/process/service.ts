@@ -3,6 +3,7 @@ import type { AuthContext } from "../../auth/principal.js";
 import type { Limits } from "../../config/schema.js";
 import { CrotError, parseInput } from "../../errors.js";
 import type { ExecutionGuard } from "../../execution/guard.js";
+import type { PermissionMode } from "../../permissions/policy.js";
 import { confinementUnavailableError, decideConfinement } from "../../platform/confinement.js";
 import type {
   CommandSpec,
@@ -43,11 +44,16 @@ export interface ProcessServiceDeps {
   /** Base environment for children (defaults to the platform base environment). */
   readonly baseEnv?: Readonly<Record<string, string | undefined>>;
   /**
-   * Command confinement L1 of this Core (ARCHITECTURE.md §27 AD-20). Present
-   * in workspace (sandbox) mode; absent in full_control, where commands stay
-   * unconfined.
+   * Command confinement L1 of this Core (ARCHITECTURE.md §27 AD-20). Opened
+   * by Core in every permission mode: local principals in full_control stay
+   * unconfined, remote principals always need it (WP-31).
    */
   readonly confinement?: CoreConfinement;
+  /**
+   * The permission mode of a principal's operation (PermissionEngine.modeFor).
+   * Default: sandbox when a confinement is given, else full_control.
+   */
+  readonly modeFor?: (context: AuthContext) => PermissionMode;
 }
 
 /** How long to wait for stdio to close after the child exits (descendants may hold pipes open). */
@@ -331,16 +337,33 @@ export class ProcessService {
   }
 
   /**
-   * The launcher for one authorized operation (AD-20 point 11): the Core's L1
-   * sandbox when L1 is available; the Core launcher when L1 does not apply
-   * (full_control) or is unavailable for a local principal; otherwise the
-   * operation is refused with CONFINEMENT_UNAVAILABLE before any process
-   * starts. A confined launch that fails for a sandbox reason throws
+   * The launcher for one authorized operation (AD-20 point 11, WP-31):
+   * - remote principals: L1 must be available, in every local mode; otherwise
+   *   the operation is refused with CONFINEMENT_UNAVAILABLE before any process
+   *   starts. In the remote sandbox profile the command runs in L1; under the
+   *   user's full-control opt-in for this device it runs unconfined (and always
+   *   behind the approval gate of that profile);
+   * - local principals in full_control: the Core launcher (L1 does not apply);
+   * - local principals in sandbox: L1 when available, else the Core launcher.
+   * A confined launch that fails for a sandbox reason throws
    * CONFINEMENT_FAILED and is never retried with the Core launcher.
    */
   private launcherFor(context: AuthContext): ProcessLauncher {
     const confinement = this.deps.confinement;
     const status = confinement?.status();
+    const mode = this.deps.modeFor?.(context) ?? (confinement ? "sandbox" : "full_control");
+    if (context.principal.kind === "remote") {
+      if (!confinement || !status) {
+        throw new CrotError(
+          "CONFINEMENT_UNAVAILABLE",
+          "Command confinement L1 is not available to this CROT instance; shell and process operations of remote clients are refused.",
+          { reason: "not_implemented" },
+        );
+      }
+      if (!status.available) throw confinementUnavailableError(status);
+      return mode === "full_control" ? this.deps.platform.launcher : confinement.launcher;
+    }
+    if (mode === "full_control") return this.deps.platform.launcher;
     switch (decideConfinement(status, context.principal.kind)) {
       case "confine":
         return confinement!.launcher;

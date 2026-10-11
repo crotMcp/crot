@@ -3,7 +3,7 @@ import { CrotError } from "../errors.js";
 import type { Capability } from "../permissions/capabilities.js";
 import type { PermissionPolicy } from "../permissions/policy.js";
 import type { ResolvedPath } from "../workspace/workspace.js";
-import { UNTRUSTED_CONTENT_RULE_ID } from "./exposure.js";
+import { RESERVED_RULE_IDS } from "./exposure.js";
 import { KNOWN_OPERATIONS } from "./operations.js";
 import type { ApprovalRule } from "./types.js";
 
@@ -26,11 +26,11 @@ export function validateApprovalRules(rules: readonly ApprovalRule[], policy: Pe
   for (const rule of rules) {
     const where = `permissions.approvals.rules: rule '${rule.id}'`;
     if (rule.id.trim().length === 0) throw new CrotError("CONFIG_ERROR", "permissions.approvals.rules: empty rule id.");
-    if (rule.id === UNTRUSTED_CONTENT_RULE_ID)
+    if (RESERVED_RULE_IDS.includes(rule.id))
       throw new CrotError(
         "CONFIG_ERROR",
-        `${where}: the id '${UNTRUSTED_CONTENT_RULE_ID}' is reserved for the built-in rule ` +
-          "(permissions.approvals.untrustedContent).",
+        `${where}: the id '${rule.id}' is reserved for a built-in rule ` +
+          "(permissions.approvals.untrustedContent, remote full-control).",
       );
     if (ids.has(rule.id)) throw new CrotError("CONFIG_ERROR", `${where} is defined more than once.`);
     ids.add(rule.id);

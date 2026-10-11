@@ -5,10 +5,86 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
-## In progress
+## Last completed
 
-**WP-30 — Device tunnel adapter — Done, awaiting merge** (PR #20, branch
-`wp-30-device-tunnel`; ARCHITECTURE.md §27 AD-22, device side). User docs:
+**WP-31 — Remote permission profile and presets — Done** (PR #21, branch
+`wp-31-remote-permission-profile`, awaiting merge by the owner; started from
+`main` `63a7d63`). Code verified at `9ca7b5b`, CI 11/11 green. The
+per-principal profile decision is recorded as ARCHITECTURE.md §27 AD-23
+(commit `69408c3`; point 4 names `REMOTE_DEFAULT_CAPABILITIES`, commit
+`4a654f5`), together with §26 question 25 marked as decided by AD-23 and the
+amendments of AD-19 point 7 and residual risk D. User docs updated for WP-31
+(commit `99fb2c6`): [`docs/TRAY.md`](docs/TRAY.md),
+[`docs/SERVICE.md`](docs/SERVICE.md), [`docs/L1.md`](docs/L1.md).
+
+- **Implemented:** remote principals get their own profile in the one
+  PermissionEngine, local principals are unchanged: workspace only, only the
+  capabilities with an explicitly decided remote default
+  (`REMOTE_DEFAULT_CAPABILITIES`: every current capability except
+  `filesystem.full`) intersected with the configured grants, a capability
+  added later denied until its remote default is decided, untrusted-content
+  protection always on (with preset `off` they get `require-approval`); preset
+  `autonomous-browser` selectable (browser control without repeated
+  approval; uploads, shell, filesystem write, Git write, network and Docker
+  Compose stay gated); the remote full-control opt-in is stored with the
+  device id and account of the pairing it was given for and is restored
+  after a restart only for that pairing (unpairing ends it; a new pairing
+  has a new device id); missing, unreadable or mismatching state applies no
+  full control; changes are applied through a new Core only while CROT is
+  idle, never to other devices or to local principals; remote shell and
+  process operations stay refused without L1 (`CONFINEMENT_UNAVAILABLE`,
+  AD-20); `crot_status`, the control overview and the tray report the
+  effective preset and its source, the remote profile, the opt-in (recorded
+  and in effect) and the restrictions.
+- **Confirmed by tests** (CI 11/11 green on `ae6b880`, `7d21f36`,
+  `69408c3`, `723e7cf`, `99fb2c6`, `a0dba42`, `56db9ae` and `9ca7b5b`:
+  Node 20/22 on Ubuntu, macOS and Windows, L1 on Ubuntu 22.04/24.04
+  x64/arm64, real-chromium):
+  - tools cannot reach the device controls: no MCP tool is a control
+    method; writing the settings, the client list or the binding through
+    tools is refused even in `full_control`; control requests naming another
+    device, account or client, and approvals without the subject digest, are
+    malformed (`tests/core/untrusted-sources.test.ts`);
+  - relay entry point: only the MCP tools, no write to the state files,
+    local `full_control` does not widen the remote principal, full control
+    for another device does not apply, a pending approval is decided only by
+    the approval provider; browser bridge: hostile page content changes
+    neither the profile nor approvals and marks the scope untrusted
+    (`tests/adapters/relay-untrusted.test.ts`);
+  - `crot_status` reports the remote profile end to end through the MCP
+    adapter and the relay entry point;
+  - full control across restarts of the real service: restored for the same
+    pairing; unpairing and a new pairing end it; a stored opt-in for another
+    pairing or with an unusable binding does not apply
+    (`tests/service/full-control-grant.test.ts`);
+  - remote default capabilities: a guard test fails for a capability
+    without an explicitly decided remote default; the agreed remote default
+    is pinned; full control adds only `filesystem.full`; local grants are
+    unchanged (`tests/core/remote-capabilities.test.ts`);
+  - control center: every preset applied, refusal while busy, rollback when
+    a new Core cannot be built, audit record first
+    (`tests/service/control-center.test.ts`).
+- **Upload/download gate (AD-23 point 8):** the rule
+  `autonomous-browser-upload` gates `browser.file_upload` in every scope and
+  is covered by rule-set tests (defensive, it matches nothing today); a
+  download will need `filesystem.write`, which `autonomous-browser` keeps
+  gated in an exposed scope, as `require-approval` does. Neither operation
+  exists before WP-26 (`browser_file_upload`, `browser_download`), so the
+  end-to-end check of the real gates is part of the WP-26 acceptance
+  (roadmap WP-26 card) and is not claimed by WP-31.
+- **Accepted, not closed:** a process of the same OS user with an
+  unconfined local shell can write the state files directly (AD-19 residual
+  risk D); a forged full-control opt-in still applies only to the pairing it
+  names (AD-23 point 6).
+- **Release blockers outside WP-31:** L1 on macOS and Windows (WP-23b/c;
+  there remote shell and process operations are refused with
+  `CONFINEMENT_UNAVAILABLE`); the end-to-end upload/download check (WP-26).
+
+## Previously completed
+
+**WP-30 — Device tunnel adapter** (merged into `main` through PR #20;
+WP-31 starts from `main` `63a7d63`; ARCHITECTURE.md §27 AD-22, device
+side). User docs:
 [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md),
 [`docs/RELAY.md`](docs/RELAY.md).
 
@@ -56,8 +132,6 @@ secret-free logs) and `tests/cloud-relay/device-registration.test.ts`
 (registration against the real relay and pairing end to end). CI test
 setup only: the L1 ARM jobs pull `alpine:3.20` from `public.ecr.aws` with
 retries (Docker Hub rate limit).
-
-## Last completed
 
 **WP-29 — Cloud Relay v1, relay side — partial** (merged into `main`,
 `515fcb9`; ARCHITECTURE.md
@@ -117,8 +191,6 @@ injected identity headers ignored, log scrubbing) through a protocol-level
 test device into a real `CrotHttpServer` relay entry. The device tunnel
 adapter is WP-30 (PR #20); no deployed relay or live WorkOS environment yet
 (WP-38).
-
-## Previously completed
 
 **WP-28 — Identity and device binding** (merged in crot-mcp PR #16,
 `4d574f0`;
@@ -255,18 +327,19 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 
 ## Next
 
-**Current: WP-30 — Device tunnel adapter, Done in PR #20, awaiting merge**
-(see "In progress"). Critical path: yes — chain B continues WP-30 → WP-31 →
-WP-32 → WP-33 → WP-40. The device connects with the WP-28 credential
-(`CrotService.tunnelCredential()`), registers at pairing and reuses the
-tunnel codec in `src/tunnel/`. **Next after WP-30: WP-31** (needs the
-per-principal profile AD, §26 Q25, and WP-23b/c).
+**WP-31 — Remote permission profile and presets: Done** (PR #21, awaiting
+merge; see "Last completed"). Critical path: chain B continues WP-32 →
+WP-33 → WP-40; WP-32 waits for WP-24…WP-27 and WP-38. Release-blocking and
+not part of WP-31: L1 on macOS and Windows (WP-23b/c) and the end-to-end
+check of the real upload/download gates (WP-26).
 
 | WP | What | State |
 | --- | --- | --- |
-| WP-30 | Device tunnel adapter (AD-22, device side) | Done, PR #20 (awaiting merge): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32); per-principal profile AD (§26 Q25) needed before WP-31, not WP-30 |
+| WP-31 | Remote permission profile and presets (AD-13, AD-19, AD-23) | Done, PR #21 awaiting merge; code verified at `9ca7b5b`, CI 11/11 green; AD-23 recorded (`69408c3`; point 4 wording `4a654f5`); user docs updated (`99fb2c6`); end-to-end check of the real upload/download gates: WP-26 acceptance; see "Last completed" |
+| WP-30 | Device tunnel adapter (AD-22, device side) | Done, merged (PR #20): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32) |
 | WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to WP-31 |
-| WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13), needed before WP-31 |
+| WP-26 | Browser upload and download (AD-16 points 11–12) | after WP-24 and OD-8; also provides the end-to-end check of the WP-31 upload/download gate (AD-23 point 8) |
+| WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13); not a prerequisite of WP-31: where L1 is unavailable (macOS, Windows), remote shell and process operations are refused with `CONFINEMENT_UNAVAILABLE` and an explanation (AD-20, [`docs/L1.md`](docs/L1.md)); WP-23b/c stay open as separate packages |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
 | WP-41, WP-42 | Extensibility invariant tests; workspace image view (post-v1 phase 5; depend on no open contract — WP-42 without downscale, see product-reassessment §8) | can start now with spare capacity; never displace the critical path; WP-43/44/49 wait for OD-16/15/17 ADs |
 | OD-15…OD-20, OD-23 | ADs of the expanded product goal (jobs, components, media, edit description, connectors, credentials; release staging) | documentation work, parallel to WP-31; see roadmap §4.2 |
@@ -302,12 +375,12 @@ and no external service has a CROT integration.
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
 | Revoking a client's authorization at the identity provider from the tray (best effort after the device-side revocation; hook exists, reports "not available") | WP-36 (CROT account service holds the provider credentials) |
 | No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); no release configuration pins an identity environment, so every build honours the development override until then | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
-| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side by WP-30 (PR #20, Done); AD-22 open questions 1–8 remain |
+| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side by WP-30 (PR #20, merged); AD-22 open questions 1–8 remain |
 | Device deregistration and key rotation at the relay; a registration stays orphaned if the device fails to store its binding after registering | AD-22 open question 3 — relay side, WP-29 scope (not WP-30); listed in `docs/RELAY.md` "Known limitations" |
-| Remote full-control opt-in is recorded only; how it takes effect (per-principal profile; `principalKinds` exists only in approval rules) | AD-19 point 7; WP-31 |
-| Per-principal permission profile: grants and mode are global per Core, so AD-13 point 5 cannot be enforced with existing matchers | ARCHITECTURE.md §26 question 25 — an AD before WP-31 (did not block WP-30) |
-| Preset `autonomous-browser` (rule set not implemented yet) | WP-31 |
-| Any process of the same OS user can read the control credential and act like the tray | AD-19 residual risk; confined Linux children: closed by WP-23a; macOS, Windows, `full_control` and other processes of the user: open (WP-23b/c) |
+| Remote full-control opt-in is recorded only on `main`; how it takes effect (per-principal profile; `principalKinds` exists only in approval rules) | Decided by AD-23 point 6 and AD-19 point 7 (`69408c3`); implemented in PR #21 (not merged): bound to the device id and account of its pairing and kept across restarts |
+| Per-principal permission profile: grants and mode are global per Core, so AD-13 point 5 cannot be enforced with existing matchers | Decided by ARCHITECTURE.md §27 AD-23 (§26 question 25, `69408c3`); implemented in PR #21 (not merged) |
+| Preset `autonomous-browser` (rule set not on `main` yet) | AD-23 point 5; implemented in PR #21 (not merged); its upload gate is not verified end to end until an upload operation exists (AD-23 point 8, WP-26) |
+| Any process of the same OS user can read the control credential and act like the tray, including writing the protected state files directly | AD-19 residual risk D (amended by WP-31); confined Linux children: closed by WP-23a; macOS, Windows, `full_control` and other processes of the user: open (WP-23b/c) |
 | Tray packaging, signing and autostart (Electron is a dev dependency today) | WP-34 |
 | Identity provider and the token claims carrying the subject, account, device and `clientId` | Decided by ARCHITECTURE.md §27 AD-21 (roadmap OD-2): WorkOS AuthKit; `sub` → principal id and `accountId`, device id in `aud`, `client_id` → `clientId`; implemented on the device by WP-28 |
 | Exact device resource URI form and PRM location | Decided by AD-21 points 5–6 (roadmap OD-3): `https://<relay-host>/d/<deviceId>/mcp`, PRM at `https://<relay-host>/.well-known/oauth-protected-resource/d/<deviceId>/mcp` (relay: implemented by WP-29) |
@@ -325,4 +398,4 @@ and no external service has a CROT integration.
 | Debugger notice in headed Chrome/Edge/Brave on all OS; enterprise policies blocking `chrome.debugger` | WP-25 |
 | Download hand-over mechanism (staging in the download directory or stream over the bridge) | WP-26 |
 | Store acceptance of the `debugger` permission | WP-35 |
-| How a preset change is applied by the supervised service (reload or restart) | WP-31 |
+| How a preset change is applied by the supervised service (reload or restart) | Decided by AD-23 point 10: a new Core, switched only while idle; refused while busy; restored settings and the previous Core if the new Core cannot be built; implemented in PR #21 (not merged) |

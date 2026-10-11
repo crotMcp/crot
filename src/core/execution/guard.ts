@@ -393,7 +393,8 @@ export class ExecutionGuard {
       paths,
       network: (op.network ?? []).map((t) => ({ scheme: t.scheme, host: t.host, port: t.port })),
       principal: context.principal,
-      mode: this.engine.mode,
+      // The mode this principal's operation runs in (WP-31: remote principals have their own profile).
+      mode: this.engine.modeFor(context),
       rule,
     };
   }
