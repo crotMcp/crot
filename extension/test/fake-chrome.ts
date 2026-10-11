@@ -155,6 +155,8 @@ export class FakeChrome {
 
   readonly tabsOnUpdated = new FakeEvent<(tabId: number, changeInfo: { status?: string }, tab: ChromeTab) => void>();
   readonly tabsOnRemoved = new FakeEvent<(tabId: number) => void>();
+  readonly tabsOnCreated = new FakeEvent<(tab: ChromeTab) => void>();
+  readonly history: { tabId: number; action: "back" | "forward" | "reload" }[] = [];
   readonly alarmsOnAlarm = new FakeEvent<(alarm: { name: string }) => void>();
 
   addTab(tab: Partial<MutableTab> & { id: number }): MutableTab {
@@ -168,6 +170,21 @@ export class FakeChrome {
     };
     this.tabsById.set(tab.id, full);
     return full;
+  }
+
+  /** A page opens a new tab (window.open / target=_blank). */
+  openPopup(openerTabId: number, url: string): MutableTab {
+    const tab = this.addTab({ id: this.nextId++, url, title: "", openerTabId });
+    this.tabsOnCreated.emit({ ...tab });
+    return tab;
+  }
+
+  /** Start a navigation of a tab (fires tabs.onUpdated with status loading). */
+  startLoading(tabId: number, url: string): void {
+    const tab = this.tab(tabId);
+    tab.pendingUrl = url;
+    tab.status = "loading";
+    this.tabsOnUpdated.emit(tabId, { status: "loading" }, { ...tab });
   }
 
   /** Finish loading a tab (fires tabs.onUpdated). */
@@ -243,6 +260,19 @@ export class FakeChrome {
         },
         onUpdated: this.tabsOnUpdated,
         onRemoved: this.tabsOnRemoved,
+        onCreated: this.tabsOnCreated,
+        async goBack(tabId: number): Promise<void> {
+          self.tab(tabId);
+          self.history.push({ tabId, action: "back" });
+        },
+        async goForward(tabId: number): Promise<void> {
+          self.tab(tabId);
+          self.history.push({ tabId, action: "forward" });
+        },
+        async reload(tabId: number): Promise<void> {
+          self.tab(tabId);
+          self.history.push({ tabId, action: "reload" });
+        },
       },
       windows: {
         async update(windowId: number): Promise<unknown> {
