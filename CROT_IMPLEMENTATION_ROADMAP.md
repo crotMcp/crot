@@ -18,8 +18,9 @@
 > `ff571c2`.
 > Merged since: WP-28 (PR #16 `4d574f0`), WP-29 (`515fcb9`, Partial) and
 > WP-30 (PR #20; `main` `63a7d63`).
-> In review: WP-31 (PR #21, branch `wp-31-remote-permission-profile`, not
-> Done; ARCHITECTURE.md §27 AD-23).
+> WP-31: Done (PR #21, branch `wp-31-remote-permission-profile`, awaiting
+> merge; code verified at `9ca7b5b`, CI 11/11 green; ARCHITECTURE.md §27
+> AD-23).
 > Status claims below were checked against the repository tree, the source
 > files named, the CI workflows and the merged history, not taken from earlier
 > plans.
@@ -85,8 +86,8 @@ Non-negotiables used throughout this roadmap:
 
 **WP-29 — Cloud Relay v1, relay side** (§27 AD-22), merged into `main`
 (`515fcb9`); **Partial**, open items in `STATUS.md` and §6.1. The device
-side is **WP-30**, Done and merged (PR #20). WP-31 is in review (PR #21).
-Before that:
+side is **WP-30**, Done and merged (PR #20). WP-31 is Done (PR #21,
+awaiting merge). Before that:
 
 **WP-28 — Identity and device binding** (§27 AD-21), merged in crot-mcp
 PR #16 (`4d574f0`); details in `STATUS.md` and `docs/IDENTITY.md`. The
@@ -264,7 +265,9 @@ What changed in this roadmap and why:
   never through the relay; long work as jobs (OD-15). *Addressed by
   ARCHITECTURE.md §27 AD-22 (32 MiB per response, no media through the
   relay, room for jobs without defining them).*
-- **New input to WP-31:** every new capability needs a remote default.
+- **New input to WP-31:** every new capability needs a remote default
+  (met by WP-31: `REMOTE_DEFAULT_CAPABILITIES` and its guard test, AD-23
+  point 4).
 - **§6.2 and §11 amended explicitly** (N4; §11 notes) — nothing removed
   silently.
 
@@ -409,7 +412,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | **Done** (AD-21; crot-mcp PR #16, `4d574f0`) |
 | WP-29 | 3 | Cloud Relay v1 | WP-28 (verifier facts), OD-3 (decided: AD-21), OD-4 (decided: AD-22) | XL | yes | with phase 1/2/2B | **Partial** (crot-mcp PR #19, AD-22 as its first commit): relay side done; open — client rate/concurrency limits, per-source connection/handshake limits, registration rate limit, load test (before WP-38), device deregistration and key rotation with the orphaned-registration case (AD-22 open question 3) |
 | WP-30 | 3 | Device tunnel adapter | WP-20, WP-28, WP-29, OD-5 (decided: AD-22) | M–L | yes | — | **Done** (PR #20, merged): outbound `crot-tunnel.v1` with the WP-28 device credential, pinned relay host, refusals and reconnect; streams enter the unchanged relay entry point (tokens, ExecutionGuard, PermissionEngine, approvals, audit); multiplexing, streaming, cancellation, deadlines, loss without replay; registration at pairing (AD-22 point 4); OD-5 recorded in AD-22 points 12–13 (`37b3126`) and the §2.4/§19/§22/§25 status markers updated (`01f4a20`). Not WP-30: relay-side deregistration / key rotation and the orphaned registration (AD-22 open question 3, WP-29); measured client timeouts (WP-32) |
-| WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a, WP-30, OD-7, AD-23 (WP-23b/c not a prerequisite: AD-23 point 7) | M | yes | — | **In review** (PR #21, not Done): AD-23 recorded (`69408c3`); open: the upload/download criterion of the card cannot be verified before WP-26 (AD-23 point 8) |
+| WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a, WP-30, OD-7, AD-23 (WP-23b/c not a prerequisite: AD-23 point 7) | M | yes | — | **Done** (PR #21, awaiting merge; code verified at `9ca7b5b`, CI 11/11 green): AD-23 recorded (`69408c3`; point 4 wording `4a654f5`); remote defaults only for `REMOTE_DEFAULT_CAPABILITIES`, with a guard test; the end-to-end check of the real upload/download gates is WP-26 acceptance (AD-23 point 8), not claimed by WP-31 |
 | WP-38 | 3 | Staging cloud environment | WP-29, WP-28 | M | yes | with WP-30/31 | Not started |
 | WP-32 | 3 | Remote E2E acceptance suite and client compatibility | WP-24…WP-27, WP-30, WP-31, WP-38 | L | yes | — | Not started |
 | WP-33 | 3 | External security review and fixes | WP-32, WP-34 (release-candidate build), WP-38 | M (+fix time) | yes | with WP-37 | Not started |
@@ -781,18 +784,22 @@ timeouts (WP-32).
 
 #### WP-31 — Remote permission profile and presets
 
-**Status: In review** (PR #21, branch `wp-31-remote-permission-profile`,
-not Done; ARCHITECTURE.md §27 AD-23, decides §26 question 25).
-Implemented and covered by tests: the remote profile in the one
-PermissionEngine (AD-23 points 1–4); the presets (point 5); remote full
-control bound to the device id and account of its pairing and kept across
-restarts (point 6); remote shell/process only with L1, otherwise
-`CONFINEMENT_UNAVAILABLE` (point 7); changes only on the control channel and
-only while idle (points 9–10); fail closed (point 11); reporting (point
-12). Not verified: the criterion "`browser.file_upload` and downloads stay
-gated in *Autonomous browser*" — neither operation exists before WP-26, so
-the gate (AD-23 point 8) is not tested end to end; how this criterion is
-formally closed is an owner decision.
+**Status: Done** (PR #21, branch `wp-31-remote-permission-profile`,
+awaiting merge; code verified at `9ca7b5b`, CI 11/11 green; ARCHITECTURE.md
+§27 AD-23, decides §26 question 25). Implemented and covered by tests: the
+remote profile in the one PermissionEngine (AD-23 points 1–4; remote
+defaults only for the capabilities in `REMOTE_DEFAULT_CAPABILITIES`, every
+current capability except `filesystem.full`, intersected with the configured
+grants; a guard test fails for a capability without an explicitly decided
+remote default); the presets (point 5); remote full control bound to the
+device id and account of its pairing and kept across restarts (point 6);
+remote shell/process only with L1, otherwise `CONFINEMENT_UNAVAILABLE`
+(point 7); the `autonomous-browser-upload` rule registered and covered by
+rule-set tests (point 8); changes only on the control channel and only
+while idle (points 9–10); fail closed (point 11); reporting (point 12). The
+end-to-end check of the real `browser_file_upload` and `browser_download`
+approval gates is part of the WP-26 acceptance (AD-23 point 8) and is not
+claimed by WP-31.
 
 - **Objective:** safe remote defaults and the two presets, chosen only by the
   user.
@@ -1019,8 +1026,8 @@ B: WP-28 (L) ─► WP-29 (XL) ────────────┴─► WP-
 ```
 
 Chain A is done (WP-20, WP-21, WP-22 and WP-23a merged). On chain B, WP-28,
-WP-29 and WP-30 are merged and WP-31 is in review (PR #21), so the critical
-path continues WP-31 → WP-32 → WP-33 → WP-40.
+WP-29 and WP-30 are merged and WP-31 is Done (PR #21, awaiting merge), so
+the critical path continues WP-32 → WP-33 → WP-40.
 L1 on macOS and Windows (WP-23b/c, after WP-21 and the OD-9 macOS/Windows
 decision) is not a prerequisite of WP-31 (remote shell and process are
 refused where L1 is unavailable, AD-23 point 7) but must be done before
@@ -1036,7 +1043,7 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
 
 | Class | WPs |
 | --- | --- |
-| Sequential on critical path | (done: WP-20 → WP-22, WP-28, WP-29, WP-30); WP-31 → WP-32 → WP-33 → WP-40 |
+| Sequential on critical path | (done: WP-20 → WP-22, WP-28, WP-29, WP-30, WP-31); WP-32 → WP-33 → WP-40 |
 | Parallelizable now | WP-24, WP-35 (prep), WP-37 (drafting), WP-19b; OD-9 macOS/Windows decision (unblocks WP-23b/c) |
 | Parallel after prerequisites | WP-23b ∥ WP-23c (after OD-9); WP-25 ∥ WP-26 ∥ WP-27; WP-34, WP-36, WP-38 with phase 3; WP-37 ∥ WP-39 ∥ WP-33 |
 | Release blockers | every WP except WP-19b |
@@ -1050,19 +1057,23 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
    decision (docs-only PR or first commit of the WP).
 2. Otherwise choose, in order: an unblocked WP on chain A or B; then WP-23x;
    then WP-24…WP-27; then phase-4 WPs whose dependencies are done.
-3. **Right now (WP-30 merged, WP-31 in review in PR #21):**
+3. **Right now (WP-30 merged; WP-31 Done in PR #21, awaiting merge):**
 
-   **Current: WP-31 — Remote permission profile and presets, in review**
-   (PR #21, not Done; ARCHITECTURE.md §27 AD-23; user docs
+   **Last: WP-31 — Remote permission profile and presets, Done**
+   (PR #21, awaiting merge; code verified at `9ca7b5b`, CI 11/11 green;
+   ARCHITECTURE.md §27 AD-23; user docs
    [`docs/TRAY.md`](docs/TRAY.md), [`docs/SERVICE.md`](docs/SERVICE.md),
    [`docs/L1.md`](docs/L1.md)).
 
    - *State:* AD-23 points 1–7 and 9–12 implemented and covered by tests;
-     the per-principal profile decision (§26 question 25) is recorded as
-     AD-23. Open: the card's criterion that `browser.file_upload` and
-     downloads stay gated in *Autonomous browser* cannot be verified before
-     WP-26 adds these operations (AD-23 point 8); formally closing it is an
-     owner decision.
+     remote defaults only for `REMOTE_DEFAULT_CAPABILITIES` (every current
+     capability except `filesystem.full`), with a guard test for new
+     capabilities (point 4). Point 8: the `autonomous-browser-upload` rule
+     is registered and covered by rule-set tests; the end-to-end check of
+     the real `browser_file_upload` and `browser_download` gates is part of
+     the WP-26 acceptance and is not claimed by WP-31.
+   - *Next on the critical path:* WP-32, which waits for WP-24…WP-27 and
+     WP-38.
    - *WP-30:* Done and merged (PR #20). Not WP-30: relay-side
      deregistration / key rotation with the orphaned registration risk
      (AD-22 open question 3, WP-29) and measured client timeouts (WP-32).

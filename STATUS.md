@@ -5,21 +5,25 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
-## In progress
+## Last completed
 
-**WP-31 — Remote permission profile and presets — in progress, not Done**
-(PR #21, draft, branch `wp-31-remote-permission-profile`, started from
-`main` `63a7d63`). The per-principal profile decision is recorded as
-ARCHITECTURE.md §27 AD-23 (commit `69408c3`), together with §26 question 25
-marked as decided by AD-23 and the amendments of AD-19 point 7 and residual
-risk D. User docs updated for WP-31 (commit `99fb2c6`):
-[`docs/TRAY.md`](docs/TRAY.md), [`docs/SERVICE.md`](docs/SERVICE.md),
-[`docs/L1.md`](docs/L1.md).
+**WP-31 — Remote permission profile and presets — Done** (PR #21, branch
+`wp-31-remote-permission-profile`, awaiting merge by the owner; started from
+`main` `63a7d63`). Code verified at `9ca7b5b`, CI 11/11 green. The
+per-principal profile decision is recorded as ARCHITECTURE.md §27 AD-23
+(commit `69408c3`; point 4 names `REMOTE_DEFAULT_CAPABILITIES`, commit
+`4a654f5`), together with §26 question 25 marked as decided by AD-23 and the
+amendments of AD-19 point 7 and residual risk D. User docs updated for WP-31
+(commit `99fb2c6`): [`docs/TRAY.md`](docs/TRAY.md),
+[`docs/SERVICE.md`](docs/SERVICE.md), [`docs/L1.md`](docs/L1.md).
 
-- **Implemented on the branch:** remote principals get their own profile in
-  the one PermissionEngine, local principals are unchanged: workspace only,
-  at most the configured capabilities, untrusted-content protection always
-  on (with preset `off` they get `require-approval`); preset
+- **Implemented:** remote principals get their own profile in the one
+  PermissionEngine, local principals are unchanged: workspace only, only the
+  capabilities with an explicitly decided remote default
+  (`REMOTE_DEFAULT_CAPABILITIES`: every current capability except
+  `filesystem.full`) intersected with the configured grants, a capability
+  added later denied until its remote default is decided, untrusted-content
+  protection always on (with preset `off` they get `require-approval`); preset
   `autonomous-browser` selectable (browser control without repeated
   approval; uploads, shell, filesystem write, Git write, network and Docker
   Compose stay gated); the remote full-control opt-in is stored with the
@@ -33,8 +37,9 @@ risk D. User docs updated for WP-31 (commit `99fb2c6`):
   effective preset and its source, the remote profile, the opt-in (recorded
   and in effect) and the restrictions.
 - **Confirmed by tests** (CI 11/11 green on `ae6b880`, `7d21f36`,
-  `69408c3`, `723e7cf` and `99fb2c6`: Node 20/22 on Ubuntu, macOS and
-  Windows, L1 on Ubuntu 22.04/24.04 x64/arm64, real-chromium):
+  `69408c3`, `723e7cf`, `99fb2c6`, `a0dba42`, `56db9ae` and `9ca7b5b`:
+  Node 20/22 on Ubuntu, macOS and Windows, L1 on Ubuntu 22.04/24.04
+  x64/arm64, real-chromium):
   - tools cannot reach the device controls: no MCP tool is a control
     method; writing the settings, the client list or the binding through
     tools is refused even in `full_control`; control requests naming another
@@ -52,33 +57,30 @@ risk D. User docs updated for WP-31 (commit `99fb2c6`):
     pairing; unpairing and a new pairing end it; a stored opt-in for another
     pairing or with an unusable binding does not apply
     (`tests/service/full-control-grant.test.ts`);
+  - remote default capabilities: a guard test fails for a capability
+    without an explicitly decided remote default; the agreed remote default
+    is pinned; full control adds only `filesystem.full`; local grants are
+    unchanged (`tests/core/remote-capabilities.test.ts`);
   - control center: every preset applied, refusal while busy, rollback when
     a new Core cannot be built, audit record first
     (`tests/service/control-center.test.ts`).
-- **Open mandatory criterion, end-to-end check depends on WP-26:** the WP-31
-  acceptance "`browser.file_upload` and downloads stay gated in *Autonomous
-  browser*" (roadmap WP-31 card; WP-31 objective: local file uploads stay
-  gated). Neither operation exists before WP-26 (`browser_file_upload`,
-  `browser_download`); `browser.file_upload` is not a known operation today.
-  What exists: the rule `autonomous-browser-upload` gates
-  `browser.file_upload` in every scope (defensive, it matches nothing
-  today, AD-23 point 8); a download will need `filesystem.write`, which
-  `autonomous-browser` keeps gated in an exposed scope, as
-  `require-approval` does. Not tested: a real upload or download end to
-  end. The criterion is not changed and not claimed as verified; its
-  end-to-end check is a dependency of WP-26, and WP-31 is not Done while it
-  is open.
+- **Upload/download gate (AD-23 point 8):** the rule
+  `autonomous-browser-upload` gates `browser.file_upload` in every scope and
+  is covered by rule-set tests (defensive, it matches nothing today); a
+  download will need `filesystem.write`, which `autonomous-browser` keeps
+  gated in an exposed scope, as `require-approval` does. Neither operation
+  exists before WP-26 (`browser_file_upload`, `browser_download`), so the
+  end-to-end check of the real gates is part of the WP-26 acceptance
+  (roadmap WP-26 card) and is not claimed by WP-31.
 - **Accepted, not closed:** a process of the same OS user with an
   unconfined local shell can write the state files directly (AD-19 residual
   risk D); a forged full-control opt-in still applies only to the pairing it
   names (AD-23 point 6).
-- **Roadmap:** the WP-31 update of
-  [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md)
-  (WP-30 merged, WP-31 status, WP-23b/c not a prerequisite of WP-31, AD-23;
-  acceptance criteria unchanged) is prepared as an edit script checked
-  against the file on this branch and is not yet committed.
+- **Release blockers outside WP-31:** L1 on macOS and Windows (WP-23b/c;
+  there remote shell and process operations are refused with
+  `CONFINEMENT_UNAVAILABLE`); the end-to-end upload/download check (WP-26).
 
-## Last completed
+## Previously completed
 
 **WP-30 — Device tunnel adapter** (merged into `main` through PR #20;
 WP-31 starts from `main` `63a7d63`; ARCHITECTURE.md §27 AD-22, device
@@ -130,8 +132,6 @@ secret-free logs) and `tests/cloud-relay/device-registration.test.ts`
 (registration against the real relay and pairing end to end). CI test
 setup only: the L1 ARM jobs pull `alpine:3.20` from `public.ecr.aws` with
 retries (Docker Hub rate limit).
-
-## Previously completed
 
 **WP-29 — Cloud Relay v1, relay side — partial** (merged into `main`,
 `515fcb9`; ARCHITECTURE.md
@@ -327,15 +327,15 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 
 ## Next
 
-**Current: WP-31 — Remote permission profile and presets, in progress in
-PR #21 (draft, not Done)** (see "In progress"). Critical path: yes — chain B
-continues WP-31 → WP-32 → WP-33 → WP-40. WP-30 is merged (PR #20). The
-per-principal profile is decided by ARCHITECTURE.md §27 AD-23 (§26 Q25);
-WP-31 does not wait for WP-23b/c (see the WP-23b/c row).
+**WP-31 — Remote permission profile and presets: Done** (PR #21, awaiting
+merge; see "Last completed"). Critical path: chain B continues WP-32 →
+WP-33 → WP-40; WP-32 waits for WP-24…WP-27 and WP-38. Release-blocking and
+not part of WP-31: L1 on macOS and Windows (WP-23b/c) and the end-to-end
+check of the real upload/download gates (WP-26).
 
 | WP | What | State |
 | --- | --- | --- |
-| WP-31 | Remote permission profile and presets (AD-13, AD-19, AD-23) | in progress, PR #21 (draft, not Done); AD-23 recorded (`69408c3`); user docs updated (`99fb2c6`); CI green on `99fb2c6`; open: the upload/download criterion, whose end-to-end check depends on WP-26 (no such operation before it); roadmap update prepared, not yet committed; see "In progress" |
+| WP-31 | Remote permission profile and presets (AD-13, AD-19, AD-23) | Done, PR #21 awaiting merge; code verified at `9ca7b5b`, CI 11/11 green; AD-23 recorded (`69408c3`; point 4 wording `4a654f5`); user docs updated (`99fb2c6`); end-to-end check of the real upload/download gates: WP-26 acceptance; see "Last completed" |
 | WP-30 | Device tunnel adapter (AD-22, device side) | Done, merged (PR #20): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32) |
 | WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to WP-31 |
 | WP-26 | Browser upload and download (AD-16 points 11–12) | after WP-24 and OD-8; also provides the end-to-end check of the WP-31 upload/download gate (AD-23 point 8) |
