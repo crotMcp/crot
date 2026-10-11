@@ -5049,7 +5049,9 @@ enforced (§26 question 25).
    policy stay global and apply to every profile.
 3. **Local profile.** The configured policy and preset, unchanged by WP-31.
 4. **Remote default profile.** Workspace (`sandbox`) mode; grants are the
-   sandbox defaults intersected with the configured grants and never include
+   capabilities with an explicitly decided remote default
+   (`REMOTE_DEFAULT_CAPABILITIES`: every current capability except
+   `filesystem.full`) intersected with the configured grants and never include
    `filesystem.full`; untrusted-content protection is always on. It never
    grants more than the local configuration; local `full_control` does not
    widen it. A capability added later is denied to remote principals until
