@@ -148,7 +148,7 @@ function stringParam(params: CommandParams, key: string, min: number, max: numbe
 
 function selectorParam(params: CommandParams): string {
   const selector = stringParam(params, "selector", 1, SELECTOR_MAX_LENGTH);
-  if (selector.includes("\\0")) throw invalid("Selectors must not contain NUL.");
+  if (selector.includes("\0")) throw invalid("Selectors must not contain NUL.");
   return selector;
 }
 
