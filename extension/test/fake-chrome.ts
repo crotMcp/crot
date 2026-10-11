@@ -1,5 +1,6 @@
 import type {
   ChromeApi,
+  ChromeDebuggee,
   ChromeCaptureOptions,
   ChromeEvent,
   ChromeInjectionResult,
@@ -92,7 +93,50 @@ export interface FakeTabsOptions {
   readonly loadStatus?: "loading" | "complete";
 }
 
+/** Fake chrome.debugger: records attaches and commands; tests answer commands through `respond`. */
+export class FakeDebugger {
+  readonly attached = new Set<number>();
+  readonly attachCalls: number[] = [];
+  readonly sent: { tabId: number; method: string; params: unknown }[] = [];
+  attachError: Error | undefined;
+  respond: (tabId: number, method: string, params: unknown) => unknown = () => ({});
+  readonly onDetach = new FakeEvent<(source: ChromeDebuggee, reason: string) => void>();
+  readonly onEvent = new FakeEvent<(source: ChromeDebuggee, method: string, params?: unknown) => void>();
+
+  async attach(target: ChromeDebuggee, version: string): Promise<void> {
+    if (version !== "1.3") throw new Error("Requested protocol version is not supported");
+    const tabId = target.tabId as number;
+    this.attachCalls.push(tabId);
+    if (this.attachError) throw this.attachError;
+    if (this.attached.has(tabId)) throw new Error("Another debugger is already attached to the tab with id: " + tabId);
+    this.attached.add(tabId);
+  }
+
+  async detach(target: ChromeDebuggee): Promise<void> {
+    const tabId = target.tabId as number;
+    if (!this.attached.delete(tabId)) throw new Error("Debugger is not attached to the tab with id: " + tabId);
+  }
+
+  async sendCommand(target: ChromeDebuggee, method: string, params?: object): Promise<unknown> {
+    const tabId = target.tabId as number;
+    if (!this.attached.has(tabId)) throw new Error("Debugger is not attached to the tab with id: " + tabId);
+    this.sent.push({ tabId, method, params });
+    return this.respond(tabId, method, params);
+  }
+
+  /** The user or the browser detaches (for example the "Cancel" button of the notice). */
+  userDetach(tabId: number): void {
+    this.attached.delete(tabId);
+    this.onDetach.emit({ tabId }, "canceled_by_user");
+  }
+
+  event(tabId: number, method: string, params: unknown = {}): void {
+    this.onEvent.emit({ tabId }, method, params);
+  }
+}
+
 export class FakeChrome {
+  readonly debugger = new FakeDebugger();
   readonly runtime = new FakeRuntime();
   readonly tabsById = new Map<number, MutableTab>();
   readonly focused: number[] = [];
@@ -218,6 +262,13 @@ export class FakeChrome {
           // Results are structured-cloned.
           return [{ frameId: 0, result: result === undefined ? undefined : structuredClone(result) }];
         },
+      },
+      debugger: {
+        attach: (target, version) => self.debugger.attach(target, version),
+        detach: (target) => self.debugger.detach(target),
+        sendCommand: (target, method, params) => self.debugger.sendCommand(target, method, params),
+        onDetach: self.debugger.onDetach,
+        onEvent: self.debugger.onEvent,
       },
       alarms: {
         async create(): Promise<void> {},

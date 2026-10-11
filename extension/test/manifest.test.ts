@@ -37,7 +37,8 @@ describe("extension manifest", () => {
   });
 
   it("requests only the permissions the commands need", () => {
-    expect(manifest.permissions).toEqual(["nativeMessaging", "tabs", "scripting", "alarms"]);
+    expect(manifest.permissions).toEqual(["nativeMessaging", "tabs", "scripting", "alarms", "debugger"]);
+    // `downloads` (WP-26) and `tabGroups` (WP-25) are added by their work packages.
     // Scripting and captureVisibleTab need host access; the extension itself refuses non-http(s) pages.
     expect(manifest.host_permissions).toEqual(["<all_urls>"]);
     for (const key of [

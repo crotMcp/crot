@@ -58,6 +58,11 @@ export interface ChromeInjectionResult {
   readonly result?: unknown;
 }
 
+/** A debugger target: one tab (AD-16 point 3; never anything else). */
+export interface ChromeDebuggee {
+  readonly tabId?: number;
+}
+
 export interface ChromeApi {
   readonly runtime: {
     connectNative(application: string): ChromePort;
@@ -84,6 +89,14 @@ export interface ChromeApi {
   };
   readonly scripting: {
     executeScript<A extends unknown[], R>(injection: ChromeScriptInjection<A, R>): Promise<ChromeInjectionResult[]>;
+  };
+  /** Used only through cdp.ts, which enforces the fixed CDP method allowlist. */
+  readonly debugger: {
+    attach(target: ChromeDebuggee, requiredVersion: string): Promise<void>;
+    detach(target: ChromeDebuggee): Promise<void>;
+    sendCommand(target: ChromeDebuggee, method: string, commandParams?: object): Promise<unknown>;
+    readonly onDetach: ChromeEvent<(source: ChromeDebuggee, reason: string) => void>;
+    readonly onEvent: ChromeEvent<(source: ChromeDebuggee, method: string, params?: unknown) => void>;
   };
   readonly alarms: {
     create(name: string, info: { readonly periodInMinutes: number }): Promise<void>;
