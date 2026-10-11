@@ -1,7 +1,43 @@
 import type { BrowserCommand } from "../../src/core/capabilities/browser/connection.js";
 import type { ChromeApi, ChromeTab } from "./chrome-api.js";
 import { ExtensionError, isExtensionErrorCode } from "./errors.js";
+import { CdpSessions } from "./cdp.js";
+import {
+  DEFAULT_TIMING,
+  HISTORY_ACTIONS,
+  TabObserver,
+  enableEvents,
+  historyTarget,
+  resolveTarget,
+  settle,
+  timeoutParam,
+  waitConditionParam,
+  waitFor,
+  waitForLoadState,
+  waitUntilParam,
+  type Timing,
+  type WaitUntil,
+} from "./control.js";
+import {
+  MAX_SCROLL_DELTA,
+  MODIFIERS,
+  actionablePoint,
+  clickAt,
+  dragBetween,
+  hoverAt,
+  keySequenceParam,
+  pressCombination,
+  selectInto,
+  setChecked,
+  typeInto,
+  viewportCenter,
+  wheelAt,
+  type Modifier,
+  type MouseButton,
+} from "./input.js";
 import { clickElement, readPageContent, typeIntoElement, type PageOutcome } from "./page-functions.js";
+import { RefRegistry, frameRefParam } from "./refs.js";
+import { SNAPSHOT_DEFAULT_ELEMENTS, SNAPSHOT_MAX_ELEMENTS, takeSnapshot } from "./snapshot.js";
 
 /**
  * The fixed commands of the CROT Browser Extension (bridge protocol v1).
@@ -47,7 +83,17 @@ export type CommandHandlers = Readonly<Record<BrowserCommand, CommandHandler>>;
 
 export interface CommandOptions {
   readonly loadWaitMs?: number;
+  /** CDP sessions (AD-16 point 3); created over `api.debugger` when absent. */
+  readonly cdp?: CdpSessions;
+  /** ControlOrMeta is Meta on macOS. */
+  readonly mac?: boolean;
+  /** Settle/wait timing (tests shorten it). */
+  readonly timing?: Timing;
 }
+
+/** Bound of each tab's command queue (AD-16 point 8). */
+export const TAB_QUEUE_MAX = 16;
+export const SELECT_VALUES_MAX = 100;
 
 const TAB_STATUSES: ReadonlySet<string> = new Set(["loading", "complete", "unloaded"]);
 const PAGE_ERROR_CODES: ReadonlySet<string> = new Set(["NOT_FOUND", "INVALID_INPUT", "OPERATION_FAILED"]);
@@ -102,7 +148,7 @@ function stringParam(params: CommandParams, key: string, min: number, max: numbe
 
 function selectorParam(params: CommandParams): string {
   const selector = stringParam(params, "selector", 1, SELECTOR_MAX_LENGTH);
-  if (selector.includes("\0")) throw invalid("Selectors must not contain NUL.");
+  if (selector.includes("\\0")) throw invalid("Selectors must not contain NUL.");
   return selector;
 }
 
@@ -173,6 +219,18 @@ function checkTab(expected: ExpectedSubject, tab: ChromeTab, context: CommandCon
   if (tab.pendingUrl && httpOrigin(tab.pendingUrl) !== expected.origin) throw mismatch("navigation to another origin");
 }
 
+/** The legacy selector form (page functions, unchanged): only legacy keys and a selector. */
+function legacyForm(params: CommandParams, keys: readonly string[]): boolean {
+  return params.selector !== undefined && Object.keys(params).every((k) => keys.includes(k));
+}
+
+function modifiersParam(value: unknown): Modifier[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > MODIFIERS.length || value.some((m) => !MODIFIERS.includes(m as Modifier)))
+    throw invalid("'modifiers' must be a list of " + MODIFIERS.join(", ") + ".");
+  return [...new Set(value as Modifier[])];
+}
+
 // ---------------------------------------------------------------- results
 
 const bounded = (text: string | undefined, max: number): string => (text ?? "").slice(0, max);
@@ -187,6 +245,9 @@ function tabInfo(tab: ChromeTab & { readonly id: number }) {
     title: bounded(tab.title, TITLE_MAX_LENGTH),
     active: tab.active,
     ...(tab.status !== undefined && TAB_STATUSES.has(tab.status) ? { status: tab.status } : {}),
+    ...(typeof tab.openerTabId === "number" && Number.isInteger(tab.openerTabId) && tab.openerTabId >= 0
+      ? { openerTabId: tab.openerTabId }
+      : {}),
   };
 }
 
@@ -218,6 +279,66 @@ const restricted = (): ExtensionError =>
 
 export function createCommandHandlers(api: ChromeApi, options: CommandOptions = {}): CommandHandlers {
   const loadWaitMs = options.loadWaitMs ?? LOAD_WAIT_MS;
+  // CDP sessions and the ref registry's tab listener exist only once a Browser v1 command runs.
+  let sessions: CdpSessions | undefined = options.cdp;
+  let watchingTabs = false;
+  const cdpSessions = (): CdpSessions => {
+    sessions ??= new CdpSessions(api);
+    if (!watchingTabs) {
+      watchingTabs = true;
+      api.tabs.onRemoved.addListener((tabId) => registry.forgetTab(tabId));
+    }
+    return sessions;
+  };
+  const cdp: CdpSessions = new Proxy({} as CdpSessions, {
+    get(_target, property) {
+      const real = cdpSessions();
+      const value = Reflect.get(real, property, real) as unknown;
+      return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(real) : value;
+    },
+  });
+  const timing = options.timing ?? DEFAULT_TIMING;
+  const inputOptions = { mac: options.mac === true };
+  const limits = { urlMax: URL_MAX_LENGTH, selectorMax: SELECTOR_MAX_LENGTH };
+  const resolveModifiers = (modifiers: readonly Modifier[]): Exclude<Modifier, "ControlOrMeta">[] => [
+    ...new Set(
+      modifiers.map((m): Exclude<Modifier, "ControlOrMeta"> =>
+        m === "ControlOrMeta" ? (inputOptions.mac ? "Meta" : "Control") : m,
+      ),
+    ),
+  ];
+
+  // One ref registry per host connection (AD-16 point 5): refs of an earlier connection are unknown.
+  let registry = new RefRegistry();
+  let registryConnection: string | undefined;
+  function refsFor(context: CommandContext | undefined): RefRegistry {
+    const id = context?.connectionId();
+    if (id !== registryConnection) {
+      registry = new RefRegistry();
+      registryConnection = id;
+    }
+    return registry;
+  }
+  // Per-tab FIFO (AD-16 point 8): commands on one tab run one at a time, bound TAB_QUEUE_MAX.
+  const queues = new Map<number, { tail: Promise<unknown>; size: number }>();
+  async function serialized<T>(tabId: number, run: () => Promise<T>): Promise<T> {
+    const queue = queues.get(tabId) ?? { tail: Promise.resolve(), size: 0 };
+    if (queue.size >= TAB_QUEUE_MAX)
+      throw new ExtensionError("RESOURCE_BUSY", "Too many browser commands are queued for this tab.");
+    queue.size++;
+    queues.set(tabId, queue);
+    const result = queue.tail.then(run, run);
+    queue.tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    try {
+      return await result;
+    } finally {
+      queue.size--;
+      if (queue.size === 0 && queues.get(tabId) === queue) queues.delete(tabId);
+    }
+  }
 
   async function getTab(tabId: number): Promise<ChromeTab & { readonly id: number }> {
     let tab: ChromeTab;
@@ -323,8 +444,20 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
   }
 
   /** Wait for the load, then report the tab's (possibly redirected) URL. */
-  async function loaded(tabId: number): Promise<{ tabId: number; url: string }> {
-    await waitForLoad(tabId);
+  async function loaded(
+    tabId: number,
+    waitUntil?: WaitUntil,
+    timeoutMs?: number,
+    observer?: TabObserver,
+  ): Promise<{ tabId: number; url: string }> {
+    if (waitUntil === undefined || timeoutMs === undefined) await waitForLoad(tabId);
+    else {
+      try {
+        await waitForLoadState(api, tabId, waitUntil, Date.now() + timeoutMs, observer, timing);
+      } finally {
+        observer?.dispose();
+      }
+    }
     let tab: ChromeTab;
     try {
       tab = await api.tabs.get(tabId);
@@ -335,7 +468,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     return { tabId, url: bounded(tab.pendingUrl || tab.url, URL_MAX_LENGTH) };
   }
 
-  return {
+  const handlers: CommandHandlers = {
     async "tabs.list"(params) {
       onlyKeys(params, []);
       const tabs = await api.tabs.query({});
@@ -350,9 +483,11 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     },
 
     async "tabs.open"(params, context) {
-      onlyKeys(params, ["url", "active", "expect"]);
+      onlyKeys(params, ["url", "active", "waitUntil", "timeoutMs", "expect"]);
       const url = urlParam(params);
       const active = booleanParam(params, "active");
+      const waitUntil = params.waitUntil === undefined ? undefined : waitUntilParam(params.waitUntil);
+      const timeoutMs = params.timeoutMs === undefined ? undefined : timeoutParam(params.timeoutMs);
       const expected = expectParam(params);
       if (expected) {
         checkConnection(expected, context);
@@ -365,20 +500,31 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         throw browserError(error, "Opening the tab");
       }
       if (!hasId(tab)) throw new ExtensionError("OPERATION_FAILED", "The browser did not report the new tab.");
-      return loaded(tab.id);
+      if (waitUntil === undefined && timeoutMs === undefined) return loaded(tab.id);
+      return loaded(tab.id, waitUntil ?? "load", timeoutMs ?? loadWaitMs);
     },
 
     async "tabs.navigate"(params, context) {
-      onlyKeys(params, ["tabId", "url", "expect"]);
+      onlyKeys(params, ["tabId", "url", "waitUntil", "timeoutMs", "expect"]);
       const tabId = optionalTabIdParam(params);
       const url = urlParam(params);
+      const legacy = params.waitUntil === undefined && params.timeoutMs === undefined;
+      const waitUntil = waitUntilParam(params.waitUntil);
+      const timeoutMs = params.timeoutMs === undefined ? loadWaitMs : timeoutParam(params.timeoutMs);
       const tab = await targetTab(tabId, expectParam(params), context, false);
+      // Lifecycle events are only needed for the states the tab status cannot tell.
+      const events = !legacy && (waitUntil === "domcontentloaded" || waitUntil === "networkidle");
+      const observer = events
+        ? new TabObserver(api, cdp, tab.id, isHttpUrl(tab.url) ? await enableEvents(cdp, tab.id) : undefined)
+        : undefined;
       try {
         await api.tabs.update(tab.id, { url });
       } catch (error) {
+        observer?.dispose();
         throw browserError(error, "Navigating");
       }
-      return loaded(tab.id);
+      if (legacy) return loaded(tab.id);
+      return loaded(tab.id, waitUntil, timeoutMs, observer);
     },
 
     async "tabs.activate"(params, context) {
@@ -475,6 +621,21 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     },
 
     async "page.click"(params, context) {
+      if (!legacyForm(params, ["tabId", "selector", "expect"])) {
+        const button =
+          params.button === undefined ? "left" : enumParam(params, "button", ["left", "right", "middle"] as const);
+        const clickCount = params.clickCount ?? 1;
+        if (clickCount !== 1 && clickCount !== 2) throw invalid("'clickCount' must be 1 or 2.");
+        const modifiers = modifiersParam(params.modifiers);
+        return control(params, context, ["button", "clickCount", "modifiers"], async (tabId, node) => {
+          const point = await actionablePoint(cdp, tabId, node.backendNodeId);
+          await clickAt(cdp, tabId, point, {
+            button: button as MouseButton,
+            clickCount,
+            modifiers: resolveModifiers(modifiers),
+          });
+        });
+      }
       onlyKeys(params, ["tabId", "selector", "expect"]);
       const tabId = optionalTabIdParam(params);
       const selector = selectorParam(params);
@@ -484,6 +645,14 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     },
 
     async "page.type"(params, context) {
+      if (!legacyForm(params, ["tabId", "selector", "text", "clear", "expect"])) {
+        const text = stringParam(params, "text", 0, TYPE_TEXT_MAX_LENGTH);
+        const clear = booleanParam(params, "clear");
+        const submit = params.submit === undefined ? false : booleanParam(params, "submit");
+        return control(params, context, ["text", "clear", "submit"], async (tabId, node) => {
+          await typeInto(cdp, tabId, node.backendNodeId, text, { ...inputOptions, clear, submit });
+        });
+      }
       onlyKeys(params, ["tabId", "selector", "text", "clear", "expect"]);
       const tabId = optionalTabIdParam(params);
       const selector = selectorParam(params);
@@ -493,5 +662,212 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       await runInPage(tab.id, typeIntoElement, [selector, text, clear]);
       return { tabId: tab.id, url: tabUrl(tab) };
     },
+
+    // ------------------------------------------------------------ Browser v1 (AD-16)
+
+    async "page.snapshot"(params, context) {
+      onlyKeys(params, ["tabId", "frameRef", "includeText", "maxElements", "expect"]);
+      const tabId = optionalTabIdParam(params);
+      const frameRef = params.frameRef === undefined ? undefined : frameRefParam(params.frameRef);
+      const includeText = params.includeText === undefined ? false : booleanParam(params, "includeText");
+      const maxElements = params.maxElements === undefined ? SNAPSHOT_DEFAULT_ELEMENTS : params.maxElements;
+      if (
+        !Number.isSafeInteger(maxElements) ||
+        (maxElements as number) < 1 ||
+        (maxElements as number) > SNAPSHOT_MAX_ELEMENTS
+      )
+        throw invalid("'maxElements' must be an integer from 1 to " + SNAPSHOT_MAX_ELEMENTS + ".");
+      const expected = expectParam(params);
+      const refs = refsFor(context);
+      const first = await targetTab(tabId, expected, context, true);
+      return serialized(first.id, async () => {
+        const tab = await targetTab(first.id, expected, context, true);
+        return takeSnapshot(
+          cdp,
+          refs,
+          { id: tab.id, url: tabUrl(tab), title: bounded(tab.title, TITLE_MAX_LENGTH) },
+          { ...(frameRef === undefined ? {} : { frameRef }), includeText, maxElements: maxElements as number },
+        );
+      });
+    },
+
+    async "page.hover"(params, context) {
+      return control(params, context, [], async (tabId, node) => {
+        await hoverAt(cdp, tabId, await actionablePoint(cdp, tabId, node.backendNodeId));
+      });
+    },
+
+    async "page.scroll"(params, context) {
+      const deltaX = params.deltaX ?? 0;
+      const deltaY = params.deltaY ?? 0;
+      for (const [name, value] of [
+        ["deltaX", deltaX],
+        ["deltaY", deltaY],
+      ] as const) {
+        if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > MAX_SCROLL_DELTA)
+          throw invalid("'" + name + "' must be a number from -" + MAX_SCROLL_DELTA + " to " + MAX_SCROLL_DELTA + ".");
+      }
+      const element = params.ref !== undefined || params.selector !== undefined;
+      return control(
+        params,
+        context,
+        ["deltaX", "deltaY"],
+        async (tabId, node) => {
+          const point = node
+            ? await actionablePoint(cdp, tabId, node.backendNodeId, { requireEnabled: false })
+            : await viewportCenter(cdp, tabId);
+          await wheelAt(cdp, tabId, point, deltaX as number, deltaY as number);
+        },
+        { element },
+      );
+    },
+
+    async "page.drag"(params, context) {
+      const to = params.to;
+      if (typeof to !== "object" || to === null || Array.isArray(to))
+        throw invalid("'to' must be an object with 'ref' or 'selector'.");
+      onlyKeys(to as CommandParams, ["ref", "selector"]);
+      return control(params, context, ["to"], async (tabId, node, refs) => {
+        const from = await actionablePoint(cdp, tabId, node.backendNodeId);
+        const target = await resolveTarget(cdp, refs, tabId, to as CommandParams, SELECTOR_MAX_LENGTH);
+        const point = await actionablePoint(cdp, tabId, target.backendNodeId, { requireEnabled: false });
+        await dragBetween(cdp, tabId, from, point);
+      });
+    },
+
+    async "page.press_key"(params, context) {
+      const keys = keySequenceParam(params.keys, inputOptions);
+      const element = params.ref !== undefined || params.selector !== undefined;
+      return control(
+        params,
+        context,
+        ["keys"],
+        async (tabId, node) => {
+          if (node) {
+            await actionablePoint(cdp, tabId, node.backendNodeId);
+            await cdp.send(tabId, "DOM.focus", { backendNodeId: node.backendNodeId });
+          }
+          for (const combo of keys) await pressCombination(cdp, tabId, combo);
+        },
+        { element },
+      );
+    },
+
+    async "page.select_option"(params, context) {
+      const values = params.values;
+      if (
+        !Array.isArray(values) ||
+        values.length < 1 ||
+        values.length > SELECT_VALUES_MAX ||
+        values.some((v) => typeof v !== "string" || v.length > TITLE_MAX_LENGTH)
+      )
+        throw invalid("'values' must be 1 to " + SELECT_VALUES_MAX + " option values or labels.");
+      let selected: string[] = [];
+      const result = await control(params, context, ["values"], async (tabId, node) => {
+        await actionablePoint(cdp, tabId, node.backendNodeId);
+        ({ selected } = await selectInto(cdp, tabId, node.backendNodeId, values as string[], inputOptions));
+      });
+      return { ...result, selected };
+    },
+
+    async "page.set_checked"(params, context) {
+      const checked = booleanParam(params, "checked");
+      let outcome: { checked: boolean | "mixed"; changed: boolean } = { checked, changed: false };
+      const result = await control(params, context, ["checked"], async (tabId, node) => {
+        outcome = await setChecked(cdp, tabId, node.backendNodeId, checked);
+      });
+      return { ...result, ...outcome };
+    },
+
+    async "page.wait"(params, context) {
+      onlyKeys(params, [
+        "tabId",
+        "ref",
+        "selector",
+        "state",
+        "text",
+        "textGone",
+        "urlPrefix",
+        "loadState",
+        "newDocument",
+        "newTab",
+        "timeoutMs",
+        "expect",
+      ]);
+      const tabId = optionalTabIdParam(params);
+      const condition = waitConditionParam(params, URL_MAX_LENGTH);
+      const timeoutMs = timeoutParam(params.timeoutMs);
+      const expected = expectParam(params);
+      const refs = refsFor(context);
+      const tab = await targetTab(tabId, expected, context, true);
+      // A wait observes; it does not take the tab's command queue (a wait for a new tab may follow a click).
+      return waitFor(api, cdp, refs, tab.id, condition, timeoutMs, timing, limits);
+    },
+
+    async "tabs.history"(params, context) {
+      onlyKeys(params, ["tabId", "action", "waitUntil", "timeoutMs", "expect"]);
+      const tabId = optionalTabIdParam(params);
+      const action = enumParam(params, "action", HISTORY_ACTIONS);
+      const waitUntil = waitUntilParam(params.waitUntil);
+      const timeoutMs = timeoutParam(params.timeoutMs);
+      const expected = expectParam(params);
+      const first = await targetTab(tabId, expected, context, true);
+      return serialized(first.id, async () => {
+        const tab = await targetTab(first.id, expected, context, true);
+        const mainFrameId = await enableEvents(cdp, tab.id);
+        if (action !== "reload") {
+          const entry = await historyTarget(cdp, tab.id, action);
+          if (expected && httpOrigin(entry.url) !== expected.origin) throw mismatch("navigation to another origin");
+          const observer = new TabObserver(api, cdp, tab.id, mainFrameId);
+          await cdp.send(tab.id, "Page.navigateToHistoryEntry", { entryId: entry.id });
+          // A history navigation always navigates (same-document entries included).
+          const result = await settle(api, observer, waitUntil, timeoutMs, timing, URL_MAX_LENGTH);
+          return { ...result, navigated: true };
+        }
+        const observer = new TabObserver(api, cdp, tab.id, mainFrameId);
+        await cdp.send(tab.id, "Page.reload", {});
+        return settle(api, observer, waitUntil, timeoutMs, timing, URL_MAX_LENGTH);
+      });
+    },
   };
+
+  /**
+   * A control command (AD-16 point 7): check the subject, resolve the target
+   * (ref or selector) and act once inside the tab's queue, then settle.
+   */
+  async function control(
+    params: CommandParams,
+    context: CommandContext | undefined,
+    extraKeys: readonly string[],
+    act: (tabId: number, node: { backendNodeId: number }, refs: RefRegistry) => Promise<void>,
+    options: { element?: boolean } = {},
+  ): Promise<{ tabId: number; url: string; navigated: boolean; newTabs: number[] }> {
+    onlyKeys(params, ["tabId", "ref", "selector", "waitUntil", "timeoutMs", "expect", ...extraKeys]);
+    const tabId = optionalTabIdParam(params);
+    const waitUntil = waitUntilParam(params.waitUntil);
+    const timeoutMs = timeoutParam(params.timeoutMs);
+    const expected = expectParam(params);
+    const refs = refsFor(context);
+    const element = options.element ?? true;
+    const first = await targetTab(tabId, expected, context, true);
+    return serialized(first.id, async () => {
+      // The binding is checked when the command reaches the front of the queue.
+      const tab = await targetTab(first.id, expected, context, true);
+      const mainFrameId = await enableEvents(cdp, tab.id);
+      const node = element
+        ? await resolveTarget(cdp, refs, tab.id, params, SELECTOR_MAX_LENGTH)
+        : (undefined as unknown as { backendNodeId: number });
+      const observer = new TabObserver(api, cdp, tab.id, mainFrameId);
+      try {
+        if (expected) checkTab(expected, await api.tabs.get(tab.id), context);
+        await act(tab.id, node, refs);
+      } catch (error) {
+        observer.dispose();
+        throw error;
+      }
+      return settle(api, observer, waitUntil, timeoutMs, timing, URL_MAX_LENGTH);
+    });
+  }
+
+  return handlers;
 }
