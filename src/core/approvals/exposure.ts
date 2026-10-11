@@ -42,6 +42,7 @@ export const BROWSER_FILE_UPLOAD_OPERATION = "browser.file_upload";
 export const EXPOSURE_SOURCES: readonly string[] = Object.freeze([
   "browser.page_read",
   "browser.screenshot",
+  "browser.snapshot",
   "browser.tabs_list",
   "network.request",
 ]);
