@@ -105,6 +105,35 @@ export interface ApprovalRequirementRequest {
  */
 const WRITE_CAPABILITIES: ReadonlySet<Capability> = new Set<Capability>(["filesystem.write", "git.write"]);
 
+/**
+ * Capabilities whose remote default is decided (ARCHITECTURE.md §27, AD-23
+ * point 4). Remote principals get at most these, intersected with the
+ * configured grants; filesystem.full is never among them
+ * (SANDBOX_FORBIDDEN_CAPABILITIES) and only the full-control opt-in adds it.
+ * A capability added to CAPABILITIES later is denied to every remote principal
+ * until its remote default is decided and it is listed here
+ * (tests/core/remote-capabilities.test.ts fails until then).
+ */
+export const REMOTE_DEFAULT_CAPABILITIES: readonly Capability[] = [
+  "filesystem.read",
+  "filesystem.write",
+  "shell.execute",
+  "process.manage",
+  "git.read",
+  "git.write",
+  "docker.use",
+  "browser.read",
+  "browser.control",
+  "network.access",
+];
+
+const REMOTE_DEFAULT_SET: ReadonlySet<Capability> = new Set<Capability>(REMOTE_DEFAULT_CAPABILITIES);
+
+/** The configured capabilities that may reach a remote principal (AD-23 point 4). */
+function remoteGrants(policy: PermissionPolicy): Capability[] {
+  return [...policy.grants].filter((c) => REMOTE_DEFAULT_SET.has(c) && !SANDBOX_FORBIDDEN_CAPABILITIES.includes(c));
+}
+
 /** One permission profile: the policy, preset and gate rules a principal is evaluated with. */
 interface Profile {
   readonly policy: PermissionPolicy;
@@ -133,12 +162,12 @@ interface Profile {
  * Profiles (WP-31; one engine, one rule language):
  * - local principals: the configured policy and preset, unchanged;
  * - remote principals: sandbox mode (the workspace only, never
- *   filesystem.full), at most the configured capabilities, and the preset
- *   with untrusted-content protection always on ("off" becomes
- *   "require-approval");
+ *   filesystem.full), the configured capabilities that have a decided remote
+ *   default (REMOTE_DEFAULT_CAPABILITIES), and the preset with
+ *   untrusted-content protection always on ("off" becomes "require-approval");
  * - remote principals of the device bound by the user's full-control opt-in:
- *   full_control with the configured capabilities, the same preset, and
- *   their shell commands always need approval.
+ *   full_control with the same capabilities plus filesystem.full, the same
+ *   preset, and their shell commands always need approval.
  */
 export class PermissionEngine {
   private readonly protectedPaths: readonly string[];
@@ -174,7 +203,7 @@ export class PermissionEngine {
     this.remoteDefault = this.profile(
       Object.freeze({
         mode: "sandbox" as const,
-        grants: new Set([...policy.grants].filter((c) => !SANDBOX_FORBIDDEN_CAPABILITIES.includes(c))),
+        grants: new Set<Capability>(remoteGrants(policy)),
       }),
       remoteSetting,
     );
@@ -187,7 +216,7 @@ export class PermissionEngine {
       this.remoteFullControl = this.profile(
         Object.freeze({
           mode: "full_control" as const,
-          grants: new Set<Capability>([...policy.grants, "filesystem.full"]),
+          grants: new Set<Capability>([...remoteGrants(policy), "filesystem.full"]),
         }),
         remoteSetting,
         REMOTE_FULL_CONTROL_RULES,
