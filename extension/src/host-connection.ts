@@ -47,6 +47,8 @@ export interface HostConnectionOptions {
   readonly handlers: CommandHandlers;
   /** Diagnostics: connection events only, never page data or request parameters. */
   readonly log?: (message: string) => void;
+  /** Called after a connection ends (refs and debugger sessions of it become invalid, AD-16 point 5). */
+  readonly onDisconnected?: () => void;
   readonly reconnectMinMs?: number;
   readonly reconnectMaxMs?: number;
   readonly welcomeTimeoutMs?: number;
@@ -198,6 +200,11 @@ export class HostConnection {
         cleanMessage(reason),
     );
     if (wasConnected) this.failures = 0;
+    try {
+      this.options.onDisconnected?.();
+    } catch (error) {
+      this.log("cleanup after disconnect failed: " + describe(error));
+    }
     this.scheduleReconnect();
   }
 
