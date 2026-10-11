@@ -89,6 +89,7 @@ const EXTENSION_ERROR_CODES: ReadonlySet<string> = new Set<CrotErrorCode>([
   "RESOURCE_BUSY",
   "OPERATION_FAILED",
   "BROWSER_PAGE_RESTRICTED",
+  "BROWSER_STALE_REF",
 ]);
 
 export interface BrowserBridgeOptions {

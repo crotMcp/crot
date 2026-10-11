@@ -39,8 +39,8 @@ export interface BrowserCommandParams {
    * Reads tab id and URL only; never acts on the page.
    */
   "tabs.resolve": { readonly tabId?: number };
-  "tabs.open": { readonly url: string; readonly active: boolean } & Expect;
-  "tabs.navigate": { readonly tabId?: number; readonly url: string } & Expect;
+  "tabs.open": { readonly url: string; readonly active: boolean } & Settle & Expect;
+  "tabs.navigate": { readonly tabId?: number; readonly url: string } & Settle & Expect;
   "tabs.activate": { readonly tabId: number } & Expect;
   "tabs.close": { readonly tabId: number } & Expect;
   "page.read": { readonly tabId?: number; readonly format: BrowserPageFormat; readonly maxBytes: number } & Expect;
@@ -49,13 +49,61 @@ export interface BrowserCommandParams {
     readonly format: BrowserImageFormat;
     readonly quality?: number;
   } & Expect;
-  "page.click": { readonly tabId?: number; readonly selector: string } & Expect;
-  "page.type": {
-    readonly tabId?: number;
-    readonly selector: string;
+  /** Legacy form: selector only (page function). Browser v1 form: ref or selector plus options, trusted CDP input. */
+  "page.click": Partial<Target> & {
+    readonly button?: "left" | "right" | "middle";
+    readonly clickCount?: 1 | 2;
+    readonly modifiers?: readonly ("Shift" | "Control" | "Alt" | "Meta" | "ControlOrMeta")[];
+  } & Settle &
+    Expect;
+  "page.type": Partial<Target> & {
     readonly text: string;
     readonly clear: boolean;
+    readonly submit?: boolean;
+  } & Settle &
+    Expect;
+  /** Browser v1 (AD-16 points 5-7): accessibility snapshot with document-bound element refs. */
+  "page.snapshot": {
+    readonly tabId?: number;
+    readonly frameRef?: string;
+    readonly includeText?: boolean;
+    readonly maxElements?: number;
   } & Expect;
+  "page.hover": Target & Settle & Expect;
+  "page.scroll": Partial<Target> & { readonly deltaX?: number; readonly deltaY?: number } & Settle & Expect;
+  "page.drag": Target & { readonly to: { readonly ref?: string; readonly selector?: string } } & Settle & Expect;
+  "page.press_key": Partial<Target> & { readonly keys: readonly string[] } & Settle & Expect;
+  "page.select_option": Target & { readonly values: readonly string[] } & Settle & Expect;
+  "page.set_checked": Target & { readonly checked: boolean } & Settle & Expect;
+  "page.wait": {
+    readonly tabId?: number;
+    readonly ref?: string;
+    readonly selector?: string;
+    readonly state?: "visible" | "hidden" | "enabled" | "detached";
+    readonly text?: string;
+    readonly textGone?: string;
+    readonly urlPrefix?: string;
+    readonly loadState?: BrowserWaitUntil;
+    readonly newDocument?: true;
+    readonly newTab?: true;
+    readonly timeoutMs?: number;
+  } & Expect;
+  "tabs.history": { readonly tabId?: number; readonly action: "back" | "forward" | "reload" } & Settle & Expect;
+}
+
+export type BrowserWaitUntil = "commit" | "domcontentloaded" | "load" | "networkidle";
+
+/** The element of a control command: exactly one of ref (from page.snapshot) or selector. */
+interface Target {
+  readonly tabId?: number;
+  readonly ref?: string;
+  readonly selector?: string;
+}
+
+/** Settle phase of a control command (AD-16 point 7). */
+interface Settle {
+  readonly waitUntil?: BrowserWaitUntil;
+  readonly timeoutMs?: number;
 }
 
 export type BrowserCommand = keyof BrowserCommandParams;
@@ -71,6 +119,15 @@ export const BROWSER_COMMANDS: readonly BrowserCommand[] = [
   "page.screenshot",
   "page.click",
   "page.type",
+  "page.snapshot",
+  "page.hover",
+  "page.scroll",
+  "page.drag",
+  "page.press_key",
+  "page.select_option",
+  "page.set_checked",
+  "page.wait",
+  "tabs.history",
 ];
 
 /**

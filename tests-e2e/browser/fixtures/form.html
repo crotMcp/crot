@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CROT E2E Form</title>
+  </head>
+  <body>
+    <!--
+      Browser v1 page of the real-browser E2E (docs/BROWSER_E2E.md, AD-16 point 17).
+      Every input event is reported to the test server (/event) with its
+      isTrusted flag: an independent witness of what really reached the page.
+      - a sign-up form (text, password, select, checkbox, submit) for the
+        multi-step flow by refs; submitting navigates to /done.html;
+      - #remove-me / #remove-button: element removal for a stale ref;
+      - <crot-shadow>: a button inside an OPEN shadow root;
+      - an iframe from a different origin (?frame=<origin>), loaded out of process;
+      - #popup-link: opens /start.html in a new tab (target=_blank).
+    -->
+    <h1>CROT E2E form</h1>
+    <form id="signup" action="/done.html" method="get">
+      <label for="name">Full name</label>
+      <input id="name" name="name" type="text" />
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" />
+      <label for="plan">Plan</label>
+      <select id="plan" name="plan">
+        <option value="free">Free</option>
+        <option value="pro">Pro</option>
+      </select>
+      <input id="terms" name="terms" type="checkbox" />
+      <label for="terms">Accept terms</label>
+      <button id="submit" type="submit">Sign up</button>
+    </form>
+    <p id="remove-me"><button id="doomed" type="button">Doomed button</button></p>
+    <button id="remove-button" type="button">Remove the doomed button</button>
+    <crot-shadow></crot-shadow>
+    <p id="shadow-status">SHADOW: idle</p>
+    <a id="popup-link" href="/start.html?popup=1" target="_blank">Open popup</a>
+    <iframe id="child" title="Child frame" width="400" height="160"></iframe>
+    <script>
+      (function () {
+        var params = new URLSearchParams(location.search);
+        var nonce = params.get("nonce") || "none";
+        function report(type, event, extra) {
+          var q = "type=" + type + "&trusted=" + (event.isTrusted ? "1" : "0") + "&nonce=" + encodeURIComponent(nonce) + (extra || "");
+          fetch("/event?" + q, { cache: "no-store" }).catch(function () {});
+        }
+        document.getElementById("name").addEventListener("keydown", function (e) { report("keydown", e); });
+        document.getElementById("name").addEventListener("input", function (e) { report("input", e); });
+        document.getElementById("submit").addEventListener("click", function (e) { report("submit-click", e); });
+        document.getElementById("remove-button").addEventListener("click", function (e) {
+          report("remove-click", e);
+          var p = document.getElementById("remove-me");
+          if (p) p.remove();
+        });
+        customElements.define(
+          "crot-shadow",
+          class extends HTMLElement {
+            constructor() {
+              super();
+              var root = this.attachShadow({ mode: "open" });
+              var button = document.createElement("button");
+              button.type = "button";
+              button.textContent = "Shadow button";
+              button.addEventListener("click", function (e) {
+                document.getElementById("shadow-status").textContent = "SHADOW: clicked";
+                report("shadow-click", e);
+              });
+              root.appendChild(button);
+            }
+          },
+        );
+        var frameOrigin = params.get("frame");
+        if (frameOrigin) document.getElementById("child").src = frameOrigin + "/frame.html?nonce=" + encodeURIComponent(nonce);
+      })();
+    </script>
+  </body>
+</html>

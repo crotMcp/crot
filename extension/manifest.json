@@ -10,6 +10,6 @@
     "service_worker": "dist/extension/src/background.js",
     "type": "module"
   },
-  "permissions": ["nativeMessaging", "tabs", "scripting", "alarms"],
+  "permissions": ["nativeMessaging", "tabs", "scripting", "alarms", "debugger"],
   "host_permissions": ["<all_urls>"]
 }

@@ -1,5 +1,6 @@
 import type {
   ChromeApi,
+  ChromeDebuggee,
   ChromeCaptureOptions,
   ChromeEvent,
   ChromeInjectionResult,
@@ -92,7 +93,67 @@ export interface FakeTabsOptions {
   readonly loadStatus?: "loading" | "complete";
 }
 
+/** Fake chrome.debugger: records attaches and commands; tests answer commands through `respond`. */
+export class FakeDebugger {
+  readonly attached = new Set<number>();
+  readonly attachCalls: number[] = [];
+  readonly sent: { tabId: number; method: string; params: unknown; sessionId?: string }[] = [];
+  attachError: Error | undefined;
+  /** `sessionId`: a child session (out-of-process frame) of the tab. */
+  respond: (tabId: number, method: string, params: unknown, sessionId?: string) => unknown = () => ({});
+  readonly onDetach = new FakeEvent<(source: ChromeDebuggee, reason: string) => void>();
+  readonly onEvent = new FakeEvent<(source: ChromeDebuggee, method: string, params?: unknown) => void>();
+
+  async attach(target: ChromeDebuggee, version: string): Promise<void> {
+    if (version !== "1.3") throw new Error("Requested protocol version is not supported");
+    const tabId = target.tabId as number;
+    this.attachCalls.push(tabId);
+    if (this.attachError) throw this.attachError;
+    if (this.attached.has(tabId)) throw new Error("Another debugger is already attached to the tab with id: " + tabId);
+    this.attached.add(tabId);
+  }
+
+  async detach(target: ChromeDebuggee): Promise<void> {
+    const tabId = target.tabId as number;
+    if (!this.attached.delete(tabId)) throw new Error("Debugger is not attached to the tab with id: " + tabId);
+  }
+
+  async sendCommand(target: ChromeDebuggee, method: string, params?: object): Promise<unknown> {
+    const tabId = target.tabId as number;
+    if (!this.attached.has(tabId)) throw new Error("Debugger is not attached to the tab with id: " + tabId);
+    const sessionId = target.sessionId;
+    this.sent.push(sessionId === undefined ? { tabId, method, params } : { tabId, method, params, sessionId });
+    return this.respond(tabId, method, params, sessionId);
+  }
+
+  /** The user or the browser detaches (for example the "Cancel" button of the notice). */
+  userDetach(tabId: number): void {
+    this.attached.delete(tabId);
+    this.onDetach.emit({ tabId }, "canceled_by_user");
+  }
+
+  event(tabId: number, method: string, params: unknown = {}): void {
+    this.onEvent.emit({ tabId }, method, params);
+  }
+
+  /** An event from a child session (out-of-process frame) of the tab. */
+  sessionEvent(tabId: number, sessionId: string, method: string, params: unknown = {}): void {
+    this.onEvent.emit({ tabId, sessionId }, method, params);
+  }
+
+  /** Chromium auto-attaches an out-of-process frame (Target.setAutoAttach with flatten). */
+  attachFrame(tabId: number, sessionId: string, frameId: string, parentSessionId?: string): void {
+    const params = { sessionId, targetInfo: { targetId: frameId, type: "iframe", url: "https://frame.example/" } };
+    this.onEvent.emit(
+      parentSessionId === undefined ? { tabId } : { tabId, sessionId: parentSessionId },
+      "Target.attachedToTarget",
+      params,
+    );
+  }
+}
+
 export class FakeChrome {
+  readonly debugger = new FakeDebugger();
   readonly runtime = new FakeRuntime();
   readonly tabsById = new Map<number, MutableTab>();
   readonly focused: number[] = [];
@@ -111,6 +172,8 @@ export class FakeChrome {
 
   readonly tabsOnUpdated = new FakeEvent<(tabId: number, changeInfo: { status?: string }, tab: ChromeTab) => void>();
   readonly tabsOnRemoved = new FakeEvent<(tabId: number) => void>();
+  readonly tabsOnCreated = new FakeEvent<(tab: ChromeTab) => void>();
+  readonly history: { tabId: number; action: "back" | "forward" | "reload" }[] = [];
   readonly alarmsOnAlarm = new FakeEvent<(alarm: { name: string }) => void>();
 
   addTab(tab: Partial<MutableTab> & { id: number }): MutableTab {
@@ -124,6 +187,21 @@ export class FakeChrome {
     };
     this.tabsById.set(tab.id, full);
     return full;
+  }
+
+  /** A page opens a new tab (window.open / target=_blank). */
+  openPopup(openerTabId: number, url: string): MutableTab {
+    const tab = this.addTab({ id: this.nextId++, url, title: "", openerTabId });
+    this.tabsOnCreated.emit({ ...tab });
+    return tab;
+  }
+
+  /** Start a navigation of a tab (fires tabs.onUpdated with status loading). */
+  startLoading(tabId: number, url: string): void {
+    const tab = this.tab(tabId);
+    tab.pendingUrl = url;
+    tab.status = "loading";
+    this.tabsOnUpdated.emit(tabId, { status: "loading" }, { ...tab });
   }
 
   /** Finish loading a tab (fires tabs.onUpdated). */
@@ -199,6 +277,19 @@ export class FakeChrome {
         },
         onUpdated: this.tabsOnUpdated,
         onRemoved: this.tabsOnRemoved,
+        onCreated: this.tabsOnCreated,
+        async goBack(tabId: number): Promise<void> {
+          self.tab(tabId);
+          self.history.push({ tabId, action: "back" });
+        },
+        async goForward(tabId: number): Promise<void> {
+          self.tab(tabId);
+          self.history.push({ tabId, action: "forward" });
+        },
+        async reload(tabId: number): Promise<void> {
+          self.tab(tabId);
+          self.history.push({ tabId, action: "reload" });
+        },
       },
       windows: {
         async update(windowId: number): Promise<unknown> {
@@ -218,6 +309,13 @@ export class FakeChrome {
           // Results are structured-cloned.
           return [{ frameId: 0, result: result === undefined ? undefined : structuredClone(result) }];
         },
+      },
+      debugger: {
+        attach: (target, version) => self.debugger.attach(target, version),
+        detach: (target) => self.debugger.detach(target),
+        sendCommand: (target, method, params) => self.debugger.sendCommand(target, method, params),
+        onDetach: self.debugger.onDetach,
+        onEvent: self.debugger.onEvent,
       },
       alarms: {
         async create(): Promise<void> {},

@@ -81,6 +81,8 @@ class BrowserStub implements BrowserConnection {
     this.performed.push(command);
     const tabId = params.tabId ?? this.active ?? 0;
     switch (command) {
+      case "page.snapshot":
+        return { ...SNAPSHOT, tabId, url: this.tabs.get(tabId) ?? "" };
       case "tabs.open":
         return { tabId: 100, url: params.url };
       case "page.read":
@@ -90,6 +92,34 @@ class BrowserStub implements BrowserConnection {
     }
   }
 }
+
+/** A top-level button, a field in a cross-origin child frame and a link in a same-origin srcdoc frame. */
+const SNAPSHOT = {
+  title: "Shop",
+  frames: [
+    {
+      frameRef: "f1",
+      parentFrameRef: null,
+      url: "https://example.com/page",
+      origin: "https://example.com",
+      restricted: false,
+    },
+    {
+      frameRef: "f2",
+      parentFrameRef: "f1",
+      url: "https://pay.example.net/card",
+      origin: "https://pay.example.net",
+      restricted: false,
+    },
+    { frameRef: "f3", parentFrameRef: "f1", url: "about:srcdoc", origin: "https://example.com", restricted: false },
+  ],
+  elements: [
+    { ref: "e1", frameRef: "f1", role: "button", name: "Buy now", states: {}, bounds: null, inViewport: true },
+    { ref: "e2", frameRef: "f2", role: "textbox", name: "Card number", states: {}, bounds: null, inViewport: true },
+    { ref: "e3", frameRef: "f3", role: "link", name: "", states: {}, bounds: null, inViewport: true },
+  ],
+  truncated: false,
+};
 
 let dirs: TempDirs;
 let core: CrotCore | undefined;
@@ -247,5 +277,130 @@ describe("browser approvals (AD-6, AD-8, AD-9, AD-11)", () => {
       return original(command, params, options);
     };
     await expect(c().browser.readPage(ctx, {})).rejects.toMatchObject({ code: "OPERATION_FAILED" });
+  });
+});
+
+describe("browser approvals of ref targets (AD-16 points 10, 16)", () => {
+  const snapshot = async (tabId = 7): Promise<void> => {
+    await c().browser.snapshot(ctx, { tabId });
+  };
+
+  it("shows the element's role and page-supplied name for a top-level target, without a frame origin", async () => {
+    await snapshot();
+    const clicking = c().browser.click(ctx, { tabId: 7, ref: "e1" });
+    const { request } = await ui.next();
+    expect(request.subject.effects).toContainEqual({ label: "element ref", value: "e1" });
+    expect(request.subject.effects).toContainEqual({
+      label: "element",
+      value: 'button "Buy now"',
+      flag: "page_supplied",
+    });
+    expect(request.subject.effects.some((e) => e.label === "frame origin")).toBe(false);
+    ui.approveLast();
+    await clicking;
+    expect(audit.events.at(-1)).toMatchObject({
+      outcome: "success",
+      details: { tabId: 7, ref: "e1", elementRole: "button" },
+    });
+    expect(audit.events.at(-1)?.details).not.toHaveProperty("frameOrigin");
+  });
+
+  it("adds the frame origin for a target in a cross-origin child frame and audits it without the name", async () => {
+    await snapshot();
+    const typing = c().browser.type(ctx, { tabId: 7, ref: "e2", text: "4111111111111111" });
+    const { request } = await ui.next();
+    expect(request.subject.browser).toEqual({ tabId: 7, origin: "https://example.com", connectionId: CONNECTION_A });
+    expect(request.subject.effects).toEqual(
+      expect.arrayContaining([
+        { label: "element", value: 'textbox "Card number"', flag: "page_supplied" },
+        { label: "frame origin", value: "https://pay.example.net" },
+        { label: "tab origin", value: "https://example.com" },
+      ]),
+    );
+    ui.approveLast();
+    await typing;
+    const done = audit.events.at(-1);
+    expect(done?.details).toMatchObject({
+      tabId: 7,
+      ref: "e2",
+      elementRole: "textbox",
+      frameOrigin: "https://pay.example.net",
+      textLength: 16,
+    });
+    const serialized = JSON.stringify(audit.events);
+    expect(serialized).not.toContain("Card number");
+    expect(serialized).not.toContain("4111111111111111");
+  });
+
+  it("describes both ends of a drag, and a srcdoc frame by its parent's origin", async () => {
+    await snapshot();
+    const dragging = c().browser.drag(ctx, { tabId: 7, ref: "e2", to: { ref: "e3" } });
+    const { request } = await ui.next();
+    expect(request.subject.effects).toEqual(
+      expect.arrayContaining([
+        { label: "frame origin", value: "https://pay.example.net" },
+        { label: "drop on ref", value: "e3" },
+        { label: "drop on element", value: "link", flag: "page_supplied" },
+        { label: "drop on frame origin", value: "https://example.com" },
+      ]),
+    );
+    ui.approveLast();
+    await dragging;
+    expect(audit.events.at(-1)?.details).toMatchObject({
+      dropElementRole: "link",
+      dropFrameOrigin: "https://example.com",
+    });
+  });
+
+  it("the digest covers the element description", async () => {
+    await snapshot();
+    const first = c().browser.click(ctx, { tabId: 7, ref: "e1" });
+    const a = await ui.next();
+    ui.last().ticket.reject();
+    await expect(first).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    const second = c().browser.click(ctx, { tabId: 7, ref: "e2" });
+    const b = await ui.next();
+    expect(b.request.subjectDigest).not.toBe(a.request.subjectDigest);
+    ui.last().ticket.reject();
+    await expect(second).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
+  it("marks a ref no snapshot of this tab and connection described, and forgets refs of an earlier connection", async () => {
+    // No snapshot yet.
+    const unknown = c().browser.click(ctx, { tabId: 7, ref: "e9" });
+    const first = await ui.next();
+    expect(first.request.subject.effects).toContainEqual({
+      label: "element",
+      value: "not described by a snapshot of this tab",
+    });
+    ui.last().ticket.reject();
+    await expect(unknown).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+
+    await snapshot();
+    stub.current = { kind: "connected", browser: BROWSER, connectionId: CONNECTION_B };
+    const later = c().browser.click(ctx, { tabId: 7, ref: "e2" });
+    const second = await ui.next();
+    expect(second.request.subject.effects).toContainEqual({
+      label: "element",
+      value: "not described by a snapshot of this tab",
+    });
+    expect(second.request.subject.effects.some((e) => e.label === "frame origin")).toBe(false);
+    ui.last().ticket.reject();
+    await expect(later).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+  });
+
+  it("does not describe a ref of another tab, and binds the active tab before describing", async () => {
+    stub.tabs.set(8, "https://example.com/other");
+    await snapshot(8);
+    stub.active = 7;
+    const clicking = c().browser.click(ctx, { ref: "e1" });
+    const { request } = await ui.next();
+    expect(request.subject.browser).toMatchObject({ tabId: 7 });
+    expect(request.subject.effects).toContainEqual({
+      label: "element",
+      value: "not described by a snapshot of this tab",
+    });
+    ui.last().ticket.reject();
+    await expect(clicking).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
   });
 });

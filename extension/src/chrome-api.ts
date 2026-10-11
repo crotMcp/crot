@@ -29,10 +29,13 @@ export interface ChromeTab {
   readonly title?: string;
   readonly active: boolean;
   readonly status?: string;
+  /** The tab that opened this one (window.open, target=_blank), when the browser knows it. */
+  readonly openerTabId?: number;
 }
 
 export interface ChromeTabChangeInfo {
   readonly status?: string;
+  readonly url?: string;
 }
 
 export interface ChromeTabQuery {
@@ -58,6 +61,15 @@ export interface ChromeInjectionResult {
   readonly result?: unknown;
 }
 
+/**
+ * A debugger target: one tab (AD-16 point 3; never anything else), or a child
+ * session of that tab (an out-of-process frame auto-attached with flatten).
+ */
+export interface ChromeDebuggee {
+  readonly tabId?: number;
+  readonly sessionId?: string;
+}
+
 export interface ChromeApi {
   readonly runtime: {
     connectNative(application: string): ChromePort;
@@ -78,12 +90,24 @@ export interface ChromeApi {
     captureVisibleTab(windowId: number, options: ChromeCaptureOptions): Promise<string>;
     readonly onUpdated: ChromeEvent<(tabId: number, changeInfo: ChromeTabChangeInfo, tab: ChromeTab) => void>;
     readonly onRemoved: ChromeEvent<(tabId: number) => void>;
+    readonly onCreated: ChromeEvent<(tab: ChromeTab) => void>;
+    goBack(tabId: number): Promise<void>;
+    goForward(tabId: number): Promise<void>;
+    reload(tabId: number, properties?: { readonly bypassCache?: boolean }): Promise<void>;
   };
   readonly windows: {
     update(windowId: number, properties: { readonly focused: boolean }): Promise<unknown>;
   };
   readonly scripting: {
     executeScript<A extends unknown[], R>(injection: ChromeScriptInjection<A, R>): Promise<ChromeInjectionResult[]>;
+  };
+  /** Used only through cdp.ts, which enforces the fixed CDP method allowlist. */
+  readonly debugger: {
+    attach(target: ChromeDebuggee, requiredVersion: string): Promise<void>;
+    detach(target: ChromeDebuggee): Promise<void>;
+    sendCommand(target: ChromeDebuggee, method: string, commandParams?: object): Promise<unknown>;
+    readonly onDetach: ChromeEvent<(source: ChromeDebuggee, reason: string) => void>;
+    readonly onEvent: ChromeEvent<(source: ChromeDebuggee, method: string, params?: unknown) => void>;
   };
   readonly alarms: {
     create(name: string, info: { readonly periodInMinutes: number }): Promise<void>;
