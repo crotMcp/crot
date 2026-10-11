@@ -16,9 +16,10 @@
 > Docs-only changes since: PR #12 `74352c2` (this audit) and PR #14
 > `ff571c2` (AD-21; OD-2, OD-3 decided); code status claims still hold at
 > `ff571c2`.
-> Merged since: WP-28 (PR #16 `4d574f0`) and WP-29 (`515fcb9`, Partial).
-> In review: WP-30 (PR #20, branch `wp-30-device-tunnel`, Done, awaiting
-> merge).
+> Merged since: WP-28 (PR #16 `4d574f0`), WP-29 (`515fcb9`, Partial) and
+> WP-30 (PR #20; `main` `63a7d63`).
+> In review: WP-31 (PR #21, branch `wp-31-remote-permission-profile`, not
+> Done; ARCHITECTURE.md §27 AD-23).
 > Status claims below were checked against the repository tree, the source
 > files named, the CI workflows and the merged history, not taken from earlier
 > plans.
@@ -84,7 +85,8 @@ Non-negotiables used throughout this roadmap:
 
 **WP-29 — Cloud Relay v1, relay side** (§27 AD-22), merged into `main`
 (`515fcb9`); **Partial**, open items in `STATUS.md` and §6.1. The device
-side is **WP-30**, Done in PR #20 and awaiting merge. Before that:
+side is **WP-30**, Done and merged (PR #20). WP-31 is in review (PR #21).
+Before that:
 
 **WP-28 — Identity and device binding** (§27 AD-21), merged in crot-mcp
 PR #16 (`4d574f0`); details in `STATUS.md` and `docs/IDENTITY.md`. The
@@ -188,7 +190,7 @@ mcp-crot PR #14 (`8169b1f`). Verified in the tree:
 | Browser | 10 tools; `chrome.scripting`, synthetic `element.click()`, main frame only, active-tab screenshots; permissions `nativeMessaging`, `tabs`, `scripting`, `alarms` | Entire AD-16 contract: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history, dialogs, upload, download, background screenshots, tab group, per-tab queue, explicit `tabId` for remote, `openedBy` (WP-24…WP-27) |
 | User confirmations | Mechanism complete; product provider `tray` in the service, CROT tray on the control channel (WP-22, AD-19) | Same-user processes can act like the tray (AD-19 residual risk): closed for confined Linux children by WP-23a; still open on macOS/Windows (WP-23b/c), in `full_control` and for other processes of the user; tray packaging/autostart (WP-34) |
 | Identity | Device side complete (WP-28, AD-21): OAuth verifier, device id and credential, pairing, unpair, re-grant; tested against an emulated AuthKit environment | No staging/production identity environment (WP-38, WP-39) and no live WorkOS environment exercised yet; provider-side revocation from the tray needs the CROT account service (WP-36); RFC 9207 open condition before G4 |
-| Relay entry point and device tunnel | HTTP pipeline accepts a `relay` entry point; Cloud Relay v1 with the relay side of the AD-22 tunnel, device registration, PRM, token/entitlement admission and outcomes (WP-29, [`docs/RELAY.md`](docs/RELAY.md)); device side complete with registration at pairing (WP-30 **Done**, PR #20 awaiting merge; [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)) | Not WP-30: no relay-side deregistration or key rotation and the orphaned-registration risk (AD-22 open question 3, WP-29); client timeouts of the OD-5 margin measured in WP-32; not deployed (WP-38, WP-39); single relay instance (AD-22 open question 8); entitlement hook stubbed (WP-36); no client rate/concurrency limits and no load test yet (open WP-29 items) |
+| Relay entry point and device tunnel | HTTP pipeline accepts a `relay` entry point; Cloud Relay v1 with the relay side of the AD-22 tunnel, device registration, PRM, token/entitlement admission and outcomes (WP-29, [`docs/RELAY.md`](docs/RELAY.md)); device side complete with registration at pairing (WP-30 **Done**, merged in PR #20; [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)) | Not WP-30: no relay-side deregistration or key rotation and the orphaned-registration risk (AD-22 open question 3, WP-29); client timeouts of the OD-5 margin measured in WP-32; not deployed (WP-38, WP-39); single relay instance (AD-22 open question 8); entitlement hook stubbed (WP-36); no client rate/concurrency limits and no load test yet (open WP-29 items) |
 | Remote exposure lifecycle | Persisted, fail-closed; per-client reset, revocation and re-grant in the tray, audited, fail closed (WP-22, AD-19; re-grant WP-28) | No revocation at the identity provider from the tray (WP-36; provider-side revocation reaches the device within the AD-21 point 4 bound) |
 | Process lifecycle | One per-user service (on demand from the shim, or managed by an OS supervisor), shim, control channel (WP-20, AD-17) | No autostart registration / supervisor files (WP-34); background processes are owned by the service, not by the client that started them (follow-up) |
 | Child-process environment | Allowlist for `shell.execute` / `process.manage` plus `environment.allow`; overrides cannot copy withheld variables; Docker and Git keep their rules (WP-21, AD-18) | — |
@@ -406,8 +408,8 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-27 | 2B | Browser: per-tab queue, explicit `tabId` for remote, `openedBy` | WP-24 | S–M | yes | with 25, 26 | Not started |
 | WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | **Done** (AD-21; crot-mcp PR #16, `4d574f0`) |
 | WP-29 | 3 | Cloud Relay v1 | WP-28 (verifier facts), OD-3 (decided: AD-21), OD-4 (decided: AD-22) | XL | yes | with phase 1/2/2B | **Partial** (crot-mcp PR #19, AD-22 as its first commit): relay side done; open — client rate/concurrency limits, per-source connection/handshake limits, registration rate limit, load test (before WP-38), device deregistration and key rotation with the orphaned-registration case (AD-22 open question 3) |
-| WP-30 | 3 | Device tunnel adapter | WP-20, WP-28, WP-29, OD-5 (decided: AD-22) | M–L | yes | — | **Done** (PR #20, awaiting merge): outbound `crot-tunnel.v1` with the WP-28 device credential, pinned relay host, refusals and reconnect; streams enter the unchanged relay entry point (tokens, ExecutionGuard, PermissionEngine, approvals, audit); multiplexing, streaming, cancellation, deadlines, loss without replay; registration at pairing (AD-22 point 4); OD-5 recorded in AD-22 points 12–13 (`37b3126`) and the §2.4/§19/§22/§25 status markers updated (`01f4a20`). Not WP-30: relay-side deregistration / key rotation and the orphaned registration (AD-22 open question 3, WP-29); measured client timeouts (WP-32) |
-| WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a/b/c, WP-30, OD-7 | M | yes | — | Not started |
+| WP-30 | 3 | Device tunnel adapter | WP-20, WP-28, WP-29, OD-5 (decided: AD-22) | M–L | yes | — | **Done** (PR #20, merged): outbound `crot-tunnel.v1` with the WP-28 device credential, pinned relay host, refusals and reconnect; streams enter the unchanged relay entry point (tokens, ExecutionGuard, PermissionEngine, approvals, audit); multiplexing, streaming, cancellation, deadlines, loss without replay; registration at pairing (AD-22 point 4); OD-5 recorded in AD-22 points 12–13 (`37b3126`) and the §2.4/§19/§22/§25 status markers updated (`01f4a20`). Not WP-30: relay-side deregistration / key rotation and the orphaned registration (AD-22 open question 3, WP-29); measured client timeouts (WP-32) |
+| WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a, WP-30, OD-7, AD-23 (WP-23b/c not a prerequisite: AD-23 point 7) | M | yes | — | **In review** (PR #21, not Done): AD-23 recorded (`69408c3`); open: the upload/download criterion of the card cannot be verified before WP-26 (AD-23 point 8) |
 | WP-38 | 3 | Staging cloud environment | WP-29, WP-28 | M | yes | with WP-30/31 | Not started |
 | WP-32 | 3 | Remote E2E acceptance suite and client compatibility | WP-24…WP-27, WP-30, WP-31, WP-38 | L | yes | — | Not started |
 | WP-33 | 3 | External security review and fixes | WP-32, WP-34 (release-candidate build), WP-38 | M (+fix time) | yes | with WP-37 | Not started |
@@ -665,7 +667,10 @@ today's behaviour.
 - **Acceptance / tests:** E2E upload of a workspace video fixture into a form;
   denial of a path outside the workspace in sandbox mode; download into the
   workspace, atomic appearance, refused overwrite; unrelated downloads never
-  touched; dangerous/interrupted downloads leave nothing.
+  touched; dangerous/interrupted downloads leave nothing. In
+  `autonomous-browser`, real `browser_file_upload` and `browser_download`
+  execution paths must require approval; add end-to-end tests for both actual
+  operations. This is the required cross-cutting verification of AD-23 point 8.
 - **RB:** yes. **Parallel:** with WP-25, WP-27.
 
 #### WP-27 — Multi-agent safety
@@ -739,7 +744,7 @@ today's behaviour.
 
 #### WP-30 — Device tunnel adapter
 
-**Status: Done** (PR #20, awaiting merge;
+**Status: Done** (merged, PR #20;
 [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)). Implemented: the outbound
 tunnel, the relay entry into the unchanged pipeline, multiplexing,
 streaming, cancellation, deadlines, loss without replay and registration at
@@ -776,22 +781,42 @@ timeouts (WP-32).
 
 #### WP-31 — Remote permission profile and presets
 
+**Status: In review** (PR #21, branch `wp-31-remote-permission-profile`,
+not Done; ARCHITECTURE.md §27 AD-23, decides §26 question 25).
+Implemented and covered by tests: the remote profile in the one
+PermissionEngine (AD-23 points 1–4); the presets (point 5); remote full
+control bound to the device id and account of its pairing and kept across
+restarts (point 6); remote shell/process only with L1, otherwise
+`CONFINEMENT_UNAVAILABLE` (point 7); changes only on the control channel and
+only while idle (points 9–10); fail closed (point 11); reporting (point
+12). Not verified: the criterion "`browser.file_upload` and downloads stay
+gated in *Autonomous browser*" — neither operation exists before WP-26, so
+the gate (AD-23 point 8) is not tested end to end; how this criterion is
+formally closed is an owner decision.
+
 - **Objective:** safe remote defaults and the two presets, chosen only by the
   user.
-- **Dependencies:** WP-22, WP-23a/b/c, WP-30; OD-7 (decided by AD-19).
+- **Dependencies:** WP-22, WP-23a, WP-30; OD-7 (decided by AD-19). WP-23b/c
+  are not prerequisites: where L1 is unavailable, remote shell and process
+  operations are refused (AD-23 point 7, AD-20); WP-23b/c stay
+  release-blocking (Gate G4).
 - **Scope:** AD-13 p.5 (remote defaults to workspace mode, `untrusted-content`
   on; full control only as per-device opt-in); AD-16 p.17 presets via
   `permissions.approvals.untrustedContent`; L1-unavailable refusal for remote
   shell/process; reporting in `crot_status` and tray.
 - **Constraints:** only existing matchers (`principalKinds`, `exposed`,
-  capabilities, operations); no new mechanism. Open item from AD-19 point 7:
-  `principalKinds` exists only in approval rules, so the full-control opt-in
-  (recorded by WP-22, not enforced) needs a decision on how it takes effect.
+  capabilities, operations); no new mechanism. The open item of AD-19 point
+  7 (`principalKinds` exists only in approval rules, so the full-control
+  opt-in recorded by WP-22 could not take effect) is decided by AD-23: one
+  PermissionEngine resolves exactly one profile per request.
   Presets are applied by the WP-22 mechanism (AD-19 point 5, OD-7).
 - **Acceptance / tests:** defaults, opt-in and both presets proven by tests
-  for local and remote principals; `browser.file_upload` and downloads stay
-  gated in *Autonomous browser*; preset change impossible via tools, pages or
-  relay.
+  for local and remote principals; the `autonomous-browser-upload` rule is
+  registered and covered by rule-set tests; preset change impossible via tools,
+  pages or relay. The real `browser_file_upload` and `browser_download`
+  approval gates must be verified end to end under WP-26; until those operations
+  exist, WP-31 records this dependency but does not claim the cross-cutting
+  test has passed (AD-23 point 8).
 - **RB:** yes.
 
 #### WP-38 — Staging cloud environment (new)
@@ -993,11 +1018,13 @@ A: WP-20 (L) ─► WP-22 (L) ─────────────┐
 B: WP-28 (L) ─► WP-29 (XL) ────────────┴─► WP-30 ─► WP-31 ─► WP-32 ─► WP-33 ─► WP-40
 ```
 
-Chain A is done (WP-20, WP-21, WP-22 and WP-23a merged). On chain B, WP-28
-and WP-29 are merged and WP-30 is Done in PR #20 and awaiting merge, so the
-critical path continues WP-31 → WP-32 → WP-33 → WP-40.
-L1 (WP-23b/c, after WP-21 and the OD-9 macOS/Windows decision) must be done
-before WP-31; WP-23c (spike + L, OD-6) is the highest schedule risk among
+Chain A is done (WP-20, WP-21, WP-22 and WP-23a merged). On chain B, WP-28,
+WP-29 and WP-30 are merged and WP-31 is in review (PR #21), so the critical
+path continues WP-31 → WP-32 → WP-33 → WP-40.
+L1 on macOS and Windows (WP-23b/c, after WP-21 and the OD-9 macOS/Windows
+decision) is not a prerequisite of WP-31 (remote shell and process are
+refused where L1 is unavailable, AD-23 point 7) but must be done before
+Gate G4; WP-23c (spike + L, OD-6) is the highest schedule risk among
 them. Browser v1 (WP-24 L + 3×M/S–M) must finish before WP-32, and it is
 also the start of a second near-critical chain into the security review:
 
@@ -1023,21 +1050,22 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
    decision (docs-only PR or first commit of the WP).
 2. Otherwise choose, in order: an unblocked WP on chain A or B; then WP-23x;
    then WP-24…WP-27; then phase-4 WPs whose dependencies are done.
-3. **Right now (WP-30 Done in PR #20, awaiting merge):**
+3. **Right now (WP-30 merged, WP-31 in review in PR #21):**
 
-   **Current: WP-30 — Device tunnel adapter, Done** (PR #20; AD-22; the
-   relay side is WP-29, [`docs/RELAY.md`](docs/RELAY.md); device docs
-   [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)).
+   **Current: WP-31 — Remote permission profile and presets, in review**
+   (PR #21, not Done; ARCHITECTURE.md §27 AD-23; user docs
+   [`docs/TRAY.md`](docs/TRAY.md), [`docs/SERVICE.md`](docs/SERVICE.md),
+   [`docs/L1.md`](docs/L1.md)).
 
-   - *State:* tunnel, pipeline entry and registration at pairing are
-     implemented, OD-5 is recorded in AD-22 points 12–13 (`37b3126`) and
-     the ARCHITECTURE.md status markers are updated (`01f4a20`); the card's
-     acceptance criteria and the §6.2 Definition of done are met. Not
-     WP-30: relay-side deregistration / key rotation with the orphaned
-     registration risk (AD-22 open question 3, WP-29) and measured client
-     timeouts (WP-32).
-   - *Before WP-31:* the per-principal permission profile decision
-     (ARCHITECTURE.md §26 question 25) — an AD; it did not block WP-30.
+   - *State:* AD-23 points 1–7 and 9–12 implemented and covered by tests;
+     the per-principal profile decision (§26 question 25) is recorded as
+     AD-23. Open: the card's criterion that `browser.file_upload` and
+     downloads stay gated in *Autonomous browser* cannot be verified before
+     WP-26 adds these operations (AD-23 point 8); formally closing it is an
+     owner decision.
+   - *WP-30:* Done and merged (PR #20). Not WP-30: relay-side
+     deregistration / key rotation with the orphaned registration risk
+     (AD-22 open question 3, WP-29) and measured client timeouts (WP-32).
    - *Can run in parallel:* WP-24 (unblocked, no open OD; starts chain C);
      the OD-9 macOS/Windows decision, then WP-23b and the WP-23c spike
      (OD-6); WP-38 preparation (staging relay and identity environment);
