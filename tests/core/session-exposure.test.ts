@@ -40,6 +40,7 @@ import { createTestCore, makeTempDirs, type TempDirs } from "../helpers.js";
 const SOURCE_CAPABILITY: Record<string, Capability> = {
   "browser.page_read": "browser.read",
   "browser.screenshot": "browser.read",
+  "browser.snapshot": "browser.read",
   "browser.tabs_list": "browser.read",
   "network.request": "network.access",
 };
@@ -120,10 +121,11 @@ async function exposed(t: ReturnType<typeof setup>, context: AuthContext): Promi
 }
 
 describe("session exposure: definitions", () => {
-  it("sources are exactly the four AD-12 operations and are known operation names", () => {
+  it("sources are exactly the AD-12 operations plus browser.snapshot (AD-16 point 5) and are known operation names", () => {
     expect([...EXPOSURE_SOURCES].sort()).toEqual([
       "browser.page_read",
       "browser.screenshot",
+      "browser.snapshot",
       "browser.tabs_list",
       "network.request",
     ]);
