@@ -13,17 +13,27 @@
  * requires for a suspended service worker to be woken by them.
  */
 import { detectBrowser } from "./browser-info.js";
+import { CdpSessions } from "./cdp.js";
 import { createCommandHandlers } from "./commands.js";
 import { HostConnection } from "./host-connection.js";
 
 /** Wakes the service worker to reconnect while CROT is not reachable. 30 s is the shortest period Chrome allows. */
 const RECONNECT_ALARM = "crot-reconnect";
 
+/** ControlOrMeta of browser_press_key and click modifiers is Meta on macOS. */
+const platform =
+  (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform ?? navigator.platform;
+const mac = /mac/i.test(platform);
+
+/** Debugger sessions (Browser v1, AD-16 point 3); detached when the CROT connection ends. */
+const cdp = new CdpSessions(chrome);
+
 const connection = new HostConnection({
   runtime: chrome.runtime,
   browser: detectBrowser(navigator, chrome.runtime.getManifest().version),
-  handlers: createCommandHandlers(chrome),
+  handlers: createCommandHandlers(chrome, { cdp, mac }),
   log: (message) => console.info("CROT: " + message),
+  onDisconnected: () => void cdp.detachAll(),
 });
 
 chrome.runtime.onStartup.addListener(() => connection.ensureConnected());
