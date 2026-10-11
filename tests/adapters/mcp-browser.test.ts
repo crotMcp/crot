@@ -29,6 +29,8 @@ const READ_TOOLS: Record<string, Record<string, unknown>> = {
   browser_tabs_list: {},
   browser_page_read: { tabId: 7 },
   browser_screenshot: { tabId: 7 },
+  browser_snapshot: { tabId: 7 },
+  browser_wait: { tabId: 7, text: "Ready" },
 };
 const CONTROL_TOOLS: Record<string, Record<string, unknown>> = {
   browser_tab_open: { url: PAGE_URL },
@@ -37,6 +39,13 @@ const CONTROL_TOOLS: Record<string, Record<string, unknown>> = {
   browser_tab_close: { tabId: 7 },
   browser_click: { tabId: 7, selector: "#go" },
   browser_type: { tabId: 7, selector: "#q", text: "hello" },
+  browser_hover: { tabId: 7, ref: "e1" },
+  browser_scroll: { tabId: 7, deltaY: 200 },
+  browser_drag: { tabId: 7, ref: "e1", to: { ref: "e2" } },
+  browser_press_key: { tabId: 7, keys: ["Enter"] },
+  browser_select_option: { tabId: 7, ref: "e3", values: ["b"] },
+  browser_set_checked: { tabId: 7, ref: "e4", checked: true },
+  browser_history: { tabId: 7, action: "back" },
 };
 const ALL_TOOLS: Record<string, Record<string, unknown>> = { ...READ_TOOLS, ...CONTROL_TOOLS };
 const OPERATIONS: Record<string, string> = {
@@ -50,6 +59,15 @@ const OPERATIONS: Record<string, string> = {
   browser_tab_close: "browser.tab_close",
   browser_click: "browser.click",
   browser_type: "browser.type",
+  browser_snapshot: "browser.snapshot",
+  browser_wait: "browser.wait",
+  browser_hover: "browser.hover",
+  browser_scroll: "browser.scroll",
+  browser_drag: "browser.drag",
+  browser_press_key: "browser.press_key",
+  browser_select_option: "browser.select_option",
+  browser_set_checked: "browser.set_checked",
+  browser_history: "browser.history",
 };
 
 /** Stands in for the browser bridge: answers every command with a valid result. */
@@ -72,6 +90,33 @@ class FakeBrowser implements BrowserConnection {
         return { tabId, url: PAGE_URL, mimeType: "image/" + String(p.format), data: IMAGE_DATA };
       case "tabs.close":
         return { tabId, closed: true };
+      case "page.snapshot":
+        return {
+          tabId,
+          url: PAGE_URL,
+          title: "Example",
+          frames: [
+            { frameRef: "f1", parentFrameRef: null, url: PAGE_URL, origin: "https://example.com", restricted: false },
+          ],
+          elements: [
+            {
+              ref: "e1",
+              frameRef: "f1",
+              role: "button",
+              name: "Go",
+              states: {},
+              bounds: { x: 1, y: 2, width: 3, height: 4 },
+              inViewport: true,
+            },
+          ],
+          truncated: false,
+        };
+      case "page.wait":
+        return { satisfied: true, url: PAGE_URL };
+      case "page.select_option":
+        return { tabId, url: PAGE_URL, navigated: false, newTabs: [], selected: ["b"] };
+      case "page.set_checked":
+        return { tabId, url: PAGE_URL, navigated: false, newTabs: [], checked: true, changed: true };
       default:
         return { tabId, url: PAGE_URL };
     }
@@ -120,7 +165,7 @@ describe("MCP browser tools", () => {
     const { tools } = await client!.listTools();
     const names = tools.map((t) => t.name).filter((n) => n.startsWith("browser_"));
     expect(names.sort()).toEqual(Object.keys(ALL_TOOLS).sort());
-    expect(TOOLS.filter((t) => t.name.startsWith("browser_"))).toHaveLength(10);
+    expect(TOOLS.filter((t) => t.name.startsWith("browser_"))).toHaveLength(19);
     for (const t of tools.filter((x) => x.name.startsWith("browser_"))) {
       expect(t.inputSchema.type).toBe("object");
       expect(t.description).toContain(t.name in READ_TOOLS ? "browser.read" : "browser.control");
@@ -154,7 +199,7 @@ describe("MCP browser tools", () => {
       expect(isError, name).toBe(true);
       expect(body.error.code, name).toBe("PERMISSION_DENIED");
     }
-    expect(browser.commands).toEqual(["tabs.list", "page.read", "page.screenshot"]);
+    expect(browser.commands).toEqual(["tabs.list", "page.read", "page.screenshot", "page.snapshot", "page.wait"]);
   });
 
   it("delegates every browser tool to Core and audits its operation (FULL_CONTROL)", async () => {
@@ -178,6 +223,14 @@ describe("MCP browser tools", () => {
     // Typed text never reaches the audit log.
     await call("browser_type", { tabId: 7, selector: "#q", text: "secret-typed-text" });
     expect(JSON.stringify(audit.events)).not.toContain("secret-typed-text");
+    // Key sequences are audited as a count only.
+    await call("browser_press_key", { tabId: 7, keys: ["s", "e", "c", "r", "e", "t", "ControlOrMeta+Q"] });
+    expect(audit.events.at(-1)!.details).toMatchObject({ keyCount: 7 });
+    expect(JSON.stringify(audit.events.at(-1))).not.toContain("ControlOrMeta+Q");
+    expect((await call("browser_snapshot", { tabId: 7 })).body.elements[0]).toMatchObject({
+      ref: "e1",
+      role: "button",
+    });
   });
 
   it("returns screenshots as MCP image content followed by metadata", async () => {
