@@ -99,27 +99,224 @@ export const BrowserScreenshotInputSchema = z
     message: "'quality' is only valid with format 'jpeg'.",
   });
 
+export const BROWSER_WAIT_UNTIL = ["commit", "domcontentloaded", "load", "networkidle"] as const;
+export const BROWSER_WAIT_TIMEOUT_MAX_MS = 60_000;
+export const BROWSER_SNAPSHOT_MAX_ELEMENTS = 5000;
+export const BROWSER_KEY_COMBINATIONS_MAX = 32;
+export const BROWSER_SELECT_VALUES_MAX = 100;
+export const BROWSER_SCROLL_DELTA_MAX = 100_000;
+export const BROWSER_WAIT_TEXT_MAX_LENGTH = 1000;
+export const BROWSER_NEW_TABS_MAX = 100;
+
+const Ref = z
+  .string()
+  .regex(/^e[1-9][0-9]{0,8}$/, "Expected an element ref from browser_snapshot (e1, e2, ...).")
+  .describe("Element ref from the latest browser_snapshot of this tab. Refs become stale when the document changes.");
+const FrameRef = z
+  .string()
+  .regex(/^f[1-9][0-9]{0,8}$/, "Expected a frame ref from browser_snapshot (f1, f2, ...).")
+  .describe("Frame ref from browser_snapshot.");
+const WaitUntil = z
+  .enum(BROWSER_WAIT_UNTIL)
+  .optional()
+  .describe("Load state to wait for when the action starts a navigation (default: load).");
+const TimeoutMs = z
+  .number()
+  .int()
+  .min(1)
+  .max(BROWSER_WAIT_TIMEOUT_MAX_MS)
+  .optional()
+  .describe("Maximum wait in milliseconds (default 20000, at most 60000). The action is never repeated.");
+const Settle = { waitUntil: WaitUntil, timeoutMs: TimeoutMs };
+const OptionalRef = Ref.optional();
+const OptionalSelector = Selector.optional();
+const oneTarget = (v: { ref?: string; selector?: string }): boolean =>
+  (v.ref === undefined) !== (v.selector === undefined);
+const atMostOneTarget = (v: { ref?: string; selector?: string }): boolean =>
+  v.ref === undefined || v.selector === undefined;
+const ONE_TARGET = { message: "Give exactly one of 'ref' or 'selector'." };
+const AT_MOST_ONE_TARGET = { message: "Give at most one of 'ref' or 'selector'." };
+const ElementTarget = z.object({ ref: OptionalRef, selector: OptionalSelector }).strict().refine(oneTarget, ONE_TARGET);
+
 export const BrowserTabOpenInputSchema = z
   .object({
     url: BrowserUrl,
     active: z.boolean().default(true).describe("Make the new tab the active tab."),
+    ...Settle,
   })
   .strict();
 
-export const BrowserNavigateInputSchema = z.object({ tabId: OptionalTabId, url: BrowserUrl }).strict();
+export const BrowserNavigateInputSchema = z.object({ tabId: OptionalTabId, url: BrowserUrl, ...Settle }).strict();
 
 export const BrowserTabActivateInputSchema = z.object({ tabId: TabId }).strict();
 
 export const BrowserTabCloseInputSchema = z.object({ tabId: TabId }).strict();
 
-export const BrowserClickInputSchema = z.object({ tabId: OptionalTabId, selector: Selector }).strict();
+export const BrowserClickInputSchema = z
+  .object({
+    tabId: OptionalTabId,
+    ref: OptionalRef,
+    selector: OptionalSelector,
+    button: z.enum(["left", "right", "middle"]).optional().describe("Mouse button (default left)."),
+    clickCount: z
+      .union([z.literal(1), z.literal(2)])
+      .optional()
+      .describe("1 (default) or 2 for a double click."),
+    modifiers: z
+      .array(z.enum(["Shift", "Control", "Alt", "Meta", "ControlOrMeta"]))
+      .max(5)
+      .optional()
+      .describe("Modifier keys held during the click."),
+    ...Settle,
+  })
+  .strict()
+  .refine(oneTarget, ONE_TARGET);
 
 export const BrowserTypeInputSchema = z
   .object({
     tabId: OptionalTabId,
-    selector: Selector,
+    ref: OptionalRef,
+    selector: OptionalSelector,
     text: z.string().max(BROWSER_TYPE_TEXT_MAX_LENGTH).describe("Text to type into the element."),
     clear: z.boolean().default(false).describe("Clear the element's current value first."),
+    submit: z.boolean().optional().describe("Press Enter after typing (ref or Browser v1 form only)."),
+    ...Settle,
+  })
+  .strict()
+  .refine(oneTarget, ONE_TARGET);
+
+export const BrowserSnapshotInputSchema = z
+  .object({
+    tabId: OptionalTabId,
+    frameRef: FrameRef.optional().describe("Limit the snapshot to one frame (and its descendants)."),
+    includeText: z.boolean().default(false).describe("Include static text nodes, not only interactive elements."),
+    maxElements: z
+      .number()
+      .int()
+      .min(1)
+      .max(BROWSER_SNAPSHOT_MAX_ELEMENTS)
+      .optional()
+      .describe("Maximum number of elements (default 500); check 'truncated'."),
+  })
+  .strict();
+
+export const BrowserHoverInputSchema = z
+  .object({ tabId: OptionalTabId, ref: OptionalRef, selector: OptionalSelector, ...Settle })
+  .strict()
+  .refine(oneTarget, ONE_TARGET);
+
+const ScrollDelta = z.number().int().min(-BROWSER_SCROLL_DELTA_MAX).max(BROWSER_SCROLL_DELTA_MAX).optional();
+export const BrowserScrollInputSchema = z
+  .object({
+    tabId: OptionalTabId,
+    ref: OptionalRef.describe("Element to scroll over (default: the centre of the viewport)."),
+    selector: OptionalSelector,
+    deltaX: ScrollDelta.describe("Horizontal wheel delta in CSS pixels."),
+    deltaY: ScrollDelta.describe("Vertical wheel delta in CSS pixels (positive scrolls down)."),
+    ...Settle,
+  })
+  .strict()
+  .refine(atMostOneTarget, AT_MOST_ONE_TARGET)
+  .refine((v) => (v.deltaX ?? 0) !== 0 || (v.deltaY ?? 0) !== 0, { message: "Give a non-zero deltaX or deltaY." });
+
+export const BrowserDragInputSchema = z
+  .object({
+    tabId: OptionalTabId,
+    ref: OptionalRef,
+    selector: OptionalSelector,
+    to: ElementTarget.describe("Drop target: exactly one of ref or selector."),
+    ...Settle,
+  })
+  .strict()
+  .refine(oneTarget, ONE_TARGET);
+
+export const BrowserPressKeyInputSchema = z
+  .object({
+    tabId: OptionalTabId,
+    ref: OptionalRef.describe("Element to focus first (default: the focused element)."),
+    selector: OptionalSelector,
+    keys: z
+      .array(z.string().min(1).max(100))
+      .min(1)
+      .max(BROWSER_KEY_COMBINATIONS_MAX)
+      .describe("Key combinations pressed in order, e.g. ['Tab', 'ControlOrMeta+A', 'Enter']."),
+    ...Settle,
+  })
+  .strict()
+  .refine(atMostOneTarget, AT_MOST_ONE_TARGET);
+
+export const BrowserSelectOptionInputSchema = z
+  .object({
+    tabId: OptionalTabId,
+    ref: OptionalRef,
+    selector: OptionalSelector,
+    values: z
+      .array(z.string().max(BROWSER_WAIT_TEXT_MAX_LENGTH))
+      .min(1)
+      .max(BROWSER_SELECT_VALUES_MAX)
+      .describe("Option values or visible labels to select."),
+    ...Settle,
+  })
+  .strict()
+  .refine(oneTarget, ONE_TARGET);
+
+export const BrowserSetCheckedInputSchema = z
+  .object({
+    tabId: OptionalTabId,
+    ref: OptionalRef,
+    selector: OptionalSelector,
+    checked: z.boolean().describe("The wanted state; nothing is clicked when it already holds."),
+    ...Settle,
+  })
+  .strict()
+  .refine(oneTarget, ONE_TARGET);
+
+const WaitText = z.string().min(1).max(BROWSER_WAIT_TEXT_MAX_LENGTH);
+const WAIT_CONDITIONS = [
+  "ref",
+  "selector",
+  "text",
+  "textGone",
+  "urlPrefix",
+  "loadState",
+  "newDocument",
+  "newTab",
+] as const;
+export const BrowserWaitInputSchema = z
+  .object({
+    tabId: OptionalTabId,
+    ref: OptionalRef,
+    selector: OptionalSelector,
+    state: z
+      .enum(["visible", "hidden", "enabled", "detached"])
+      .optional()
+      .describe("Element state to wait for (with ref or selector; default visible)."),
+    text: WaitText.optional().describe("Wait until this text appears in the page."),
+    textGone: WaitText.optional().describe("Wait until this text is no longer in the page."),
+    urlPrefix: z
+      .string()
+      .min(1)
+      .max(BROWSER_URL_MAX_LENGTH)
+      .optional()
+      .describe("Wait until the tab URL starts with this."),
+    loadState: z.enum(BROWSER_WAIT_UNTIL).optional().describe("Wait until the page reaches this load state."),
+    newDocument: z.literal(true).optional().describe("Wait until a new document commits in the tab."),
+    newTab: z.literal(true).optional().describe("Wait until this tab opens a new tab."),
+    timeoutMs: TimeoutMs,
+  })
+  .strict()
+  .refine((v) => WAIT_CONDITIONS.filter((k) => v[k] !== undefined).length === 1, {
+    message: `Give exactly one condition: ${WAIT_CONDITIONS.join(", ")}.`,
+  })
+  .refine((v) => v.state === undefined || v.ref !== undefined || v.selector !== undefined, {
+    message: "'state' is only valid with 'ref' or 'selector'.",
+  });
+
+export const BrowserHistoryInputSchema = z
+  .object({
+    tabId: OptionalTabId,
+    action: z.enum(["back", "forward", "reload"]).describe("back, forward or reload."),
+    ...Settle,
   })
   .strict();
 
@@ -133,6 +330,15 @@ export type BrowserTabActivateInput = z.input<typeof BrowserTabActivateInputSche
 export type BrowserTabCloseInput = z.input<typeof BrowserTabCloseInputSchema>;
 export type BrowserClickInput = z.input<typeof BrowserClickInputSchema>;
 export type BrowserTypeInput = z.input<typeof BrowserTypeInputSchema>;
+export type BrowserSnapshotInput = z.input<typeof BrowserSnapshotInputSchema>;
+export type BrowserHoverInput = z.input<typeof BrowserHoverInputSchema>;
+export type BrowserScrollInput = z.input<typeof BrowserScrollInputSchema>;
+export type BrowserDragInput = z.input<typeof BrowserDragInputSchema>;
+export type BrowserPressKeyInput = z.input<typeof BrowserPressKeyInputSchema>;
+export type BrowserSelectOptionInput = z.input<typeof BrowserSelectOptionInputSchema>;
+export type BrowserSetCheckedInput = z.input<typeof BrowserSetCheckedInputSchema>;
+export type BrowserWaitInput = z.input<typeof BrowserWaitInputSchema>;
+export type BrowserHistoryInput = z.input<typeof BrowserHistoryInputSchema>;
 
 // ---------------------------------------------------------------- results (untrusted, from the browser)
 
@@ -157,6 +363,8 @@ export const BrowserTabInfoSchema = z.object({
   title: Title,
   active: z.boolean(),
   status: z.enum(["loading", "complete", "unloaded"]).optional(),
+  /** The tab that opened this one (popups, target=_blank). */
+  openerTabId: TabId.optional(),
 });
 
 export const BrowserTabsListResultSchema = z.object({ tabs: z.array(BrowserTabInfoSchema).max(BROWSER_MAX_TABS) });
@@ -180,6 +388,64 @@ export const BrowserScreenshotResultSchema = z.object({
 
 export const BrowserTabActionResultSchema = z.object({ tabId: TabId, url: ResultUrl });
 
+/** Result of a control action (AD-16 point 7): navigation started by it and tabs it opened. */
+export const BrowserControlResultSchema = BrowserTabActionResultSchema.extend({
+  navigated: z.boolean().optional(),
+  newTabs: z.array(TabId).max(BROWSER_NEW_TABS_MAX).optional(),
+});
+
+export const BrowserSelectOptionResultSchema = BrowserControlResultSchema.extend({
+  selected: z.array(z.string().max(BROWSER_WAIT_TEXT_MAX_LENGTH)).max(BROWSER_SELECT_VALUES_MAX),
+});
+
+export const BrowserSetCheckedResultSchema = BrowserControlResultSchema.extend({
+  checked: z.boolean(),
+  changed: z.boolean(),
+});
+
+export const BrowserWaitResultSchema = z.object({
+  satisfied: z.literal(true),
+  url: ResultUrl,
+  newTabs: z.array(TabId).max(BROWSER_NEW_TABS_MAX).optional(),
+});
+
+const Bounds = z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() });
+export const BrowserSnapshotResultSchema = z.object({
+  tabId: TabId,
+  url: ResultUrl,
+  title: Title,
+  frames: z
+    .array(
+      z.object({
+        frameRef: z.string().regex(/^f[1-9][0-9]{0,8}$/),
+        parentFrameRef: z
+          .string()
+          .regex(/^f[1-9][0-9]{0,8}$/)
+          .nullable(),
+        url: ResultUrl,
+        origin: z.string().max(BROWSER_URL_MAX_LENGTH).nullable(),
+        restricted: z.boolean(),
+      }),
+    )
+    .max(1000),
+  elements: z
+    .array(
+      z.object({
+        ref: z.string().regex(/^e[1-9][0-9]{0,8}$/),
+        frameRef: z.string().regex(/^f[1-9][0-9]{0,8}$/),
+        role: z.string().max(200),
+        name: z.string().max(BROWSER_TITLE_MAX_LENGTH),
+        value: z.string().max(BROWSER_TITLE_MAX_LENGTH).optional(),
+        hasValue: z.boolean().optional(),
+        states: z.record(z.string(), z.union([z.boolean(), z.literal("mixed")])),
+        bounds: Bounds.nullable(),
+        inViewport: z.boolean(),
+      }),
+    )
+    .max(BROWSER_SNAPSHOT_MAX_ELEMENTS),
+  truncated: z.boolean(),
+});
+
 export const BrowserTabCloseResultSchema = z.object({ tabId: TabId, closed: z.literal(true) });
 
 export type BrowserInfo = z.output<typeof BrowserInfoSchema>;
@@ -188,6 +454,11 @@ export type BrowserTabsListResult = z.output<typeof BrowserTabsListResultSchema>
 export type BrowserPageReadResult = z.output<typeof BrowserPageReadResultSchema>;
 export type BrowserScreenshotResult = z.output<typeof BrowserScreenshotResultSchema>;
 export type BrowserTabActionResult = z.output<typeof BrowserTabActionResultSchema>;
+export type BrowserControlResult = z.output<typeof BrowserControlResultSchema>;
+export type BrowserSelectOptionResult = z.output<typeof BrowserSelectOptionResultSchema>;
+export type BrowserSetCheckedResult = z.output<typeof BrowserSetCheckedResultSchema>;
+export type BrowserWaitResult = z.output<typeof BrowserWaitResultSchema>;
+export type BrowserSnapshotResult = z.output<typeof BrowserSnapshotResultSchema>;
 export type BrowserTabCloseResult = z.output<typeof BrowserTabCloseResultSchema>;
 
 // ---------------------------------------------------------------- bridge status
