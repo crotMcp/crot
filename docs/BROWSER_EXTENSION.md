@@ -176,6 +176,19 @@ from the extensions page) with the prefix `CROT: `.
 | `browser_tab_close` | `browser.control` | `tabs.close` |
 | `browser_click` | `browser.control` | `page.click` |
 | `browser_type` | `browser.control` | `page.type` |
+| `browser_snapshot` | `browser.read` | `page.snapshot` |
+| `browser_wait` | `browser.read` | `page.wait` |
+| `browser_hover` | `browser.control` | `page.hover` |
+| `browser_scroll` | `browser.control` | `page.scroll` |
+| `browser_drag` | `browser.control` | `page.drag` |
+| `browser_press_key` | `browser.control` | `page.press_key` |
+| `browser_select_option` | `browser.control` | `page.select_option` |
+| `browser_set_checked` | `browser.control` | `page.set_checked` |
+| `browser_history` | `browser.control` | `tabs.history` |
+
+The last nine tools and the `ref` forms of `browser_click` / `browser_type`
+are Browser v1 (ARCHITECTURE.md §27 AD-16, WP-24), described in
+[Browser v1](#browser-v1-cdp-backend-wp-24) below.
 
 Behaviour:
 
@@ -196,26 +209,86 @@ Behaviour:
   for `browser_tab_activate` first. The browser's capture rate limit returns
   `RESOURCE_BUSY`. Images are limited to 16 MiB and are returned as MCP image
   content followed by metadata.
-- `browser_click` scrolls the element into view and calls `element.click()`
-  (a synthetic event, not OS-level input).
-- `browser_type` sets the value through the native setter and dispatches
+- **Legacy form.** `browser_click` with only `tabId` / `selector` scrolls the
+  element into view and calls `element.click()` (a synthetic event).
+  `browser_type` with only `tabId` / `selector` / `text` / `clear` sets the value through the native setter and dispatches
   `input` and `change` events, or uses `insertText` for `contenteditable`
   elements. Only text-like inputs and textareas are accepted; disabled and
   read-only elements are rejected. With `clear` the value is replaced,
   otherwise text is appended.
-- Page functions run in the extension's isolated world, in the main frame only,
-  and use `document.querySelector` on the top document: elements inside
-  iframes or shadow roots cannot be addressed.
+- Legacy-form page functions run in the extension's isolated world, in the
+  main frame only, and use `document.querySelector` on the top document.
+  Every other form (a `ref`, or any Browser v1 option such as `button`,
+  `submit` or `waitUntil`) goes through the CDP backend below and reaches
+  frames and open shadow roots.
 - Each request has a 30 second timeout in Core (`TIMEOUT`).
 
 Errors the extension may report are limited to `NOT_FOUND`, `INVALID_INPUT`,
-`TIMEOUT`, `LIMIT_EXCEEDED`, `RESOURCE_BUSY`, `OPERATION_FAILED` and
-`BROWSER_PAGE_RESTRICTED`. `BROWSER_NOT_CONNECTED` and `BROWSER_BRIDGE_IN_USE`
+`TIMEOUT`, `LIMIT_EXCEEDED`, `RESOURCE_BUSY`, `OPERATION_FAILED`,
+`BROWSER_PAGE_RESTRICTED` and `BROWSER_STALE_REF`. `BROWSER_NOT_CONNECTED` and `BROWSER_BRIDGE_IN_USE`
 are decided by Core from the bridge state; the extension cannot claim them or
 any authorization error, with one exception: `PERMISSION_DENIED` answers a
 command of an approved operation whose expected browser subject no longer
 matches (see below); for any other command it becomes `OPERATION_FAILED`. Results are validated against Core's schemas: an
 invalid result, or a result for a different tab, becomes `OPERATION_FAILED`.
+
+### Browser v1: CDP backend (WP-24)
+
+The Browser v1 commands use `chrome.debugger` (Chrome DevTools Protocol 1.3)
+through a fixed, extension-built command surface (AD-16 point 3):
+
+- **Fixed CDP allowlist** (`CDP_ALLOWED_METHODS` in `extension/src/cdp.ts`):
+  Accessibility, DOM (read, box model, focus, scroll, hit test), DOMSnapshot,
+  Input, Page (lifecycle, frame tree, history, reload), `Target.setAutoAttach`
+  and event-only `Network.enable`. No `Runtime.*`, `Debugger.*`, `Fetch.*`,
+  storage, cookie, emulation or target-creation method can be sent; no host-
+  or agent-supplied code runs in the page.
+- **Attach on demand** to a tab when a Browser v1 command needs it; detached
+  after 5 minutes without commands and for every tab when the CROT connection
+  ends. Chromium shows its "is debugging this browser" notice while attached;
+  cancelling it detaches, and the refs of that tab become stale.
+- **`browser_snapshot`** (`browser.read`, an exposure source, AD-12) returns
+  the tab's frames (`frameRef`, parent, URL, normalized origin, `restricted`)
+  and its interactive and landmark elements in document order, each with an
+  opaque `ref` (`e1`, `e2`, …), `frameRef`, role, accessible name, bounded
+  value, states, bounds in top-level viewport CSS pixels and `inViewport`.
+  Options: `frameRef`, `includeText`, `maxElements` (default 500, max 5000);
+  results are bounded and report `truncated`. Password fields never return a
+  value, only `hasValue`.
+- **References.** A `ref` names one element of one document in one tab and
+  one CROT connection. Right before acting, the extension checks the tab, the
+  debugger session, the frame's document (loader id) and that the element is
+  still connected; otherwise `BROWSER_STALE_REF` and nothing is done. A stale
+  ref is never re-resolved by role, name, text, position or selector. The same
+  element of the same document keeps its ref across snapshots.
+- **Frames and shadow DOM.** Same-process frames and **out-of-process
+  (cross-site) frames** are covered up to depth 8 and 100 frames:
+  out-of-process frames are auto-attached child sessions of the tab's own
+  debugger session (`Target.setAutoAttach` with `flatten`), through the same
+  allowlist. DOM and accessibility commands go to the frame's session; input
+  is dispatched at top-level viewport coordinates (the owner iframe's
+  position is added, and a hit test first checks the iframe in the parent).
+  Elements in open shadow roots are addressable by `ref`; selectors do not
+  pierce shadow roots.
+- **Trusted input** (`Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`,
+  `Input.insertText`): click (buttons, double click, modifiers), hover,
+  scroll, drag, typing into any editable element (`clear`, `submit`), key
+  combinations (`ControlOrMeta` is Meta on macOS), native `<select>` options
+  and checkboxes / radios. Before pointer input the element is scrolled into
+  view and must be visible, inside the viewport, enabled and not obscured;
+  otherwise `INVALID_INPUT` naming the reason. There is no `force` option.
+- **Settle and waits.** After an action the extension observes the tab for a
+  short quiet period (300 ms); a navigation started by the action is awaited
+  until `waitUntil` (`commit`, `domcontentloaded`, `load` (default),
+  `networkidle`) within `timeoutMs` (default 20 s, max 60 s). Control results
+  are facts only: `{tabId, url, navigated, newTabs}`. `browser_wait`
+  (`browser.read`, not an exposure source) waits for one condition: element
+  state, text present / gone, URL prefix, load state, new document or new
+  tab. `browser_history` goes back, forward or reloads.
+- **Per-tab queue.** Commands on one tab run one at a time in order, at most
+  16 queued (then `RESOURCE_BUSY`), in the extension and in Core.
+- `browser_tabs_list` reports `openerTabId`; a click that opens a pop-up
+  reports it in `newTabs`.
 
 ### Approval gates
 
@@ -239,6 +312,16 @@ When a `permissions.approvals` rule matches a browser operation (ARCHITECTURE.md
   nothing is done; the approval is never transferred to another tab or origin.
 - `browser_status` and `browser_tabs_list` do not target a tab and are not
   bound to one.
+- **Element targets** (AD-16 points 10, 16). For a command that names an
+  element by `ref`, the subject also shows the element as the last
+  `browser_snapshot` of that tab on that connection described it: its role
+  and accessible name (flagged as page-supplied text) and, when the element
+  is in a child frame, the **frame origin**; for `browser_drag` the same for
+  the drop target. The subject digest covers them. A ref that no snapshot of
+  that tab and connection described is shown as such. The binding itself
+  stays the tab and its top-level origin; a ref is valid for one document
+  only, so the frame cannot change origin between approval and action
+  without the command failing with `BROWSER_STALE_REF`.
 
 ## Protocol
 
@@ -327,6 +410,7 @@ Manifest V3, `minimum_chrome_version` 120:
 | `tabs` | list, open, navigate, activate and close tabs; tab URLs and titles |
 | `scripting` | run the built-in page functions (read, click, type) |
 | `alarms` | wake the service worker to reconnect |
+| `debugger` | the Browser v1 CDP backend with its fixed method allowlist (snapshot, refs, trusted input, frames, waits, history) |
 | host permissions `<all_urls>` | read and control pages and capture screenshots on any site the agent is asked to use |
 
 The extension has no UI, no content scripts, no `externally_connectable` and no
@@ -338,10 +422,17 @@ incognito windows (`"incognito": "not_allowed"`).
 Every browser operation is audited like any other Core operation, as
 `browser.status`, `browser.tabs_list`, `browser.page_read`,
 `browser.screenshot`, `browser.tab_open`, `browser.navigate`,
-`browser.tab_activate`, `browser.tab_close`, `browser.click` or `browser.type`.
+`browser.tab_activate`, `browser.tab_close`, `browser.click`, `browser.type`,
+`browser.snapshot`, `browser.wait`, `browser.hover`, `browser.scroll`,
+`browser.drag`, `browser.press_key`, `browser.select_option`,
+`browser.set_checked` or `browser.history`.
 Details are limited to the tab id (or `active`), the URL **origin**, the selector
-(truncated to 200 characters), the typed text length, `clear`, `format` and
-`maxBytes`. Audit events never contain page content, screenshots, typed text or
+(truncated to 200 characters) or the opaque `ref`, the element role
+(`elementRole`) and, for a target in a child frame, its origin
+(`frameOrigin`; `dropElementRole` / `dropFrameOrigin` for a drag target), the
+typed text length, the number of key combinations or option values, `clear`,
+`format`, `maxBytes` and the settle options. Audit events never contain page
+content, accessible names, values, screenshots, typed text, key sequences or
 full URLs.
 
 ## Security notes
@@ -380,15 +471,20 @@ CROT again.
   profile directories, are not registered and not tested.
 - The relay's stderr is not shown in the browser UI; use the extension's
   service worker console and CROT's own log.
-- No frames, shadow DOM, file uploads, downloads, OS-level input or arbitrary
-  JavaScript. Element references, real (trusted) browser input events, frames,
-  shadow DOM, dialogs, file upload and download, background-tab screenshots
-  and explicit tab targeting are required for v1 (browser contract v1,
-  ARCHITECTURE.md §7.1, §27 AD-14). Their contract is ARCHITECTURE.md §27
-  AD-16: a `chrome.debugger` (CDP) backend with a fixed command surface and
-  the additional permissions `debugger`, `downloads` and `tabGroups`;
-  implementation in WP-24…WP-27. This document describes the current
-  implementation until then. Arbitrary JavaScript and OS-level input stay
-  excluded.
+- Browser v1 is implemented in part (WP-24: CDP backend, snapshot and refs,
+  trusted input, frames including out-of-process frames, open shadow roots,
+  waits, history). Not yet: dialogs, file chooser, background-tab
+  screenshots, the CROT tab group and debugger lifecycle UX (WP-25), file
+  upload and download (WP-26), explicit `tabId` for remote principals and
+  `openedBy` (WP-27); the permissions `downloads` and `tabGroups` come with
+  them. Arbitrary JavaScript and OS-level input stay excluded.
+- Elements in closed shadow roots may appear (the snapshot follows the
+  accessibility tree) but are not guaranteed. A frame-limited snapshot of an
+  out-of-process frame and `browser_wait` text conditions cover that frame's
+  session; `networkidle` counts requests of the tab's own session only.
+- Browser v1 has been checked end to end in a real Chromium (Chrome for
+  Testing) only, by `npm run test:e2e:browser` (see
+  [`BROWSER_E2E.md`](BROWSER_E2E.md)); a manual run on real third-party sites
+  has **not** been performed yet.
 - Setup is manual. A one-click installer for the extension and the host is a
   later step (ARCHITECTURE.md §16, step 13; work package WP-34).

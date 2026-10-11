@@ -1,5 +1,6 @@
 import type { CdpSessions } from "./cdp.js";
 import { ExtensionError } from "./errors.js";
+import { type CdpChannel, FrameChannels, tabFrames } from "./frames.js";
 import type { RefRegistry } from "./refs.js";
 
 /**
@@ -222,17 +223,6 @@ export function inTreeOrder(nodes: readonly AxNode[]): AxNode[] {
 
 // ------------------------------------------------------------- collection
 
-interface FrameTreeNode {
-  readonly frame: {
-    readonly id: string;
-    readonly parentId?: string;
-    readonly url: string;
-    readonly loaderId: string;
-    readonly urlFragment?: string;
-  };
-  readonly childFrames?: readonly FrameTreeNode[];
-}
-
 export interface SnapshotTab {
   readonly id: number;
   readonly url: string;
@@ -250,24 +240,25 @@ export async function takeSnapshot(
   await cdp.send(tabId, "DOM.enable");
   await cdp.send(tabId, "Accessibility.enable");
   const generation = cdp.generation(tabId);
-  const { frameTree } = await cdp.send<{ frameTree: FrameTreeNode }>(tabId, "Page.getFrameTree");
 
-  // Frames in tree order with depth bound.
-  const frames: (FrameInfo & { depth: number })[] = [];
-  const walk = (node: FrameTreeNode, depth: number): void => {
-    if (frames.length >= SNAPSHOT_MAX_FRAMES || depth > SNAPSHOT_MAX_FRAME_DEPTH) return;
-    frames.push({
-      frameId: node.frame.id,
-      parentFrameId: node.frame.parentId,
-      url: node.frame.url + (node.frame.urlFragment ?? ""),
-      loaderId: node.frame.loaderId,
-      depth,
-    });
-    for (const child of node.childFrames ?? []) walk(child, depth + 1);
-  };
-  walk(frameTree, 0);
+  // Frames in tree order with depth and count bounds, out-of-process frames included (AD-16 point 10).
+  const listed = await tabFrames(cdp, tabId, { maxDepth: SNAPSHOT_MAX_FRAME_DEPTH, maxFrames: SNAPSHOT_MAX_FRAMES });
+  const frames = listed.frames;
+  const channels = new FrameChannels(cdp, tabId, frames);
+  const channelOf = (frame: FrameInfo): CdpChannel => channels.forSession(sessionOf(frame));
+  const sessionOf = (frame: FrameInfo): string | undefined =>
+    frames.find((f) => f.frameId === frame.frameId)?.sessionId;
+  for (const sessionId of new Set(frames.map((f) => f.sessionId))) {
+    if (sessionId === undefined) continue;
+    try {
+      await cdp.send(tabId, "DOM.enable", {}, sessionId);
+      await cdp.send(tabId, "Accessibility.enable", {}, sessionId);
+    } catch {
+      // the frame went away meanwhile; its elements are missing from this snapshot
+    }
+  }
 
-  let truncated = frames.length >= SNAPSHOT_MAX_FRAMES;
+  let truncated = listed.truncated || frames.length >= SNAPSHOT_MAX_FRAMES;
   const frameRefs = new Map<string, string>();
   const origins = new Map<string, string | null>();
   const snapshotFrames: SnapshotFrame[] = [];
@@ -302,15 +293,21 @@ export async function takeSnapshot(
     only = target.frameId;
   }
 
-  // Owner element of each child frame, to splice child frames in document order.
-  const ownerOf = new Map<number, string>();
+  // Owner element of each child frame (in its parent's session), to splice child frames in document order.
+  const ownerKey = (sessionId: string | undefined, backendNodeId: number): string =>
+    (sessionId ?? "") + "|" + backendNodeId;
+  const ownerOf = new Map<string, string>();
   for (const frame of frames) {
     if (frame.parentFrameId === undefined) continue;
+    const parent = frames.find((f) => f.frameId === frame.parentFrameId);
+    if (!parent) continue;
     try {
-      const owner = await cdp.send<{ backendNodeId: number }>(tabId, "DOM.getFrameOwner", { frameId: frame.frameId });
-      ownerOf.set(owner.backendNodeId, frame.frameId);
+      const owner = await channelOf(parent).send<{ backendNodeId: number }>(tabId, "DOM.getFrameOwner", {
+        frameId: frame.frameId,
+      });
+      ownerOf.set(ownerKey(parent.sessionId, owner.backendNodeId), frame.frameId);
     } catch {
-      // owner not reachable (out-of-process frame); listed after its parent's elements
+      // owner not reachable; the frame is listed after its parent's elements
     }
   }
 
@@ -336,7 +333,7 @@ export async function takeSnapshot(
     if (!restricted && (only === undefined || only === frame.frameId)) {
       let nodes: AxNode[] = [];
       try {
-        const tree = await cdp.send<{ nodes: AxNode[] }>(tabId, "Accessibility.getFullAXTree", {
+        const tree = await channelOf(frame).send<{ nodes: AxNode[] }>(tabId, "Accessibility.getFullAXTree", {
           frameId: frame.frameId,
         });
         nodes = inTreeOrder(tree.nodes);
@@ -345,7 +342,10 @@ export async function takeSnapshot(
       }
       for (const node of nodes) {
         if (truncated) return;
-        const owned = node.backendDOMNodeId === undefined ? undefined : ownerOf.get(node.backendDOMNodeId);
+        const owned =
+          node.backendDOMNodeId === undefined
+            ? undefined
+            : ownerOf.get(ownerKey(sessionOf(frame), node.backendDOMNodeId));
         const role = str(node.role);
         const isText = TEXT_ROLES.has(role);
         const wanted =
@@ -384,7 +384,9 @@ export async function takeSnapshot(
     const backendNodeId = node.backendDOMNodeId as number;
     let bounds: Bounds | null = null;
     try {
-      const box = await cdp.send<{ model: { border: number[] } }>(tabId, "DOM.getBoxModel", { backendNodeId });
+      const box = await channelOf(frame).send<{ model: { border: number[] } }>(tabId, "DOM.getBoxModel", {
+        backendNodeId,
+      });
       bounds = quadBounds(box.model.border);
     } catch {
       bounds = null;
@@ -395,7 +397,7 @@ export async function takeSnapshot(
     let password = false;
     if (TEXT_FIELD_ROLES.has(role)) {
       try {
-        const { node: dom } = await cdp.send<{ node: { localName?: string; attributes?: string[] } }>(
+        const { node: dom } = await channelOf(frame).send<{ node: { localName?: string; attributes?: string[] } }>(
           tabId,
           "DOM.describeNode",
           { backendNodeId },

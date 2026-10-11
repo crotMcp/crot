@@ -61,9 +61,13 @@ export interface ChromeInjectionResult {
   readonly result?: unknown;
 }
 
-/** A debugger target: one tab (AD-16 point 3; never anything else). */
+/**
+ * A debugger target: one tab (AD-16 point 3; never anything else), or a child
+ * session of that tab (an out-of-process frame auto-attached with flatten).
+ */
 export interface ChromeDebuggee {
   readonly tabId?: number;
+  readonly sessionId?: string;
 }
 
 export interface ChromeApi {

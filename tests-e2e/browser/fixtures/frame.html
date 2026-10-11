@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CROT E2E Frame</title>
+  </head>
+  <body>
+    <!-- Child frame of form.html, served from another origin (docs/BROWSER_E2E.md). -->
+    <button id="frame-button" type="button">Frame button</button>
+    <p id="frame-status">FRAME: idle</p>
+    <label for="frame-input">Frame input</label>
+    <input id="frame-input" type="text" />
+    <script>
+      (function () {
+        var nonce = new URLSearchParams(location.search).get("nonce") || "none";
+        document.getElementById("frame-button").addEventListener("click", function (e) {
+          document.getElementById("frame-status").textContent = "FRAME: clicked";
+          fetch("/event?type=frame-click&trusted=" + (e.isTrusted ? "1" : "0") + "&nonce=" + encodeURIComponent(nonce), { cache: "no-store" }).catch(function () {});
+        });
+        document.getElementById("frame-input").addEventListener("input", function (e) {
+          fetch("/event?type=frame-input&trusted=" + (e.isTrusted ? "1" : "0") + "&nonce=" + encodeURIComponent(nonce), { cache: "no-store" }).catch(function () {});
+        });
+      })();
+    </script>
+  </body>
+</html>

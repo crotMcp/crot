@@ -1,5 +1,6 @@
 import type { CdpSessions } from "./cdp.js";
 import { ExtensionError } from "./errors.js";
+import { type CdpChannel, FrameChannels, tabFrames } from "./frames.js";
 
 /**
  * Element references (ARCHITECTURE.md §27, AD-16 point 5).
@@ -150,11 +151,6 @@ export async function verifyFrameRef(
   return target;
 }
 
-interface FrameTreeNode {
-  readonly frame: { readonly id: string; readonly loaderId: string };
-  readonly childFrames?: readonly FrameTreeNode[];
-}
-
 interface DomNode {
   readonly backendNodeId: number;
   readonly frameId?: string;
@@ -163,21 +159,15 @@ interface DomNode {
   readonly contentDocument?: DomNode;
 }
 
-/** The current loader id of every frame of the tab's main target. */
+/** The current loader id of every frame of the tab, out-of-process frames included. */
 export async function frameLoaders(cdp: CdpSessions, tabId: number): Promise<Map<string, string>> {
-  const { frameTree } = await cdp.send<{ frameTree: FrameTreeNode }>(tabId, "Page.getFrameTree");
-  const loaders = new Map<string, string>();
-  const walk = (node: FrameTreeNode): void => {
-    loaders.set(node.frame.id, node.frame.loaderId);
-    for (const child of node.childFrames ?? []) walk(child);
-  };
-  walk(frameTree);
-  return loaders;
+  const { frames } = await tabFrames(cdp, tabId);
+  return new Map(frames.map((f) => [f.frameId, f.loaderId]));
 }
 
 /** Whether a node is connected to the document of the given frame (shadow roots and frames pierced). */
 export async function isConnected(
-  cdp: CdpSessions,
+  cdp: CdpChannel,
   tabId: number,
   frameId: string,
   backendNodeId: number,
@@ -211,13 +201,22 @@ export async function verifyRef(
   cdp: CdpSessions,
   ref: string,
   tabId: number,
-): Promise<RefTarget> {
+): Promise<RefTarget & { readonly channel: CdpChannel }> {
   const target = registry.lookup(ref);
   if (target === undefined || target.tabId !== tabId) throw stale();
   if (cdp.generation(tabId) !== target.generation || !cdp.isAttached(tabId)) throw stale();
-  const loaders = await frameLoaders(cdp, tabId);
-  if (loaders.get(target.frameId) !== target.loaderId) throw stale();
+  const { frames } = await tabFrames(cdp, tabId);
+  const frame = frames.find((f) => f.frameId === target.frameId);
+  if (frame === undefined || frame.loaderId !== target.loaderId) throw stale();
   if (cdp.generation(tabId) !== target.generation) throw stale();
-  if (!(await isConnected(cdp, tabId, target.frameId, target.backendNodeId))) throw stale();
-  return target;
+  // The element's frame may live in a child session (an out-of-process frame).
+  const channel = new FrameChannels(cdp, tabId, frames).forFrame(target.frameId);
+  let connected: boolean;
+  try {
+    connected = await isConnected(channel, tabId, target.frameId, target.backendNodeId);
+  } catch {
+    connected = false; // the frame's session ended meanwhile
+  }
+  if (!connected) throw stale();
+  return { ...target, channel };
 }

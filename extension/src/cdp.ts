@@ -77,6 +77,27 @@ const DETACHED_MESSAGE = "The browser debugger was detached from the tab.";
 
 export type CdpEventListener = (tabId: number, method: string, params: unknown) => void;
 
+/** Bound on auto-attached child sessions (out-of-process frames) per tab, as for snapshot frames. */
+export const CDP_MAX_CHILD_SESSIONS = 100;
+/** Depth bound of nested out-of-process frames. */
+export const CDP_MAX_CHILD_DEPTH = 8;
+
+const AUTO_ATTACH = { autoAttach: true, waitForDebuggerOnStart: false, flatten: true } as const;
+
+/**
+ * An out-of-process frame of a tab (AD-16 point 10): a flat child session of
+ * the tab's debugger, auto-attached with Target.setAutoAttach. Commands for
+ * it go through the same allowlist; it is never a separate debugger target.
+ */
+export interface ChildSession {
+  readonly sessionId: string;
+  /** The frame id of the child's root frame (its target id). */
+  readonly frameId: string;
+  /** The session the child was attached from; undefined for the tab's own session. */
+  readonly parentSessionId: string | undefined;
+  readonly depth: number;
+}
+
 export interface CdpOptions {
   readonly idleDetachMs?: number;
   readonly setTimer?: (callback: () => void, ms: number) => unknown;
@@ -87,6 +108,9 @@ interface Attachment {
   readonly ready: Promise<void>;
   attached: boolean;
   idle?: unknown;
+  /** Target.setAutoAttach has been sent on the tab's own session. */
+  autoAttach?: Promise<void>;
+  readonly children: Map<string, ChildSession>;
 }
 
 export class CdpSessions {
@@ -105,10 +129,20 @@ export class CdpSessions {
     this.setTimer = options.setTimer ?? ((callback, ms) => setTimeout(callback, ms));
     this.clearTimer = options.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
     api.debugger.onDetach.addListener((source) => {
-      if (source.tabId !== undefined) this.forget(source.tabId);
+      if (source.tabId === undefined) return;
+      // A child session ending (its frame went away) is not a detach of the tab.
+      if (source.sessionId !== undefined)
+        this.onTargetEvent(source.tabId, undefined, "Target.detachedFromTarget", { sessionId: source.sessionId });
+      else this.forget(source.tabId);
     });
     api.debugger.onEvent.addListener((source, method, params) => {
       if (source.tabId === undefined || !this.attachments.has(source.tabId)) return;
+      if (method === "Target.attachedToTarget" || method === "Target.detachedFromTarget") {
+        this.onTargetEvent(source.tabId, source.sessionId, method, params);
+        return;
+      }
+      // Listeners observe the tab's top-level session only (lifecycle, navigation, network).
+      if (source.sessionId !== undefined) return;
       for (const listener of this.listeners) listener(source.tabId, method, params);
     });
     api.tabs.onRemoved.addListener((tabId) => this.forget(tabId));
@@ -128,15 +162,30 @@ export class CdpSessions {
     return () => this.listeners.delete(listener);
   }
 
-  /** Sends one allowlisted method to a tab, attaching first if needed. */
-  async send<T = unknown>(tabId: number, method: string, params: Readonly<Record<string, unknown>> = {}): Promise<T> {
+  /**
+   * Sends one allowlisted method to a tab, attaching first if needed. With
+   * `sessionId` it goes to that auto-attached child session (an
+   * out-of-process frame) of the same tab.
+   */
+  async send<T = unknown>(
+    tabId: number,
+    method: string,
+    params: Readonly<Record<string, unknown>> = {},
+    sessionId?: string,
+  ): Promise<T> {
     if (!CDP_ALLOWED_METHODS.has(method)) {
       throw new ExtensionError("OPERATION_FAILED", "CDP method '" + method + "' is not allowed.");
     }
     const generation = await this.attach(tabId);
+    if (sessionId !== undefined && !this.attachments.get(tabId)?.children.has(sessionId)) {
+      throw new ExtensionError("OPERATION_FAILED", FRAME_DETACHED_MESSAGE);
+    }
     try {
-      return (await this.api.debugger.sendCommand(target(tabId), method, params)) as T;
+      return (await this.api.debugger.sendCommand(target(tabId, sessionId), method, params)) as T;
     } catch (error) {
+      if (sessionId !== undefined && !this.attachments.get(tabId)?.children.has(sessionId)) {
+        throw new ExtensionError("OPERATION_FAILED", FRAME_DETACHED_MESSAGE);
+      }
       if (this.generation(tabId) !== generation || !this.isAttached(tabId)) {
         throw new ExtensionError("OPERATION_FAILED", DETACHED_MESSAGE);
       }
@@ -153,6 +202,7 @@ export class CdpSessions {
     if (!attachment) {
       const created: Attachment = {
         attached: false,
+        children: new Map(),
         ready: this.api.debugger.attach(target(tabId), CDP_PROTOCOL_VERSION).then(() => {
           created.attached = true;
         }),
@@ -175,6 +225,51 @@ export class CdpSessions {
     if (!attachment.attached) throw new ExtensionError("OPERATION_FAILED", DETACHED_MESSAGE);
     this.touch(tabId);
     return this.generation(tabId);
+  }
+
+  /**
+   * Auto-attach to the tab's out-of-process frames (once per debugger
+   * session) and answer the child sessions. Chromium reports the existing
+   * frames before it answers Target.setAutoAttach; later ones as they appear.
+   */
+  async frameSessions(tabId: number): Promise<readonly ChildSession[]> {
+    await this.attach(tabId);
+    const attachment = this.attachments.get(tabId);
+    if (!attachment) throw new ExtensionError("OPERATION_FAILED", DETACHED_MESSAGE);
+    attachment.autoAttach ??= this.send(tabId, "Target.setAutoAttach", AUTO_ATTACH).then(() => undefined);
+    try {
+      await attachment.autoAttach;
+    } catch (error) {
+      if (this.attachments.get(tabId) === attachment) attachment.autoAttach = undefined;
+      throw error;
+    }
+    return [...attachment.children.values()];
+  }
+
+  private onTargetEvent(tabId: number, parentSessionId: string | undefined, method: string, raw: unknown): void {
+    const attachment = this.attachments.get(tabId);
+    if (!attachment || typeof raw !== "object" || raw === null) return;
+    const params = raw as { sessionId?: unknown; targetInfo?: { type?: unknown; targetId?: unknown } };
+    if (typeof params.sessionId !== "string") return;
+    if (method === "Target.detachedFromTarget") {
+      const gone = [params.sessionId];
+      while (gone.length > 0) {
+        const id = gone.pop() as string;
+        attachment.children.delete(id);
+        for (const child of attachment.children.values()) if (child.parentSessionId === id) gone.push(child.sessionId);
+      }
+      return;
+    }
+    const info = params.targetInfo;
+    if (info?.type !== "iframe" || typeof info.targetId !== "string") return;
+    const parent = parentSessionId === undefined ? undefined : attachment.children.get(parentSessionId);
+    if (parentSessionId !== undefined && parent === undefined) return;
+    const depth = (parent?.depth ?? 0) + 1;
+    if (depth > CDP_MAX_CHILD_DEPTH || attachment.children.size >= CDP_MAX_CHILD_SESSIONS) return;
+    const sessionId = params.sessionId;
+    attachment.children.set(sessionId, { sessionId, frameId: info.targetId, parentSessionId, depth });
+    // Nested out-of-process frames of this frame.
+    void this.send(tabId, "Target.setAutoAttach", AUTO_ATTACH, sessionId).catch(() => undefined);
   }
 
   /** Detaches one tab (idle, tab no longer needed). */
@@ -203,9 +298,13 @@ export class CdpSessions {
     if (!attachment) return;
     if (attachment.idle !== undefined) this.clearTimer(attachment.idle);
     attachment.attached = false;
+    attachment.children.clear();
     this.attachments.delete(tabId);
     this.generations.set(tabId, this.generation(tabId) + 1);
   }
 }
 
-const target = (tabId: number): ChromeDebuggee => ({ tabId });
+const target = (tabId: number, sessionId?: string): ChromeDebuggee =>
+  sessionId === undefined ? { tabId } : { tabId, sessionId };
+
+const FRAME_DETACHED_MESSAGE = "The frame's debugger session ended (the frame was removed or navigated).";

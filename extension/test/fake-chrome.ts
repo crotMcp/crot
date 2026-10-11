@@ -97,9 +97,10 @@ export interface FakeTabsOptions {
 export class FakeDebugger {
   readonly attached = new Set<number>();
   readonly attachCalls: number[] = [];
-  readonly sent: { tabId: number; method: string; params: unknown }[] = [];
+  readonly sent: { tabId: number; method: string; params: unknown; sessionId?: string }[] = [];
   attachError: Error | undefined;
-  respond: (tabId: number, method: string, params: unknown) => unknown = () => ({});
+  /** `sessionId`: a child session (out-of-process frame) of the tab. */
+  respond: (tabId: number, method: string, params: unknown, sessionId?: string) => unknown = () => ({});
   readonly onDetach = new FakeEvent<(source: ChromeDebuggee, reason: string) => void>();
   readonly onEvent = new FakeEvent<(source: ChromeDebuggee, method: string, params?: unknown) => void>();
 
@@ -120,8 +121,9 @@ export class FakeDebugger {
   async sendCommand(target: ChromeDebuggee, method: string, params?: object): Promise<unknown> {
     const tabId = target.tabId as number;
     if (!this.attached.has(tabId)) throw new Error("Debugger is not attached to the tab with id: " + tabId);
-    this.sent.push({ tabId, method, params });
-    return this.respond(tabId, method, params);
+    const sessionId = target.sessionId;
+    this.sent.push(sessionId === undefined ? { tabId, method, params } : { tabId, method, params, sessionId });
+    return this.respond(tabId, method, params, sessionId);
   }
 
   /** The user or the browser detaches (for example the "Cancel" button of the notice). */
@@ -132,6 +134,21 @@ export class FakeDebugger {
 
   event(tabId: number, method: string, params: unknown = {}): void {
     this.onEvent.emit({ tabId }, method, params);
+  }
+
+  /** An event from a child session (out-of-process frame) of the tab. */
+  sessionEvent(tabId: number, sessionId: string, method: string, params: unknown = {}): void {
+    this.onEvent.emit({ tabId, sessionId }, method, params);
+  }
+
+  /** Chromium auto-attaches an out-of-process frame (Target.setAutoAttach with flatten). */
+  attachFrame(tabId: number, sessionId: string, frameId: string, parentSessionId?: string): void {
+    const params = { sessionId, targetInfo: { targetId: frameId, type: "iframe", url: "https://frame.example/" } };
+    this.onEvent.emit(
+      parentSessionId === undefined ? { tabId } : { tabId, sessionId: parentSessionId },
+      "Target.attachedToTarget",
+      params,
+    );
   }
 }
 

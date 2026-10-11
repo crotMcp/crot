@@ -18,9 +18,10 @@
 > `ff571c2`.
 > Merged since: WP-28 (PR #16 `4d574f0`), WP-29 (`515fcb9`, Partial) and
 > WP-30 (PR #20; `main` `63a7d63`).
-> WP-31: Done (PR #21, branch `wp-31-remote-permission-profile`, awaiting
-> merge; code verified at `9ca7b5b`, CI 11/11 green; ARCHITECTURE.md §27
+> WP-31: Done, merged (PR #21, `main` `9ce0574`; ARCHITECTURE.md §27
 > AD-23).
+> WP-24: implemented, in review (PR __PR__, branch `wp-24-browser-v1`);
+> the manual run on three real sites is not performed (acceptance open).
 > Status claims below were checked against the repository tree, the source
 > files named, the CI workflows and the merged history, not taken from earlier
 > plans.
@@ -86,8 +87,9 @@ Non-negotiables used throughout this roadmap:
 
 **WP-29 — Cloud Relay v1, relay side** (§27 AD-22), merged into `main`
 (`515fcb9`); **Partial**, open items in `STATUS.md` and §6.1. The device
-side is **WP-30**, Done and merged (PR #20). WP-31 is Done (PR #21,
-awaiting merge). Before that:
+side is **WP-30**, Done and merged (PR #20). WP-31 is Done and merged
+(PR #21, `9ce0574`). WP-24 (Browser v1 CDP backend) is implemented and in
+review (PR __PR__); its manual three-site run is still open. Before that:
 
 **WP-28 — Identity and device binding** (§27 AD-21), merged in crot-mcp
 PR #16 (`4d574f0`); details in `STATUS.md` and `docs/IDENTITY.md`. The
@@ -405,14 +407,14 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part and OD-14 decided) | M | yes | with 23b/c | **Done** (AD-20; PR #6, `e1d1f61`) |
 | WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Not started (blocked: OD-9 macOS part) |
 | WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Not started (blocked: OD-9 Windows part; OD-6 at spike end) |
-| WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | Not started |
+| WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | **In review** (PR __PR__): implemented incl. out-of-process frames and element/frame-origin approval subjects; real-Chromium E2E green; manual run on three real sites **not performed** (acceptance open) |
 | WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
 | WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | Not started |
 | WP-27 | 2B | Browser: per-tab queue, explicit `tabId` for remote, `openedBy` | WP-24 | S–M | yes | with 25, 26 | Not started |
 | WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | **Done** (AD-21; crot-mcp PR #16, `4d574f0`) |
 | WP-29 | 3 | Cloud Relay v1 | WP-28 (verifier facts), OD-3 (decided: AD-21), OD-4 (decided: AD-22) | XL | yes | with phase 1/2/2B | **Partial** (crot-mcp PR #19, AD-22 as its first commit): relay side done; open — client rate/concurrency limits, per-source connection/handshake limits, registration rate limit, load test (before WP-38), device deregistration and key rotation with the orphaned-registration case (AD-22 open question 3) |
 | WP-30 | 3 | Device tunnel adapter | WP-20, WP-28, WP-29, OD-5 (decided: AD-22) | M–L | yes | — | **Done** (PR #20, merged): outbound `crot-tunnel.v1` with the WP-28 device credential, pinned relay host, refusals and reconnect; streams enter the unchanged relay entry point (tokens, ExecutionGuard, PermissionEngine, approvals, audit); multiplexing, streaming, cancellation, deadlines, loss without replay; registration at pairing (AD-22 point 4); OD-5 recorded in AD-22 points 12–13 (`37b3126`) and the §2.4/§19/§22/§25 status markers updated (`01f4a20`). Not WP-30: relay-side deregistration / key rotation and the orphaned registration (AD-22 open question 3, WP-29); measured client timeouts (WP-32) |
-| WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a, WP-30, OD-7, AD-23 (WP-23b/c not a prerequisite: AD-23 point 7) | M | yes | — | **Done** (PR #21, awaiting merge; code verified at `9ca7b5b`, CI 11/11 green): AD-23 recorded (`69408c3`; point 4 wording `4a654f5`); remote defaults only for `REMOTE_DEFAULT_CAPABILITIES`, with a guard test; the end-to-end check of the real upload/download gates is WP-26 acceptance (AD-23 point 8), not claimed by WP-31 |
+| WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a, WP-30, OD-7, AD-23 (WP-23b/c not a prerequisite: AD-23 point 7) | M | yes | — | **Done, merged** (PR #21, `9ce0574`; code verified at `9ca7b5b`, CI 11/11 green): AD-23 recorded (`69408c3`; point 4 wording `4a654f5`); remote defaults only for `REMOTE_DEFAULT_CAPABILITIES`, with a guard test; the end-to-end check of the real upload/download gates is WP-26 acceptance (AD-23 point 8), not claimed by WP-31 |
 | WP-38 | 3 | Staging cloud environment | WP-29, WP-28 | M | yes | with WP-30/31 | Not started |
 | WP-32 | 3 | Remote E2E acceptance suite and client compatibility | WP-24…WP-27, WP-30, WP-31, WP-38 | L | yes | — | Not started |
 | WP-33 | 3 | External security review and fixes | WP-32, WP-34 (release-candidate build), WP-38 | M (+fix time) | yes | with WP-37 | Not started |
@@ -646,6 +648,9 @@ today's behaviour.
   `isTrusted` for click, keys, text; cross-origin frame; open shadow root;
   forbidden CDP method cannot be sent; audit without content; manual run on at
   least three real third-party sites recorded in the repository.
+- **Status:** in review (PR __PR__). Everything above except the manual
+  three-site run is implemented and tested (`tests-e2e/browser/browser-v1.e2e.test.ts`,
+  `docs/BROWSER_E2E.md`); the manual run has not been performed.
 - **RB:** yes. **Parallel:** now, with phase 1 and 3.
 
 #### WP-25 — Dialogs, file chooser, background screenshots, debugger lifecycle, CROT tab group

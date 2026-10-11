@@ -2,6 +2,7 @@ import type { BrowserCommand } from "../../src/core/capabilities/browser/connect
 import type { ChromeApi, ChromeTab } from "./chrome-api.js";
 import { ExtensionError, isExtensionErrorCode } from "./errors.js";
 import { CdpSessions } from "./cdp.js";
+import type { CdpChannel } from "./frames.js";
 import {
   DEFAULT_TIMING,
   HISTORY_ACTIONS,
@@ -628,7 +629,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         if (clickCount !== 1 && clickCount !== 2) throw invalid("'clickCount' must be 1 or 2.");
         const modifiers = modifiersParam(params.modifiers);
         return control(params, context, ["button", "clickCount", "modifiers"], async (tabId, node) => {
-          const point = await actionablePoint(cdp, tabId, node.backendNodeId);
+          const point = await actionablePoint(node.channel, tabId, node.backendNodeId);
           await clickAt(cdp, tabId, point, {
             button: button as MouseButton,
             clickCount,
@@ -650,7 +651,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         const clear = booleanParam(params, "clear");
         const submit = params.submit === undefined ? false : booleanParam(params, "submit");
         return control(params, context, ["text", "clear", "submit"], async (tabId, node) => {
-          await typeInto(cdp, tabId, node.backendNodeId, text, { ...inputOptions, clear, submit });
+          await typeInto(node.channel, tabId, node.backendNodeId, text, { ...inputOptions, clear, submit });
         });
       }
       onlyKeys(params, ["tabId", "selector", "text", "clear", "expect"]);
@@ -693,7 +694,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
 
     async "page.hover"(params, context) {
       return control(params, context, [], async (tabId, node) => {
-        await hoverAt(cdp, tabId, await actionablePoint(cdp, tabId, node.backendNodeId));
+        await hoverAt(cdp, tabId, await actionablePoint(node.channel, tabId, node.backendNodeId));
       });
     },
 
@@ -714,7 +715,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         ["deltaX", "deltaY"],
         async (tabId, node) => {
           const point = node
-            ? await actionablePoint(cdp, tabId, node.backendNodeId, { requireEnabled: false })
+            ? await actionablePoint(node.channel, tabId, node.backendNodeId, { requireEnabled: false })
             : await viewportCenter(cdp, tabId);
           await wheelAt(cdp, tabId, point, deltaX as number, deltaY as number);
         },
@@ -728,9 +729,9 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         throw invalid("'to' must be an object with 'ref' or 'selector'.");
       onlyKeys(to as CommandParams, ["ref", "selector"]);
       return control(params, context, ["to"], async (tabId, node, refs) => {
-        const from = await actionablePoint(cdp, tabId, node.backendNodeId);
+        const from = await actionablePoint(node.channel, tabId, node.backendNodeId);
         const target = await resolveTarget(cdp, refs, tabId, to as CommandParams, SELECTOR_MAX_LENGTH);
-        const point = await actionablePoint(cdp, tabId, target.backendNodeId, { requireEnabled: false });
+        const point = await actionablePoint(target.channel, tabId, target.backendNodeId, { requireEnabled: false });
         await dragBetween(cdp, tabId, from, point);
       });
     },
@@ -744,8 +745,8 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         ["keys"],
         async (tabId, node) => {
           if (node) {
-            await actionablePoint(cdp, tabId, node.backendNodeId);
-            await cdp.send(tabId, "DOM.focus", { backendNodeId: node.backendNodeId });
+            await actionablePoint(node.channel, tabId, node.backendNodeId);
+            await node.channel.send(tabId, "DOM.focus", { backendNodeId: node.backendNodeId });
           }
           for (const combo of keys) await pressCombination(cdp, tabId, combo);
         },
@@ -764,8 +765,8 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         throw invalid("'values' must be 1 to " + SELECT_VALUES_MAX + " option values or labels.");
       let selected: string[] = [];
       const result = await control(params, context, ["values"], async (tabId, node) => {
-        await actionablePoint(cdp, tabId, node.backendNodeId);
-        ({ selected } = await selectInto(cdp, tabId, node.backendNodeId, values as string[], inputOptions));
+        await actionablePoint(node.channel, tabId, node.backendNodeId);
+        ({ selected } = await selectInto(node.channel, tabId, node.backendNodeId, values as string[], inputOptions));
       });
       return { ...result, selected };
     },
@@ -774,7 +775,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       const checked = booleanParam(params, "checked");
       let outcome: { checked: boolean | "mixed"; changed: boolean } = { checked, changed: false };
       const result = await control(params, context, ["checked"], async (tabId, node) => {
-        outcome = await setChecked(cdp, tabId, node.backendNodeId, checked);
+        outcome = await setChecked(node.channel, tabId, node.backendNodeId, checked);
       });
       return { ...result, ...outcome };
     },
@@ -839,7 +840,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     params: CommandParams,
     context: CommandContext | undefined,
     extraKeys: readonly string[],
-    act: (tabId: number, node: { backendNodeId: number }, refs: RefRegistry) => Promise<void>,
+    act: (tabId: number, node: { backendNodeId: number; channel: CdpChannel }, refs: RefRegistry) => Promise<void>,
     options: { element?: boolean } = {},
   ): Promise<{ tabId: number; url: string; navigated: boolean; newTabs: number[] }> {
     onlyKeys(params, ["tabId", "ref", "selector", "waitUntil", "timeoutMs", "expect", ...extraKeys]);
@@ -856,7 +857,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       const mainFrameId = await enableEvents(cdp, tab.id);
       const node = element
         ? await resolveTarget(cdp, refs, tab.id, params, SELECTOR_MAX_LENGTH)
-        : (undefined as unknown as { backendNodeId: number });
+        : (undefined as unknown as { backendNodeId: number; channel: CdpChannel });
       const observer = new TabObserver(api, cdp, tab.id, mainFrameId);
       try {
         if (expected) checkTab(expected, await api.tabs.get(tab.id), context);

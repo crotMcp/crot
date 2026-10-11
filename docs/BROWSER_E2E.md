@@ -1,5 +1,10 @@
 # Real-browser E2E of the browser bridge
 
+Two suites run against a real Chromium:
+`tests-e2e/browser/real-browser.e2e.test.ts` (the chain and the legacy tools)
+and `tests-e2e/browser/browser-v1.e2e.test.ts` (browser contract v1,
+ARCHITECTURE.md §27 AD-16, WP-24; see [Browser v1](#browser-v1-suite)).
+
 `tests-e2e/browser/real-browser.e2e.test.ts` checks the existing browser chain
 (ARCHITECTURE.md §16) against a **real Chromium**, end to end:
 
@@ -103,3 +108,58 @@ local HTTP server on `127.0.0.1` with an ephemeral port (CROT only accepts
 A green run means the whole chain worked in a real browser. A red run prints
 the browser output and CROT stderr; a missing `CROT_E2E_CHROME` or a non-Linux
 platform is reported as failed / skipped, never as passed.
+
+## Browser v1 suite
+
+`tests-e2e/browser/browser-v1.e2e.test.ts` runs its own isolated sandbox,
+CROT instance (`browser.read` + `browser.control`, untrusted-content rule
+off because there is no approval UI) and browser over the same unmocked
+chain. Pages: `fixtures/form.html` (sign-up form, a removable button, an
+element with an **open shadow root**, a `target=_blank` link and an iframe),
+`fixtures/frame.html` (served under `http://localhost:<port>`, a different
+origin **and site** than `http://127.0.0.1:<port>`, so Chromium puts it in
+its own process) and `fixtures/done.html` (form target). Every input event
+is reported to the test server with its `isTrusted` flag.
+
+Checked:
+
+1. `browser_snapshot`: top-level and cross-origin frame with their origins;
+   refs for top-level, out-of-process-frame and shadow-root elements; stable
+   refs across snapshots; a frame-limited snapshot.
+2. A multi-step form by refs: `browser_type` (text and password),
+   `browser_select_option`, `browser_set_checked`, `browser_press_key`, and a
+   submit click with `waitUntil: "load"` (`navigated`, the submitted values at
+   the server); the password value is never returned (`hasValue` only);
+   keydown, input and click events are trusted.
+3. `BROWSER_STALE_REF` after navigation, reload (nothing typed; the new
+   snapshot has a new ref), element removal, and after the debugger detaches
+   (CROT restarted: the extension detaches every session when the connection
+   ends; the old ref fails in the new connection and nothing is clicked).
+4. Cross-origin (out-of-process) frame: bounds in top-level coordinates, a
+   trusted click and trusted text input by ref, and the audit record with
+   `elementRole` and `frameOrigin` but no accessible name.
+5. Open shadow root: trusted click by ref.
+6. Pop-up: the click reports `newTabs`; `browser_tabs_list` names the
+   `openerTabId`.
+7. Fixed CDP surface: every command the extension sent to a tab during the
+   run is in `CDP_ALLOWED_METHODS`, none is `Runtime.*`, and input really went
+   through `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent`.
+
+For point 7 only, this suite launches the browser with
+`--remote-debugging-port=0` (test harness, `watchExtensionCdp`): the test
+attaches its own DevTools session to the extension's service worker and wraps
+`chrome.debugger.sendCommand` there to record method names. Nothing in CROT
+or the extension changes; that the extension itself refuses a method outside
+the allowlist is covered by the unit tests (`extension/test/cdp.test.ts`).
+
+Not covered here (later work packages): dialogs, file chooser, background
+screenshots (WP-25), upload and download (WP-26), two concurrent agents and
+remote `tabId` (WP-27). A manual run on real third-party sites is separate
+and has not been performed.
+
+Local run without a display (as used during WP-24):
+
+```sh
+export CROT_E2E_CHROME=/path/to/chrome CROT_E2E_HEADLESS=1 CROT_E2E_CHROME_ARGS=--no-sandbox
+npm run test:e2e:browser
+```

@@ -1,6 +1,7 @@
 import type { ChromeApi, ChromeTab } from "./chrome-api.js";
 import type { CdpSessions } from "./cdp.js";
 import { ExtensionError } from "./errors.js";
+import type { CdpChannel } from "./frames.js";
 import { axOf } from "./input.js";
 import { STALE_MESSAGE, type RefRegistry, refParam, verifyRef } from "./refs.js";
 
@@ -324,14 +325,14 @@ export async function resolveTarget(
   tabId: number,
   params: Readonly<Record<string, unknown>>,
   selectorMax: number,
-): Promise<{ backendNodeId: number; frameId?: string }> {
+): Promise<{ backendNodeId: number; frameId?: string; channel: CdpChannel }> {
   const hasRef = params.ref !== undefined;
   const hasSelector = params.selector !== undefined;
   if (hasRef === hasSelector) throw invalid("Give exactly one of 'ref' or 'selector'.");
   await cdp.send(tabId, "DOM.enable");
   if (hasRef) {
     const target = await verifyRef(registry, cdp, refParam(params.ref), tabId);
-    return { backendNodeId: target.backendNodeId, frameId: target.frameId };
+    return { backendNodeId: target.backendNodeId, frameId: target.frameId, channel: target.channel };
   }
   const selector = params.selector;
   if (typeof selector !== "string" || selector.length < 1 || selector.length > selectorMax || selector.includes("\0"))
@@ -349,7 +350,7 @@ export async function resolveTarget(
   const { node } = await cdp.send<{ node: QueryNode }>(tabId, "DOM.describeNode", { nodeId });
   if (!Number.isSafeInteger(node.backendNodeId))
     throw new ExtensionError("NOT_FOUND", "No element matches the selector.");
-  return { backendNodeId: node.backendNodeId as number };
+  return { backendNodeId: node.backendNodeId as number, channel: cdp };
 }
 
 // ---------------------------------------------------------------- browser_wait
@@ -420,9 +421,25 @@ const NON_TEXT = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
 
 /** Whether the tab's documents (shadow roots and frames pierced) contain the text. The text is never returned. */
 async function pageHasText(cdp: CdpSessions, tabId: number, text: string): Promise<boolean> {
+  const roots: TextNode[] = [];
   const { root } = await cdp.send<{ root: TextNode }>(tabId, "DOM.getDocument", { depth: -1, pierce: true });
+  roots.push(root);
+  // Documents of out-of-process frames live in their own sessions.
+  for (const child of await cdp.frameSessions(tabId)) {
+    try {
+      const doc = await cdp.send<{ root: TextNode }>(
+        tabId,
+        "DOM.getDocument",
+        { depth: -1, pierce: true },
+        child.sessionId,
+      );
+      roots.push(doc.root);
+    } catch {
+      // the frame went away meanwhile
+    }
+  }
   const parts: string[] = [];
-  const stack: TextNode[] = [root];
+  const stack: TextNode[] = [...roots].reverse();
   while (stack.length > 0) {
     const node = stack.pop() as TextNode;
     if (node.nodeType === 3 && node.nodeValue) parts.push(node.nodeValue);
@@ -442,7 +459,7 @@ async function elementState(
   condition: Extract<WaitCondition, { kind: "element" }>,
   selectorMax: number,
 ): Promise<boolean> {
-  let target: { backendNodeId: number };
+  let target: { backendNodeId: number; channel: CdpChannel };
   try {
     target = await resolveTarget(
       cdp,
@@ -464,7 +481,7 @@ async function elementState(
   if (condition.state === "detached") return false;
   let visible: boolean;
   try {
-    const { quads } = await cdp.send<{ quads: number[][] }>(tabId, "DOM.getContentQuads", {
+    const { quads } = await target.channel.send<{ quads: number[][] }>(tabId, "DOM.getContentQuads", {
       backendNodeId: target.backendNodeId,
     });
     visible = (quads ?? []).some((q) => {
@@ -477,7 +494,7 @@ async function elementState(
   }
   if (condition.state === "visible") return visible;
   if (condition.state === "hidden") return !visible;
-  const ax = await axOf(cdp, tabId, target.backendNodeId);
+  const ax = await axOf(target.channel, tabId, target.backendNodeId);
   const disabled = (ax?.properties ?? []).some((p) => p.name === "disabled" && p.value?.value === true);
   return visible && !disabled;
 }

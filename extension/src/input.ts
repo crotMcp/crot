@@ -1,4 +1,4 @@
-import type { CdpSessions } from "./cdp.js";
+import type { CdpChannel } from "./frames.js";
 import { ExtensionError } from "./errors.js";
 
 /**
@@ -54,7 +54,7 @@ interface DomNode {
 }
 
 /** Parent of every node of the tab (shadow roots and same-process frame documents pierced). */
-async function parents(cdp: CdpSessions, tabId: number): Promise<Map<number, number>> {
+async function parents(cdp: CdpChannel, tabId: number): Promise<Map<number, number>> {
   const { root } = await cdp.send<{ root: DomNode }>(tabId, "DOM.getDocument", { depth: -1, pierce: true });
   const map = new Map<number, number>();
   const stack: DomNode[] = [root];
@@ -91,7 +91,7 @@ interface AxNode {
 }
 
 /** The computed accessibility node of an element (disabled, checked, role). */
-export async function axOf(cdp: CdpSessions, tabId: number, backendNodeId: number): Promise<AxNode | undefined> {
+export async function axOf(cdp: CdpChannel, tabId: number, backendNodeId: number): Promise<AxNode | undefined> {
   const { nodes } = await cdp.send<{ nodes: AxNode[] }>(tabId, "Accessibility.getPartialAXTree", {
     backendNodeId,
     fetchRelatives: false,
@@ -130,7 +130,7 @@ function quadCenter(quad: readonly number[]): { point: Point; area: number } {
  * coordinates).
  */
 export async function actionablePoint(
-  cdp: CdpSessions,
+  cdp: CdpChannel,
   tabId: number,
   backendNodeId: number,
   options: { requireEnabled?: boolean } = {},
@@ -314,7 +314,7 @@ export function modifierBits(modifiers: readonly Exclude<Modifier, "ControlOrMet
 }
 
 /** Presses one combination: modifiers down, key down/up, modifiers up (reverse). */
-export async function pressCombination(cdp: CdpSessions, tabId: number, combo: KeyCombination): Promise<void> {
+export async function pressCombination(cdp: CdpChannel, tabId: number, combo: KeyCombination): Promise<void> {
   const down: Exclude<Modifier, "ControlOrMeta">[] = [];
   for (const m of combo.modifiers) {
     down.push(m);
@@ -372,7 +372,7 @@ export interface ClickOptions {
   readonly modifiers: readonly Exclude<Modifier, "ControlOrMeta">[];
 }
 
-export async function clickAt(cdp: CdpSessions, tabId: number, point: Point, options: ClickOptions): Promise<void> {
+export async function clickAt(cdp: CdpChannel, tabId: number, point: Point, options: ClickOptions): Promise<void> {
   const modifiers = modifierBits(options.modifiers);
   await cdp.send(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y, modifiers });
   for (let count = 1; count <= options.clickCount; count++) {
@@ -386,12 +386,12 @@ export async function clickAt(cdp: CdpSessions, tabId: number, point: Point, opt
   }
 }
 
-export async function hoverAt(cdp: CdpSessions, tabId: number, point: Point): Promise<void> {
+export async function hoverAt(cdp: CdpChannel, tabId: number, point: Point): Promise<void> {
   await cdp.send(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
 }
 
 export async function wheelAt(
-  cdp: CdpSessions,
+  cdp: CdpChannel,
   tabId: number,
   point: Point,
   deltaX: number,
@@ -401,7 +401,7 @@ export async function wheelAt(
   await cdp.send(tabId, "Input.dispatchMouseEvent", { type: "mouseWheel", x: point.x, y: point.y, deltaX, deltaY });
 }
 
-export async function dragBetween(cdp: CdpSessions, tabId: number, from: Point, to: Point): Promise<void> {
+export async function dragBetween(cdp: CdpChannel, tabId: number, from: Point, to: Point): Promise<void> {
   await cdp.send(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x: from.x, y: from.y });
   await cdp.send(tabId, "Input.dispatchMouseEvent", {
     type: "mousePressed",
@@ -427,7 +427,7 @@ export async function dragBetween(cdp: CdpSessions, tabId: number, from: Point, 
 }
 
 /** Centre of the visual viewport (page scrolling without a target). */
-export async function viewportCenter(cdp: CdpSessions, tabId: number): Promise<Point> {
+export async function viewportCenter(cdp: CdpChannel, tabId: number): Promise<Point> {
   const metrics = await cdp.send<{ cssVisualViewport?: { clientWidth: number; clientHeight: number } }>(
     tabId,
     "Page.getLayoutMetrics",
@@ -446,7 +446,7 @@ export async function viewportCenter(cdp: CdpSessions, tabId: number): Promise<P
  * inserts the text as browser input. `submit` presses Enter afterwards.
  */
 export async function typeInto(
-  cdp: CdpSessions,
+  cdp: CdpChannel,
   tabId: number,
   backendNodeId: number,
   text: string,
@@ -496,7 +496,7 @@ export interface SelectOption {
 
 /** The options of a native select (inside optgroups too), in order. */
 export async function selectOptions(
-  cdp: CdpSessions,
+  cdp: CdpChannel,
   tabId: number,
   backendNodeId: number,
 ): Promise<{ multiple: boolean; options: SelectOption[] }> {
@@ -550,7 +550,7 @@ export function chooseOptions(
  * on the others.
  */
 export async function selectInto(
-  cdp: CdpSessions,
+  cdp: CdpChannel,
   tabId: number,
   backendNodeId: number,
   wanted: readonly string[],
@@ -582,7 +582,7 @@ const CHECKABLE_ROLES = ["checkbox", "radio", "switch", "menuitemcheckbox", "men
 
 /** Sets a checkbox, radio button or switch: acts only when the state differs, reports the resulting state. */
 export async function setChecked(
-  cdp: CdpSessions,
+  cdp: CdpChannel,
   tabId: number,
   backendNodeId: number,
   checked: boolean,

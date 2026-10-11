@@ -7,9 +7,52 @@ package PR updates this file.
 
 ## Last completed
 
-**WP-31 — Remote permission profile and presets — Done** (PR #21, branch
-`wp-31-remote-permission-profile`, awaiting merge by the owner; started from
-`main` `63a7d63`). Code verified at `9ca7b5b`, CI 11/11 green. The
+**WP-24 — Browser v1: CDP backend, snapshot and refs, trusted input,
+frames, shadow DOM, waits, history — implemented, in review** (PR __PR__,
+branch `wp-24-browser-v1`, awaiting merge by the owner; started from `main`
+`9ce0574`). User docs: [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)
+("Browser v1: CDP backend"), [`docs/BROWSER_E2E.md`](docs/BROWSER_E2E.md)
+("Browser v1 suite"). Normative contract: ARCHITECTURE.md §27 AD-16 (not
+changed by this PR).
+
+- **Implemented:** `chrome.debugger` backend with the fixed CDP allowlist
+  (28 methods, no `Runtime.*`), attach on demand, idle detach after 5 min,
+  detach of every session when the CROT connection ends; `browser_snapshot`
+  (exposure source) with document-bound refs and frame refs,
+  `BROWSER_STALE_REF` without re-resolution; frames up to depth 8 / 100,
+  including **out-of-process (cross-site) frames** as auto-attached child
+  sessions (`Target.setAutoAttach` flatten) with coordinates translated to
+  the top-level viewport; open shadow roots; trusted click, hover, scroll,
+  drag, type, keys, select, checked by ref or selector with actionability
+  checks (`INVALID_INPUT`, no `force`); settle with `waitUntil`, `navigated`,
+  `newTabs`; `browser_wait`, `browser_history`; `openerTabId`; per-tab queue
+  (16); 19 MCP tools. Approval subject and audit of ref targets (AD-16
+  points 10, 16): element role and page-supplied accessible name, and the
+  frame origin for a target in a child frame, from the last snapshot of that
+  tab and connection (Core cache, reset per connection); the audit records
+  role and frame origin only, never names, values, typed text or keys.
+- **Confirmed by tests:** `npm run check` (unit and extension tests,
+  including `tests/core/browser-approval.test.ts` element subjects and
+  digest, `tests/capabilities/browser.test.ts` ref descriptions,
+  `extension/test/frames.test.ts` child sessions, routing, coordinate
+  translation and stale refs of out-of-process frames); real-Chromium E2E
+  `tests-e2e/browser/browser-v1.e2e.test.ts` (form flow by refs, stale refs
+  after navigation / reload / removal / debugger detach, `isTrusted` for
+  click, keys and text, cross-origin out-of-process frame, open shadow root,
+  pop-up `newTabs` / `openerTabId`, only allowlisted CDP methods sent).
+- **Not done — WP-24 acceptance still open:** the manual run on at least
+  three real third-party sites recorded in the repository (roadmap WP-24
+  card) has **not** been performed. ARCHITECTURE.md status markers for
+  §7.1 / AD-16 are not changed in this PR (only through an approved AD
+  edit by the owner).
+- **Out of scope (own packages):** dialogs, file chooser, background
+  screenshots, tab group (WP-25); upload and download (WP-26, OD-8);
+  remote explicit `tabId`, `openedBy`, two-agent ordering tests (WP-27).
+
+## Previously completed
+
+**WP-31 — Remote permission profile and presets — Done, merged** (PR #21,
+merged into `main` as `9ce0574`; started from `main` `63a7d63`). Code verified at `9ca7b5b`, CI 11/11 green. The
 per-principal profile decision is recorded as ARCHITECTURE.md §27 AD-23
 (commit `69408c3`; point 4 names `REMOTE_DEFAULT_CAPABILITIES`, commit
 `4a654f5`), together with §26 question 25 marked as decided by AD-23 and the
@@ -79,8 +122,6 @@ amendments of AD-19 point 7 and residual risk D. User docs updated for WP-31
 - **Release blockers outside WP-31:** L1 on macOS and Windows (WP-23b/c;
   there remote shell and process operations are refused with
   `CONFINEMENT_UNAVAILABLE`); the end-to-end upload/download check (WP-26).
-
-## Previously completed
 
 **WP-30 — Device tunnel adapter** (merged into `main` through PR #20;
 WP-31 starts from `main` `63a7d63`; ARCHITECTURE.md §27 AD-22, device
@@ -327,17 +368,20 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 
 ## Next
 
-**WP-31 — Remote permission profile and presets: Done** (PR #21, awaiting
-merge; see "Last completed"). Critical path: chain B continues WP-32 →
-WP-33 → WP-40; WP-32 waits for WP-24…WP-27 and WP-38. Release-blocking and
-not part of WP-31: L1 on macOS and Windows (WP-23b/c) and the end-to-end
-check of the real upload/download gates (WP-26).
+**WP-24 — Browser v1 (CDP backend): implemented, in review** (PR __PR__;
+see "Last completed"). Its acceptance is not closed until the manual run on
+three real third-party sites is performed and recorded. Owner's order after
+WP-24: OD-9 (L1 on macOS and Windows; opens WP-23b/c and the OD-6 spike),
+OD-8 (download hand-over, before WP-26), then WP-38 preparation starting
+with the open WP-29 items. Critical path: chain B continues WP-32 → WP-33 →
+WP-40; WP-32 waits for WP-24…WP-27 and WP-38.
 
 | WP | What | State |
 | --- | --- | --- |
-| WP-31 | Remote permission profile and presets (AD-13, AD-19, AD-23) | Done, PR #21 awaiting merge; code verified at `9ca7b5b`, CI 11/11 green; AD-23 recorded (`69408c3`; point 4 wording `4a654f5`); user docs updated (`99fb2c6`); end-to-end check of the real upload/download gates: WP-26 acceptance; see "Last completed" |
+| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | implemented, PR __PR__ awaiting merge; real-Chromium E2E green; manual run on three real sites **not performed** (acceptance open) |
+| WP-31 | Remote permission profile and presets (AD-13, AD-19, AD-23) | Done, merged (PR #21, `9ce0574`); code verified at `9ca7b5b`, CI 11/11 green; AD-23 recorded (`69408c3`; point 4 wording `4a654f5`); user docs updated (`99fb2c6`); end-to-end check of the real upload/download gates: WP-26 acceptance; see "Last completed" |
 | WP-30 | Device tunnel adapter (AD-22, device side) | Done, merged (PR #20): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32) |
-| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | unblocked (WP-18), no open decision; parallel to WP-31 |
+| WP-25, WP-27 | Browser dialogs / file chooser / background screenshots / tab group; per-tab queue for remote, explicit `tabId`, `openedBy` | unblocked by WP-24 |
 | WP-26 | Browser upload and download (AD-16 points 11–12) | after WP-24 and OD-8; also provides the end-to-end check of the WP-31 upload/download gate (AD-23 point 8) |
 | WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13); not a prerequisite of WP-31: where L1 is unavailable (macOS, Windows), remote shell and process operations are refused with `CONFINEMENT_UNAVAILABLE` and an explanation (AD-20, [`docs/L1.md`](docs/L1.md)); WP-23b/c stay open as separate packages |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |

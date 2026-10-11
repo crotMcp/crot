@@ -145,6 +145,8 @@ export class BrowserService {
   private readonly timeoutMs: number;
   private readonly pending = new Set<AbortController>();
   private readonly inFlight = new Map<number | "active", number>();
+  /** Role, name and frame of the refs of the last snapshots (AD-16 points 10, 16). */
+  private readonly refs = new RefDescriptions();
   private closed = false;
 
   constructor(private readonly deps: BrowserServiceDeps) {
@@ -404,11 +406,15 @@ export class BrowserService {
         target: { tabId: args.tabId },
       },
       async (bound) => {
+        const connectionId = bound?.connectionId ?? this.connectionId();
         const raw = await this.perTab(bound?.tabId ?? args.tabId, () =>
           this.send("page.snapshot", bindParams(params, bound), bound),
         );
         const result = validate(BrowserSnapshotResultSchema, raw, "page.snapshot");
         expectTab("page.snapshot", bound?.tabId ?? args.tabId, result.tabId);
+        // Only a snapshot of the connection it was requested on describes that connection's refs.
+        if (connectionId !== undefined && connectionId === this.connectionId())
+          this.refs.record(connectionId, result, args.frameRef === undefined);
         return result;
       },
     );
@@ -443,6 +449,7 @@ export class BrowserService {
       params: { to },
       details: { to: auditTarget(to) },
       effects: [describeTarget(to, "drop on")],
+      dropTarget: to,
     });
   }
 
@@ -563,16 +570,24 @@ export class BrowserService {
       effects?: readonly ApprovalEffect[];
       /** The legacy selector form (page function); sent unchanged. */
       legacy?: boolean;
+      /** The drop target of browser_drag, described like the target. */
+      dropTarget?: { ref?: string; selector?: string };
     },
   ): Promise<z.output<S>> {
     const target =
       args.ref !== undefined ? { ref: args.ref } : args.selector !== undefined ? { selector: args.selector } : {};
     const settle = settleParams(args);
+    // What the last snapshot of this connection said about the referenced elements (AD-16 points 10, 16).
+    const elements: ElementTarget[] = [
+      ...(args.ref !== undefined ? [{ ref: args.ref, prefix: "" }] : []),
+      ...(spec.dropTarget?.ref !== undefined ? [{ ref: spec.dropTarget.ref, prefix: "drop on " }] : []),
+    ].map((e) => ({ ...e, description: this.describeRef(e.ref, args.tabId) }));
+    const auditElements = Object.assign({}, ...elements.map(auditElement)) as Record<string, string>;
     return this.run(
       context,
       operation,
       "browser.control",
-      { tabId: tabRef(args.tabId), ...auditTarget(target), ...(spec.details ?? {}), ...settle },
+      { tabId: tabRef(args.tabId), ...auditTarget(target), ...(spec.details ?? {}), ...auditElements, ...settle },
       {
         summary: spec.summary,
         effects: [
@@ -580,6 +595,7 @@ export class BrowserService {
           ...(spec.effects ?? []),
         ],
         target: { tabId: args.tabId },
+        elements,
       },
       async (bound) => {
         const params = { ...tab(args.tabId), ...target, ...(spec.params ?? {}), ...(spec.legacy ? {} : settle) };
@@ -652,7 +668,13 @@ export class BrowserService {
         : async (): Promise<ApprovalBinding> => {
             const binding = await this.bindTarget(target);
             bound = binding.browser;
-            return binding;
+            const elements = approval.elements ?? [];
+            if (elements.length === 0 || !bound) return binding;
+            const { tabId, connectionId } = bound;
+            return {
+              ...binding,
+              effects: [...(binding.effects ?? []), ...elements.flatMap((e) => elementEffects(e, tabId, connectionId))],
+            };
           };
     return this.deps.guard.run(
       context,
@@ -695,6 +717,21 @@ export class BrowserService {
         { label: "tab origin", value: origin },
       ],
     };
+  }
+
+  /** The connectionId of the current connection, if connected. */
+  private connectionId(): string | undefined {
+    const state = this.deps.connection?.state();
+    return state?.kind === "connected" ? state.connectionId : undefined;
+  }
+
+  /** The snapshot description of a ref on the current connection; undefined when unknown or for another tab. */
+  private describeRef(ref: string, tabId: number | undefined): RefDescription | undefined {
+    const connectionId = this.connectionId();
+    if (connectionId === undefined) return undefined;
+    const description = this.refs.lookup(connectionId, ref);
+    if (description === undefined || (tabId !== undefined && description.tabId !== tabId)) return undefined;
+    return description;
   }
 
   private assertOpen(): void {
@@ -797,6 +834,118 @@ interface BrowserApproval {
   readonly effects: readonly ApprovalEffect[];
   /** Absent: the operation does not act on a tab (status, tabs_list) and has no browser binding. */
   readonly target?: BrowserTarget;
+  /** Elements named by ref; their role, name and frame origin join the binding's effects. */
+  readonly elements?: readonly ElementTarget[];
+}
+
+/** What a snapshot reported about one ref (AD-16 points 5, 10). Role and name are page-supplied. */
+export interface RefDescription {
+  readonly connectionId: string;
+  readonly tabId: number;
+  readonly frameRef: string;
+  /** Normalized origin of the element's frame; null when the snapshot reported none. */
+  readonly frameOrigin: string | null;
+  /** Whether the element is in a child frame (not the top-level document). */
+  readonly childFrame: boolean;
+  readonly role: string;
+  readonly name: string;
+}
+
+interface ElementTarget {
+  readonly ref: string;
+  /** "" for the target, "drop on " for the drop target of browser_drag. */
+  readonly prefix: string;
+  readonly description: RefDescription | undefined;
+}
+
+/** Bound on remembered ref descriptions; the oldest are forgotten (then described as unknown). */
+export const BROWSER_REF_DESCRIPTIONS_MAX = 20_000;
+const MAX_EFFECT_NAME = 200;
+
+/**
+ * Role, accessible name and frame of the refs reported by browser_snapshot,
+ * per connection (refs are unique within one connection of the extension).
+ * Used only to describe a ref target in the approval subject and the audit;
+ * it never resolves a ref: the extension alone decides whether a ref is
+ * stale. A new connection forgets everything; a full snapshot of a tab
+ * replaces that tab's descriptions.
+ */
+export class RefDescriptions {
+  private connectionId: string | undefined;
+  private readonly byRef = new Map<string, RefDescription>();
+
+  constructor(private readonly max = BROWSER_REF_DESCRIPTIONS_MAX) {}
+
+  record(connectionId: string, snapshot: BrowserSnapshotResult, full: boolean): void {
+    this.use(connectionId);
+    if (full) {
+      for (const [ref, d] of this.byRef) if (d.tabId === snapshot.tabId) this.byRef.delete(ref);
+    }
+    const frames = new Map(snapshot.frames.map((f) => [f.frameRef, f]));
+    for (const element of snapshot.elements) {
+      const frame = frames.get(element.frameRef);
+      this.byRef.delete(element.ref);
+      this.byRef.set(element.ref, {
+        connectionId,
+        tabId: snapshot.tabId,
+        frameRef: element.frameRef,
+        frameOrigin: frame?.origin ?? null,
+        // An element of an unlisted frame is treated as being in a child frame: its origin is shown as unknown.
+        childFrame: frame === undefined || frame.parentFrameRef !== null,
+        role: element.role,
+        name: element.name,
+      });
+    }
+    while (this.byRef.size > this.max) {
+      const oldest = this.byRef.keys().next().value as string;
+      this.byRef.delete(oldest);
+    }
+  }
+
+  lookup(connectionId: string, ref: string): RefDescription | undefined {
+    this.use(connectionId);
+    return this.byRef.get(ref);
+  }
+
+  get size(): number {
+    return this.byRef.size;
+  }
+
+  private use(connectionId: string): void {
+    if (this.connectionId === connectionId) return;
+    this.connectionId = connectionId;
+    this.byRef.clear();
+  }
+}
+
+/**
+ * Approval effects of one ref target, checked against the binding: the
+ * element's role and accessible name (page-supplied) and, in a child frame,
+ * the frame's origin (AD-16 points 10, 16). A ref the last snapshot of this
+ * tab and connection did not describe is shown as such; the extension then
+ * decides whether it is stale.
+ */
+function elementEffects(e: ElementTarget, tabId: number | undefined, connectionId: string): ApprovalEffect[] {
+  const d = e.description;
+  if (d === undefined || d.connectionId !== connectionId || (tabId !== undefined && d.tabId !== tabId))
+    return [{ label: `${e.prefix}element`, value: "not described by a snapshot of this tab" }];
+  const name = d.name.length > MAX_EFFECT_NAME ? `${d.name.slice(0, MAX_EFFECT_NAME)}\u2026` : d.name;
+  return [
+    { label: `${e.prefix}element`, value: name.length > 0 ? `${d.role} "${name}"` : d.role, flag: "page_supplied" },
+    ...(d.childFrame ? [{ label: `${e.prefix}frame origin`, value: d.frameOrigin ?? "unknown" }] : []),
+  ];
+}
+
+/** Audit form of a described ref: role and, in a child frame, the frame origin. Never the accessible name. */
+function auditElement(e: ElementTarget): Record<string, string> {
+  const d = e.description;
+  if (d === undefined) return {};
+  const key = e.prefix === "" ? "" : "drop";
+  const field = (name: string): string => (key === "" ? name : key + name[0]?.toUpperCase() + name.slice(1));
+  return {
+    [field("elementRole")]: d.role.slice(0, MAX_EFFECT_NAME),
+    ...(d.childFrame ? { [field("frameOrigin")]: d.frameOrigin ?? "unknown" } : {}),
+  };
 }
 
 const NO_TARGET = (summary: string): BrowserApproval => ({ summary, effects: [] });

@@ -8,7 +8,7 @@ import type {
   BrowserRequestOptions,
 } from "../../src/core/capabilities/browser/connection.js";
 import type { BrowserInfo } from "../../src/core/capabilities/browser/schemas.js";
-import { BrowserService } from "../../src/core/capabilities/browser/service.js";
+import { BrowserService, RefDescriptions } from "../../src/core/capabilities/browser/service.js";
 import { CrotError } from "../../src/core/errors.js";
 import { ExecutionGuard } from "../../src/core/execution/guard.js";
 import type { Capability } from "../../src/core/permissions/capabilities.js";
@@ -471,5 +471,98 @@ describe("BrowserService shutdown", () => {
     await expect(service.click(ctx, { selector: "#a" })).rejects.toMatchObject({ code: "OPERATION_FAILED" });
     await expect(service.status(ctx)).rejects.toMatchObject({ code: "OPERATION_FAILED" });
     expect(fake.calls).toHaveLength(1);
+  });
+});
+
+describe("BrowserService ref descriptions (AD-16 points 10, 16)", () => {
+  const frames = [
+    { frameRef: "f1", parentFrameRef: null, url: PAGE_URL, origin: "https://example.com", restricted: false },
+    {
+      frameRef: "f2",
+      parentFrameRef: "f1",
+      url: "https://ads.example.net/x",
+      origin: "https://ads.example.net",
+      restricted: false,
+    },
+  ];
+  const element = (ref: string, frameRef: string, role = "button", name = "Go") => ({
+    ref,
+    frameRef,
+    role,
+    name,
+    states: {},
+    bounds: null,
+    inViewport: true,
+  });
+  const snap = (tabId: number, elements: ReturnType<typeof element>[]) => ({
+    tabId,
+    url: PAGE_URL,
+    title: "Example",
+    frames,
+    elements,
+    truncated: false,
+  });
+
+  it("audits role and child-frame origin of a ref target without a gate, never the name", async () => {
+    const { service, audit, fake } = setup({ mode: "full_control" });
+    fake.handlers.set("page.snapshot", () =>
+      snap(1, [element("e1", "f1", "button", "Pay $5"), element("e2", "f2", "link", "Win a prize")]),
+    );
+    fake.handlers.set("page.click", (p) => ({ tabId: p.tabId ?? 1, url: PAGE_URL }));
+    await service.snapshot(ctx, { tabId: 1 });
+    await service.click(ctx, { tabId: 1, ref: "e1" });
+    await service.click(ctx, { ref: "e2" });
+    await service.click(ctx, { tabId: 2, ref: "e2" }); // another tab: not described
+    expect(audit.events.slice(1).map((e) => e.details)).toEqual([
+      { tabId: 1, ref: "e1", elementRole: "button" },
+      { tabId: "active", ref: "e2", elementRole: "link", frameOrigin: "https://ads.example.net" },
+      { tabId: 2, ref: "e2" },
+    ]);
+    const serialized = JSON.stringify(audit.events);
+    expect(serialized).not.toContain("Pay $5");
+    expect(serialized).not.toContain("Win a prize");
+  });
+
+  it("does not record a snapshot answered after the connection changed", async () => {
+    const { service, audit, fake } = setup({ mode: "full_control" });
+    fake.handlers.set("page.snapshot", () => {
+      fake.current = { kind: "connected", browser: BROWSER, connectionId: "d".repeat(32) };
+      return snap(1, [element("e1", "f1")]);
+    });
+    fake.handlers.set("page.click", () => ({ tabId: 1, url: PAGE_URL }));
+    await service.snapshot(ctx, { tabId: 1 });
+    await service.click(ctx, { tabId: 1, ref: "e1" });
+    expect(audit.events.at(-1)?.details).toEqual({ tabId: 1, ref: "e1" });
+  });
+
+  it("a full snapshot replaces the tab's refs, a frame snapshot adds to them, a new connection forgets them", () => {
+    const refs = new RefDescriptions();
+    refs.record(CONNECTION_ID, snap(1, [element("e1", "f1"), element("e2", "f2")]), true);
+    refs.record(CONNECTION_ID, snap(2, [element("e3", "f1")]), true);
+    refs.record(CONNECTION_ID, { ...snap(1, [element("e4", "f2")]) }, false);
+    expect(refs.lookup(CONNECTION_ID, "e1")).toMatchObject({
+      tabId: 1,
+      childFrame: false,
+      frameOrigin: "https://example.com",
+    });
+    expect(refs.lookup(CONNECTION_ID, "e4")).toMatchObject({
+      childFrame: true,
+      frameOrigin: "https://ads.example.net",
+    });
+    refs.record(CONNECTION_ID, snap(1, [element("e5", "f1")]), true);
+    expect(refs.lookup(CONNECTION_ID, "e1")).toBeUndefined();
+    expect(refs.lookup(CONNECTION_ID, "e4")).toBeUndefined();
+    expect(refs.lookup(CONNECTION_ID, "e3")).toMatchObject({ tabId: 2 });
+    expect(refs.lookup("e".repeat(32), "e5")).toBeUndefined();
+    expect(refs.size).toBe(0);
+  });
+
+  it("treats an element of an unlisted frame as a child frame of unknown origin, and stays bounded", () => {
+    const refs = new RefDescriptions(2);
+    refs.record(CONNECTION_ID, snap(1, [element("e1", "f9"), element("e2", "f1"), element("e3", "f1")]), true);
+    expect(refs.size).toBe(2);
+    expect(refs.lookup(CONNECTION_ID, "e1")).toBeUndefined();
+    refs.record(CONNECTION_ID, snap(3, [element("e7", "f9")]), true);
+    expect(refs.lookup(CONNECTION_ID, "e7")).toMatchObject({ childFrame: true, frameOrigin: null });
   });
 });

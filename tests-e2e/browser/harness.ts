@@ -151,16 +151,17 @@ export interface RecordedRequest {
 
 export interface FixtureServer {
   readonly origin: string;
+  /** The same server under another host name (localhost): a different origin and site, for cross-origin frames. */
+  readonly crossOrigin: string;
   readonly requests: RecordedRequest[];
   close(): Promise<void>;
 }
 
 /** Local HTTP server (127.0.0.1, ephemeral port) for the controlled test pages. CROT only allows http:/https: URLs. */
 export async function startFixtureServer(): Promise<FixtureServer> {
-  const pages = new Map<string, string>([
-    ["/start.html", await readFile(path.join(FIXTURES_DIR, "start.html"), "utf8")],
-    ["/fixture.html", await readFile(path.join(FIXTURES_DIR, "fixture.html"), "utf8")],
-  ]);
+  const pages = new Map<string, string>();
+  for (const name of (await readdir(FIXTURES_DIR)).filter((n) => n.endsWith(".html")).sort())
+    pages.set(`/${name}`, await readFile(path.join(FIXTURES_DIR, name), "utf8"));
   const requests: RecordedRequest[] = [];
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -184,6 +185,7 @@ export async function startFixtureServer(): Promise<FixtureServer> {
   const { port } = server.address() as AddressInfo;
   return {
     origin: `http://127.0.0.1:${port}`,
+    crossOrigin: `http://localhost:${port}`,
     requests,
     close: () =>
       new Promise<void>((resolve) => {
@@ -205,7 +207,11 @@ export interface ChromeInstance {
  * unpacked CROT extension loaded. CROT_E2E_HEADLESS=1 adds --headless=new;
  * CROT_E2E_CHROME_ARGS adds extra flags (whitespace separated).
  */
-export function launchChrome(executable: string, sb: Sandbox): ChromeInstance {
+export function launchChrome(
+  executable: string,
+  sb: Sandbox,
+  options: { readonly remoteDebugging?: boolean } = {},
+): ChromeInstance {
   const extra = (process.env.CROT_E2E_CHROME_ARGS ?? "").split(/\s+/).filter((a) => a.length > 0);
   const headless = process.env.CROT_E2E_HEADLESS === "1" ? ["--headless=new"] : [];
   const args = [
@@ -222,6 +228,7 @@ export function launchChrome(executable: string, sb: Sandbox): ChromeInstance {
     "--password-store=basic",
     "--use-mock-keychain",
     ...headless,
+    ...(options.remoteDebugging ? ["--remote-debugging-port=0"] : []),
     ...extra,
     "about:blank",
   ];
@@ -381,3 +388,94 @@ export async function waitFor<T>(probe: () => Promise<T | undefined>, timeoutMs:
 }
 
 export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Test-side witness of the extension's CDP traffic (AD-16 point 3): over the
+ * browser's own remote-debugging port (launchChrome with remoteDebugging),
+ * attach to the CROT extension's service worker and wrap
+ * chrome.debugger.sendCommand there, recording the method of every command
+ * the extension sends to a tab. Nothing in CROT or the extension is changed:
+ * the wrapper lives only in the test's DevTools session of the worker.
+ */
+export interface CdpWitness {
+  /** Methods the extension sent since install(), in order. */
+  methods(): Promise<string[]>;
+  /** Whether a debugger (the extension's; the witness never attaches to pages) is attached to the page target with this URL prefix. */
+  pageAttached(urlPrefix: string): Promise<boolean | undefined>;
+  close(): void;
+}
+
+export async function watchExtensionCdp(sb: Sandbox): Promise<CdpWitness> {
+  const file = path.join(sb.profileDir, "DevToolsActivePort");
+  const [port, wsPath] = await waitFor(
+    async () => {
+      const lines = (await readFile(file, "utf8")).split("\n").map((l) => l.trim());
+      return lines[0] && lines[1] ? [lines[0], lines[1]] : undefined;
+    },
+    10_000,
+    "DevToolsActivePort",
+  );
+  const ws = new WebSocket(`ws://127.0.0.1:${port}${wsPath}`);
+  await new Promise<void>((resolve, reject) => {
+    ws.addEventListener("open", () => resolve(), { once: true });
+    ws.addEventListener("error", () => reject(new Error("cannot connect to the DevTools endpoint")), { once: true });
+  });
+  let nextId = 1;
+  const waiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  ws.addEventListener("message", (event) => {
+    const msg = JSON.parse(String(event.data)) as { id?: number; result?: unknown; error?: { message: string } };
+    if (msg.id === undefined) return;
+    const w = waiting.get(msg.id);
+    if (!w) return;
+    waiting.delete(msg.id);
+    if (msg.error) w.reject(new Error(msg.error.message));
+    else w.resolve(msg.result);
+  });
+  const send = <T>(method: string, params: object = {}, sessionId?: string): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const id = nextId++;
+      waiting.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      ws.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+    });
+  const workerUrl = `chrome-extension://${EXTENSION_ID}/`;
+  const target = await waitFor(
+    async () => {
+      const { targetInfos } = await send<{ targetInfos: Array<{ targetId: string; type: string; url: string }> }>(
+        "Target.getTargets",
+      );
+      return targetInfos.find((t) => t.type === "service_worker" && t.url.startsWith(workerUrl));
+    },
+    10_000,
+    "the CROT extension service worker target",
+  );
+  const { sessionId } = await send<{ sessionId: string }>("Target.attachToTarget", {
+    targetId: target.targetId,
+    flatten: true,
+  });
+  const evaluate = async <T>(expression: string): Promise<T> => {
+    const { result, exceptionDetails } = await send<{
+      result: { value?: T };
+      exceptionDetails?: { text: string };
+    }>("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true }, sessionId);
+    if (exceptionDetails) throw new Error(`evaluate failed: ${exceptionDetails.text}`);
+    return result.value as T;
+  };
+  await evaluate(`(() => {
+    if (globalThis.__crotE2eCdpMethods) return true;
+    const methods = [];
+    globalThis.__crotE2eCdpMethods = methods;
+    const original = chrome.debugger.sendCommand.bind(chrome.debugger);
+    chrome.debugger.sendCommand = (target, method, ...rest) => { methods.push(method); return original(target, method, ...rest); };
+    return true;
+  })()`);
+  return {
+    methods: () => evaluate<string[]>("globalThis.__crotE2eCdpMethods.slice()"),
+    pageAttached: async (urlPrefix) => {
+      const { targetInfos } = await send<{
+        targetInfos: Array<{ type: string; url: string; attached: boolean }>;
+      }>("Target.getTargets");
+      return targetInfos.find((t) => t.type === "page" && t.url.startsWith(urlPrefix))?.attached;
+    },
+    close: () => ws.close(),
+  };
+}
