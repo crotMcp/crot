@@ -23,6 +23,12 @@ export type CrotErrorCode =
   /** The browser does not allow the operation on this page (e.g. browser-internal or store pages). */
   | "BROWSER_PAGE_RESTRICTED"
   /**
+   * An element reference from browser_snapshot no longer names its element:
+   * its document, frame, element, tab, debugger session or connection changed.
+   * Nothing was done; the agent takes a new snapshot (ARCHITECTURE.md §27, AD-16 point 5).
+   */
+  | "BROWSER_STALE_REF"
+  /**
    * The repository's own Git configuration contains settings that could make a
    * git.read or git.write operation run programs; the operation is refused
    * (ARCHITECTURE.md §27, AD-1 and AD-2).

@@ -29,10 +29,13 @@ export interface ChromeTab {
   readonly title?: string;
   readonly active: boolean;
   readonly status?: string;
+  /** The tab that opened this one (window.open, target=_blank), when the browser knows it. */
+  readonly openerTabId?: number;
 }
 
 export interface ChromeTabChangeInfo {
   readonly status?: string;
+  readonly url?: string;
 }
 
 export interface ChromeTabQuery {
@@ -83,6 +86,10 @@ export interface ChromeApi {
     captureVisibleTab(windowId: number, options: ChromeCaptureOptions): Promise<string>;
     readonly onUpdated: ChromeEvent<(tabId: number, changeInfo: ChromeTabChangeInfo, tab: ChromeTab) => void>;
     readonly onRemoved: ChromeEvent<(tabId: number) => void>;
+    readonly onCreated: ChromeEvent<(tab: ChromeTab) => void>;
+    goBack(tabId: number): Promise<void>;
+    goForward(tabId: number): Promise<void>;
+    reload(tabId: number, properties?: { readonly bypassCache?: boolean }): Promise<void>;
   };
   readonly windows: {
     update(windowId: number, properties: { readonly focused: boolean }): Promise<unknown>;
