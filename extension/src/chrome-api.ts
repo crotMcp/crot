@@ -33,6 +33,13 @@ export interface ChromeTab {
   readonly openerTabId?: number;
 }
 
+export interface ChromeWindow {
+  readonly id?: number;
+  readonly focused?: boolean;
+  /** normal, minimized, maximized, fullscreen, locked-fullscreen. */
+  readonly state?: string;
+}
+
 export interface ChromeTabChangeInfo {
   readonly status?: string;
   readonly url?: string;
@@ -50,7 +57,7 @@ export interface ChromeCaptureOptions {
 }
 
 export interface ChromeScriptInjection<A extends unknown[], R> {
-  readonly target: { readonly tabId: number };
+  readonly target: { readonly tabId: number; readonly allFrames?: boolean };
   readonly func: (...args: A) => R;
   readonly args: A;
   readonly world: "ISOLATED";
@@ -96,7 +103,8 @@ export interface ChromeApi {
     reload(tabId: number, properties?: { readonly bypassCache?: boolean }): Promise<void>;
   };
   readonly windows: {
-    update(windowId: number, properties: { readonly focused: boolean }): Promise<unknown>;
+    get(windowId: number): Promise<ChromeWindow>;
+    update(windowId: number, properties: { readonly focused?: boolean; readonly state?: "normal" }): Promise<unknown>;
   };
   readonly scripting: {
     executeScript<A extends unknown[], R>(injection: ChromeScriptInjection<A, R>): Promise<ChromeInjectionResult[]>;

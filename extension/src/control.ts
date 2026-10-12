@@ -245,13 +245,15 @@ export interface ControlResult {
   readonly url: string;
   readonly navigated: boolean;
   readonly newTabs: number[];
+  /** The navigation the action started did not reach waitUntil within timeoutMs (it goes on loading). */
+  readonly loadTimedOut?: true;
 }
 
 /**
  * The settle phase after an action: a fixed quiet period; when the action
  * started a top-level navigation, wait for it to reach `waitUntil` (bounded).
- * A navigation that does not finish in time is still reported as navigated;
- * the action has happened and is never repeated.
+ * A navigation that does not finish in time is still reported as navigated,
+ * with loadTimedOut; the action has happened and is never repeated.
  */
 export async function settle(
   api: ChromeApi,
@@ -264,16 +266,18 @@ export async function settle(
   const deadline = Date.now() + timeoutMs;
   try {
     await sleep(Math.min(timing.quietMs, timeoutMs));
+    let timedOut = false;
     if (observer.navigationStarted) {
-      await waitForLoadState(api, observer.tabId, waitUntil, deadline, observer, timing);
+      timedOut = (await waitForLoadState(api, observer.tabId, waitUntil, deadline, observer, timing)) === false;
     }
     const tab = await tabNow(api, observer.tabId);
-    return {
+    const result: ControlResult = {
       tabId: observer.tabId,
       url: (tab ? tab.url || tab.pendingUrl || "" : "").slice(0, urlMax),
       navigated: observer.navigationStarted,
       newTabs: observer.newTabs,
     };
+    return timedOut ? { ...result, loadTimedOut: true } : result;
   } finally {
     observer.dispose();
   }
@@ -408,48 +412,62 @@ export function waitConditionParam(params: Readonly<Record<string, unknown>>, ur
   }
 }
 
-interface TextNode {
-  readonly nodeType?: number;
-  readonly nodeName?: string;
-  readonly nodeValue?: string;
-  readonly children?: readonly TextNode[];
-  readonly shadowRoots?: readonly TextNode[];
-  readonly contentDocument?: TextNode;
+interface LayoutSnapshot {
+  readonly documents?: readonly {
+    readonly nodes?: { readonly nodeType?: readonly number[]; readonly nodeValue?: readonly number[] };
+    readonly layout?: {
+      readonly nodeIndex?: readonly number[];
+      readonly styles?: readonly (readonly number[])[];
+      readonly text?: readonly number[];
+    };
+  }[];
+  readonly strings?: readonly string[];
 }
 
-const NON_TEXT = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
+/** The rendered text of one session's documents: text with a layout box whose visibility is not hidden. */
+function renderedText(snapshot: LayoutSnapshot): string[] {
+  const strings = snapshot.strings ?? [];
+  const at = (index: number | undefined): string =>
+    index !== undefined && index >= 0 && index < strings.length ? (strings[index] as string) : "";
+  const parts: string[] = [];
+  for (const doc of snapshot.documents ?? []) {
+    const nodeType = doc.nodes?.nodeType ?? [];
+    const nodeValue = doc.nodes?.nodeValue ?? [];
+    const layout = doc.layout;
+    const nodeIndex = layout?.nodeIndex ?? [];
+    for (let i = 0; i < nodeIndex.length; i++) {
+      const node = nodeIndex[i] as number;
+      if (nodeType[node] !== 3) continue;
+      const visibility = at(layout?.styles?.[i]?.[0]);
+      if (visibility === "hidden" || visibility === "collapse") continue;
+      const text = layout?.text?.[i];
+      parts.push(text !== undefined && text >= 0 ? at(text) : at(nodeValue[node]));
+    }
+  }
+  return parts;
+}
 
-/** Whether the tab's documents (shadow roots and frames pierced) contain the text. The text is never returned. */
+/**
+ * Whether the tab shows the text: rendered text only (AD-16 point 7), so text
+ * in display:none or visibility:hidden elements, scripts and templates does
+ * not count. Shadow roots and frames (out-of-process frames through their
+ * sessions) are included. The text is never returned.
+ */
 async function pageHasText(cdp: CdpSessions, tabId: number, text: string): Promise<boolean> {
-  const roots: TextNode[] = [];
-  const { root } = await cdp.send<{ root: TextNode }>(tabId, "DOM.getDocument", { depth: -1, pierce: true });
-  roots.push(root);
-  // Documents of out-of-process frames live in their own sessions.
+  const params = { computedStyles: ["visibility"] };
+  const parts = renderedText(await cdp.send<LayoutSnapshot>(tabId, "DOMSnapshot.captureSnapshot", params));
   for (const child of await cdp.frameSessions(tabId)) {
     try {
-      const doc = await cdp.send<{ root: TextNode }>(
-        tabId,
-        "DOM.getDocument",
-        { depth: -1, pierce: true },
-        child.sessionId,
+      parts.push(
+        ...renderedText(await cdp.send<LayoutSnapshot>(tabId, "DOMSnapshot.captureSnapshot", params, child.sessionId)),
       );
-      roots.push(doc.root);
     } catch {
       // the frame went away meanwhile
     }
   }
-  const parts: string[] = [];
-  const stack: TextNode[] = [...roots].reverse();
-  while (stack.length > 0) {
-    const node = stack.pop() as TextNode;
-    if (node.nodeType === 3 && node.nodeValue) parts.push(node.nodeValue);
-    if (node.nodeName && NON_TEXT.has(node.nodeName.toUpperCase())) continue;
-    const children = [...(node.children ?? []), ...(node.shadowRoots ?? [])];
-    if (node.contentDocument) children.push(node.contentDocument);
-    for (let i = children.length - 1; i >= 0; i--) stack.push(children[i] as TextNode);
-  }
   const normalize = (s: string) => s.replace(/\s+/g, " ");
-  return normalize(parts.join(" ")).includes(normalize(text).trim());
+  const wanted = normalize(text).trim();
+  return normalize(parts.join(" ")).includes(wanted) || normalize(parts.join("")).includes(wanted);
 }
 
 async function elementState(

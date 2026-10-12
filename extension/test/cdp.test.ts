@@ -61,10 +61,14 @@ const FORBIDDEN = [
 
 describe("CDP allowlist (AD-16 point 3)", () => {
   it("contains only methods of the allowed domains", () => {
-    const domains = new Set(["Accessibility", "DOM", "DOMSnapshot", "Input", "Page", "Target", "Network"]);
+    const domains = new Set(["Accessibility", "DOM", "DOMSnapshot", "Emulation", "Input", "Page", "Target", "Network"]);
     for (const method of CDP_ALLOWED_METHODS) expect(domains.has(method.split(".")[0] as string)).toBe(true);
     expect([...CDP_ALLOWED_METHODS].filter((m) => m.startsWith("Network."))).toEqual(["Network.enable"]);
     expect([...CDP_ALLOWED_METHODS].filter((m) => m.startsWith("Target."))).toEqual(["Target.setAutoAttach"]);
+    // Focus emulation only: no device, network, script or timezone emulation.
+    expect([...CDP_ALLOWED_METHODS].filter((m) => m.startsWith("Emulation."))).toEqual([
+      "Emulation.setFocusEmulationEnabled",
+    ]);
   });
 
   it("never contains a forbidden method", () => {

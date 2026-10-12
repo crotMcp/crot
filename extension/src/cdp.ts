@@ -30,10 +30,12 @@ export const CDP_IDLE_DETACH_MS = 5 * 60_000;
  * Every CDP method the extension may send (AD-16 point 3). Domains:
  * Accessibility, DOM (read, box model, focus, scroll into view, resolve and
  * describe), DOMSnapshot, Input, Page (lifecycle, history, frame tree),
- * Target (auto-attach to child frames) and event-only Network.
+ * Target (auto-attach to child frames), event-only Network and one Emulation
+ * method: focus emulation, so that keys and focus reach the page while the
+ * browser window is not the focused window (it changes nothing else).
  *
  * Not here, therefore never sendable: Runtime.*, Debugger.*, Fetch.*,
- * Storage.*, Browser.*, SystemInfo.*, Emulation.*, Network.getCookies /
+ * Storage.*, Browser.*, SystemInfo.*, every other Emulation method, Network.getCookies /
  * getResponseBody / interception, Target.createTarget,
  * Target.createBrowserContext, Page.addScriptToEvaluateOnNewDocument.
  * DOM.setFileInputFiles and the Page dialog / file chooser / download methods
@@ -56,6 +58,7 @@ export const CDP_ALLOWED_METHODS: ReadonlySet<string> = new Set([
   "DOM.querySelector",
   "DOM.requestNode",
   "DOMSnapshot.captureSnapshot",
+  "Emulation.setFocusEmulationEnabled",
   "Input.dispatchMouseEvent",
   "Input.dispatchKeyEvent",
   "Input.insertText",

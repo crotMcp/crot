@@ -63,6 +63,16 @@ function page(fake: FakeChrome, tabId: number) {
     ],
   };
   d.respond(tabId, "DOM.getDocument", () => ({ root: doc }));
+  // Layout: "Send now" rendered; "Hidden secret" laid out with visibility:hidden; display:none text has no layout box.
+  d.respond(tabId, "DOMSnapshot.captureSnapshot", () => ({
+    strings: ["Send now", "visible", "Hidden secret", "hidden", "Not displayed"],
+    documents: [
+      {
+        nodes: { nodeType: [9, 1, 3, 3, 3], nodeValue: [-1, -1, 0, 2, 4] },
+        layout: { nodeIndex: [0, 1, 2, 3], styles: [[1], [1], [1], [3]], text: [-1, -1, 0, 2] },
+      },
+    ],
+  }));
   d.respond(tabId, "DOM.querySelector", (p: { selector: string }) => ({ nodeId: p.selector === "button" ? 2 : 0 }));
   d.respond(tabId, "DOM.describeNode", () => ({ node: { nodeId: 2, backendNodeId: 10, localName: "button" } }));
   d.respond(tabId, "DOM.scrollIntoViewIfNeeded", () => ({}));
@@ -90,7 +100,7 @@ function setup() {
   const fake = new FakeChrome();
   fake.addTab({ id: 1, active: true, url: "https://example.com/" });
   const cdp = new CdpSessions(fake.api);
-  const handlers = createCommandHandlers(fake.api, { cdp, timing: FAST });
+  const handlers = createCommandHandlers(fake.api, { cdp, timing: FAST, visibleWaitMs: 50 });
   const p = page(fake, 1);
   return { fake, cdp, handlers, p };
 }
@@ -185,7 +195,58 @@ describe("Browser v1 commands", () => {
       .filter((s) => s.method === "Input.dispatchMouseEvent")
       .map((s) => (s.params as { type: string }).type);
     expect(mouse).toEqual(["mouseMoved", "mousePressed", "mouseReleased"]);
-    expect(fake.injections).toHaveLength(0);
+    // Only the delivery checks run in the page (isolated world): visibility, then the input probe.
+    expect(fake.injections.map((i) => i.func.name)).toEqual([
+      "pageVisibility",
+      "installInputProbe",
+      "collectInputProbe",
+    ]);
+    expect(fake.injections.every((i) => i.world === "ISOLATED")).toBe(true);
+    expect(
+      fake.debugger.sent.some(
+        (s) => s.method === "Emulation.setFocusEmulationEnabled" && (s.params as { enabled: boolean }).enabled,
+      ),
+    ).toBe(true);
+  });
+
+  it("activates a background tab before input and reports it", async () => {
+    const { fake, handlers } = setup();
+    fake.addTab({ id: 2, active: false, url: "https://example.com/" });
+    page(fake, 2);
+    const result = (await handlers["page.click"]({ tabId: 2, selector: "button", clickCount: 1 }, context)) as Record<
+      string,
+      unknown
+    >;
+    expect(result).toEqual({ tabId: 2, url: "https://example.com/", navigated: false, newTabs: [], activated: true });
+    expect(fake.tabsById.get(2)?.active).toBe(true);
+    expect(fake.tabsById.get(1)?.active).toBe(false);
+  });
+
+  it("restores a minimized window, and refuses input to a page that stays hidden", async () => {
+    const { fake, handlers } = setup();
+    fake.windowStates.set(1, "minimized");
+    fake.visibility = () => (fake.windowStates.get(1) === "minimized" ? "hidden" : "visible");
+    const restored = (await handlers["page.click"]({ tabId: 1, selector: "button", clickCount: 1 }, context)) as {
+      activated?: boolean;
+    };
+    expect(restored.activated).toBe(true);
+    expect(fake.restored).toEqual([1]);
+
+    fake.visibility = () => "hidden";
+    const before = fake.debugger.sent.filter((s) => s.method === "Input.dispatchMouseEvent").length;
+    const error = await rejects(handlers["page.click"]({ tabId: 1, selector: "button", clickCount: 1 }, context));
+    expect(error.code).toBe("OPERATION_FAILED");
+    expect(error.message).toMatch(/not visible/);
+    expect(fake.focused).toEqual([1]); // last resort: the window was focused once
+    expect(fake.debugger.sent.filter((s) => s.method === "Input.dispatchMouseEvent").length).toBe(before);
+  });
+
+  it("fails a click no pointer event reached instead of reporting success", async () => {
+    const { fake, handlers } = setup();
+    fake.inputEvents = 0;
+    const error = await rejects(handlers["page.click"]({ tabId: 1, selector: "button", clickCount: 1 }, context));
+    expect(error.code).toBe("OPERATION_FAILED");
+    expect(error.message).toMatch(/not delivered/);
   });
 
   it("keeps the legacy selector form on the page function", async () => {
@@ -254,6 +315,17 @@ describe("Browser v1 commands", () => {
     expect(ok).toEqual({ satisfied: true, url: "https://example.com/" });
     const error = await rejects(handlers["page.wait"]({ tabId: 1, text: "Missing", timeoutMs: 30 }, context));
     expect(error.code).toBe("TIMEOUT");
+  });
+
+  it("counts rendered text only: hidden and undisplayed text never satisfies a wait", async () => {
+    const { handlers } = setup();
+    for (const text of ["Hidden secret", "Not displayed"]) {
+      expect((await rejects(handlers["page.wait"]({ tabId: 1, text, timeoutMs: 30 }, context))).code).toBe("TIMEOUT");
+      expect(await handlers["page.wait"]({ tabId: 1, textGone: text, timeoutMs: 30 }, context)).toEqual({
+        satisfied: true,
+        url: "https://example.com/",
+      });
+    }
   });
 
   it("waits for element states and a new tab from this tab", async () => {

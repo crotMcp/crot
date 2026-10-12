@@ -14,7 +14,9 @@
       - #remove-me / #remove-button: element removal for a stale ref;
       - <crot-shadow>: a button inside an OPEN shadow root;
       - an iframe from a different origin (?frame=<origin>), loaded out of process;
-      - #popup-link: opens /start.html in a new tab (target=_blank).
+      - #popup-link: opens /start.html in a new tab (target=_blank);
+      - #reveal-button shows #revealed (display:none until then) after 300 ms;
+        #invisible is laid out but visibility:hidden: neither satisfies a text wait.
     -->
     <h1>CROT E2E form</h1>
     <form id="signup" action="/done.html" method="get">
@@ -37,6 +39,9 @@
     <p id="shadow-status">SHADOW: idle</p>
     <a id="popup-link" href="/start.html?popup=1" target="_blank">Open popup</a>
     <iframe id="child" title="Child frame" width="400" height="160"></iframe>
+    <button id="reveal-button" type="button">Reveal</button>
+    <p id="revealed" style="display: none">REVEALED: yes</p>
+    <p id="invisible" style="visibility: hidden">INVISIBLE: text</p>
     <script>
       (function () {
         var params = new URLSearchParams(location.search);
@@ -52,6 +57,12 @@
           report("remove-click", e);
           var p = document.getElementById("remove-me");
           if (p) p.remove();
+        });
+        document.getElementById("reveal-button").addEventListener("click", function (e) {
+          report("reveal-click", e, "&visibility=" + document.visibilityState);
+          setTimeout(function () {
+            document.getElementById("revealed").style.display = "block";
+          }, 300);
         });
         customElements.define(
           "crot-shadow",

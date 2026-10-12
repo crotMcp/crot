@@ -325,4 +325,23 @@ describe("extension commands", () => {
     fake.captureError = new Error("This request exceeds the MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND quota.");
     expect((await failure(handlers["page.screenshot"]({ format: "png" }))).code).toBe("RESOURCE_BUSY");
   });
+
+  it("never hangs on a hidden window: minimized fails at once, an unanswered capture times out", async () => {
+    const fake = new FakeChrome();
+    fake.addTab({ id: 1, windowId: 1, active: true, url: "https://example.com/a", title: "A" });
+    const handlers = createCommandHandlers(fake.api, { screenshotTimeoutMs: 50 });
+    fake.windowStates.set(1, "minimized");
+    const minimized = await failure(handlers["page.screenshot"]({ format: "png" }));
+    expect(minimized.code).toBe("OPERATION_FAILED");
+    expect(minimized.message).toMatch(/minimized or hidden/);
+    expect(fake.captures).toHaveLength(0);
+    fake.windowStates.set(1, "normal");
+    const api = fake.api;
+    const hanging = createCommandHandlers(
+      { ...api, tabs: { ...api.tabs, captureVisibleTab: () => new Promise<string>(() => undefined) } },
+      { screenshotTimeoutMs: 50 },
+    );
+    const timedOut = await failure(hanging["page.screenshot"]({ format: "png" }));
+    expect(timedOut.code).toBe("TIMEOUT");
+  });
 });

@@ -392,6 +392,10 @@ export const BrowserTabActionResultSchema = z.object({ tabId: TabId, url: Result
 export const BrowserControlResultSchema = BrowserTabActionResultSchema.extend({
   navigated: z.boolean().optional(),
   newTabs: z.array(TabId).max(BROWSER_NEW_TABS_MAX).optional(),
+  /** The page did not reach waitUntil within timeoutMs; it goes on loading (nothing is retried). */
+  loadTimedOut: z.literal(true).optional(),
+  /** The extension made the tab visible first (activated it, restored or focused its window): input reaches visible pages only. */
+  activated: z.literal(true).optional(),
 });
 
 export const BrowserSelectOptionResultSchema = BrowserControlResultSchema.extend({

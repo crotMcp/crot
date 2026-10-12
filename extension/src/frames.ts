@@ -178,9 +178,42 @@ export class FrameScope implements CdpChannel {
     if (method.startsWith("Input.") || method.startsWith("Page.")) return this.cdp.send<T>(tabId, method, params);
     switch (method) {
       case "DOM.scrollIntoViewIfNeeded": {
-        // Bring the frame into the parent's view first, then the element into the frame's.
-        await this.parent.send(tabId, method, { backendNodeId: await this.owner(tabId) });
-        return this.own<T>(tabId, method, params);
+        // The element into the frame's view, then exactly that part of the frame into the parent's
+        // (a partly visible frame is not enough: the element may sit in its hidden part).
+        const result = await this.own<T>(tabId, method, params);
+        const owner = await this.owner(tabId);
+        let rect: { x: number; y: number; width: number; height: number } | undefined;
+        try {
+          const { quads } = await this.own<{ quads?: Quad[] }>(tabId, "DOM.getContentQuads", params);
+          const { model } = await this.parent.send<{ model: { content: number[]; border: number[] } }>(
+            tabId,
+            "DOM.getBoxModel",
+            { backendNodeId: owner },
+          );
+          const quad = (quads ?? [])[0];
+          if (quad) {
+            const xs = [quad[0], quad[2], quad[4], quad[6]] as number[];
+            const ys = [quad[1], quad[3], quad[5], quad[7]] as number[];
+            const inset = {
+              x:
+                Math.min(...[0, 2, 4, 6].map((i) => model.content[i] ?? 0)) -
+                Math.min(...[0, 2, 4, 6].map((i) => model.border[i] ?? 0)),
+              y:
+                Math.min(...[1, 3, 5, 7].map((i) => model.content[i] ?? 0)) -
+                Math.min(...[1, 3, 5, 7].map((i) => model.border[i] ?? 0)),
+            };
+            rect = {
+              x: Math.min(...xs) + inset.x,
+              y: Math.min(...ys) + inset.y,
+              width: Math.max(1, Math.max(...xs) - Math.min(...xs)),
+              height: Math.max(1, Math.max(...ys) - Math.min(...ys)),
+            };
+          }
+        } catch {
+          rect = undefined;
+        }
+        await this.parent.send(tabId, method, rect ? { backendNodeId: owner, rect } : { backendNodeId: owner });
+        return result;
       }
       case "DOM.getContentQuads": {
         const result = await this.own<{ quads?: Quad[] }>(tabId, method, params);

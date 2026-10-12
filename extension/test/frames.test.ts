@@ -119,7 +119,9 @@ describe("frame channels", () => {
   const answer: World["answer"] = (method, params, sessionId) => {
     if (method === "DOM.getFrameOwner") return { backendNodeId: params.frameId === OOPIF ? 50 : 60 };
     if (method === "DOM.getBoxModel" && sessionId === undefined && params.backendNodeId === 50)
-      return { model: { content: [100, 200, 300, 200, 300, 400, 100, 400], border: [] } };
+      return {
+        model: { content: [100, 200, 300, 200, 300, 400, 100, 400], border: [98, 198, 302, 198, 302, 402, 98, 402] },
+      };
     if (method === "DOM.getBoxModel" && sessionId === "S1" && params.backendNodeId === 60)
       return { model: { content: [10, 20, 110, 20, 110, 70, 10, 70], border: [] } };
     if (method === "DOM.getBoxModel")
@@ -178,7 +180,7 @@ describe("frame channels", () => {
     expect(covered.backendNodeId).toBe(-1);
   });
 
-  it("scrolls the owner into view in the parent before the element in the frame", async () => {
+  it("scrolls the element into the frame's view, then exactly its part of the frame into the parent's", async () => {
     const { chrome, cdp } = setup({ answer });
     const { frames } = await tabFrames(cdp, TAB);
     const oopif = new FrameChannels(cdp, TAB, frames).forFrame(OOPIF);
@@ -187,8 +189,9 @@ describe("frame channels", () => {
     expect(
       chrome.debugger.sent.filter((s) => s.method === "DOM.scrollIntoViewIfNeeded").map((s) => [s.sessionId, s.params]),
     ).toEqual([
-      [undefined, { backendNodeId: 50 }],
       ["S1", { backendNodeId: 7 }],
+      // The element's rect (1,2 10x10 in the frame) relative to the iframe's border box (2 px border).
+      [undefined, { backendNodeId: 50, rect: { x: 3, y: 4, width: 10, height: 10 } }],
     ]);
   });
 });

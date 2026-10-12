@@ -117,3 +117,46 @@ export function typeIntoElement(selector: string, text: string, clear: boolean):
 
   return { ok: false, code: "INVALID_INPUT", message: "The element is not a text field or an editable element." };
 }
+
+/** The page's visibility (document.visibilityState): browsers deliver no input to hidden pages. */
+export function pageVisibility(): PageOutcome<string> {
+  return { ok: true, value: document.visibilityState };
+}
+
+/**
+ * Starts counting trusted pointer and mouse events that reach this document
+ * (capture listeners on window, in the isolated world; the page cannot see
+ * them). Only counts are kept, never targets, coordinates or page data. A
+ * probe left by an earlier command is removed first.
+ */
+export function installInputProbe(nonce: string): PageOutcome<boolean> {
+  const TYPES = ["pointerdown", "mousedown", "pointerup", "mouseup", "click", "auxclick", "contextmenu", "dblclick"];
+  const holder = globalThis as unknown as Record<
+    string,
+    { nonce: string; count: number; stop: () => void } | undefined
+  >;
+  holder.__crotInputProbe?.stop();
+  const probe = { nonce, count: 0, stop: () => undefined as void };
+  const listener = (event: Event): void => {
+    if (event.isTrusted) probe.count++;
+  };
+  for (const type of TYPES) window.addEventListener(type, listener, { capture: true });
+  probe.stop = () => {
+    for (const type of TYPES) window.removeEventListener(type, listener, { capture: true });
+  };
+  holder.__crotInputProbe = probe;
+  return { ok: true, value: true };
+}
+
+/** Stops the probe of `nonce` and answers its count; null when this document has no such probe (it was replaced). */
+export function collectInputProbe(nonce: string): PageOutcome<number | null> {
+  const holder = globalThis as unknown as Record<
+    string,
+    { nonce: string; count: number; stop: () => void } | undefined
+  >;
+  const probe = holder.__crotInputProbe;
+  if (!probe || probe.nonce !== nonce) return { ok: true, value: null };
+  probe.stop();
+  holder.__crotInputProbe = undefined;
+  return { ok: true, value: probe.count };
+}
