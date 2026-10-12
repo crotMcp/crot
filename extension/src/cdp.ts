@@ -78,6 +78,25 @@ export const CDP_UNAVAILABLE_MESSAGE =
 
 const DETACHED_MESSAGE = "The browser debugger was detached from the tab.";
 
+/** Methods that still answer while a JavaScript dialog blocks the page (they do not need the page's script). */
+const DIALOG_SAFE_METHODS: ReadonlySet<string> = new Set([
+  "Page.enable",
+  "Page.getNavigationHistory",
+  "Target.setAutoAttach",
+]);
+
+/**
+ * A JavaScript dialog (alert, confirm, prompt, beforeunload) blocks the page
+ * until the user answers it. Browser v1 does not answer dialogs, so commands
+ * fail at once instead of waiting out their timeout.
+ */
+export const dialogMessage = (type: string, opened: boolean): string =>
+  (opened ? "The action opened a JavaScript " : "A JavaScript ") +
+  (["alert", "confirm", "prompt", "beforeunload"].includes(type) ? type : "") +
+  " dialog" +
+  (opened ? "" : " is open in the tab") +
+  ": the page is blocked until it is answered. CROT does not answer dialogs; ask the user to close it in the browser, then continue.";
+
 export type CdpEventListener = (tabId: number, method: string, params: unknown) => void;
 
 /** Bound on auto-attached child sessions (out-of-process frames) per tab, as for snapshot frames. */
@@ -120,6 +139,9 @@ export class CdpSessions {
   private readonly attachments = new Map<number, Attachment>();
   private readonly generations = new Map<number, number>();
   private readonly listeners = new Set<CdpEventListener>();
+  /** Open JavaScript dialogs per tab (type), from Page.javascriptDialogOpening / Closed. */
+  private readonly dialogs = new Map<number, string>();
+  private readonly dialogWaiters = new Map<number, Set<(type: string) => void>>();
   private readonly idleMs: number;
   private readonly setTimer: (callback: () => void, ms: number) => unknown;
   private readonly clearTimer: (handle: unknown) => void;
@@ -140,6 +162,13 @@ export class CdpSessions {
     });
     api.debugger.onEvent.addListener((source, method, params) => {
       if (source.tabId === undefined || !this.attachments.has(source.tabId)) return;
+      if (method === "Page.javascriptDialogOpening") {
+        const type = String((params as { type?: unknown } | undefined)?.type ?? "");
+        this.dialogs.set(source.tabId, type);
+        for (const waiter of this.dialogWaiters.get(source.tabId) ?? []) waiter(type);
+      } else if (method === "Page.javascriptDialogClosed") {
+        this.dialogs.delete(source.tabId);
+      }
       if (method === "Target.attachedToTarget" || method === "Target.detachedFromTarget") {
         this.onTargetEvent(source.tabId, source.sessionId, method, params);
         return;
@@ -158,6 +187,12 @@ export class CdpSessions {
 
   isAttached(tabId: number): boolean {
     return this.attachments.get(tabId)?.attached === true;
+  }
+
+  /** Fails at once while a JavaScript dialog is known to block the tab (before script injection, which would wait). */
+  assertNoDialog(tabId: number): void {
+    const dialog = this.dialogs.get(tabId);
+    if (dialog !== undefined) throw new ExtensionError("OPERATION_FAILED", dialogMessage(dialog, false));
   }
 
   onEvent(listener: CdpEventListener): () => void {
@@ -180,12 +215,36 @@ export class CdpSessions {
       throw new ExtensionError("OPERATION_FAILED", "CDP method '" + method + "' is not allowed.");
     }
     const generation = await this.attach(tabId);
+    const dialog = this.dialogs.get(tabId);
+    if (dialog !== undefined && !DIALOG_SAFE_METHODS.has(method))
+      throw new ExtensionError("OPERATION_FAILED", dialogMessage(dialog, false));
     if (sessionId !== undefined && !this.attachments.get(tabId)?.children.has(sessionId)) {
       throw new ExtensionError("OPERATION_FAILED", FRAME_DETACHED_MESSAGE);
     }
     try {
-      return (await this.api.debugger.sendCommand(target(tabId, sessionId), method, params)) as T;
+      const command = this.api.debugger.sendCommand(target(tabId, sessionId), method, params);
+      if (DIALOG_SAFE_METHODS.has(method)) return (await command) as T;
+      // A dialog the command opens (a click on a button that calls alert()) blocks its answer.
+      let stop = (): void => undefined;
+      const opened = new Promise<never>((_, reject) => {
+        const waiter = (type: string): void =>
+          reject(new ExtensionError("OPERATION_FAILED", dialogMessage(type, true)));
+        const waiters = this.dialogWaiters.get(tabId) ?? new Set();
+        waiters.add(waiter);
+        this.dialogWaiters.set(tabId, waiters);
+        stop = () => {
+          waiters.delete(waiter);
+          if (waiters.size === 0) this.dialogWaiters.delete(tabId);
+        };
+      });
+      command.catch(() => undefined);
+      try {
+        return (await Promise.race([command, opened])) as T;
+      } finally {
+        stop();
+      }
     } catch (error) {
+      if (error instanceof ExtensionError) throw error;
       if (sessionId !== undefined && !this.attachments.get(tabId)?.children.has(sessionId)) {
         throw new ExtensionError("OPERATION_FAILED", FRAME_DETACHED_MESSAGE);
       }
@@ -303,6 +362,7 @@ export class CdpSessions {
     attachment.attached = false;
     attachment.children.clear();
     this.attachments.delete(tabId);
+    this.dialogs.delete(tabId);
     this.generations.set(tabId, this.generation(tabId) + 1);
   }
 }

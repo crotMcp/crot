@@ -332,6 +332,35 @@ describe("browser approvals of ref targets (AD-16 points 10, 16)", () => {
     expect(serialized).not.toContain("4111111111111111");
   });
 
+  it("a selector with frameRef: shows and audits the frame's origin from the snapshot; unknown frames are marked", async () => {
+    await snapshot();
+    const clicking = c().browser.click(ctx, { tabId: 7, selector: "#pay", frameRef: "f2" });
+    const { request } = await ui.next();
+    expect(request.subject.effects).toEqual(
+      expect.arrayContaining([
+        { label: "selector", value: "#pay" },
+        { label: "frame origin", value: "https://pay.example.net" },
+      ]),
+    );
+    ui.approveLast();
+    await clicking;
+    expect(audit.events.at(-1)?.details).toMatchObject({ selector: "#pay", frameRef: "f2" });
+    expect(stub.sent.at(-1)?.params).toMatchObject({ selector: "#pay", frameRef: "f2" });
+    // The top-level frame adds nothing; a frame no snapshot described is marked.
+    const top = c().browser.click(ctx, { tabId: 7, selector: "#buy", frameRef: "f1" });
+    const topRequest = (await ui.next()).request;
+    expect(topRequest.subject.effects.some((e) => e.label === "frame origin")).toBe(false);
+    ui.approveLast();
+    await top;
+    const unknown = c().browser.click(ctx, { tabId: 7, selector: "#x", frameRef: "f99" });
+    expect((await ui.next()).request.subject.effects).toContainEqual({
+      label: "frame origin",
+      value: "not described by a snapshot of this tab",
+    });
+    ui.approveLast();
+    await unknown;
+  });
+
   it("describes both ends of a drag, and a srcdoc frame by its parent's origin", async () => {
     await snapshot();
     const dragging = c().browser.drag(ctx, { tabId: 7, ref: "e2", to: { ref: "e3" } });

@@ -775,7 +775,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       const to = params.to;
       if (typeof to !== "object" || to === null || Array.isArray(to))
         throw invalid("'to' must be an object with 'ref' or 'selector'.");
-      onlyKeys(to as CommandParams, ["ref", "selector"]);
+      onlyKeys(to as CommandParams, ["ref", "selector", "frameRef"]);
       return control(params, context, ["to"], async (tabId, node, refs) => {
         const from = await actionablePoint(node.channel, tabId, node.backendNodeId);
         const target = await resolveTarget(cdp, refs, tabId, to as CommandParams, SELECTOR_MAX_LENGTH);
@@ -835,6 +835,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         "tabId",
         "ref",
         "selector",
+        "frameRef",
         "state",
         "text",
         "textGone",
@@ -900,7 +901,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     activated?: true;
     loadTimedOut?: true;
   }> {
-    onlyKeys(params, ["tabId", "ref", "selector", "waitUntil", "timeoutMs", "expect", ...extraKeys]);
+    onlyKeys(params, ["tabId", "ref", "selector", "frameRef", "waitUntil", "timeoutMs", "expect", ...extraKeys]);
     const tabId = optionalTabIdParam(params);
     const waitUntil = waitUntilParam(params.waitUntil);
     const timeoutMs = timeoutParam(params.timeoutMs);
@@ -912,6 +913,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       exclusiveInput(async () => {
         // The binding is checked when the command reaches the front of the queue.
         const tab = await targetTab(first.id, expected, context, true);
+        cdp.assertNoDialog(tab.id);
         // Input reaches visible pages only: activate the tab (restore its window) first.
         const activated = await ensureVisible(api, inject, tab, visibleWaitMs);
         const mainFrameId = await enableEvents(cdp, tab.id);

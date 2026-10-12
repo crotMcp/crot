@@ -51,7 +51,10 @@ class Page {
       case "DOM.getContentQuads":
         return { quads: this.quads[p.backendNodeId as number] ?? [] };
       case "Page.getLayoutMetrics":
-        return { cssVisualViewport: { clientWidth: 800, clientHeight: 600 } };
+        return {
+          cssVisualViewport: { clientWidth: 800, clientHeight: 600 },
+          cssLayoutViewport: { pageX: this.scroll.x, pageY: this.scroll.y },
+        };
       case "DOM.getNodeForLocation":
         return { backendNodeId: this.hit(p.x as number, p.y as number) };
       case "Accessibility.getPartialAXTree": {
@@ -102,6 +105,9 @@ class Page {
               ],
             },
           };
+        if (p.backendNodeId === 3) return { node: { backendNodeId: 3, nodeType: 3, nodeName: "#text" } };
+        if (p.backendNodeId === 4)
+          return { node: { backendNodeId: 4, nodeType: 1, localName: "div", attributes: ["id", "overlay"] } };
         return { node: { backendNodeId: p.backendNodeId, localName: "div" } };
       case "DOM.getDocument":
         return {
@@ -129,6 +135,7 @@ class Page {
   }
 
   multiple = false;
+  scroll = { x: 0, y: 0 };
 
   get sent() {
     return this.chrome.debugger.sent;
@@ -173,7 +180,35 @@ describe("actionability (AD-16 point 6)", () => {
     const error = await failure(actionablePoint(cdp, 1, 2));
     expect(error.code).toBe("INVALID_INPUT");
     expect(error.message).toContain("disabled");
-    expect(page.input()).toHaveLength(0);
+    // At most a wheel step that tried to scroll the covered element clear: never a press or a move.
+    expect(page.input().filter((s) => (s.params as { type?: string }).type !== "mouseWheel")).toHaveLength(0);
+  });
+
+  it("scrolls a covered element towards the viewport centre once, then acts; names what keeps covering it", async () => {
+    const { page, cdp } = setup();
+    const wheeled = () => page.input().some((s) => (s.params as { type?: string }).type === "mouseWheel");
+    page.hit = () => (wheeled() ? 3 : 4);
+    expect(await actionablePoint(cdp, 1, 2)).toEqual({ x: 20, y: 20 });
+    const wheels = page.input().map((s) => s.params as Record<string, unknown>);
+    expect(wheels).toEqual([{ type: "mouseWheel", x: 20, y: 20, deltaX: 0, deltaY: -280 }]);
+    page.hit = () => 4;
+    const error = await failure(actionablePoint(cdp, 1, 2));
+    expect(error.message).toBe("The element is not actionable: obscured (covered by div#overlay).");
+  });
+
+  it("hit-tests in document coordinates: the scroll offset is added to the viewport point", async () => {
+    const { page, cdp } = setup();
+    page.scroll = { x: 0, y: 1000 };
+    page.hit = (_x, y) => (y >= 1000 ? 3 : 4);
+    expect(await actionablePoint(cdp, 1, 2)).toEqual({ x: 20, y: 20 });
+    expect(page.sent.find((s) => s.method === "DOM.getNodeForLocation")?.params).toMatchObject({ x: 20, y: 1020 });
+  });
+
+  it("accepts the parent element as the hit of a text node (hit tests never return text nodes)", async () => {
+    const { page, cdp } = setup();
+    page.quads[3] = [[12, 12, 28, 12, 28, 28, 12, 28]];
+    page.hit = () => 2;
+    expect(await actionablePoint(cdp, 1, 3, { requireEnabled: false })).toEqual({ x: 20, y: 20 });
   });
 });
 

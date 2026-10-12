@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { CdpSessions } from "../src/cdp.js";
 import { ExtensionError } from "../src/errors.js";
-import { RefRegistry, STALE_MESSAGE, refParam, verifyFrameRef, verifyRef } from "../src/refs.js";
+import { RefRegistry, STALE_MESSAGE, isConnected, refParam, verifyFrameRef, verifyRef } from "../src/refs.js";
 import {
+  dialogsFirst,
   frameOrigin,
   inTreeOrder,
   intersectsViewport,
@@ -323,5 +324,60 @@ describe("element references: check before acting", () => {
     registry.refFor(t(3));
     expect(registry.size).toBe(2);
     expect(registry.lookup(a)).toBeUndefined();
+  });
+});
+
+describe("dialogs first and same-process frame documents", () => {
+  it("orders the subtree of an open dialog before the rest; ignored dialogs change nothing", () => {
+    const node = (nodeId: string, role: string, childIds: string[] = [], ignored = false): AxNode => ({
+      nodeId,
+      role: { value: role },
+      childIds,
+      ...(ignored ? { ignored: true } : {}),
+    });
+    const ordered = [
+      node("1", "RootWebArea", ["2", "3", "5"]),
+      node("2", "button"),
+      node("3", "dialog", ["4"]),
+      node("4", "button"),
+      node("5", "dialog", ["6"], true),
+      node("6", "button"),
+    ];
+    expect(dialogsFirst(ordered).map((n) => n.nodeId)).toEqual(["3", "4", "1", "2", "5", "6"]);
+    expect(dialogsFirst(ordered.filter((n) => n.nodeId !== "3")).map((n) => n.nodeId)).toEqual([
+      "1",
+      "2",
+      "4",
+      "5",
+      "6",
+    ]);
+  });
+
+  it("finds a same-process frame's nodes below its owner's contentDocument (the owner carries the frame id too)", async () => {
+    const chrome = new FakeChrome();
+    chrome.addTab({ id: 1, url: "https://a.test/" });
+    chrome.debugger.respond = () => ({
+      root: {
+        backendNodeId: 1,
+        children: [
+          {
+            backendNodeId: 2,
+            frameId: "MAIN",
+            children: [
+              {
+                backendNodeId: 3,
+                frameId: "CHILD",
+                contentDocument: { backendNodeId: 4, children: [{ backendNodeId: 5, frameId: "CHILD" }] },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const cdp = new CdpSessions(chrome.api, { setTimer: () => 0, clearTimer: () => undefined });
+    expect(await isConnected(cdp, 1, "CHILD", 5)).toBe(true);
+    expect(await isConnected(cdp, 1, "MAIN", 3)).toBe(true);
+    // A node of the child frame is not part of the main frame's document.
+    expect(await isConnected(cdp, 1, "MAIN", 5)).toBe(false);
   });
 });

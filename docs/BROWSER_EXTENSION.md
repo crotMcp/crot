@@ -255,7 +255,10 @@ through a fixed, extension-built command surface (AD-16 point 3):
   opaque `ref` (`e1`, `e2`, …), `frameRef`, role, accessible name, bounded
   value, states, bounds in top-level viewport CSS pixels and `inViewport`.
   Options: `frameRef`, `includeText`, `maxElements` (default 500, max 5000);
-  results are bounded and report `truncated`. Password fields never return a
+  results are bounded and report `truncated`. Elements inside an open
+  dialog (`dialog` / `alertdialog` role) come first, so a dialog at the end of
+  a large page is not cut off by `maxElements`; text refs (`includeText`) can
+  be hovered and clicked like elements. Password fields never return a
   value, only `hasValue`.
 - **References.** A `ref` names one element of one document in one tab and
   one CROT connection. Right before acting, the extension checks the tab, the
@@ -272,13 +275,28 @@ through a fixed, extension-built command surface (AD-16 point 3):
   position is added, and a hit test first checks the iframe in the parent).
   Elements in open shadow roots are addressable by `ref`; selectors do not
   pierce shadow roots.
+- **Selectors and frames.** A `selector` (CSS, first match, light DOM) is
+  resolved in the top-level document, or in the frame named by `frameRef`
+  (from `browser_snapshot`; checked like a ref: a frame that shows another
+  document fails with `BROWSER_STALE_REF`). This holds for every command that
+  takes a target, the drop target of `browser_drag` and element waits. With a
+  `ref`, `frameRef` is optional and must be the ref's own frame
+  (`INVALID_INPUT` otherwise); `frameRef` without a target is refused. An
+  approval for a selector in a child frame shows the frame's origin as the
+  last snapshot reported it.
 - **Trusted input** (`Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`,
   `Input.insertText`): click (buttons, double click, modifiers), hover,
   scroll, drag, typing into any editable element (`clear`, `submit`), key
   combinations (`ControlOrMeta` is Meta on macOS), native `<select>` options
   and checkboxes / radios. Before pointer input the element is scrolled into
   view and must be visible, inside the viewport, enabled and not obscured;
-  otherwise `INVALID_INPUT` naming the reason. There is no `force` option.
+  otherwise `INVALID_INPUT` naming the reason. The obscured check hit-tests
+  the element's centre in document coordinates of the page and of each frame
+  (their scroll offsets are added). A covered element (a fixed header over
+  an element at the top, a fading overlay) is scrolled towards the viewport
+  centre with one wheel step and re-checked a few times within about 1.5 s;
+  if it stays covered the error names what covers it, by tag and id only
+  ("obscured (covered by header#top)"). There is no `force` option.
   An element in a frame is scrolled into the frame's view and then exactly
   that part of the frame into the page's view.
 - **Visible page first; no false success.** Browsers do not deliver input to
@@ -302,9 +320,19 @@ through a fixed, extension-built command surface (AD-16 point 3):
   - a navigation that does not reach `waitUntil` within `timeoutMs` is
     reported with `loadTimedOut: true` (control commands, `browser_navigate`,
     `browser_tab_open`, `browser_history`); the page goes on loading.
-- **Screenshots never hang.** `browser_screenshot` of a minimized window fails
-  at once and a capture the browser does not answer within 10 s fails with
-  `TIMEOUT` (both say to show the browser window).
+- **Screenshots never hang.** `browser_screenshot` of a window the browser
+  reports as minimized fails at once and a capture the browser does not
+  answer within 10 s fails with `TIMEOUT` (both say to show the browser
+  window). On Linux a minimized window is often still rendered and the
+  browser does not always report it as minimized: the capture then simply
+  succeeds.
+- **JavaScript dialogs.** `alert`, `confirm`, `prompt` and `beforeunload`
+  block the page until they are answered, and Browser v1 does not answer
+  them. A command that opens one fails at once with `OPERATION_FAILED`
+  ("The action opened a JavaScript alert dialog…"; the action itself was
+  performed), and every following command on that tab fails at once ("A
+  JavaScript … dialog is open in the tab") until the user closes it in the
+  browser; then commands work again. Nothing waits for its timeout.
 - **Settle and waits.** After an action the extension observes the tab for a
   short quiet period (300 ms); a navigation started by the action is awaited
   until `waitUntil` (`commit`, `domcontentloaded`, `load` (default),
@@ -523,7 +551,8 @@ CROT again.
   service worker console and CROT's own log.
 - Browser v1 is implemented in part (WP-24: CDP backend, snapshot and refs,
   trusted input, frames including out-of-process frames, open shadow roots,
-  waits, history). Not yet: dialogs, file chooser, background-tab
+  waits, history). Not yet: answering JavaScript dialogs (they fail commands
+  at once, see above), file chooser, background-tab
   screenshots, the CROT tab group and debugger lifecycle UX (WP-25), file
   upload and download (WP-26), explicit `tabId` for remote principals and
   `openedBy` (WP-27); the permissions `downloads` and `tabGroups` come with
@@ -534,9 +563,17 @@ CROT again.
   session; `networkidle` counts requests of the tab's own session only.
 - Browser v1 is checked end to end in a real Chromium (Chrome for Testing)
   by `npm run test:e2e:browser` (see [`BROWSER_E2E.md`](BROWSER_E2E.md)).
-  A first manual run on real sites in Google Chrome found the problems fixed
-  above ([`acceptance/WP-24-manual-run-1.md`](acceptance/WP-24-manual-run-1.md));
-  a run on the fixed build has **not** been performed yet.
+  Manual runs on real sites in Google Chrome found the problems fixed above
+  ([`acceptance/WP-24-manual-run-1.md`](acceptance/WP-24-manual-run-1.md),
+  [`acceptance/WP-24-manual-run-2.md`](acceptance/WP-24-manual-run-2.md)); a
+  run on the build with the run-2 fixes has **not** been performed yet.
+- The "… started debugging this browser" notice is Chrome's own and is shown
+  in **every** window of the browser, including windows of other Chrome
+  profiles where the extension is not installed: the browser shows it for the
+  whole browser process. It does not mean the extension has access to those
+  profiles (it can only attach to tabs of its own profile). The notice goes
+  away when the extension detaches: when the tab is closed, when the
+  connection ends, or after 5 minutes without commands on a tab.
 - Input needs a visible page: CROT activates the tab (and restores or, last,
   focuses its window) for every control command, which the user sees. Two
   agents driving different tabs of one window take turns.

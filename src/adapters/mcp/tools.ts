@@ -445,7 +445,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "browser_click",
     title: "Click in browser page",
     description:
-      "Click an element in a tab (default: the active tab): exactly one of ref (from browser_snapshot) or selector (CSS, first match). With a ref or any Browser v1 option the click is trusted browser input after actionability checks (visible, enabled, not obscured); button, clickCount (2 = double click) and modifiers are optional. A stale ref fails with BROWSER_STALE_REF: take a new snapshot. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
+      "Click an element in a tab (default: the active tab): exactly one of ref (from browser_snapshot) or selector (CSS, first match in the top-level document, or in the frame named by frameRef). With a ref or any Browser v1 option the click is trusted browser input after actionability checks (visible, enabled, not obscured; a covered element is scrolled towards the viewport centre once, and an error names what covers it); button, clickCount (2 = double click) and modifiers are optional. A stale ref fails with BROWSER_STALE_REF: take a new snapshot. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
     inputSchema: BrowserClickInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     call: (core, ctx, input) => core.browser.click(ctx, input),
@@ -472,7 +472,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "browser_hover",
     title: "Hover in browser page",
     description:
-      "Move the mouse over an element (ref or selector) with trusted browser input. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
+      "Move the mouse over an element (ref, or CSS selector with an optional frameRef) with trusted browser input. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
     inputSchema: BrowserHoverInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     call: (core, ctx, input) => core.browser.hover(ctx, input),
@@ -481,7 +481,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "browser_scroll",
     title: "Scroll browser page",
     description:
-      "Scroll with the mouse wheel by deltaX / deltaY CSS pixels over an element (ref or selector) or the centre of the viewport. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
+      "Scroll with the mouse wheel by deltaX / deltaY CSS pixels over an element (ref, or CSS selector with an optional frameRef) or the centre of the viewport. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
     inputSchema: BrowserScrollInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     call: (core, ctx, input) => core.browser.scroll(ctx, input),
@@ -490,7 +490,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "browser_drag",
     title: "Drag in browser page",
     description:
-      "Drag an element (ref or selector) onto another element ('to': ref or selector) with trusted mouse input. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
+      "Drag an element (ref, or CSS selector with an optional frameRef) onto another element ('to': ref or selector) with trusted mouse input. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
     inputSchema: BrowserDragInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     call: (core, ctx, input) => core.browser.drag(ctx, input),
@@ -499,7 +499,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "browser_press_key",
     title: "Press keys in browser page",
     description:
-      "Press up to 32 key combinations in order, e.g. ['Tab', 'ControlOrMeta+A', 'Enter'] (keys: Enter, Tab, Escape, arrows, Home, End, PageUp, PageDown, Backspace, Delete, F1-F12, printable characters; modifiers Shift, Control, Alt, Meta, ControlOrMeta). An optional element (ref or selector) is focused first. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
+      "Press up to 32 key combinations in order, e.g. ['Tab', 'ControlOrMeta+A', 'Enter'] (keys: Enter, Tab, Escape, arrows, Home, End, PageUp, PageDown, Backspace, Delete, F1-F12, printable characters; modifiers Shift, Control, Alt, Meta, ControlOrMeta). An optional element (ref, or CSS selector with an optional frameRef) is focused first. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
     inputSchema: BrowserPressKeyInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     call: (core, ctx, input) => core.browser.pressKey(ctx, input),
@@ -508,7 +508,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "browser_select_option",
     title: "Select option in browser page",
     description:
-      "Select options of a native select element (ref or selector) by value or visible label; returns the selected values once the page shows them selected (otherwise it fails). Custom drop-down lists are operated with click, keys and snapshot. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
+      "Select options of a native select element (ref, or CSS selector with an optional frameRef) by value or visible label; returns the selected values once the page shows them selected (otherwise it fails). Custom drop-down lists are operated with click, keys and snapshot. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
     inputSchema: BrowserSelectOptionInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     call: (core, ctx, input) => core.browser.selectOption(ctx, input),
@@ -517,7 +517,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "browser_set_checked",
     title: "Set checked in browser page",
     description:
-      "Check or uncheck a checkbox, radio button or switch (ref or selector); clicks only when the state differs and reports checked and changed; fails when the page does not show the requested state. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
+      "Check or uncheck a checkbox, radio button or switch (ref, or CSS selector with an optional frameRef); clicks only when the state differs and reports checked and changed; fails when the page does not show the requested state. Answers after the settle phase with tabId, url, navigated and newTabs (tabs it opened), loadTimedOut when a navigation it started did not reach waitUntil in time, and activated when CROT first had to make the tab visible (input reaches visible pages only, so a background tab is activated); waitUntil and timeoutMs tune that phase and the action is never repeated. Requires browser.control.",
     inputSchema: BrowserSetCheckedInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     call: (core, ctx, input) => core.browser.setChecked(ctx, input),
@@ -526,7 +526,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "browser_wait",
     title: "Wait in browser page",
     description:
-      "Wait (at most timeoutMs, default 20000, max 60000) for exactly one condition in a tab: an element (ref or selector) reaching a state (visible, hidden, enabled, detached), rendered text appearing (text) or disappearing (textGone) — text in hidden elements does not count —, the URL starting with urlPrefix, a load state, a new document (newDocument) or a tab opened by this tab (newTab). Fails with TIMEOUT otherwise. Never returns page text. Requires browser.read.",
+      "Wait (at most timeoutMs, default 20000, max 60000) for exactly one condition in a tab: an element (ref, or CSS selector with an optional frameRef) reaching a state (visible, hidden, enabled, detached), rendered text appearing (text) or disappearing (textGone) — text in hidden elements does not count —, the URL starting with urlPrefix, a load state, a new document (newDocument) or a tab opened by this tab (newTab). Fails with TIMEOUT otherwise. Never returns page text. Requires browser.read.",
     inputSchema: BrowserWaitInputSchema,
     annotations: { readOnlyHint: true, openWorldHint: true },
     call: (core, ctx, input) => core.browser.wait(ctx, input),

@@ -167,3 +167,29 @@ describe("CDP attach lifecycle", () => {
     expect(events).toEqual(["1:Page.frameNavigated"]);
   });
 });
+
+describe("JavaScript dialogs", () => {
+  it("fails a command at once when it opens a dialog, and every command while one is open; answering clears it", async () => {
+    const { chrome, cdp } = setup();
+    await cdp.send(1, "Page.enable");
+    // The click's mouseReleased does not return while the alert blocks the page.
+    chrome.debugger.respond = (_tab, method) => {
+      if (method === "Input.dispatchMouseEvent") {
+        setTimeout(() => chrome.debugger.event(1, "Page.javascriptDialogOpening", { type: "alert" }), 0);
+        return new Promise(() => undefined);
+      }
+      return {};
+    };
+    const opened = await failure(cdp.send(1, "Input.dispatchMouseEvent", { type: "mouseReleased" }));
+    expect(opened.message).toContain("The action opened a JavaScript alert dialog");
+    const blocked = await failure(cdp.send(1, "DOM.getDocument"));
+    expect(blocked.message).toContain("A JavaScript alert dialog is open in the tab");
+    expect(() => cdp.assertNoDialog(1)).toThrow(ExtensionError);
+    // Page.enable still answers; another tab is not affected.
+    await cdp.send(1, "Page.enable");
+    await cdp.send(2, "DOM.getDocument");
+    chrome.debugger.event(1, "Page.javascriptDialogClosed", { result: true });
+    await cdp.send(1, "DOM.getDocument");
+    cdp.assertNoDialog(1);
+  });
+});

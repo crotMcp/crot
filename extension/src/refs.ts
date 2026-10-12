@@ -174,8 +174,10 @@ export async function isConnected(
 ): Promise<boolean> {
   const { root } = await cdp.send<{ root: DomNode }>(tabId, "DOM.getDocument", { depth: -1, pierce: true });
   // The document of the frame: the root for the main frame, otherwise a contentDocument with that frameId.
+  // CDP marks a frame's document element with the frame id, and its owner element (iframe) too:
+  // for the owner, the frame's nodes are below its contentDocument.
   const findDocument = (node: DomNode): DomNode | undefined => {
-    if (node.frameId === frameId) return node;
+    if (node.frameId === frameId) return node.contentDocument ?? node;
     for (const child of [...(node.children ?? []), ...(node.shadowRoots ?? [])]) {
       const found = findDocument(child);
       if (found) return found;

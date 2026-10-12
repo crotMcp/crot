@@ -1,9 +1,9 @@
 import type { ChromeApi, ChromeTab } from "./chrome-api.js";
 import type { CdpSessions } from "./cdp.js";
 import { ExtensionError } from "./errors.js";
-import type { CdpChannel } from "./frames.js";
+import { type CdpChannel, FrameChannels, tabFrames } from "./frames.js";
 import { axOf } from "./input.js";
-import { STALE_MESSAGE, type RefRegistry, refParam, verifyRef } from "./refs.js";
+import { STALE_MESSAGE, type RefRegistry, frameRefParam, refParam, verifyFrameRef, verifyRef } from "./refs.js";
 
 /**
  * Settle phase, waits and history of Browser v1 (ARCHITECTURE.md §27,
@@ -316,12 +316,35 @@ export async function historyTarget(
 interface QueryNode {
   readonly nodeId: number;
   readonly backendNodeId?: number;
+  readonly frameId?: string;
+  readonly children?: readonly QueryNode[];
+  readonly shadowRoots?: readonly QueryNode[];
+  readonly contentDocument?: QueryNode;
+}
+
+/**
+ * The document node of a frame in a DOM tree (CDP marks a frame's document
+ * element and its owner element with the frame id): the owner's
+ * contentDocument, or the document above the marked document element.
+ */
+export function frameDocumentNode(root: QueryNode, frameId: string): QueryNode | undefined {
+  const visit = (node: QueryNode, parent: QueryNode | undefined): QueryNode | undefined => {
+    if (node.frameId === frameId) return node.contentDocument ?? parent ?? node;
+    for (const child of [...(node.children ?? []), ...(node.shadowRoots ?? [])]) {
+      const found = visit(child, node);
+      if (found) return found;
+    }
+    return node.contentDocument ? visit(node.contentDocument, undefined) : undefined;
+  };
+  return visit(root, undefined);
 }
 
 /**
  * The element a command names: a ref (checked before acting, AD-16 point 5)
- * or a CSS selector in the tab's top-level document (the legacy form; it is
- * resolved once, right before the action, never re-resolved).
+ * or a CSS selector (first match in the light DOM of one document: the
+ * frame named by frameRef, checked like a ref, or the top-level document;
+ * resolved once, right before the action, never re-resolved). With a ref,
+ * frameRef must name the ref's own frame.
  */
 export async function resolveTarget(
   cdp: CdpSessions,
@@ -334,27 +357,48 @@ export async function resolveTarget(
   const hasSelector = params.selector !== undefined;
   if (hasRef === hasSelector) throw invalid("Give exactly one of 'ref' or 'selector'.");
   await cdp.send(tabId, "DOM.enable");
+  const frame =
+    params.frameRef === undefined
+      ? undefined
+      : await verifyFrameRef(registry, cdp, frameRefParam(params.frameRef), tabId);
   if (hasRef) {
     const target = await verifyRef(registry, cdp, refParam(params.ref), tabId);
+    if (frame !== undefined && frame.frameId !== target.frameId)
+      throw invalid("The ref is not in the frame named by 'frameRef'.");
     return { backendNodeId: target.backendNodeId, frameId: target.frameId, channel: target.channel };
   }
   const selector = params.selector;
   if (typeof selector !== "string" || selector.length < 1 || selector.length > selectorMax || selector.includes("\0"))
     throw invalid("'selector' must be a CSS selector of 1 to " + selectorMax + " characters.");
-  const { root } = await cdp.send<{ root: QueryNode }>(tabId, "DOM.getDocument", { depth: 0 });
+  let channel: CdpChannel = cdp;
+  let documentId: number;
+  if (frame === undefined) {
+    documentId = (await cdp.send<{ root: QueryNode }>(tabId, "DOM.getDocument", { depth: 0 })).root.nodeId;
+  } else {
+    const { frames } = await tabFrames(cdp, tabId);
+    channel = new FrameChannels(cdp, tabId, frames).forFrame(frame.frameId);
+    const { root } = await channel.send<{ root: QueryNode }>(tabId, "DOM.getDocument", { depth: -1, pierce: true });
+    const document = frameDocumentNode(root, frame.frameId);
+    if (document === undefined) throw new ExtensionError("OPERATION_FAILED", "The frame is no longer in the tab.");
+    documentId = document.nodeId;
+  }
   let nodeId: number;
   try {
-    ({ nodeId } = await cdp.send<{ nodeId: number }>(tabId, "DOM.querySelector", { nodeId: root.nodeId, selector }));
+    ({ nodeId } = await channel.send<{ nodeId: number }>(tabId, "DOM.querySelector", { nodeId: documentId, selector }));
   } catch (error) {
     if (error instanceof ExtensionError && /selector|syntax/i.test(error.message))
       throw invalid("Invalid CSS selector.");
     throw error;
   }
   if (!nodeId) throw new ExtensionError("NOT_FOUND", "No element matches the selector.");
-  const { node } = await cdp.send<{ node: QueryNode }>(tabId, "DOM.describeNode", { nodeId });
+  const { node } = await channel.send<{ node: QueryNode }>(tabId, "DOM.describeNode", { nodeId });
   if (!Number.isSafeInteger(node.backendNodeId))
     throw new ExtensionError("NOT_FOUND", "No element matches the selector.");
-  return { backendNodeId: node.backendNodeId as number, channel: cdp };
+  return {
+    backendNodeId: node.backendNodeId as number,
+    ...(frame !== undefined ? { frameId: frame.frameId } : {}),
+    channel,
+  };
 }
 
 // ---------------------------------------------------------------- browser_wait
@@ -363,7 +407,13 @@ export const ELEMENT_STATES = ["visible", "hidden", "enabled", "detached"] as co
 export type ElementState = (typeof ELEMENT_STATES)[number];
 
 export type WaitCondition =
-  | { readonly kind: "element"; readonly ref?: string; readonly selector?: string; readonly state: ElementState }
+  | {
+      readonly kind: "element";
+      readonly ref?: string;
+      readonly selector?: string;
+      readonly frameRef?: string;
+      readonly state: ElementState;
+    }
   | { readonly kind: "text"; readonly text: string; readonly present: boolean }
   | { readonly kind: "url"; readonly urlPrefix: string }
   | { readonly kind: "load"; readonly state: WaitUntil }
@@ -378,6 +428,9 @@ export function waitConditionParam(params: Readonly<Record<string, unknown>>, ur
   const elementForm = given.length === 1 && (given[0] === "ref" || given[0] === "selector");
   if (given.length !== 1) throw invalid("Give exactly one wait condition.");
   if (!elementForm && params.state !== undefined) throw invalid("'state' is only valid with 'ref' or 'selector'.");
+  if (!elementForm && params.frameRef !== undefined)
+    throw invalid("'frameRef' is only valid with 'ref' or 'selector'.");
+  const frame = params.frameRef === undefined ? {} : { frameRef: frameRefParam(params.frameRef) };
   const key = given[0] as string;
   switch (key) {
     case "ref":
@@ -385,8 +438,8 @@ export function waitConditionParam(params: Readonly<Record<string, unknown>>, ur
       const state = params.state ?? "visible";
       if (typeof state !== "string" || !(ELEMENT_STATES as readonly string[]).includes(state))
         throw invalid("'state' must be one of " + ELEMENT_STATES.join(", ") + ".");
-      if (key === "ref") return { kind: "element", ref: refParam(params.ref), state: state as ElementState };
-      return { kind: "element", selector: params.selector as string, state: state as ElementState };
+      if (key === "ref") return { kind: "element", ref: refParam(params.ref), ...frame, state: state as ElementState };
+      return { kind: "element", selector: params.selector as string, ...frame, state: state as ElementState };
     }
     case "text":
     case "textGone": {
@@ -483,7 +536,10 @@ async function elementState(
       cdp,
       registry,
       tabId,
-      condition.ref !== undefined ? { ref: condition.ref } : { selector: condition.selector },
+      {
+        ...(condition.ref !== undefined ? { ref: condition.ref } : { selector: condition.selector }),
+        ...(condition.frameRef !== undefined ? { frameRef: condition.frameRef } : {}),
+      },
       selectorMax,
     );
   } catch (error) {

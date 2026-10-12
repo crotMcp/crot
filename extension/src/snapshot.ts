@@ -221,6 +221,33 @@ export function inTreeOrder(nodes: readonly AxNode[]): AxNode[] {
   return out;
 }
 
+/**
+ * Open dialogs first: the subtrees of dialog / alertdialog nodes (in tree
+ * order), then everything else in tree order. A dialog is what the user
+ * deals with now, and on a large page it would otherwise fall behind the
+ * element bound (maxElements).
+ */
+export function dialogsFirst(ordered: readonly AxNode[]): AxNode[] {
+  const byId = new Map(ordered.map((n) => [n.nodeId, n]));
+  const inDialog = new Set<string>();
+  for (const node of ordered) {
+    const role = node.role?.value;
+    if (node.ignored || (role !== "dialog" && role !== "alertdialog") || inDialog.has(node.nodeId)) continue;
+    const stack = [node];
+    while (stack.length > 0) {
+      const current = stack.pop() as AxNode;
+      if (inDialog.has(current.nodeId)) continue;
+      inDialog.add(current.nodeId);
+      for (const id of current.childIds ?? []) {
+        const child = byId.get(id);
+        if (child) stack.push(child);
+      }
+    }
+  }
+  if (inDialog.size === 0) return [...ordered];
+  return [...ordered.filter((n) => inDialog.has(n.nodeId)), ...ordered.filter((n) => !inDialog.has(n.nodeId))];
+}
+
 // ------------------------------------------------------------- collection
 
 export interface SnapshotTab {
@@ -336,7 +363,7 @@ export async function takeSnapshot(
         const tree = await channelOf(frame).send<{ nodes: AxNode[] }>(tabId, "Accessibility.getFullAXTree", {
           frameId: frame.frameId,
         });
-        nodes = inTreeOrder(tree.nodes);
+        nodes = dialogsFirst(inTreeOrder(tree.nodes));
       } catch {
         nodes = [];
       }

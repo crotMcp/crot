@@ -443,12 +443,15 @@ export class BrowserService {
 
   async drag(context: AuthContext, input: BrowserDragInput): Promise<BrowserControlResult> {
     const args = parseInput(BrowserDragInputSchema, input);
-    const to = args.to.ref !== undefined ? { ref: args.to.ref } : { selector: args.to.selector as string };
+    const to = {
+      ...(args.to.ref !== undefined ? { ref: args.to.ref } : { selector: args.to.selector as string }),
+      ...(args.to.frameRef !== undefined ? { frameRef: args.to.frameRef } : {}),
+    };
     return this.control(context, "browser.drag", "page.drag", args, BrowserControlResultSchema, {
       summary: "Drag an element in a browser tab",
       params: { to },
       details: { to: auditTarget(to) },
-      effects: [describeTarget(to, "drop on")],
+      effects: [describeTarget(to, "drop on"), ...this.frameEffects(to.frameRef, args.tabId, "drop on ")],
       dropTarget: to,
     });
   }
@@ -488,7 +491,8 @@ export class BrowserService {
   async wait(context: AuthContext, input: BrowserWaitInput): Promise<BrowserWaitResult> {
     const args = parseInput(BrowserWaitInputSchema, input);
     const { tabId: _tabId, ...condition } = args;
-    const kind = Object.keys(condition).find((k) => k !== "state" && k !== "timeoutMs") ?? "unknown";
+    const kind =
+      Object.keys(condition).find((k) => k !== "state" && k !== "timeoutMs" && k !== "frameRef") ?? "unknown";
     return this.run(
       context,
       "browser.wait",
@@ -499,6 +503,7 @@ export class BrowserService {
         ...(args.state ? { state: args.state } : {}),
         ...(args.selector !== undefined ? { selector: auditSelector(args.selector) } : {}),
         ...(args.ref !== undefined ? { ref: args.ref } : {}),
+        ...(args.frameRef !== undefined ? { frameRef: args.frameRef } : {}),
         ...(args.text !== undefined ? { textLength: args.text.length } : {}),
         ...(args.textGone !== undefined ? { textLength: args.textGone.length } : {}),
         ...(args.urlPrefix !== undefined ? { origin: urlOrigin(args.urlPrefix) } : {}),
@@ -561,7 +566,14 @@ export class BrowserService {
     context: AuthContext,
     operation: string,
     command: BrowserCommand,
-    args: { tabId?: number; ref?: string; selector?: string; waitUntil?: BrowserWaitUntil; timeoutMs?: number },
+    args: {
+      tabId?: number;
+      ref?: string;
+      selector?: string;
+      frameRef?: string;
+      waitUntil?: BrowserWaitUntil;
+      timeoutMs?: number;
+    },
     schema: S,
     spec: {
       summary: string;
@@ -571,11 +583,13 @@ export class BrowserService {
       /** The legacy selector form (page function); sent unchanged. */
       legacy?: boolean;
       /** The drop target of browser_drag, described like the target. */
-      dropTarget?: { ref?: string; selector?: string };
+      dropTarget?: { ref?: string; selector?: string; frameRef?: string };
     },
   ): Promise<z.output<S>> {
-    const target =
-      args.ref !== undefined ? { ref: args.ref } : args.selector !== undefined ? { selector: args.selector } : {};
+    const target = {
+      ...(args.ref !== undefined ? { ref: args.ref } : args.selector !== undefined ? { selector: args.selector } : {}),
+      ...(args.frameRef !== undefined ? { frameRef: args.frameRef } : {}),
+    };
     const settle = settleParams(args);
     // What the last snapshot of this connection said about the referenced elements (AD-16 points 10, 16).
     const elements: ElementTarget[] = [
@@ -592,6 +606,8 @@ export class BrowserService {
         summary: spec.summary,
         effects: [
           ...("ref" in target || "selector" in target ? [describeTarget(target)] : []),
+          // A selector in a frame: the frame's origin, as the last snapshot reported it (a ref brings its own).
+          ...(args.ref === undefined ? this.frameEffects(args.frameRef, args.tabId, "") : []),
           ...(spec.effects ?? []),
         ],
         target: { tabId: args.tabId },
@@ -734,6 +750,22 @@ export class BrowserService {
     return description;
   }
 
+  /**
+   * Approval effects of a frame named by frameRef for a selector: the
+   * frame's origin as the last snapshot of this tab and connection reported
+   * it (unknown otherwise; the extension checks that the frame still shows
+   * that document). Nothing for the top-level document.
+   */
+  private frameEffects(frameRef: string | undefined, tabId: number | undefined, prefix: string): ApprovalEffect[] {
+    if (frameRef === undefined) return [];
+    const connectionId = this.connectionId();
+    const frame = connectionId === undefined ? undefined : this.refs.lookupFrame(connectionId, frameRef);
+    if (frame === undefined || (tabId !== undefined && frame.tabId !== tabId))
+      return [{ label: `${prefix}frame origin`, value: "not described by a snapshot of this tab" }];
+    if (!frame.childFrame) return [];
+    return [{ label: `${prefix}frame origin`, value: frame.origin ?? "unknown" }];
+  }
+
   private assertOpen(): void {
     if (this.closed)
       throw new CrotError("OPERATION_FAILED", "CROT is shutting down; browser operations are not accepted.");
@@ -851,6 +883,13 @@ export interface RefDescription {
   readonly name: string;
 }
 
+/** What a snapshot reported about one frame ref (AD-16 point 10). */
+interface FrameDescription {
+  readonly tabId: number;
+  readonly origin: string | null;
+  readonly childFrame: boolean;
+}
+
 interface ElementTarget {
   readonly ref: string;
   /** "" for the target, "drop on " for the drop target of browser_drag. */
@@ -873,6 +912,7 @@ const MAX_EFFECT_NAME = 200;
 export class RefDescriptions {
   private connectionId: string | undefined;
   private readonly byRef = new Map<string, RefDescription>();
+  private readonly byFrameRef = new Map<string, FrameDescription>();
 
   constructor(private readonly max = BROWSER_REF_DESCRIPTIONS_MAX) {}
 
@@ -882,6 +922,15 @@ export class RefDescriptions {
       for (const [ref, d] of this.byRef) if (d.tabId === snapshot.tabId) this.byRef.delete(ref);
     }
     const frames = new Map(snapshot.frames.map((f) => [f.frameRef, f]));
+    for (const frame of snapshot.frames) {
+      this.byFrameRef.delete(frame.frameRef);
+      this.byFrameRef.set(frame.frameRef, {
+        tabId: snapshot.tabId,
+        origin: frame.origin,
+        childFrame: frame.parentFrameRef !== null,
+      });
+    }
+    while (this.byFrameRef.size > this.max) this.byFrameRef.delete(this.byFrameRef.keys().next().value as string);
     for (const element of snapshot.elements) {
       const frame = frames.get(element.frameRef);
       this.byRef.delete(element.ref);
@@ -902,6 +951,11 @@ export class RefDescriptions {
     }
   }
 
+  lookupFrame(connectionId: string, frameRef: string): FrameDescription | undefined {
+    this.use(connectionId);
+    return this.byFrameRef.get(frameRef);
+  }
+
   lookup(connectionId: string, ref: string): RefDescription | undefined {
     this.use(connectionId);
     return this.byRef.get(ref);
@@ -915,6 +969,7 @@ export class RefDescriptions {
     if (this.connectionId === connectionId) return;
     this.connectionId = connectionId;
     this.byRef.clear();
+    this.byFrameRef.clear();
   }
 }
 
@@ -983,10 +1038,11 @@ function isLegacy(args: object, keys: readonly string[]): boolean {
   return Object.entries(args).every(([k, v]) => v === undefined || keys.includes(k));
 }
 
-/** Audit form of an element target: the ref, or the truncated selector. */
-function auditTarget(target: { ref?: string; selector?: string }): Record<string, string> {
-  if (target.ref !== undefined) return { ref: target.ref };
-  if (target.selector !== undefined) return { selector: auditSelector(target.selector) };
+/** Audit form of an element target: the ref, or the truncated selector (with its frame ref). */
+function auditTarget(target: { ref?: string; selector?: string; frameRef?: string }): Record<string, string> {
+  const frame: Record<string, string> = target.frameRef !== undefined ? { frameRef: target.frameRef } : {};
+  if (target.ref !== undefined) return { ref: target.ref, ...frame };
+  if (target.selector !== undefined) return { selector: auditSelector(target.selector), ...frame };
   return {};
 }
 

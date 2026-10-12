@@ -136,7 +136,16 @@ const atMostOneTarget = (v: { ref?: string; selector?: string }): boolean =>
   v.ref === undefined || v.selector === undefined;
 const ONE_TARGET = { message: "Give exactly one of 'ref' or 'selector'." };
 const AT_MOST_ONE_TARGET = { message: "Give at most one of 'ref' or 'selector'." };
-const ElementTarget = z.object({ ref: OptionalRef, selector: OptionalSelector }).strict().refine(oneTarget, ONE_TARGET);
+const TargetFrameRef = FrameRef.optional().describe(
+  "Frame document the selector is resolved in (frame ref from browser_snapshot; default: the top-level document). With a ref it must be the ref's frame.",
+);
+const frameNeedsTarget = (v: { ref?: string; selector?: string; frameRef?: string }): boolean =>
+  v.frameRef === undefined || v.ref !== undefined || v.selector !== undefined;
+const FRAME_NEEDS_TARGET = { message: "'frameRef' is only valid with 'ref' or 'selector'." };
+const ElementTarget = z
+  .object({ ref: OptionalRef, selector: OptionalSelector, frameRef: TargetFrameRef })
+  .strict()
+  .refine(oneTarget, ONE_TARGET);
 
 export const BrowserTabOpenInputSchema = z
   .object({
@@ -157,6 +166,7 @@ export const BrowserClickInputSchema = z
     tabId: OptionalTabId,
     ref: OptionalRef,
     selector: OptionalSelector,
+    frameRef: TargetFrameRef,
     button: z.enum(["left", "right", "middle"]).optional().describe("Mouse button (default left)."),
     clickCount: z
       .union([z.literal(1), z.literal(2)])
@@ -170,6 +180,7 @@ export const BrowserClickInputSchema = z
     ...Settle,
   })
   .strict()
+  .refine(frameNeedsTarget, FRAME_NEEDS_TARGET)
   .refine(oneTarget, ONE_TARGET);
 
 export const BrowserTypeInputSchema = z
@@ -177,12 +188,14 @@ export const BrowserTypeInputSchema = z
     tabId: OptionalTabId,
     ref: OptionalRef,
     selector: OptionalSelector,
+    frameRef: TargetFrameRef,
     text: z.string().max(BROWSER_TYPE_TEXT_MAX_LENGTH).describe("Text to type into the element."),
     clear: z.boolean().default(false).describe("Clear the element's current value first."),
     submit: z.boolean().optional().describe("Press Enter after typing (ref or Browser v1 form only)."),
     ...Settle,
   })
   .strict()
+  .refine(frameNeedsTarget, FRAME_NEEDS_TARGET)
   .refine(oneTarget, ONE_TARGET);
 
 export const BrowserSnapshotInputSchema = z
@@ -201,8 +214,9 @@ export const BrowserSnapshotInputSchema = z
   .strict();
 
 export const BrowserHoverInputSchema = z
-  .object({ tabId: OptionalTabId, ref: OptionalRef, selector: OptionalSelector, ...Settle })
+  .object({ tabId: OptionalTabId, ref: OptionalRef, selector: OptionalSelector, frameRef: TargetFrameRef, ...Settle })
   .strict()
+  .refine(frameNeedsTarget, FRAME_NEEDS_TARGET)
   .refine(oneTarget, ONE_TARGET);
 
 const ScrollDelta = z.number().int().min(-BROWSER_SCROLL_DELTA_MAX).max(BROWSER_SCROLL_DELTA_MAX).optional();
@@ -211,11 +225,13 @@ export const BrowserScrollInputSchema = z
     tabId: OptionalTabId,
     ref: OptionalRef.describe("Element to scroll over (default: the centre of the viewport)."),
     selector: OptionalSelector,
+    frameRef: TargetFrameRef,
     deltaX: ScrollDelta.describe("Horizontal wheel delta in CSS pixels."),
     deltaY: ScrollDelta.describe("Vertical wheel delta in CSS pixels (positive scrolls down)."),
     ...Settle,
   })
   .strict()
+  .refine(frameNeedsTarget, FRAME_NEEDS_TARGET)
   .refine(atMostOneTarget, AT_MOST_ONE_TARGET)
   .refine((v) => (v.deltaX ?? 0) !== 0 || (v.deltaY ?? 0) !== 0, { message: "Give a non-zero deltaX or deltaY." });
 
@@ -224,10 +240,12 @@ export const BrowserDragInputSchema = z
     tabId: OptionalTabId,
     ref: OptionalRef,
     selector: OptionalSelector,
+    frameRef: TargetFrameRef,
     to: ElementTarget.describe("Drop target: exactly one of ref or selector."),
     ...Settle,
   })
   .strict()
+  .refine(frameNeedsTarget, FRAME_NEEDS_TARGET)
   .refine(oneTarget, ONE_TARGET);
 
 export const BrowserPressKeyInputSchema = z
@@ -235,6 +253,7 @@ export const BrowserPressKeyInputSchema = z
     tabId: OptionalTabId,
     ref: OptionalRef.describe("Element to focus first (default: the focused element)."),
     selector: OptionalSelector,
+    frameRef: TargetFrameRef,
     keys: z
       .array(z.string().min(1).max(100))
       .min(1)
@@ -243,6 +262,7 @@ export const BrowserPressKeyInputSchema = z
     ...Settle,
   })
   .strict()
+  .refine(frameNeedsTarget, FRAME_NEEDS_TARGET)
   .refine(atMostOneTarget, AT_MOST_ONE_TARGET);
 
 export const BrowserSelectOptionInputSchema = z
@@ -250,6 +270,7 @@ export const BrowserSelectOptionInputSchema = z
     tabId: OptionalTabId,
     ref: OptionalRef,
     selector: OptionalSelector,
+    frameRef: TargetFrameRef,
     values: z
       .array(z.string().max(BROWSER_WAIT_TEXT_MAX_LENGTH))
       .min(1)
@@ -258,6 +279,7 @@ export const BrowserSelectOptionInputSchema = z
     ...Settle,
   })
   .strict()
+  .refine(frameNeedsTarget, FRAME_NEEDS_TARGET)
   .refine(oneTarget, ONE_TARGET);
 
 export const BrowserSetCheckedInputSchema = z
@@ -265,10 +287,12 @@ export const BrowserSetCheckedInputSchema = z
     tabId: OptionalTabId,
     ref: OptionalRef,
     selector: OptionalSelector,
+    frameRef: TargetFrameRef,
     checked: z.boolean().describe("The wanted state; nothing is clicked when it already holds."),
     ...Settle,
   })
   .strict()
+  .refine(frameNeedsTarget, FRAME_NEEDS_TARGET)
   .refine(oneTarget, ONE_TARGET);
 
 const WaitText = z.string().min(1).max(BROWSER_WAIT_TEXT_MAX_LENGTH);
@@ -287,6 +311,7 @@ export const BrowserWaitInputSchema = z
     tabId: OptionalTabId,
     ref: OptionalRef,
     selector: OptionalSelector,
+    frameRef: TargetFrameRef,
     state: z
       .enum(["visible", "hidden", "enabled", "detached"])
       .optional()
@@ -305,6 +330,7 @@ export const BrowserWaitInputSchema = z
     timeoutMs: TimeoutMs,
   })
   .strict()
+  .refine(frameNeedsTarget, FRAME_NEEDS_TARGET)
   .refine((v) => WAIT_CONDITIONS.filter((k) => v[k] !== undefined).length === 1, {
     message: `Give exactly one condition: ${WAIT_CONDITIONS.join(", ")}.`,
   })
