@@ -27,6 +27,7 @@ import {
   dragBetween,
   hoverAt,
   keySequenceParam,
+  focusForKeys,
   pressCombination,
   selectInto,
   setChecked,
@@ -37,6 +38,7 @@ import {
   type MouseButton,
 } from "./input.js";
 import { clickElement, readPageContent, typeIntoElement, type PageOutcome } from "./page-functions.js";
+import { NOT_DELIVERED_MESSAGE, VISIBLE_WAIT_MS, ensureVisible, injector, startInputProbe } from "./delivery.js";
 import { RefRegistry, frameRefParam } from "./refs.js";
 import { SNAPSHOT_DEFAULT_ELEMENTS, SNAPSHOT_MAX_ELEMENTS, takeSnapshot } from "./snapshot.js";
 
@@ -90,7 +92,16 @@ export interface CommandOptions {
   readonly mac?: boolean;
   /** Settle/wait timing (tests shorten it). */
   readonly timing?: Timing;
+  /** How long a control command waits for the tab's page to become visible (tests shorten it). */
+  readonly visibleWaitMs?: number;
+  /** Bound of one screenshot capture (tests shorten it). */
+  readonly screenshotTimeoutMs?: number;
 }
+
+/** A capture the browser does not answer in this time fails (a hidden window produces no image). */
+export const SCREENSHOT_TIMEOUT_MS = 10_000;
+const SCREENSHOT_HIDDEN_MESSAGE =
+  "The browser did not capture the tab: its window may be minimized or hidden. Show the browser window and try again.";
 
 /** Bound of each tab's command queue (AD-16 point 8). */
 export const TAB_QUEUE_MAX = 16;
@@ -299,6 +310,9 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     },
   });
   const timing = options.timing ?? DEFAULT_TIMING;
+  const inject = injector(api);
+  const visibleWaitMs = options.visibleWaitMs ?? VISIBLE_WAIT_MS;
+  const screenshotTimeoutMs = options.screenshotTimeoutMs ?? SCREENSHOT_TIMEOUT_MS;
   const inputOptions = { mac: options.mac === true };
   const limits = { urlMax: URL_MAX_LENGTH, selectorMax: SELECTOR_MAX_LENGTH };
   const resolveModifiers = (modifiers: readonly Modifier[]): Exclude<Modifier, "ControlOrMeta">[] => [
@@ -339,6 +353,18 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       queue.size--;
       if (queue.size === 0 && queues.get(tabId) === queue) queues.delete(tabId);
     }
+  }
+
+  // Input needs a visible page, and activating one tab hides the others of its window: control
+  // commands of different tabs run one at a time (waits, reads and snapshots are not affected).
+  let inputTail: Promise<unknown> = Promise.resolve();
+  function exclusiveInput<T>(run: () => Promise<T>): Promise<T> {
+    const result = inputTail.then(run, run);
+    inputTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   async function getTab(tabId: number): Promise<ChromeTab & { readonly id: number }> {
@@ -450,14 +476,17 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     waitUntil?: WaitUntil,
     timeoutMs?: number,
     observer?: TabObserver,
-  ): Promise<{ tabId: number; url: string }> {
+  ): Promise<{ tabId: number; url: string; loadTimedOut?: true }> {
+    let timedOut = false;
     if (waitUntil === undefined || timeoutMs === undefined) await waitForLoad(tabId);
     else {
+      let reachedState: boolean | "closed";
       try {
-        await waitForLoadState(api, tabId, waitUntil, Date.now() + timeoutMs, observer, timing);
+        reachedState = await waitForLoadState(api, tabId, waitUntil, Date.now() + timeoutMs, observer, timing);
       } finally {
         observer?.dispose();
       }
+      timedOut = reachedState === false;
     }
     let tab: ChromeTab;
     try {
@@ -466,7 +495,9 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       throw new ExtensionError("NOT_FOUND", "The tab was closed while loading.");
     }
     // While still loading (load wait elapsed), pendingUrl is where the tab is going.
-    return { tabId, url: bounded(tab.pendingUrl || tab.url, URL_MAX_LENGTH) };
+    const url = bounded(tab.pendingUrl || tab.url, URL_MAX_LENGTH);
+    // The page has not reached waitUntil in time: said so, never silently (the tab keeps loading).
+    return timedOut ? { tabId, url, loadTimedOut: true } : { tabId, url };
   }
 
   const handlers: CommandHandlers = {
@@ -595,14 +626,29 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
           "Tab " + tab.id + " is not the visible tab of its window. Activate it with browser_tab_activate first.",
         );
       }
+      // A minimized window shows nothing; the browser would wait instead of capturing.
+      const window = await api.windows.get(tab.windowId).catch(() => undefined);
+      if (window?.state === "minimized") throw new ExtensionError("OPERATION_FAILED", SCREENSHOT_HIDDEN_MESSAGE);
       let dataUrl: string;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        dataUrl = await api.tabs.captureVisibleTab(
-          tab.windowId,
-          quality === undefined ? { format } : { format, quality: quality as number },
-        );
+        dataUrl = await Promise.race([
+          api.tabs.captureVisibleTab(
+            tab.windowId,
+            quality === undefined ? { format } : { format, quality: quality as number },
+          ),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(
+              () => reject(new ExtensionError("TIMEOUT", SCREENSHOT_HIDDEN_MESSAGE)),
+              screenshotTimeoutMs,
+            );
+          }),
+        ]);
       } catch (error) {
+        if (error instanceof ExtensionError) throw error;
         throw browserError(error, "Taking the screenshot");
+      } finally {
+        clearTimeout(timer);
       }
       // captureVisibleTab captures whatever the window shows: make sure it was still this tab and page.
       const [visible] = await api.tabs.query({ active: true, windowId: tab.windowId });
@@ -630,11 +676,13 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         const modifiers = modifiersParam(params.modifiers);
         return control(params, context, ["button", "clickCount", "modifiers"], async (tabId, node) => {
           const point = await actionablePoint(node.channel, tabId, node.backendNodeId);
+          const probe = await startInputProbe(inject, tabId);
           await clickAt(cdp, tabId, point, {
             button: button as MouseButton,
             clickCount,
             modifiers: resolveModifiers(modifiers),
           });
+          if (!(await probe.delivered())) throw new ExtensionError("OPERATION_FAILED", NOT_DELIVERED_MESSAGE);
         });
       }
       onlyKeys(params, ["tabId", "selector", "expect"]);
@@ -732,7 +780,9 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         const from = await actionablePoint(node.channel, tabId, node.backendNodeId);
         const target = await resolveTarget(cdp, refs, tabId, to as CommandParams, SELECTOR_MAX_LENGTH);
         const point = await actionablePoint(target.channel, tabId, target.backendNodeId, { requireEnabled: false });
+        const probe = await startInputProbe(inject, tabId);
         await dragBetween(cdp, tabId, from, point);
+        if (!(await probe.delivered())) throw new ExtensionError("OPERATION_FAILED", NOT_DELIVERED_MESSAGE);
       });
     },
 
@@ -745,8 +795,8 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         ["keys"],
         async (tabId, node) => {
           if (node) {
-            await actionablePoint(node.channel, tabId, node.backendNodeId);
-            await node.channel.send(tabId, "DOM.focus", { backendNodeId: node.backendNodeId });
+            await actionablePoint(node.channel, tabId, node.backendNodeId, { requireEnabled: false });
+            await focusForKeys(node.channel, tabId, node.backendNodeId);
           }
           for (const combo of keys) await pressCombination(cdp, tabId, combo);
         },
@@ -842,7 +892,14 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     extraKeys: readonly string[],
     act: (tabId: number, node: { backendNodeId: number; channel: CdpChannel }, refs: RefRegistry) => Promise<void>,
     options: { element?: boolean } = {},
-  ): Promise<{ tabId: number; url: string; navigated: boolean; newTabs: number[] }> {
+  ): Promise<{
+    tabId: number;
+    url: string;
+    navigated: boolean;
+    newTabs: number[];
+    activated?: true;
+    loadTimedOut?: true;
+  }> {
     onlyKeys(params, ["tabId", "ref", "selector", "waitUntil", "timeoutMs", "expect", ...extraKeys]);
     const tabId = optionalTabIdParam(params);
     const waitUntil = waitUntilParam(params.waitUntil);
@@ -851,23 +908,30 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     const refs = refsFor(context);
     const element = options.element ?? true;
     const first = await targetTab(tabId, expected, context, true);
-    return serialized(first.id, async () => {
-      // The binding is checked when the command reaches the front of the queue.
-      const tab = await targetTab(first.id, expected, context, true);
-      const mainFrameId = await enableEvents(cdp, tab.id);
-      const node = element
-        ? await resolveTarget(cdp, refs, tab.id, params, SELECTOR_MAX_LENGTH)
-        : (undefined as unknown as { backendNodeId: number; channel: CdpChannel });
-      const observer = new TabObserver(api, cdp, tab.id, mainFrameId);
-      try {
-        if (expected) checkTab(expected, await api.tabs.get(tab.id), context);
-        await act(tab.id, node, refs);
-      } catch (error) {
-        observer.dispose();
-        throw error;
-      }
-      return settle(api, observer, waitUntil, timeoutMs, timing, URL_MAX_LENGTH);
-    });
+    return serialized(first.id, () =>
+      exclusiveInput(async () => {
+        // The binding is checked when the command reaches the front of the queue.
+        const tab = await targetTab(first.id, expected, context, true);
+        // Input reaches visible pages only: activate the tab (restore its window) first.
+        const activated = await ensureVisible(api, inject, tab, visibleWaitMs);
+        const mainFrameId = await enableEvents(cdp, tab.id);
+        // Keys and focus work as for a focused window while the user works in another application.
+        await cdp.send(tab.id, "Emulation.setFocusEmulationEnabled", { enabled: true });
+        const node = element
+          ? await resolveTarget(cdp, refs, tab.id, params, SELECTOR_MAX_LENGTH)
+          : (undefined as unknown as { backendNodeId: number; channel: CdpChannel });
+        const observer = new TabObserver(api, cdp, tab.id, mainFrameId);
+        try {
+          if (expected) checkTab(expected, await api.tabs.get(tab.id), context);
+          await act(tab.id, node, refs);
+        } catch (error) {
+          observer.dispose();
+          throw error;
+        }
+        const result = await settle(api, observer, waitUntil, timeoutMs, timing, URL_MAX_LENGTH);
+        return activated ? { ...result, activated: true } : result;
+      }),
+    );
   }
 
   return handlers;

@@ -7,6 +7,7 @@ import type {
   ChromePort,
   ChromeScriptInjection,
   ChromeTab,
+  ChromeWindow,
   ChromeTabQuery,
 } from "../src/chrome-api.js";
 
@@ -157,6 +158,8 @@ export class FakeChrome {
   readonly runtime = new FakeRuntime();
   readonly tabsById = new Map<number, MutableTab>();
   readonly focused: number[] = [];
+  readonly restored: number[] = [];
+  readonly windowStates = new Map<number, string>();
   readonly injections: ChromeScriptInjection<unknown[], unknown>[] = [];
   readonly captures: { windowId: number; options: ChromeCaptureOptions }[] = [];
   /** What executeScript returns for the main frame; defaults to running the function locally. */
@@ -168,6 +171,11 @@ export class FakeChrome {
   /** Called after captureVisibleTab resolves (to simulate a tab switch). */
   afterCapture: (() => void) | undefined;
   loadStatus: "loading" | "complete" = "complete";
+  /** document.visibilityState of every page (the visibility check before input). */
+  visibility: (tabId: number) => string = (tabId) => (this.tabsById.get(tabId)?.active ? "visible" : "hidden");
+  /** Trusted pointer events the page sees while an input probe runs (0: input not delivered). */
+  inputEvents = 1;
+  private probeNonce: string | undefined;
   private nextId = 100;
 
   readonly tabsOnUpdated = new FakeEvent<(tabId: number, changeInfo: { status?: string }, tab: ChromeTab) => void>();
@@ -212,6 +220,24 @@ export class FakeChrome {
     if (url !== undefined || tab.pendingUrl !== undefined) tab.url = url ?? tab.pendingUrl;
     delete tab.pendingUrl;
     this.tabsOnUpdated.emit(tabId, { status: "complete" }, { ...tab });
+  }
+
+  /** Answers of the delivery page functions (delivery.ts); undefined for every other function. */
+  private pageModel(injection: ChromeScriptInjection<unknown[], unknown>): unknown {
+    switch (injection.func.name) {
+      case "pageVisibility":
+        return { ok: true, value: this.visibility(injection.target.tabId) };
+      case "installInputProbe":
+        this.probeNonce = injection.args[0] as string;
+        return { ok: true, value: true };
+      case "collectInputProbe": {
+        const match = this.probeNonce === injection.args[0];
+        this.probeNonce = undefined;
+        return { ok: true, value: match ? this.inputEvents : null };
+      }
+      default:
+        return undefined;
+    }
   }
 
   private tab(tabId: number): MutableTab {
@@ -292,8 +318,15 @@ export class FakeChrome {
         },
       },
       windows: {
-        async update(windowId: number): Promise<unknown> {
-          self.focused.push(windowId);
+        async get(windowId: number): Promise<ChromeWindow> {
+          return { id: windowId, focused: true, state: self.windowStates.get(windowId) ?? "normal" };
+        },
+        async update(windowId: number, properties: { focused?: boolean; state?: "normal" }): Promise<unknown> {
+          if (properties.focused) self.focused.push(windowId);
+          if (properties.state) {
+            self.windowStates.set(windowId, properties.state);
+            self.restored.push(windowId);
+          }
           return {};
         },
       },
@@ -305,7 +338,12 @@ export class FakeChrome {
           self.injections.push(generic);
           self.tab(injection.target.tabId);
           if (self.scriptError) throw self.scriptError;
-          const result = self.scriptResult ? self.scriptResult(generic) : injection.func(...injection.args);
+          const builtIn = self.pageModel(generic);
+          const result = self.scriptResult
+            ? self.scriptResult(generic)
+            : builtIn !== undefined
+              ? builtIn
+              : injection.func(...injection.args);
           // Results are structured-cloned.
           return [{ frameId: 0, result: result === undefined ? undefined : structuredClone(result) }];
         },

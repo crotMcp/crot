@@ -328,6 +328,43 @@ describe.runIf(linux)("browser v1 E2E (AD-16): refs, trusted input, frames, shad
     await h.ok(client(), "browser_tab_close", { tabId: popup });
   });
 
+  it("background tab: input first makes the tab visible (activated), the click is delivered; text waits see rendered text only", async () => {
+    const snap = await openForm();
+    // Another tab in front: the form tab's page is hidden, and browsers drop input to hidden pages.
+    const other = await h.ok<ControlResult>(client(), "browser_tab_open", {
+      url: `${server.origin}/start.html?other=1`,
+      waitUntil: "load",
+    });
+    try {
+      let { tabs } = await h.ok<{ tabs: (TabInfo & { active: boolean })[] }>(client(), "browser_tabs_list");
+      expect(tabs.find((t) => t.tabId === tabId)?.active).toBe(false);
+      // Hidden (display:none) and invisible (visibility:hidden) text never satisfies a text wait.
+      for (const text of ["REVEALED: yes", "INVISIBLE: text"]) {
+        expect((await h.fails(client(), "browser_wait", { tabId, text, timeoutMs: 400 })).code).toBe("TIMEOUT");
+      }
+      const result = await h.ok<ControlResult & { activated?: boolean }>(client(), "browser_click", {
+        tabId,
+        ref: find(snap, "button", "Reveal").ref,
+      });
+      expect(result.activated).toBe(true);
+      const [event] = await waitEvent("reveal-click");
+      expect(event!.query.get("trusted")).toBe("1");
+      expect(event!.query.get("visibility")).toBe("visible");
+      ({ tabs } = await h.ok<{ tabs: (TabInfo & { active: boolean })[] }>(client(), "browser_tabs_list"));
+      expect(tabs.find((t) => t.tabId === tabId)?.active).toBe(true);
+      await h.ok(client(), "browser_wait", { tabId, text: "REVEALED: yes", timeoutMs: 5_000 });
+      await h.ok(client(), "browser_wait", { tabId, textGone: "INVISIBLE: text", timeoutMs: 1_000 });
+      // A visible tab is not activated again.
+      const again = await h.ok<ControlResult & { activated?: boolean }>(client(), "browser_click", {
+        tabId,
+        ref: find(snap, "button", "Reveal").ref,
+      });
+      expect(again.activated).toBeUndefined();
+    } finally {
+      await h.ok(client(), "browser_tab_close", { tabId: other.tabId });
+    }
+  });
+
   it("CDP surface: every command the extension sent is on the fixed allowlist; no Runtime.* at all", async () => {
     const methods = await witness!.methods();
     expect(methods.length).toBeGreaterThan(0);

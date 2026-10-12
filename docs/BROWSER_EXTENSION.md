@@ -240,9 +240,11 @@ through a fixed, extension-built command surface (AD-16 point 3):
 - **Fixed CDP allowlist** (`CDP_ALLOWED_METHODS` in `extension/src/cdp.ts`):
   Accessibility, DOM (read, box model, focus, scroll, hit test), DOMSnapshot,
   Input, Page (lifecycle, frame tree, history, reload), `Target.setAutoAttach`
-  and event-only `Network.enable`. No `Runtime.*`, `Debugger.*`, `Fetch.*`,
-  storage, cookie, emulation or target-creation method can be sent; no host-
-  or agent-supplied code runs in the page.
+  event-only `Network.enable` and `Emulation.setFocusEmulationEnabled` (so
+  keys and focus reach the page while the user works in another window). No
+  `Runtime.*`, `Debugger.*`, `Fetch.*`, storage, cookie, other emulation or
+  target-creation method can be sent; no host- or agent-supplied code runs in
+  the page.
 - **Attach on demand** to a tab when a Browser v1 command needs it; detached
   after 5 minutes without commands and for every tab when the CROT connection
   ends. Chromium shows its "is debugging this browser" notice while attached;
@@ -277,6 +279,32 @@ through a fixed, extension-built command surface (AD-16 point 3):
   and checkboxes / radios. Before pointer input the element is scrolled into
   view and must be visible, inside the viewport, enabled and not obscured;
   otherwise `INVALID_INPUT` naming the reason. There is no `force` option.
+  An element in a frame is scrolled into the frame's view and then exactly
+  that part of the frame into the page's view.
+- **Visible page first; no false success.** Browsers do not deliver input to
+  hidden pages (a background tab or a minimized window: each mouse event is
+  held for about five seconds and dropped). Before every control command the
+  extension makes the tab the active tab of its window, restores a minimized
+  window and, only if the page is still hidden (a window fully covered by
+  others), focuses the window; the result then carries `activated: true`. A
+  page that stays hidden fails the command with `OPERATION_FAILED` before
+  anything is dispatched. Control commands of different tabs therefore run
+  one at a time. After the action:
+  - `browser_click` and `browser_drag` check, with a probe in the
+    extension's isolated world that counts trusted pointer events (counts
+    only), that the input reached the page; if every probed document is still
+    there and none saw an event, the command fails (`OPERATION_FAILED`, "not
+    delivered") instead of reporting success;
+  - `browser_set_checked` fails unless the element shows the requested state
+    (within 1 s); `browser_select_option` fails unless the page shows the
+    requested options selected (single choice: the select's accessible value,
+    which is the selected option's label; multiple: the options' state);
+  - a navigation that does not reach `waitUntil` within `timeoutMs` is
+    reported with `loadTimedOut: true` (control commands, `browser_navigate`,
+    `browser_tab_open`, `browser_history`); the page goes on loading.
+- **Screenshots never hang.** `browser_screenshot` of a minimized window fails
+  at once and a capture the browser does not answer within 10 s fails with
+  `TIMEOUT` (both say to show the browser window).
 - **Settle and waits.** After an action the extension observes the tab for a
   short quiet period (300 ms); a navigation started by the action is awaited
   until `waitUntil` (`commit`, `domcontentloaded`, `load` (default),
@@ -284,13 +312,35 @@ through a fixed, extension-built command surface (AD-16 point 3):
   are facts only: `{tabId, url, navigated, newTabs}`. `browser_wait`
   (`browser.read`, not an exposure source) waits for one condition: element
   state, text present / gone, URL prefix, load state, new document or new
-  tab. `browser_history` goes back, forward or reloads.
+  tab. Text conditions count **rendered text only** (from the layout:
+  `display:none` and `visibility:hidden` text, scripts and templates do not
+  count; text made transparent with CSS opacity still counts).
+  `browser_history` goes back, forward or reloads.
+- **Frame references** belong to one document of the frame: when a frame
+  navigates (for example an embed loading its real content after
+  `about:blank`) it gets a new `frameRef` and the old one is stale. Take the
+  snapshot after the frame has loaded (`browser_wait` with a `ref` of an
+  element in it, or for `loadState`).
 - **Per-tab queue.** Commands on one tab run one at a time in order, at most
   16 queued (then `RESOURCE_BUSY`), in the extension and in Core.
 - `browser_tabs_list` reports `openerTabId`; a click that opens a pop-up
   reports it in `newTabs`.
 
 ### Approval gates
+
+**When a browser action asks for approval.** Only when an approval rule
+matches it. Without your own rules that is the built-in `untrusted-content`
+rule (README, *Approval gates*): once a session has read page content
+(`browser_snapshot`, `browser_page_read`, `browser_screenshot`,
+`browser_tabs_list`), every `browser.control` operation of that session needs
+approval in the CROT tray — unless the tray preset is **Autonomous browser**
+(browser control without approval; shell, file writes, Git writes, network
+and uploads stay gated) or **Off**. `crot_status` shows the value in effect
+and its source. A denied or unanswered request fails the tool with
+`PERMISSION_DENIED` (`details.approval.status`) and is audited with
+`outcome: "denied"`; nothing is done. To gate every browser action
+regardless of exposure, add a rule, for example
+`{ "id": "browser", "match": { "capabilities": ["browser.control"] } }`.
 
 When a `permissions.approvals` rule matches a browser operation (ARCHITECTURE.md
 §27, AD-6, AD-8, AD-9, AD-11):
@@ -482,9 +532,16 @@ CROT again.
   accessibility tree) but are not guaranteed. A frame-limited snapshot of an
   out-of-process frame and `browser_wait` text conditions cover that frame's
   session; `networkidle` counts requests of the tab's own session only.
-- Browser v1 has been checked end to end in a real Chromium (Chrome for
-  Testing) only, by `npm run test:e2e:browser` (see
-  [`BROWSER_E2E.md`](BROWSER_E2E.md)); a manual run on real third-party sites
-  has **not** been performed yet.
+- Browser v1 is checked end to end in a real Chromium (Chrome for Testing)
+  by `npm run test:e2e:browser` (see [`BROWSER_E2E.md`](BROWSER_E2E.md)).
+  A first manual run on real sites in Google Chrome found the problems fixed
+  above ([`acceptance/WP-24-manual-run-1.md`](acceptance/WP-24-manual-run-1.md));
+  a run on the fixed build has **not** been performed yet.
+- Input needs a visible page: CROT activates the tab (and restores or, last,
+  focuses its window) for every control command, which the user sees. Two
+  agents driving different tabs of one window take turns.
+- Native `<select>` on macOS: selection uses keys on the focused select;
+  where the platform opens the pop-up instead, the command fails (the
+  post-condition) rather than reporting a selection. Not verified on macOS.
 - Setup is manual. A one-click installer for the extension and the host is a
   later step (ARCHITECTURE.md §16, step 13; work package WP-34).

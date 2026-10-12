@@ -214,10 +214,12 @@ tests point 19). The cards below implement it and must not weaken it.
   detach, `isTrusted` events, a cross-origin frame and an open shadow root;
   a forbidden CDP method cannot be sent; manual run on at least three real
   sites recorded (carried over from the WP-18 spike).
-- **Status:** in review (PR #22, branch `wp-24-browser-v1`). Implemented
+- **Status:** merged (PR #22, `main` `d273473`); manual run 1 fixes in
+  PR #23 (branch `wp-24-manual-run-1-fixes`). Implemented
   and covered by unit tests and the real-Chromium E2E
-  (`tests-e2e/browser/browser-v1.e2e.test.ts`): everything above except the
-  manual run on three real sites, which has **not** been performed.
+  (`tests-e2e/browser/browser-v1.e2e.test.ts`). Manual run 1 on real sites
+  (owner) is recorded with its fixes in `docs/acceptance/WP-24-manual-run-1.md`;
+  run 2 on the fixed build has **not** been performed.
 
 ### WP-25 — Dialogs, file choosers, background screenshots, debugger lifecycle
 - **Size:** M. **Depends on:** WP-24 (trusted input, frames and shadow DOM

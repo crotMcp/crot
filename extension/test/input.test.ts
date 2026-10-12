@@ -34,7 +34,7 @@ class Page {
     7: [[300, 300, 320, 300, 320, 320, 300, 320]],
   };
   hit: (x: number, y: number) => number = (x) => (x < 50 ? 3 : x < 250 ? 5 : 6);
-  ax: Record<number, { role: string; properties?: { name: string; value: { value: unknown } }[] }> = {
+  ax: Record<number, { role: string; value?: string; properties?: { name: string; value: { value: unknown } }[] }> = {
     2: { role: "button" },
     5: { role: "textbox", properties: [{ name: "editable", value: { value: "plaintext" } }] },
     7: { role: "checkbox", properties: [{ name: "checked", value: { value: "false" } }] },
@@ -58,7 +58,16 @@ class Page {
         const id = p.backendNodeId as number;
         const node = this.ax[id];
         return {
-          nodes: node ? [{ backendDOMNodeId: id, role: { value: node.role }, properties: node.properties ?? [] }] : [],
+          nodes: node
+            ? [
+                {
+                  backendDOMNodeId: id,
+                  role: { value: node.role },
+                  ...(node.value === undefined ? {} : { value: { value: node.value } }),
+                  properties: node.properties ?? [],
+                },
+              ]
+            : [],
         };
       }
       case "DOM.describeNode":
@@ -277,13 +286,31 @@ describe("select and check", () => {
     const { page, cdp } = setup();
     page.quads[9] = [[400, 10, 500, 10, 500, 30, 400, 30]];
     page.hit = () => 9;
-    page.ax[9] = { role: "combobox" };
+    page.ax[9] = { role: "combobox", value: "Apple" };
+    const answer = page.answer.bind(page);
+    page.chrome.debugger.respond = (_t, method, p) => {
+      const params = (p ?? {}) as { type?: string; key?: string };
+      // The page moves the selection with ArrowDown (Home is already on the first enabled option).
+      if (method === "Input.dispatchKeyEvent" && params.type === "keyUp" && params.key === "ArrowDown")
+        page.ax[9] = { role: "combobox", value: "Cherry" };
+      return answer(method, params as Record<string, unknown>);
+    };
     expect(await selectInto(cdp, 1, 9, ["Cherry"], linux)).toEqual({ selected: ["c"] });
     const keys = page
       .input()
       .filter((s) => (s.params as { type: string }).type !== "keyUp")
       .map((s) => (s.params as { key: string }).key);
     expect(keys).toEqual(["Home", "ArrowDown"]);
+  });
+
+  it("fails when the page does not show the requested option (no false success)", async () => {
+    const { page, cdp } = setup();
+    page.quads[9] = [[400, 10, 500, 10, 500, 30, 400, 30]];
+    page.hit = () => 9;
+    page.ax[9] = { role: "combobox", value: "Apple" };
+    const error = await failure(selectInto(cdp, 1, 9, ["Cherry"], linux));
+    expect(error.code).toBe("OPERATION_FAILED");
+    expect(error.message).toContain("did not change");
   });
 
   it("clicks options of a multiple select with the platform modifier", async () => {
@@ -294,8 +321,9 @@ describe("select and check", () => {
     page.quads[13] = [[400, 50, 500, 50, 500, 70, 400, 70]];
     page.hit = (_x, y) => (y < 40 ? 10 : 13);
     page.ax[9] = { role: "listbox" };
-    page.ax[10] = { role: "option" };
-    page.ax[13] = { role: "option" };
+    const selected = [{ name: "selected", value: { value: true } }];
+    page.ax[10] = { role: "option", properties: selected };
+    page.ax[13] = { role: "option", properties: selected };
     expect(await selectInto(cdp, 1, 9, ["a", "c"], mac)).toEqual({ selected: ["a", "c"] });
     const presses = page.input().filter((s) => (s.params as { type: string }).type === "mousePressed");
     expect(presses.map((s) => (s.params as { modifiers: number }).modifiers)).toEqual([0, 4]);
@@ -317,5 +345,28 @@ describe("select and check", () => {
     expect(await setChecked(cdp, 1, 7, true)).toEqual({ checked: true, changed: false });
     expect(clicks).toBe(1);
     expect((await failure(setChecked(cdp, 1, 2, true))).message).toContain("not checkable");
+  });
+
+  it("fails when the click does not change the state (no false success)", async () => {
+    const { page, cdp } = setup();
+    page.hit = () => 7;
+    const error = await failure(setChecked(cdp, 1, 7, true));
+    expect(error.code).toBe("OPERATION_FAILED");
+    expect(error.message).toBe("The element did not become checked (its state is unchecked).");
+  });
+
+  it("waits briefly for a state the page updates asynchronously", async () => {
+    const { page, cdp } = setup();
+    page.hit = () => 7;
+    const answer = page.answer.bind(page);
+    page.chrome.debugger.respond = (_t, method, p) => {
+      if (method === "Input.dispatchMouseEvent" && (p as { type: string }).type === "mouseReleased") {
+        setTimeout(() => {
+          page.ax[7] = { role: "checkbox", properties: [{ name: "checked", value: { value: true } }] };
+        }, 120);
+      }
+      return answer(method, (p ?? {}) as Record<string, unknown>);
+    };
+    expect(await setChecked(cdp, 1, 7, true)).toEqual({ checked: true, changed: true });
   });
 });

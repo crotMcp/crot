@@ -22,9 +22,14 @@ export const MODIFIERS: readonly Modifier[] = ["Shift", "Control", "Alt", "Meta"
 export const MAX_KEY_COMBINATIONS = 32;
 export const MAX_DRAG_STEPS = 10;
 export const MAX_SCROLL_DELTA = 100_000;
+/** How long a select / check action waits for the page to show the requested state. */
+export const STATE_SETTLE_MS = 1_000;
+const STATE_POLL_MS = 50;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 export type NotActionableReason =
-  "not visible" | "disabled" | "obscured" | "not editable" | "not a select" | "not checkable";
+  "not visible" | "disabled" | "obscured" | "not editable" | "not a select" | "not checkable" | "not focusable";
 
 export const notActionable = (reason: NotActionableReason, detail = ""): ExtensionError =>
   new ExtensionError(
@@ -87,6 +92,7 @@ interface AxProperty {
 interface AxNode {
   readonly backendDOMNodeId?: number;
   readonly role?: { readonly value?: unknown };
+  readonly value?: { readonly value?: unknown };
   readonly properties?: readonly AxProperty[];
 }
 
@@ -189,6 +195,22 @@ export async function actionablePoint(
     }
   }
   return point;
+}
+
+/**
+ * Focuses the element keys go to. The document's body and root element take
+ * keys without focus (they are where key events go when nothing is focused).
+ */
+export async function focusForKeys(cdp: CdpChannel, tabId: number, backendNodeId: number): Promise<void> {
+  try {
+    await cdp.send(tabId, "DOM.focus", { backendNodeId });
+    return;
+  } catch {
+    // not focusable: see below
+  }
+  const { node } = await cdp.send<{ node: DomNode }>(tabId, "DOM.describeNode", { backendNodeId });
+  const name = (node.localName ?? node.nodeName ?? "").toLowerCase();
+  if (name !== "body" && name !== "html") throw notActionable("not focusable");
 }
 
 // ------------------------------------------------------------- keys
@@ -575,7 +597,53 @@ export async function selectInto(
       first = false;
     }
   }
+  // Report only what the page shows: the requested options must be selected.
+  const wantedIds = new Set(indices.map((i) => (list[i] as SelectOption).backendNodeId));
+  const deadline = Date.now() + STATE_SETTLE_MS;
+  for (;;) {
+    const selected = await selectedOptions(cdp, tabId, backendNodeId, list, multiple);
+    if (selected !== undefined && [...wantedIds].every((id) => selected.has(id))) break;
+    if (Date.now() >= deadline) {
+      throw new ExtensionError(
+        "OPERATION_FAILED",
+        "The select did not change to the requested option" + (indices.length > 1 ? "s" : "") + ".",
+      );
+    }
+    await sleep(STATE_POLL_MS);
+  }
   return { selected: indices.map((i) => (list[i] as SelectOption).value) };
+}
+
+/**
+ * The selected options as the page shows them: for a single-choice select the
+ * accessibility value (the label of the selected option, which is what a
+ * closed select exposes), for a multiple select the options' selected state.
+ * Undefined when it cannot be read.
+ */
+async function selectedOptions(
+  cdp: CdpChannel,
+  tabId: number,
+  backendNodeId: number,
+  list: readonly SelectOption[],
+  multiple: boolean,
+): Promise<Set<number> | undefined> {
+  try {
+    if (!multiple) {
+      const ax = await axOf(cdp, tabId, backendNodeId);
+      const value = ax?.value?.value;
+      if (typeof value === "string" && value.length > 0) {
+        const label = value.replace(/\s+/g, " ").trim();
+        return new Set(list.filter((o) => o.label === label).map((o) => o.backendNodeId));
+      }
+    }
+    const ids = new Set<number>();
+    for (const option of list) {
+      if (truthy(property(await axOf(cdp, tabId, option.backendNodeId), "selected"))) ids.add(option.backendNodeId);
+    }
+    return ids;
+  } catch {
+    return undefined;
+  }
 }
 
 const CHECKABLE_ROLES = ["checkbox", "radio", "switch", "menuitemcheckbox", "menuitemradio"];
@@ -597,6 +665,22 @@ export async function setChecked(
   }
   const point = await actionablePoint(cdp, tabId, backendNodeId);
   await clickAt(cdp, tabId, point, { button: "left", clickCount: 1, modifiers: [] });
-  const after = checkedOf(await axOf(cdp, tabId, backendNodeId));
-  return { checked: after ?? state, changed: after !== state };
+  // The page may update the state asynchronously (frameworks): wait briefly for the requested state.
+  let after = checkedOf(await axOf(cdp, tabId, backendNodeId));
+  const deadline = Date.now() + STATE_SETTLE_MS;
+  while (after !== checked && Date.now() < deadline) {
+    await sleep(STATE_POLL_MS);
+    after = checkedOf(await axOf(cdp, tabId, backendNodeId));
+  }
+  if (after !== checked) {
+    throw new ExtensionError(
+      "OPERATION_FAILED",
+      "The element did not become " +
+        (checked ? "checked" : "unchecked") +
+        " (its state is " +
+        (after === undefined ? "unknown" : after === "mixed" ? "mixed" : after ? "checked" : "unchecked") +
+        ").",
+    );
+  }
+  return { checked: after, changed: true };
 }

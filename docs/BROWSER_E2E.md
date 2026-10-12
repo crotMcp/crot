@@ -115,7 +115,8 @@ platform is reported as failed / skipped, never as passed.
 CROT instance (`browser.read` + `browser.control`, untrusted-content rule
 off because there is no approval UI) and browser over the same unmocked
 chain. Pages: `fixtures/form.html` (sign-up form, a removable button, an
-element with an **open shadow root**, a `target=_blank` link and an iframe),
+element with an **open shadow root**, a `target=_blank` link, an iframe and
+a button revealing hidden text),
 `fixtures/frame.html` (served under `http://localhost:<port>`, a different
 origin **and site** than `http://127.0.0.1:<port>`, so Chromium puts it in
 its own process) and `fixtures/done.html` (form target). Every input event
@@ -141,11 +142,16 @@ Checked:
 5. Open shadow root: trusted click by ref.
 6. Pop-up: the click reports `newTabs`; `browser_tabs_list` names the
    `openerTabId`.
-7. Fixed CDP surface: every command the extension sent to a tab during the
+7. Background tab: with another tab in front, hidden (`display:none`) and
+   invisible (`visibility:hidden`) text never satisfies `browser_wait`; a
+   click by ref first activates the tab (`activated: true`), the page sees a
+   trusted click while `visible`, then the revealed text satisfies the wait;
+   a click on the now visible tab reports no `activated`.
+8. Fixed CDP surface: every command the extension sent to a tab during the
    run is in `CDP_ALLOWED_METHODS`, none is `Runtime.*`, and input really went
    through `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent`.
 
-For point 7 only, this suite launches the browser with
+For point 8 only, this suite launches the browser with
 `--remote-debugging-port=0` (test harness, `watchExtensionCdp`): the test
 attaches its own DevTools session to the extension's service worker and wraps
 `chrome.debugger.sendCommand` there to record method names. Nothing in CROT
@@ -154,8 +160,8 @@ the allowlist is covered by the unit tests (`extension/test/cdp.test.ts`).
 
 Not covered here (later work packages): dialogs, file chooser, background
 screenshots (WP-25), upload and download (WP-26), two concurrent agents and
-remote `tabId` (WP-27). A manual run on real third-party sites is separate
-and has not been performed.
+remote `tabId` (WP-27). Manual runs on real third-party sites are separate:
+see [`acceptance/WP-24-manual-run-1.md`](acceptance/WP-24-manual-run-1.md).
 
 Local run without a display (as used during WP-24):
 
