@@ -402,6 +402,11 @@ export interface CdpWitness {
   methods(): Promise<string[]>;
   /** Whether a debugger (the extension's; the witness never attaches to pages) is attached to the page target with this URL prefix. */
   pageAttached(urlPrefix: string): Promise<boolean | undefined>;
+  /**
+   * Watch the page with this URL prefix for JavaScript dialogs (the test's own DevTools session, attached
+   * before the dialog opens); answer() then accepts the open dialog, as the user would.
+   */
+  watchDialogs(urlPrefix: string): Promise<{ answer(): Promise<void> }>;
   close(): void;
 }
 
@@ -475,6 +480,28 @@ export async function watchExtensionCdp(sb: Sandbox): Promise<CdpWitness> {
         targetInfos: Array<{ type: string; url: string; attached: boolean }>;
       }>("Target.getTargets");
       return targetInfos.find((t) => t.type === "page" && t.url.startsWith(urlPrefix))?.attached;
+    },
+    watchDialogs: async (urlPrefix) => {
+      const { targetInfos } = await send<{ targetInfos: Array<{ targetId: string; type: string; url: string }> }>(
+        "Target.getTargets",
+      );
+      const page = targetInfos.find((t) => t.type === "page" && t.url.startsWith(urlPrefix));
+      if (!page) throw new Error(`no page target with URL prefix ${urlPrefix}`);
+      const { sessionId: pageSession } = await send<{ sessionId: string }>("Target.attachToTarget", {
+        targetId: page.targetId,
+        flatten: true,
+      });
+      // Only a session that has Page enabled when the dialog opens can answer it.
+      await send("Page.enable", {}, pageSession);
+      return {
+        answer: async () => {
+          try {
+            await send("Page.handleJavaScriptDialog", { accept: true }, pageSession);
+          } finally {
+            await send("Target.detachFromTarget", { sessionId: pageSession }).catch(() => undefined);
+          }
+        },
+      };
     },
     close: () => ws.close(),
   };

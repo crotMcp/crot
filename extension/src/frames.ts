@@ -1,5 +1,6 @@
 import type { CdpSessions } from "./cdp.js";
 import { ExtensionError } from "./errors.js";
+import { type HitResult, documentHit, hitTest, nodeLabel } from "./input.js";
 
 /**
  * Frames of a tab across processes (ARCHITECTURE.md §27, AD-16 point 10).
@@ -22,6 +23,8 @@ import { ExtensionError } from "./errors.js";
 /** What element and snapshot code needs from CDP; CdpSessions itself is the tab's top-level channel. */
 export interface CdpChannel {
   send<T = unknown>(tabId: number, method: string, params?: Readonly<Record<string, unknown>>): Promise<T>;
+  /** Hit test at a top-level viewport point (frames translate into their own document); default: input.ts hitTest. */
+  hitTest?(tabId: number, point: { x: number; y: number }): Promise<HitResult>;
   generation(tabId: number): number;
   isAttached(tabId: number): boolean;
 }
@@ -230,19 +233,36 @@ export class FrameScope implements CdpChannel {
         }
         return { ...result, model } as T;
       }
-      case "DOM.getNodeForLocation": {
-        // Something in the parent above the frame obscures every point of it.
-        const owner = await this.owner(tabId);
-        const outer = await this.parent.send<{ backendNodeId?: number }>(tabId, method, params);
-        if (outer.backendNodeId !== owner) return { backendNodeId: -1 } as T;
-        const offset = await this.offset(tabId);
-        const x = Number(params.x) - offset.x;
-        const y = Number(params.y) - offset.y;
-        return this.own<T>(tabId, method, { ...params, x: Math.round(x), y: Math.round(y) });
-      }
       default:
         return this.own<T>(tabId, method, params);
     }
+  }
+
+  /**
+   * Hit test at a top-level viewport point: the point must hit this frame's
+   * owner in the parent (otherwise something there covers the frame), then
+   * it is translated into the frame's viewport and hit-tested in the frame's
+   * own document (with the frame's own scroll offset).
+   */
+  async hitTest(tabId: number, point: { x: number; y: number }): Promise<HitResult> {
+    const owner = await this.owner(tabId);
+    const outer = await hitTest(this.parent, tabId, point);
+    if (outer.backendNodeId !== owner) {
+      if (outer.coveredBy !== undefined || outer.backendNodeId === undefined || outer.backendNodeId < 0)
+        return { backendNodeId: -1, coveredBy: outer.coveredBy ?? "covered" };
+      const node = await this.parent
+        .send<{ node: { localName?: string; nodeName?: string; attributes?: string[] } }>(tabId, "DOM.describeNode", {
+          backendNodeId: outer.backendNodeId,
+        })
+        .then((r) => r.node)
+        .catch(() => undefined);
+      return { backendNodeId: -1, coveredBy: "covered by " + (node ? nodeLabel(node) : "another element") };
+    }
+    const offset = await this.offset(tabId);
+    return documentHit((method, params) => this.own(tabId, method, params ?? {}), {
+      x: point.x - offset.x,
+      y: point.y - offset.y,
+    });
   }
 
   private own<T>(tabId: number, method: string, params: Readonly<Record<string, unknown>>): Promise<T> {

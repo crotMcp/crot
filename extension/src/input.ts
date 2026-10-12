@@ -51,6 +51,8 @@ export interface InputOptions {
 
 interface DomNode {
   readonly backendNodeId: number;
+  readonly nodeType?: number;
+  readonly attributes?: readonly string[];
   readonly nodeName?: string;
   readonly localName?: string;
   readonly children?: readonly DomNode[];
@@ -130,10 +132,21 @@ function quadCenter(quad: readonly number[]): { point: Point; area: number } {
   };
 }
 
+/** Attempts after a covered hit test: first the element is scrolled towards the viewport centre, then re-checked. */
+export const OBSCURED_ATTEMPTS = 4;
+export const OBSCURED_RETRY_MS = 150;
+const SCROLL_SETTLE_MS = 1_000;
+const TEXT_NODE = 3;
+
 /**
  * The actionability check before pointer input. Returns the point to
  * dispatch at (the centre of the first visible box, top-level viewport
  * coordinates).
+ *
+ * A covered element (a fixed header over an element scrolled to the top, a
+ * fading overlay) is scrolled towards the centre of the viewport once and
+ * re-checked a few times; an element that stays covered fails with the
+ * element that covers it named (tag and id only).
  */
 export async function actionablePoint(
   cdp: CdpChannel,
@@ -146,6 +159,23 @@ export async function actionablePoint(
   } catch {
     throw notActionable("not visible");
   }
+  let point = await visiblePoint(cdp, tabId, backendNodeId);
+  if (options.requireEnabled !== false && truthy(property(await axOf(cdp, tabId, backendNodeId), "disabled"))) {
+    throw notActionable("disabled");
+  }
+  let covered = await coveredBy(cdp, tabId, backendNodeId, point);
+  for (let attempt = 1; covered !== undefined && attempt < OBSCURED_ATTEMPTS; attempt++) {
+    if (attempt === 1) await scrollTowardsCentre(cdp, tabId, backendNodeId, point);
+    else await sleep(OBSCURED_RETRY_MS);
+    point = await visiblePoint(cdp, tabId, backendNodeId);
+    covered = await coveredBy(cdp, tabId, backendNodeId, point);
+  }
+  if (covered !== undefined) throw notActionable("obscured", covered);
+  return point;
+}
+
+/** The centre of the element's first visible box, inside the viewport, or "not visible". */
+async function visiblePoint(cdp: CdpChannel, tabId: number, backendNodeId: number): Promise<Point> {
   let quads: number[][] = [];
   try {
     quads = (await cdp.send<{ quads: number[][] }>(tabId, "DOM.getContentQuads", { backendNodeId })).quads;
@@ -154,47 +184,162 @@ export async function actionablePoint(
   }
   const box = quads.map(quadCenter).find((q) => q.area > 0);
   if (!box) throw notActionable("not visible");
+  const { width: vw, height: vh } = await viewportSize(cdp, tabId);
+  const point = { x: Math.round(box.point.x * 100) / 100, y: Math.round(box.point.y * 100) / 100 };
+  if (point.x < 0 || point.y < 0 || point.x >= vw || point.y >= vh)
+    throw notActionable("not visible", "outside the viewport");
+  return point;
+}
+
+/**
+ * What a top-level viewport point hits: DOM.getNodeForLocation takes
+ * document coordinates (the viewport point plus the document's scroll
+ * offset), so the scroll offset is added here. A frame channel translates
+ * into its own document (see FrameScope.hitTest).
+ */
+export async function hitTest(cdp: CdpChannel, tabId: number, point: Point): Promise<HitResult> {
+  if (cdp.hitTest) return cdp.hitTest(tabId, point);
+  return documentHit((method, params) => cdp.send(tabId, method, params), point);
+}
+
+export interface HitResult {
+  /** The hit node; undefined or negative when nothing of this document is hit there. */
+  readonly backendNodeId?: number;
+  /** What covers the point instead ("covered by div#overlay"), when known. */
+  readonly coveredBy?: string;
+}
+
+/** Hit test in one document's session at a point of that document's viewport. */
+export async function documentHit(
+  send: <T>(method: string, params?: Readonly<Record<string, unknown>>) => Promise<T>,
+  point: Point,
+): Promise<HitResult> {
+  let scrollX = 0;
+  let scrollY = 0;
+  try {
+    const metrics = await send<{ cssLayoutViewport?: { pageX?: number; pageY?: number } }>("Page.getLayoutMetrics");
+    scrollX = metrics.cssLayoutViewport?.pageX ?? 0;
+    scrollY = metrics.cssLayoutViewport?.pageY ?? 0;
+  } catch {
+    // no metrics: an unscrolled document
+  }
+  try {
+    return await send<{ backendNodeId?: number }>("DOM.getNodeForLocation", {
+      x: Math.round(point.x + scrollX),
+      y: Math.round(point.y + scrollY),
+      includeUserAgentShadowDOM: true,
+      ignorePointerEventsNone: false,
+    });
+  } catch {
+    return {};
+  }
+}
+
+async function viewportSize(cdp: CdpChannel, tabId: number): Promise<{ width: number; height: number }> {
   const metrics = await cdp.send<{ cssVisualViewport?: { clientWidth: number; clientHeight: number } }>(
     tabId,
     "Page.getLayoutMetrics",
   );
-  const vw = metrics.cssVisualViewport?.clientWidth ?? Number.MAX_SAFE_INTEGER;
-  const vh = metrics.cssVisualViewport?.clientHeight ?? Number.MAX_SAFE_INTEGER;
-  const point = { x: Math.round(box.point.x * 100) / 100, y: Math.round(box.point.y * 100) / 100 };
-  if (point.x < 0 || point.y < 0 || point.x >= vw || point.y >= vh)
-    throw notActionable("not visible", "outside the viewport");
-  if (options.requireEnabled !== false && truthy(property(await axOf(cdp, tabId, backendNodeId), "disabled"))) {
-    throw notActionable("disabled");
+  return {
+    width: metrics.cssVisualViewport?.clientWidth ?? Number.MAX_SAFE_INTEGER,
+    height: metrics.cssVisualViewport?.clientHeight ?? Number.MAX_SAFE_INTEGER,
+  };
+}
+
+/**
+ * Whether the point hits the element: undefined when it does, otherwise what
+ * covers it ("covered by div#overlay"). The hit may be the element, a
+ * descendant, the parent element of a text node (hit tests never return text
+ * nodes), or the owner of the frame the element is in (a hit test may stop
+ * at an out-of-process frame's owner).
+ */
+async function coveredBy(
+  cdp: CdpChannel,
+  tabId: number,
+  backendNodeId: number,
+  point: Point,
+): Promise<string | undefined> {
+  const hit = await hitTest(cdp, tabId, point);
+  const hitId = hit?.backendNodeId;
+  if (hitId === undefined || hitId < 0) return hit?.coveredBy ?? "covered";
+  if (hitId === backendNodeId) return undefined;
+  const parentOf = await parents(cdp, tabId);
+  let target = backendNodeId;
+  const parent = parentOf.get(backendNodeId);
+  if (parent !== undefined && (await nodeType(cdp, tabId, backendNodeId)) === TEXT_NODE) target = parent;
+  if (isSelfOrAncestor(parentOf, target, hitId)) return undefined;
+  if (isSelfOrAncestor(parentOf, hitId, target)) {
+    // The hit node contains the element: accept only frame owners (IFRAME / FRAME).
+    const name = await nodeName(cdp, tabId, hitId);
+    if (name === "iframe" || name === "frame") return undefined;
   }
-  let hit: number | undefined;
+  return "covered by " + (await describeNode(cdp, tabId, hitId));
+}
+
+/** One wheel step that brings the element's centre towards the viewport centre, then a short settle. */
+async function scrollTowardsCentre(cdp: CdpChannel, tabId: number, backendNodeId: number, point: Point): Promise<void> {
+  const { width, height } = await viewportSize(cdp, tabId);
+  const deltaY = Math.round(point.y - height / 2);
+  const deltaX = point.x >= 0 && point.x < width ? 0 : Math.round(point.x - width / 2);
+  if (Math.abs(deltaY) < 2 && deltaX === 0) return;
+  const quadsOf = async (): Promise<string | undefined> => {
+    try {
+      return JSON.stringify(
+        (await cdp.send<{ quads: number[][] }>(tabId, "DOM.getContentQuads", { backendNodeId })).quads,
+      );
+    } catch {
+      return undefined;
+    }
+  };
+  const before = await quadsOf();
+  // Only a wheel event (no mouse move or press): the page scrolls as for the user's wheel.
+  await cdp.send(tabId, "Input.dispatchMouseEvent", { type: "mouseWheel", x: point.x, y: point.y, deltaX, deltaY });
+  // Wheel scrolling is applied asynchronously and may be animated: wait until the element has moved
+  // and stopped moving (or give up: the re-check decides).
+  let last = before;
+  let moved = false;
+  const deadline = Date.now() + SCROLL_SETTLE_MS;
+  while (Date.now() < deadline) {
+    await sleep(50);
+    const now = await quadsOf();
+    if (now === undefined) return;
+    if (moved && now === last) return;
+    if (now !== before) moved = true;
+    last = now;
+  }
+}
+
+async function describedNode(cdp: CdpChannel, tabId: number, backendNodeId: number): Promise<DomNode | undefined> {
   try {
-    hit = (
-      await cdp.send<{ backendNodeId: number }>(tabId, "DOM.getNodeForLocation", {
-        x: Math.round(point.x),
-        y: Math.round(point.y),
-        includeUserAgentShadowDOM: true,
-        ignorePointerEventsNone: false,
-      })
-    ).backendNodeId;
+    return (await cdp.send<{ node: DomNode }>(tabId, "DOM.describeNode", { backendNodeId })).node;
   } catch {
-    hit = undefined;
+    return undefined;
   }
-  if (hit === undefined) throw notActionable("obscured");
-  if (hit !== backendNodeId) {
-    const parentOf = await parents(cdp, tabId);
-    // The element itself, a descendant, or the owner of the frame the element is in
-    // (a hit test may stop at an out-of-process frame's owner).
-    if (!isSelfOrAncestor(parentOf, backendNodeId, hit) && !isSelfOrAncestor(parentOf, hit, backendNodeId)) {
-      throw notActionable("obscured");
-    }
-    if (isSelfOrAncestor(parentOf, hit, backendNodeId) && hit !== backendNodeId) {
-      // The hit node contains the element: accept only frame owners (IFRAME / FRAME).
-      const { node } = await cdp.send<{ node: DomNode }>(tabId, "DOM.describeNode", { backendNodeId: hit });
-      const name = (node.localName ?? node.nodeName ?? "").toLowerCase();
-      if (name !== "iframe" && name !== "frame") throw notActionable("obscured");
-    }
-  }
-  return point;
+}
+
+async function nodeType(cdp: CdpChannel, tabId: number, backendNodeId: number): Promise<number | undefined> {
+  return (await describedNode(cdp, tabId, backendNodeId))?.nodeType;
+}
+
+async function nodeName(cdp: CdpChannel, tabId: number, backendNodeId: number): Promise<string> {
+  const node = await describedNode(cdp, tabId, backendNodeId);
+  return (node?.localName || node?.nodeName || "").toLowerCase();
+}
+
+/** Tag and id of a node, for error messages ("div#overlay"); never its text. */
+export async function describeNode(cdp: CdpChannel, tabId: number, backendNodeId: number): Promise<string> {
+  const node = await describedNode(cdp, tabId, backendNodeId);
+  if (!node) return "another element";
+  return nodeLabel(node);
+}
+
+export function nodeLabel(node: { localName?: string; nodeName?: string; attributes?: readonly string[] }): string {
+  const name = (node.localName || node.nodeName || "element").toLowerCase();
+  const attrs = node.attributes ?? [];
+  let id: string | undefined;
+  for (let i = 0; i + 1 < attrs.length; i += 2) if (attrs[i] === "id") id = attrs[i + 1];
+  const label = name + (id ? "#" + id : "");
+  return label.length > 80 ? label.slice(0, 79) + "\u2026" : label;
 }
 
 /**

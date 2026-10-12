@@ -240,6 +240,12 @@ describe("BrowserService input validation", () => {
       () => service.readPage(ctx, { maxBytes: 0 }),
       () => service.listTabs(ctx, { extra: true } as never),
       () => service.screenshot(ctx, { format: "png", quality: 50 }),
+      // frameRef names the document of a target: never alone, always a frame ref.
+      () => service.scroll(ctx, { frameRef: "f1", deltaY: 10 }),
+      () => service.pressKey(ctx, { frameRef: "f1", keys: ["Tab"] }),
+      () => service.wait(ctx, { text: "x", frameRef: "f1" }),
+      () => service.click(ctx, { selector: "#a", frameRef: "e1" }),
+      () => service.drag(ctx, { selector: "#a", to: { selector: "#b", frameRef: "x" } }),
     ];
     for (const [index, run] of invalid.entries()) {
       await expect(run(), "case " + String(index)).rejects.toMatchObject({ code: "INVALID_INPUT" });

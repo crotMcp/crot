@@ -10,8 +10,8 @@ package PR updates this file.
 **WP-24 — Browser v1: CDP backend, snapshot and refs, trusted input,
 frames, shadow DOM, waits, history — implemented, merged; acceptance open**
 (PR #22 merged into `main` as `d273473`; started from `main` `9ce0574`).
-Fixes for manual run 1 are in PR #23 (branch `wp-24-manual-run-1-fixes`,
-awaiting merge by the owner). User docs: [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)
+Manual run 1 fixes merged in PR #23 (`96dde26`); manual run 2 fixes are in
+PR #24 (branch `wp-24-manual-run-2-fixes`, awaiting merge by the owner). User docs: [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)
 ("Browser v1: CDP backend"), [`docs/BROWSER_E2E.md`](docs/BROWSER_E2E.md)
 ("Browser v1 suite"). Normative contract: ARCHITECTURE.md §27 AD-16 (not
 changed).
@@ -24,8 +24,10 @@ changed).
   including **out-of-process (cross-site) frames** as auto-attached child
   sessions (`Target.setAutoAttach` flatten) with coordinates translated to
   the top-level viewport; open shadow roots; trusted click, hover, scroll,
-  drag, type, keys, select, checked by ref or selector with actionability
-  checks (`INVALID_INPUT`, no `force`); settle with `waitUntil`, `navigated`,
+  drag, type, keys, select, checked by ref or selector (`frameRef` names the
+  frame of a selector) with actionability checks (`INVALID_INPUT`, no
+  `force`; hit test in document coordinates, a covered element is scrolled
+  towards the centre once); JavaScript dialogs fail commands at once; settle with `waitUntil`, `navigated`,
   `newTabs`; `browser_wait`, `browser_history`; `openerTabId`; per-tab queue
   (16); 19 MCP tools. Approval subject and audit of ref targets (AD-16
   points 10, 16): element role and page-supplied accessible name, and the
@@ -44,13 +46,24 @@ changed).
 - **Manual run 1 on real sites (owner):** Wikipedia, CodePen, Polymer shop,
   the-internet — 7 pass, 4 fail, 1 partial; recorded with causes and fixes
   in [`docs/acceptance/WP-24-manual-run-1.md`](docs/acceptance/WP-24-manual-run-1.md).
-  Fixed in PR #23: input to background tabs (the tab is made visible first,
+  Fixed in PR #23 (merged): input to background tabs (the tab is made visible first,
   `activated`; undelivered clicks and drags fail), rendered-text-only text
   waits, post-conditions for `select_option` / `set_checked`, bounded
   screenshots, focus emulation for keys, `loadTimedOut`, scrolling of
   elements in partly visible frames; new E2E case for a background tab.
-- **Not done — WP-24 acceptance still open:** the second manual run on the
-  fixed build has **not** been performed yet. ARCHITECTURE.md status markers for
+- **Manual run 2 (owner, blocks A–F on the PR #23 build):** shadow DOM,
+  background tabs, window states and reconnection passed; frames and
+  scrolled pages failed. Recorded in
+  [`docs/acceptance/WP-24-manual-run-2.md`](docs/acceptance/WP-24-manual-run-2.md).
+  Fixed in PR #24: hit tests used viewport instead of document coordinates
+  (false `obscured` on every scrolled page and frame), covered elements
+  (sticky headers) are scrolled clear once and the error names the cover,
+  text refs, false `BROWSER_STALE_REF` in same-process frames, `selector` +
+  `frameRef` (AD-16 point 5) on all target commands and waits, JavaScript
+  dialogs fail at once instead of after 30 s, dialogs first in snapshots;
+  new E2E file `tests-e2e/browser/browser-layout.e2e.test.ts`.
+- **Not done — WP-24 acceptance still open:** a manual run on the build with
+  the run-2 fixes has **not** been performed yet. ARCHITECTURE.md status markers for
   §7.1 / AD-16 are not changed in this PR (only through an approved AD
   edit by the owner).
 - **Out of scope (own packages):** dialogs, file chooser, background
@@ -376,7 +389,7 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 
 ## Next
 
-**WP-24 — Browser v1 (CDP backend): implemented, merged** (PR #22, `d273473`; run-1 fixes in PR #23;
+**WP-24 — Browser v1 (CDP backend): implemented, merged** (PR #22, `d273473`; run-1 fixes in PR #23; run-2 fixes in PR #24;
 see "Last completed"). Its acceptance is not closed until the manual run on
 three real third-party sites is performed and recorded. Owner's order after
 WP-24: OD-9 (L1 on macOS and Windows; opens WP-23b/c and the OD-6 spike),
@@ -386,7 +399,7 @@ WP-40; WP-32 waits for WP-24…WP-27 and WP-38.
 
 | WP | What | State |
 | --- | --- | --- |
-| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | implemented, PR #22 merged (`d273473`), run-1 fixes in PR #23 awaiting merge; real-Chromium E2E green; manual run 1 done (findings fixed in PR #23), run 2 on the fixed build **not performed** (acceptance open) |
+| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | implemented, PR #22 and PR #23 merged; run-2 fixes in PR #24 awaiting merge; real-Chromium E2E green; manual runs 1 and 2 done (findings fixed in PR #23 and PR #24), run 3 on the fixed build **not performed** (acceptance open) |
 | WP-31 | Remote permission profile and presets (AD-13, AD-19, AD-23) | Done, merged (PR #21, `9ce0574`); code verified at `9ca7b5b`, CI 11/11 green; AD-23 recorded (`69408c3`; point 4 wording `4a654f5`); user docs updated (`99fb2c6`); end-to-end check of the real upload/download gates: WP-26 acceptance; see "Last completed" |
 | WP-30 | Device tunnel adapter (AD-22, device side) | Done, merged (PR #20): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32) |
 | WP-25, WP-27 | Browser dialogs / file chooser / background screenshots / tab group; per-tab queue for remote, explicit `tabId`, `openedBy` | unblocked by WP-24 |

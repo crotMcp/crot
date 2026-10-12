@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CdpSessions } from "../src/cdp.js";
 import { ExtensionError } from "../src/errors.js";
 import { FrameChannels, tabFrames } from "../src/frames.js";
+import { hitTest } from "../src/input.js";
 import { RefRegistry, verifyRef } from "../src/refs.js";
 import { takeSnapshot } from "../src/snapshot.js";
 import { FakeChrome } from "./fake-chrome.js";
@@ -127,11 +128,16 @@ describe("frame channels", () => {
     if (method === "DOM.getBoxModel")
       return { model: { border: [1, 2, 11, 2, 11, 12, 1, 12], content: [1, 2, 11, 2, 11, 12, 1, 12] } };
     if (method === "DOM.getContentQuads") return { quads: [[1, 2, 11, 2, 11, 12, 1, 12]] };
+    // The top-level document is scrolled by 500 px, the OOPIF's document by 30 px: hit tests take document coordinates.
+    if (method === "Page.getLayoutMetrics")
+      return { cssLayoutViewport: { pageX: 0, pageY: sessionId === undefined ? 500 : sessionId === "S1" ? 30 : 0 } };
     if (method === "DOM.getNodeForLocation") {
-      if (sessionId === undefined) return { backendNodeId: Number(params.x) > 1000 ? 999 : 50 };
-      if (sessionId === "S1") return { backendNodeId: 60 };
+      if (sessionId === undefined)
+        return { backendNodeId: Number(params.x) > 1000 ? 999 : Number(params.y) >= 500 ? 50 : 998 };
+      if (sessionId === "S1") return { backendNodeId: Number(params.y) === 57 ? 60 : 997 };
       return { backendNodeId: 7, at: [params.x, params.y] };
     }
+    if (method === "DOM.describeNode") return { node: { localName: "div", attributes: ["id", "banner"] } };
     return {};
   };
 
@@ -166,18 +172,17 @@ describe("frame channels", () => {
     ]);
   });
 
-  it("hit-tests the owner in the parent first, then the frame at frame-local coordinates", async () => {
+  it("hit-tests the owner in the parent first, then the frame in its own document coordinates (scroll offsets added)", async () => {
     const { cdp } = setup({ answer });
     const { frames } = await tabFrames(cdp, TAB);
     const nested = new FrameChannels(cdp, TAB, frames).forFrame(NESTED);
-    const hit = await nested.send<{ backendNodeId: number; at: number[] }>(TAB, "DOM.getNodeForLocation", {
-      x: 116,
-      y: 227,
-    });
+    // Top-level (116, 227) + scroll 500 hits the OOPIF's owner; in the OOPIF (16, 27) + scroll 30 hits the
+    // nested frame's owner; in the nested frame (6, 7).
+    const hit = await hitTest(nested, TAB, { x: 116, y: 227 });
     expect(hit).toEqual({ backendNodeId: 7, at: [6, 7] });
-    // Something else in the top-level document covers the point: obscured.
-    const covered = await nested.send<{ backendNodeId: number }>(TAB, "DOM.getNodeForLocation", { x: 2000, y: 227 });
-    expect(covered.backendNodeId).toBe(-1);
+    // Something else in the top-level document covers the point: obscured, and what covers it is named.
+    const covered = await hitTest(nested, TAB, { x: 2000, y: 227 });
+    expect(covered).toEqual({ backendNodeId: -1, coveredBy: "covered by div#banner" });
   });
 
   it("scrolls the element into the frame's view, then exactly its part of the frame into the parent's", async () => {

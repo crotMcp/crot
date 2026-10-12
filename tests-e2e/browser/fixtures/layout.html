@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CROT E2E Layout</title>
+    <style>
+      body { margin: 0; padding-top: 90px; font: 16px sans-serif; }
+      #sticky { position: fixed; top: 0; left: 0; right: 0; height: 80px; background: #ddd; z-index: 10; }
+      #narrow { width: 140px; }
+      .spacer { height: 1400px; }
+      iframe { display: block; margin: 8px 0; }
+    </style>
+  </head>
+  <body>
+    <!--
+      Layout and frame cases of manual run 2 (docs/acceptance/WP-24-manual-run-2.md):
+      - #sticky: a fixed header over the top 80 px (elements scrolled under it are covered);
+      - #wrap-link: a link that wraps over several lines;
+      - #plain-text: text without a role (a text ref of includeText);
+      - #same: a same-origin iframe (same process as the page);
+      - #written: an iframe without src whose document is written by script;
+      - <crot-frame-host>: a cross-origin iframe inside an open shadow root;
+      - #alert-button opens a JavaScript alert (dialogs are not answered by CROT);
+      - #quantity: a number input (its value is reported by the snapshot);
+      - #low-button below a tall spacer; a role=dialog at the very end of the page.
+      Every click is reported to /event with its isTrusted flag.
+    -->
+    <header id="sticky">Sticky header</header>
+    <p id="narrow">Before <a id="wrap-link" href="#wrapped">a link that wraps over several lines</a> after.</p>
+    <p><span id="plain-text">Plain text target</span></p>
+    <p id="text-status">TEXT: idle</p>
+    <button id="alert-button" type="button" onclick="alert('CROT E2E alert')">Open alert</button>
+    <label for="quantity">Quantity</label>
+    <input id="quantity" type="number" value="1" />
+    <iframe id="same" title="Same-origin frame" width="400" height="160"></iframe>
+    <iframe id="written" title="Written frame" width="400" height="120"></iframe>
+    <crot-frame-host></crot-frame-host>
+    <div class="spacer"></div>
+    <button id="low-button" type="button">Low button</button>
+    <div class="spacer"></div>
+    <div role="dialog" aria-label="Late dialog"><button id="dialog-button" type="button">Dialog button</button></div>
+    <script>
+      (function () {
+        var params = new URLSearchParams(location.search);
+        var nonce = params.get("nonce") || "none";
+        var cross = params.get("frame") || location.origin;
+        function report(type, event) {
+          var q = "type=" + type + "&trusted=" + (event.isTrusted ? "1" : "0") + "&nonce=" + encodeURIComponent(nonce);
+          fetch(location.origin + "/event?" + q, { cache: "no-store" }).catch(function () {});
+        }
+        window.crotReport = report;
+        document.getElementById("same").src = "/frame.html?nonce=" + encodeURIComponent(nonce);
+        document.getElementById("low-button").addEventListener("click", function (e) { report("low-click", e); });
+        document.getElementById("wrap-link").addEventListener("click", function (e) { report("wrap-click", e); });
+        document.getElementById("plain-text").addEventListener("mouseover", function (e) {
+          document.getElementById("text-status").textContent = "TEXT: hovered";
+          report("text-hover", e);
+        });
+        var doc = document.getElementById("written").contentDocument;
+        doc.open();
+        doc.write(
+          '<!doctype html><html lang="en"><body>' +
+            '<button id="w-button" type="button">Written button</button>' +
+            '<input id="w-check" type="checkbox" /><label for="w-check">Written check</label>' +
+            "<script>" +
+            'document.getElementById("w-button").addEventListener("click", function (e) { parent.crotReport("written-click", e); });' +
+            'document.getElementById("w-check").addEventListener("click", function (e) { parent.crotReport("written-check", e); });' +
+            "</" + "script></body></html>",
+        );
+        doc.close();
+        customElements.define(
+          "crot-frame-host",
+          class extends HTMLElement {
+            constructor() {
+              super();
+              var root = this.attachShadow({ mode: "open" });
+              var frame = document.createElement("iframe");
+              frame.title = "Shadow frame";
+              frame.width = "400";
+              frame.height = "160";
+              frame.src = cross + "/frame.html?nonce=" + encodeURIComponent(nonce) + "&shadow=1";
+              root.appendChild(frame);
+            }
+          },
+        );
+      })();
+    </script>
+  </body>
+</html>

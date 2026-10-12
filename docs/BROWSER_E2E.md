@@ -151,6 +151,31 @@ Checked:
    run is in `CDP_ALLOWED_METHODS`, none is `Runtime.*`, and input really went
    through `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent`.
 
+### Layout and frames suite (manual run 2)
+
+`tests-e2e/browser/browser-layout.e2e.test.ts` uses the same chain and its
+own sandbox with `fixtures/layout.html` (a fixed header, a wrapping link,
+plain text, a same-origin iframe, an iframe whose document is written by
+script, a cross-origin iframe inside an open shadow root, a number input, an
+alert button and a `role=dialog` at the end of a tall page). It checks, with
+the page's own `isTrusted` reports:
+
+1. Same-origin frame: click and type by ref (no false `BROWSER_STALE_REF`),
+   `selector` + `frameRef` for click, type, drag target and `browser_wait`;
+   a ref with another frame's `frameRef` is refused; a selector without
+   `frameRef` stays in the top-level document.
+2. Frame written by script: click and `browser_set_checked` by ref.
+3. Cross-origin frame inside a shadow root, below the fold: click by ref
+   after the page scrolled (hit test in document coordinates).
+4. A text ref (`includeText`) is hovered; a link wrapping over lines is
+   clicked.
+5. An element scrolled under the fixed header is scrolled clear and clicked.
+6. A number input reports the typed value and ArrowUp; a cut snapshot
+   (`maxElements: 3`) still lists the dialog's button.
+7. A click that opens `alert()` fails at once, a following snapshot fails at
+   once, and after the dialog is answered (by the test's own DevTools
+   session, as the user would) commands work again.
+
 For point 8 only, this suite launches the browser with
 `--remote-debugging-port=0` (test harness, `watchExtensionCdp`): the test
 attaches its own DevTools session to the extension's service worker and wraps
