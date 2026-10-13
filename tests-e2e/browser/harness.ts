@@ -163,9 +163,26 @@ export async function startFixtureServer(): Promise<FixtureServer> {
   for (const name of (await readdir(FIXTURES_DIR)).filter((n) => n.endsWith(".html")).sort())
     pages.set(`/${name}`, await readFile(path.join(FIXTURES_DIR, name), "utf8"));
   const requests: RecordedRequest[] = [];
+  const delayed = new Set<ReturnType<typeof setTimeout>>();
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     requests.push({ path: url.pathname, query: url.searchParams, userAgent: String(req.headers["user-agent"] ?? "") });
+    // Hold the first response headers past the default 20 s tab-open load budget.
+    // Chromium keeps a non-http initial document until this navigation commits.
+    if (url.pathname === "/delayed-commit.html") {
+      const timer = setTimeout(() => {
+        delayed.delete(timer);
+        if (res.destroyed) return;
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+        res.end("<!doctype html><title>Delayed commit</title><button>Delayed button</button>");
+      }, 23000);
+      delayed.add(timer);
+      res.on("close", () => {
+        clearTimeout(timer);
+        delayed.delete(timer);
+      });
+      return;
+    }
     const page = pages.get(url.pathname);
     if (page !== undefined) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
@@ -189,6 +206,8 @@ export async function startFixtureServer(): Promise<FixtureServer> {
     requests,
     close: () =>
       new Promise<void>((resolve) => {
+        for (const timer of delayed) clearTimeout(timer);
+        delayed.clear();
         server.closeAllConnections();
         server.close(() => resolve());
       }),

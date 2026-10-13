@@ -443,30 +443,33 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     return tab;
   }
 
-  /** Resolve when the tab has finished loading, has been closed, or after loadWaitMs. Never rejects. */
-  function waitForLoad(tabId: number): Promise<void> {
-    return new Promise<void>((resolve) => {
+  /** True when the load finishes; false on close or loadWaitMs expiry. Never rejects. */
+  function waitForLoad(tabId: number): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
       let done = false;
-      const finish = () => {
+      const finish = (loaded: boolean) => {
         if (done) return;
         done = true;
         clearTimeout(timer);
         api.tabs.onUpdated.removeListener(onUpdated);
         api.tabs.onRemoved.removeListener(onRemoved);
-        resolve();
+        resolve(loaded);
       };
       const onUpdated = (id: number, change: { readonly status?: string }) => {
-        if (id === tabId && change.status === "complete") finish();
+        if (id === tabId && change.status === "complete") finish(true);
       };
       const onRemoved = (id: number) => {
-        if (id === tabId) finish();
+        if (id === tabId) finish(false);
       };
-      const timer = setTimeout(finish, loadWaitMs);
+      const timer = setTimeout(() => finish(false), loadWaitMs);
       api.tabs.onUpdated.addListener(onUpdated);
       api.tabs.onRemoved.addListener(onRemoved);
-      api.tabs.get(tabId).then((tab) => {
-        if (tab.status === "complete" && !tab.pendingUrl) finish();
-      }, finish);
+      api.tabs.get(tabId).then(
+        (tab) => {
+          if (tab.status === "complete" && !tab.pendingUrl) finish(true);
+        },
+        () => finish(false),
+      );
     });
   }
 
@@ -478,7 +481,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     observer?: TabObserver,
   ): Promise<{ tabId: number; url: string; loadTimedOut?: true }> {
     let timedOut = false;
-    if (waitUntil === undefined || timeoutMs === undefined) await waitForLoad(tabId);
+    if (waitUntil === undefined || timeoutMs === undefined) timedOut = !(await waitForLoad(tabId));
     else {
       let reachedState: boolean | "closed";
       try {

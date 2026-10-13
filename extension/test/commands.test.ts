@@ -166,11 +166,21 @@ describe("extension commands", () => {
     expect(fake.tabsOnRemoved.listeners.size).toBe(0);
   });
 
+  it("default tab_open reports loadTimedOut when the http document has not committed", async () => {
+    const { fake, handlers } = setup({ loadWaitMs: 20 });
+    fake.loadStatus = "loading";
+    const opened = await handlers["tabs.open"]({ url: "https://slow.example/", active: true });
+    expect(opened).toEqual({ tabId: 100, url: "https://slow.example/", loadTimedOut: true });
+    expect((await failure(handlers["page.snapshot"]({ tabId: 100 }))).code).toBe("BROWSER_PAGE_RESTRICTED");
+    expect(fake.tabsOnUpdated.listeners.size).toBe(0);
+    expect(fake.tabsOnRemoved.listeners.size).toBe(0);
+  });
+
   it("answers anyway when the page does not finish loading in time", async () => {
     const { fake, handlers } = setup({ loadWaitMs: 20 });
     fake.loadStatus = "loading";
     const result = await handlers["tabs.navigate"]({ tabId: 2, url: "https://slow.example/" });
-    expect(result).toEqual({ tabId: 2, url: "https://slow.example/" });
+    expect(result).toEqual({ tabId: 2, url: "https://slow.example/", loadTimedOut: true });
     expect(fake.tabsOnUpdated.listeners.size).toBe(0);
   });
 

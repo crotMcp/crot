@@ -321,7 +321,13 @@ through a fixed, extension-built command surface (AD-16 point 3):
     which is the selected option's label; multiple: the options' state);
   - a navigation that does not reach `waitUntil` within `timeoutMs` is
     reported with `loadTimedOut: true` (control commands, `browser_navigate`,
-    `browser_tab_open`, `browser_history`); the page goes on loading.
+    `browser_tab_open`, `browser_history`), including the default/legacy
+    wait with no explicit waitUntil/timeoutMs; the page goes on loading.
+    Returned URL can be a pending destination, not the committed page. If
+    a new tab has not committed an HTTP document, snapshot still refuses
+    its initial non-http document. Observe the same tab in browser_tabs_list
+    until loading finishes, then take a fresh snapshot; do not blindly open
+    replacement tabs or bypass page restrictions.
 - **Screenshots never hang.** `browser_screenshot` of a window the browser
   reports as minimized fails at once and a capture the browser does not
   answer within 10 s fails with `TIMEOUT` (both say to show the browser
@@ -571,9 +577,12 @@ CROT again.
   Manual runs on real sites in Google Chrome found the problems fixed above
   ([`acceptance/WP-24-manual-run-1.md`](acceptance/WP-24-manual-run-1.md),
   [`acceptance/WP-24-manual-run-2.md`](acceptance/WP-24-manual-run-2.md)).
-  [Manual run 3](acceptance/WP-24-manual-run-3.md) is recorded: own
-  pseudo-elements and blocked wait polls are addressed; CodePen AX hangs,
-  transient Wikipedia obscured errors and manual audit/approval checks
+  [Run 3](acceptance/WP-24-manual-run-3.md) fixes merged in PR #25.
+  [Run 4](acceptance/WP-24-manual-run-4.md) confirms language clicks,
+  close-during-wait and native windows; CodePen back remains partial.
+  [Run 5 / follow-up](acceptance/WP-24-manual-run-5.md) reports audit and
+  approvals passed, including no-UI fail closed. Default-load timeout
+  signalling is fixed here; manual confirmation, C1 and final review
   keep acceptance open.
 - The "… started debugging this browser" notice is Chrome's own and is shown
   in **every** window of the browser, including windows of other Chrome

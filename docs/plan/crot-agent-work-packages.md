@@ -221,9 +221,12 @@ tests point 19). The cards below implement it and must not weaken it.
   (owner) is recorded with its fixes in `docs/acceptance/WP-24-manual-run-1.md`,
   run 2 in `docs/acceptance/WP-24-manual-run-2.md`; run 3 is recorded in
   `docs/acceptance/WP-24-manual-run-3.md` (16 pass, 4 partial, 2 fail).
-  Run-3 fixes in `wp-24-manual-run-3-fixes` cover pseudo-element ancestry
-  and interruption/deadline of blocked wait polls; C1/B2 observations and
-  manual audit/approval checks keep acceptance open.
+  Run-3 fixes merged in PR #25 (`32334aa`): pseudo-element ancestry and
+  interruption/deadline of blocked wait polls. Runs 4 and 5/follow-up recorded
+  in `docs/acceptance/WP-24-manual-run-4.md` and `WP-24-manual-run-5.md`:
+  B4/E5/windows and G5/H passed by owner; C1 partial. Default-load timeout
+  signalling in `wp-24-load-timeout-and-acceptance`; manual confirmation and
+  final acceptance remain open.
 
 ### WP-25 — Dialogs, file choosers, background screenshots, debugger lifecycle
 - **Size:** M. **Depends on:** WP-24 (trusted input, frames and shadow DOM
