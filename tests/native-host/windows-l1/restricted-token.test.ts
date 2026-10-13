@@ -19,12 +19,12 @@ if (required && (!isWindows || !["x64", "arm64"].includes(process.arch)))
 const ALLOW_USERS = `
 $ErrorActionPreference = 'Stop'
 $p = $env:CROT_TOKEN_FIXTURE
-$acl = Get-Acl -LiteralPath $p
+$acl = [System.IO.File]::GetAccessControl($p)
 $sid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-545')
 $rights = if ($env:CROT_TOKEN_RIGHTS -eq 'read') { [System.Security.AccessControl.FileSystemRights]::Read } else { [System.Security.AccessControl.FileSystemRights]::Read -bor [System.Security.AccessControl.FileSystemRights]::Write }
 $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, $rights, [System.Security.AccessControl.AccessControlType]::Allow)
 $acl.AddAccessRule($rule)
-Set-Acl -LiteralPath $p -AclObject $acl
+[System.IO.File]::SetAccessControl($p, $acl)
 `;
 
 describe.runIf(isWindows)("Windows L1 spike: real restricted token and DACL (not complete L1)", () => {

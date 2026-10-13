@@ -48,6 +48,12 @@ ACLs. The restricting SID for this experiment is Builtin Users
 5. Missing descriptor: operation fails, not a fabricated denial/availability.
 6. Token lifecycle: close is idempotent and closed tokens cannot be checked.
 
+The first Windows CI run exposed three fixture failures: PowerShell `Get-Acl`
+requires a module not available in the restricted CROT environment. The
+fixture now uses direct .NET `File.GetAccessControl`/`SetAccessControl`, matching
+the existing ACL implementation. No environment/security exception was added;
+the next native CI run must pass before results are accepted.
+
 These are real DACL decisions using a restricted token, **not child execution
 or complete L1 acceptance**. AccessCheck does not prove MIC, traversal,
 TOCTOU, inherited handles, IPC or descendants. Test failures cannot be
