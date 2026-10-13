@@ -380,4 +380,45 @@ describe.runIf(linux)("browser v1 E2E: layout and frames (manual run 2)", () => 
       await waitEvent("wrap-click", before + 1);
     }
   });
+  it("default tab_open timeout before commit is explicit; snapshot stays restricted until the same tab loads", async () => {
+    const started = Date.now();
+    const opened = await h.ok<ControlResult & { loadTimedOut?: boolean }>(client(), "browser_tab_open", {
+      url: server.origin + "/delayed-commit.html",
+    });
+    const elapsed = Date.now() - started;
+    try {
+      const before = await h.fails(client(), "browser_snapshot", { tabId: opened.tabId });
+      expect(before.code).toBe("BROWSER_PAGE_RESTRICTED");
+      expect(before.message).toContain("http: and https:");
+      const completed = await h.waitFor(
+        async () => {
+          const tabs = await h.ok<{ tabs: { tabId: number; url: string; status?: string }[] }>(
+            client(),
+            "browser_tabs_list",
+          );
+          return tabs.tabs.find((t) => t.tabId === opened.tabId && t.status === "complete" && t.url === opened.url);
+        },
+        10000,
+        "the same delayed tab to commit and finish loading",
+      );
+      const after = await h.ok<Snapshot>(client(), "browser_snapshot", { tabId: opened.tabId });
+      expect(after.title).toBe("Delayed commit");
+      expect(after.elements.some((e) => e.name === "Delayed button")).toBe(true);
+      console.info(
+        "delayed-commit probe",
+        JSON.stringify({
+          opened,
+          elapsedMs: elapsed,
+          before,
+          completedTabId: completed.tabId,
+          afterTitle: after.title,
+        }),
+      );
+      expect(elapsed).toBeGreaterThanOrEqual(19000);
+      expect(elapsed).toBeLessThan(30000);
+      expect(opened.loadTimedOut).toBe(true);
+    } finally {
+      await witness!.closeTab(opened.tabId);
+    }
+  });
 });

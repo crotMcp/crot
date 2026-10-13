@@ -184,6 +184,10 @@ the page's own `isTrusted` reports:
     target tab of the second window.
 11. Three iframe form submission/history.back cycles keep snapshots responsive.
 12. Three returns to a scrolled document allow its link to be clicked.
+13. First response headers delayed 23 s exceed default 20 s tab-open budget:
+    loadTimedOut:true; immediate snapshot still refuses the non-http initial
+    document. After commit, snapshot in the SAME tab succeeds. The local
+    delay does not prove why the real site stalled during manual run 5.
 
 Points 11–12 are local regression scenarios, not reproductions of the exact
 CodePen AX hang or Wikipedia's transient cover from manual run 3.
