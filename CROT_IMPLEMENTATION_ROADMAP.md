@@ -412,7 +412,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | yes | with WP-21 | **Done** (AD-19) |
 | WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part and OD-14 decided) | M | yes | with 23b/c | **Done** (AD-20; PR #6, `e1d1f61`) |
 | WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Not started (blocked: OD-9 macOS part) |
-| WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Not started (blocked: OD-9 Windows part; OD-6 at spike end) |
+| WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Native restricted-token/DACL spike in progress by owner authorization; production L1 not implemented; OD-9/OD-6 open |
 | WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | **Merged** (PR #22–#25): implemented incl. out-of-process frames and element/frame-origin approval subjects; manual runs 1–5/follow-up recorded; B4/E5/windows and G5/H passed by owner; default-load timeout signalling in `wp-24-load-timeout-and-acceptance`; C1 partial, final acceptance open |
 | WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
 | WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | Not started |
@@ -590,8 +590,11 @@ profile), WP-23b (macOS: Seatbelt, secrets in Keychain), WP-23c (Windows:
 spike first, then restricted / low-IL token + Job Object).
 
 **Status:** WP-23a **Done** (ARCHITECTURE.md §27 AD-20; PR #6, `e1d1f61`;
-[`docs/L1.md`](docs/L1.md)). WP-23b and WP-23c not started: blocked by the
-macOS / Windows part of OD-9; WP-23c additionally ends its spike with OD-6.
+[`docs/L1.md`](docs/L1.md)). WP-23b is not implemented. WP-23c's native restricted-token/DACL spike is
+in progress following owner authorization to proceed with engineering work;
+see [`docs/design/windows-l1-spike.md`](docs/design/windows-l1-spike.md).
+OD-9/OD-6 remain open for the production boundary; this research primitive
+neither enables L1 nor completes Windows remote shell/process acceptance.
 
 - **Objective:** children of `shell.execute` and `process.manage` in
   workspace mode run under the fixed AD-13 point 4 profile.

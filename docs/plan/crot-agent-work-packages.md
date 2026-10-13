@@ -179,6 +179,10 @@ own requests. Profile: AD-13 point 4.
 - **Size:** M. **Depends on:** WP-21.
 
 ### WP-23c — L1 for Windows (spike, then restricted / low-IL token + Job Object)
+- **Current stage:** native restricted-token/DACL spike in progress following
+  owner authorization; x64 and ARM64 remain in the target. See
+  `docs/design/windows-l1-spike.md`. No production L1 availability is claimed;
+  OD-6 and the full remote shell/process acceptance remain open.
 - **Size:** L. **Depends on:** WP-21.
 
 - **Done when (each):** the AD-13 point 4 profile passes tests — no access to

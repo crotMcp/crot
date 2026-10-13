@@ -411,6 +411,16 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 
 ## Next
 
+**Active engineering stage — WP-23c restricted-token spike.** Owner authorized
+implementation work after the OD-9 proposal; native Windows x64 and ARM64 stay
+in the v1 target. Native restricted-token/DACL primitives and a required
+architecture-specific CI matrix are being added; see
+[`docs/design/windows-l1-spike.md`](docs/design/windows-l1-spike.md).
+This is not a production L1 backend or a completed OD-6 decision. macOS and
+Windows runtime confinement remains `not_implemented`/fail-closed until the
+full boundary and positive remote shell/process acceptance are implemented.
+`ARCHITECTURE.md` and WP-25/26/27 are unchanged in this stage.
+
 **WP-24 — Browser v1 (CDP backend): implemented, merged** (PR #22, `d273473`; run-1 fixes in PR #23; run-2 fixes in PR #24;
 see "Last completed"). Real-site manual runs are recorded; acceptance remains
 open for default-load timeout signalling, C1 and final acceptance review. Owner's order after
@@ -426,7 +436,7 @@ WP-40; WP-32 waits for WP-24…WP-27 and WP-38.
 | WP-30 | Device tunnel adapter (AD-22, device side) | Done, merged (PR #20): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32) |
 | WP-25, WP-27 | Browser dialogs / file chooser / background screenshots / tab group; per-tab queue for remote, explicit `tabId`, `openedBy` | unblocked by WP-24 |
 | WP-26 | Browser upload and download (AD-16 points 11–12) | after WP-24 and OD-8; also provides the end-to-end check of the WP-31 upload/download gate (AD-23 point 8) |
-| WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | blocked by the macOS/Windows part of OD-9; WP-23c starts with its spike (OD-6); release-blocking (AD-13); not a prerequisite of WP-31: where L1 is unavailable (macOS, Windows), remote shell and process operations are refused with `CONFINEMENT_UNAVAILABLE` and an explanation (AD-20, [`docs/L1.md`](docs/L1.md)); WP-23b/c stay open as separate packages |
+| WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | WP-23c native token/DACL spike in progress following owner authorization; production boundaries still require OD-9/OD-6 decisions; WP-23b not implemented; release-blocking (AD-13); not a prerequisite of WP-31: where L1 is unavailable (macOS, Windows), remote shell and process operations are refused with `CONFINEMENT_UNAVAILABLE` and an explanation (AD-20, [`docs/L1.md`](docs/L1.md)); WP-23b/c stay open as separate packages |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
 | WP-41, WP-42 | Extensibility invariant tests; workspace image view (post-v1 phase 5; depend on no open contract — WP-42 without downscale, see product-reassessment §8) | can start now with spare capacity; never displace the critical path; WP-43/44/49 wait for OD-16/15/17 ADs |
 | OD-15…OD-20, OD-23 | ADs of the expanded product goal (jobs, components, media, edit description, connectors, credentials; release staging) | documentation work, parallel to WP-31; see roadmap §4.2 |
