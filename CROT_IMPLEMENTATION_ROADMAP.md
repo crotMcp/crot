@@ -22,9 +22,10 @@
 > AD-23).
 > WP-24: implemented, merged (PR #22, `main` `d273473`);
 > manual runs 1 and 2 on real sites done by the owner, their findings fixed in
-> PR #23 (merged) and PR #24 (`docs/acceptance/WP-24-manual-run-1.md`,
-> `docs/acceptance/WP-24-manual-run-2.md`); run 3 on the fixed build is not
-> performed (acceptance open).
+> PR #23 and PR #24 (merged; `docs/acceptance/WP-24-manual-run-1.md`,
+> `docs/acceptance/WP-24-manual-run-2.md`). Run 3 is recorded in
+> `docs/acceptance/WP-24-manual-run-3.md`: 16 pass, 4 partial, 2 fail;
+> run-3 fixes in `wp-24-manual-run-3-fixes`; acceptance open.
 > Status claims below were checked against the repository tree, the source
 > files named, the CI workflows and the merged history, not taken from earlier
 > plans.
@@ -410,7 +411,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part and OD-14 decided) | M | yes | with 23b/c | **Done** (AD-20; PR #6, `e1d1f61`) |
 | WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Not started (blocked: OD-9 macOS part) |
 | WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Not started (blocked: OD-9 Windows part; OD-6 at spike end) |
-| WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | **Merged** (PR #22, #23; run-2 fixes in PR #24): implemented incl. out-of-process frames and element/frame-origin approval subjects; real-Chromium E2E green; manual runs 1 and 2 done, findings fixed; run 3 **not performed** (acceptance open) |
+| WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | **Merged** (PR #22–#24): implemented incl. out-of-process frames and element/frame-origin approval subjects; manual runs 1–3 recorded; run-3 fixes in `wp-24-manual-run-3-fixes`; unresolved C1/B2 and incomplete audit/approvals keep acceptance open |
 | WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
 | WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | Not started |
 | WP-27 | 2B | Browser: per-tab queue, explicit `tabId` for remote, `openedBy` | WP-24 | S–M | yes | with 25, 26 | Not started |
@@ -658,8 +659,11 @@ today's behaviour.
   PR (`docs/acceptance/WP-24-manual-run-1.md`). Manual run 2 found false
   `obscured` on scrolled pages and frames, false stale refs in same-process
   frames, missing `selector` + `frameRef` and 30 s dialog blocks; fixed in
-  PR #24 (`docs/acceptance/WP-24-manual-run-2.md`). Run 3 on the fixed build
-  has not been performed.
+  PR #24 (`docs/acceptance/WP-24-manual-run-2.md`, merged `a101008`). Run 3 is
+  recorded in `docs/acceptance/WP-24-manual-run-3.md`; own pseudo-element
+  ancestry and blocked-poll wait interruption are addressed in
+  `wp-24-manual-run-3-fixes`. CodePen AX hangs and transient Wikipedia
+  obscured errors remain open; manual audit and approvals are incomplete.
 - **RB:** yes. **Parallel:** now, with phase 1 and 3.
 
 #### WP-25 — Dialogs, file chooser, background screenshots, debugger lifecycle, CROT tab group

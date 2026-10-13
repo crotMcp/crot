@@ -317,6 +317,37 @@ describe("Browser v1 commands", () => {
     expect(error.code).toBe("TIMEOUT");
   });
 
+  it("interrupts an in-flight CDP text query when the tab is closed", async () => {
+    const { fake, handlers, p } = setup();
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    p.d.respond(1, "DOMSnapshot.captureSnapshot", () => {
+      entered();
+      return new Promise(() => undefined);
+    });
+    const pending = rejects(handlers["page.wait"]({ tabId: 1, text: "Missing", timeoutMs: 200 }, context));
+    await started;
+    await fake.api.tabs.remove(1);
+    const error = await Promise.race([
+      pending,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("close did not interrupt CDP")), 500)),
+    ]);
+    expect(error.code).toBe("NOT_FOUND");
+  });
+
+  it("the wait deadline also bounds an in-flight CDP query", async () => {
+    const { handlers, p } = setup();
+    p.d.respond(1, "DOMSnapshot.captureSnapshot", () => new Promise(() => undefined));
+    const pending = rejects(handlers["page.wait"]({ tabId: 1, text: "Missing", timeoutMs: 30 }, context));
+    const error = await Promise.race([
+      pending,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("CDP outlived wait deadline")), 500)),
+    ]);
+    expect(error.code).toBe("TIMEOUT");
+  });
+
   it("counts rendered text only: hidden and undisplayed text never satisfies a wait", async () => {
     const { handlers } = setup();
     for (const text of ["Hidden secret", "Not displayed"]) {

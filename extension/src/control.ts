@@ -602,45 +602,72 @@ export async function waitFor(
   timing: Timing,
   limits: { readonly urlMax: number; readonly selectorMax: number },
 ): Promise<{ satisfied: true; url: string; newTabs?: number[] }> {
-  const deadline = Date.now() + timeoutMs;
-  const needsEvents = condition.kind === "load" || condition.kind === "newDocument";
-  const mainFrameId = needsEvents ? await enableEvents(cdp, tabId) : undefined;
-  const observer = new TabObserver(api, needsEvents ? cdp : undefined, tabId, mainFrameId);
-  try {
-    for (;;) {
-      const tab = await tabNow(api, tabId);
-      if (!tab) throw new ExtensionError("NOT_FOUND", "The tab was closed while waiting.");
-      const url = (tab.url || "").slice(0, limits.urlMax);
-      let ok: boolean;
-      switch (condition.kind) {
-        case "element":
-          ok = await elementState(cdp, registry, tabId, condition, limits.selectorMax);
-          break;
-        case "text":
-          ok = (await pageHasText(cdp, tabId, condition.text)) === condition.present;
-          break;
-        case "url":
-          ok = !tab.pendingUrl && (tab.url ?? "").startsWith(condition.urlPrefix);
-          break;
-        case "load":
-          ok = (await reached(api, tabId, condition.state, observer, timing)) === true;
-          break;
-        case "newDocument":
-          ok = observer.documentCommitted;
-          break;
-        case "newTab":
-          ok = observer.newTabs.length > 0;
-          break;
+  // A CDP query may stop answering (renderer navigation/teardown). Checking tabs.get only
+  // between polls cannot observe a close in that case. Race the whole wait, including
+  // event setup and in-flight CDP, against native tab removal and its absolute deadline.
+  let stopped = false;
+  let interrupt!: (error: ExtensionError) => void;
+  const interrupted = new Promise<never>((_, reject) => {
+    interrupt = reject;
+  });
+  const onRemoved = (id: number): void => {
+    if (id === tabId) interrupt(new ExtensionError("NOT_FOUND", "The tab was closed while waiting."));
+  };
+  api.tabs.onRemoved.addListener(onRemoved);
+  const timer = setTimeout(() => interrupt(timeout(describeCondition(condition))), timeoutMs);
+  let observer: TabObserver | undefined;
+  const poll = async (): Promise<{ satisfied: true; url: string; newTabs?: number[] }> => {
+    const deadline = Date.now() + timeoutMs;
+    const needsEvents = condition.kind === "load" || condition.kind === "newDocument";
+    const mainFrameId = needsEvents ? await enableEvents(cdp, tabId) : undefined;
+    if (stopped) throw timeout(describeCondition(condition));
+    observer = new TabObserver(api, needsEvents ? cdp : undefined, tabId, mainFrameId);
+    try {
+      for (;;) {
+        if (stopped) throw timeout(describeCondition(condition));
+        const tab = await tabNow(api, tabId);
+        if (!tab) throw new ExtensionError("NOT_FOUND", "The tab was closed while waiting.");
+        const url = (tab.url || "").slice(0, limits.urlMax);
+        let ok: boolean;
+        switch (condition.kind) {
+          case "element":
+            ok = await elementState(cdp, registry, tabId, condition, limits.selectorMax);
+            break;
+          case "text":
+            ok = (await pageHasText(cdp, tabId, condition.text)) === condition.present;
+            break;
+          case "url":
+            ok = !tab.pendingUrl && (tab.url ?? "").startsWith(condition.urlPrefix);
+            break;
+          case "load":
+            ok = (await reached(api, tabId, condition.state, observer, timing)) === true;
+            break;
+          case "newDocument":
+            ok = observer.documentCommitted;
+            break;
+          case "newTab":
+            ok = observer.newTabs.length > 0;
+            break;
+        }
+        if (stopped) throw timeout(describeCondition(condition));
+        if (ok) {
+          return condition.kind === "newTab"
+            ? { satisfied: true, url, newTabs: observer.newTabs }
+            : { satisfied: true, url };
+        }
+        if (Date.now() >= deadline) throw timeout(describeCondition(condition));
+        await sleep(Math.min(timing.pollMs, Math.max(1, deadline - Date.now())));
       }
-      if (ok) {
-        return condition.kind === "newTab"
-          ? { satisfied: true, url, newTabs: observer.newTabs }
-          : { satisfied: true, url };
-      }
-      if (Date.now() >= deadline) throw timeout(describeCondition(condition));
-      await sleep(Math.min(timing.pollMs, Math.max(1, deadline - Date.now())));
+    } finally {
+      observer.dispose();
     }
+  };
+  try {
+    return await Promise.race([poll(), interrupted]);
   } finally {
-    observer.dispose();
+    stopped = true;
+    clearTimeout(timer);
+    api.tabs.onRemoved.removeListener(onRemoved);
+    observer?.dispose();
   }
 }

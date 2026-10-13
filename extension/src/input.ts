@@ -57,6 +57,7 @@ interface DomNode {
   readonly localName?: string;
   readonly children?: readonly DomNode[];
   readonly shadowRoots?: readonly DomNode[];
+  readonly pseudoElements?: readonly DomNode[];
   readonly contentDocument?: DomNode;
 }
 
@@ -67,7 +68,8 @@ async function parents(cdp: CdpChannel, tabId: number): Promise<Map<number, numb
   const stack: DomNode[] = [root];
   while (stack.length > 0) {
     const node = stack.pop() as DomNode;
-    const kids = [...(node.children ?? []), ...(node.shadowRoots ?? [])];
+    // CDP exposes generated ::before/::after nodes separately from children.
+    const kids = [...(node.children ?? []), ...(node.shadowRoots ?? []), ...(node.pseudoElements ?? [])];
     if (node.contentDocument) kids.push(node.contentDocument);
     for (const kid of kids) {
       map.set(kid.backendNodeId, node.backendNodeId);

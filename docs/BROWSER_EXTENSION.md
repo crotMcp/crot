@@ -296,7 +296,9 @@ through a fixed, extension-built command surface (AD-16 point 3):
   an element at the top, a fading overlay) is scrolled towards the viewport
   centre with one wheel step and re-checked a few times within about 1.5 s;
   if it stays covered the error names what covers it, by tag and id only
-  ("obscured (covered by header#top)"). There is no `force` option.
+  ("obscured (covered by header#top)"). Own and descendant pseudo-elements
+  (`::before`/`::after`) count as part of the target; unrelated overlays
+  still fail. There is no `force` option.
   An element in a frame is scrolled into the frame's view and then exactly
   that part of the frame into the page's view.
 - **Visible page first; no false success.** Browsers do not deliver input to
@@ -343,6 +345,9 @@ through a fixed, extension-built command surface (AD-16 point 3):
   tab. Text conditions count **rendered text only** (from the layout:
   `display:none` and `visibility:hidden` text, scripts and templates do not
   count; text made transparent with CSS opacity still counts).
+  Closing the target tab during `browser_wait` returns `NOT_FOUND` promptly,
+  including while a CDP poll is blocked. Its absolute `timeoutMs` deadline
+  returns `TIMEOUT` even if that poll never answers.
   `browser_history` goes back, forward or reloads.
 - **Frame references** belong to one document of the frame: when a frame
   navigates (for example an embed loading its real content after
@@ -565,8 +570,11 @@ CROT again.
   by `npm run test:e2e:browser` (see [`BROWSER_E2E.md`](BROWSER_E2E.md)).
   Manual runs on real sites in Google Chrome found the problems fixed above
   ([`acceptance/WP-24-manual-run-1.md`](acceptance/WP-24-manual-run-1.md),
-  [`acceptance/WP-24-manual-run-2.md`](acceptance/WP-24-manual-run-2.md)); a
-  run on the build with the run-2 fixes has **not** been performed yet.
+  [`acceptance/WP-24-manual-run-2.md`](acceptance/WP-24-manual-run-2.md)).
+  [Manual run 3](acceptance/WP-24-manual-run-3.md) is recorded: own
+  pseudo-elements and blocked wait polls are addressed; CodePen AX hangs,
+  transient Wikipedia obscured errors and manual audit/approval checks
+  keep acceptance open.
 - The "… started debugging this browser" notice is Chrome's own and is shown
   in **every** window of the browser, including windows of other Chrome
   profiles where the extension is not installed: the browser shows it for the
