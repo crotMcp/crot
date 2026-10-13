@@ -407,6 +407,9 @@ export interface CdpWitness {
    * before the dialog opens); answer() then accepts the open dialog, as the user would.
    */
   watchDialogs(urlPrefix: string): Promise<{ answer(): Promise<void> }>;
+  closeTab(tabId: number): Promise<void>;
+  openWindow(url: string): Promise<{ tabId: number; windowId: number }>;
+  closeWindow(windowId: number): Promise<void>;
   close(): void;
 }
 
@@ -474,6 +477,12 @@ export async function watchExtensionCdp(sb: Sandbox): Promise<CdpWitness> {
     return true;
   })()`);
   return {
+    closeTab: (tabId) => evaluate<void>(`chrome.tabs.remove(${tabId})`),
+    openWindow: (url) =>
+      evaluate<{ tabId: number; windowId: number }>(
+        `chrome.windows.create({url: ${JSON.stringify(url)}}).then(w => ({tabId:w.tabs[0].id, windowId:w.id}))`,
+      ),
+    closeWindow: (windowId) => evaluate<void>(`chrome.windows.remove(${windowId})`),
     methods: () => evaluate<string[]>("globalThis.__crotE2eCdpMethods.slice()"),
     pageAttached: async (urlPrefix) => {
       const { targetInfos } = await send<{

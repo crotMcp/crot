@@ -7,6 +7,10 @@
       body { margin: 0; padding-top: 90px; font: 16px sans-serif; }
       #sticky { position: fixed; top: 0; left: 0; right: 0; height: 80px; background: #ddd; z-index: 10; }
       #narrow { width: 140px; }
+      #pseudo-button { position: relative; }
+      #pseudo-button::after { content: ""; position: absolute; inset: 0; }
+      #covered-button { position: relative; }
+      #covered-button span::after { content: ""; position: absolute; inset: 0; }
       .spacer { height: 1400px; }
       iframe { display: block; margin: 8px 0; }
     </style>
@@ -39,6 +43,8 @@
     <button id="low-button" type="button">Low button</button>
     <div class="spacer"></div>
     <div role="dialog" aria-label="Late dialog"><button id="dialog-button" type="button">Dialog button</button></div>
+    <button id="pseudo-button" type="button">Pseudo button</button>
+    <button id="covered-button" type="button">Descendant pseudo<span></span></button>
     <script>
       (function () {
         var params = new URLSearchParams(location.search);
@@ -49,6 +55,8 @@
           fetch(location.origin + "/event?" + q, { cache: "no-store" }).catch(function () {});
         }
         window.crotReport = report;
+        document.getElementById("pseudo-button").addEventListener("click", function(e) { report("pseudo-click", e); });
+        document.getElementById("covered-button").addEventListener("click", function(e) { report("descendant-pseudo-click", e); });
         document.getElementById("same").src = "/frame.html?nonce=" + encodeURIComponent(nonce);
         document.getElementById("low-button").addEventListener("click", function (e) { report("low-click", e); });
         document.getElementById("wrap-link").addEventListener("click", function (e) { report("wrap-click", e); });

@@ -114,8 +114,12 @@ class Page {
           root: {
             backendNodeId: 1,
             children: [
-              { backendNodeId: 2, children: [{ backendNodeId: 3 }] },
-              { backendNodeId: 4 },
+              {
+                backendNodeId: 2,
+                pseudoElements: [{ backendNodeId: 20 }],
+                children: [{ backendNodeId: 3, pseudoElements: [{ backendNodeId: 30 }] }],
+              },
+              { backendNodeId: 4, pseudoElements: [{ backendNodeId: 40 }] },
               { backendNodeId: 5 },
               {
                 backendNodeId: 9,
@@ -157,6 +161,16 @@ describe("actionability (AD-16 point 6)", () => {
     const { page, cdp } = setup();
     expect(await actionablePoint(cdp, 1, 2)).toEqual({ x: 20, y: 20 });
     expect(page.sent.map((s) => s.method)).toContain("DOM.scrollIntoViewIfNeeded");
+  });
+
+  it("accepts own and descendant pseudo-elements, never an unrelated overlay's pseudo-element", async () => {
+    const { page, cdp } = setup();
+    for (const id of [20, 30]) {
+      page.hit = () => id;
+      expect(await actionablePoint(cdp, 1, 2)).toEqual({ x: 20, y: 20 });
+    }
+    page.hit = () => 40;
+    expect((await failure(actionablePoint(cdp, 1, 2))).code).toBe("INVALID_INPUT");
   });
 
   it("accepts a hit on the owner of the element's frame", async () => {

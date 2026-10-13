@@ -151,7 +151,7 @@ Checked:
    run is in `CDP_ALLOWED_METHODS`, none is `Runtime.*`, and input really went
    through `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent`.
 
-### Layout and frames suite (manual run 2)
+### Layout and frames suite (manual runs 2 and 3)
 
 `tests-e2e/browser/browser-layout.e2e.test.ts` uses the same chain and its
 own sandbox with `fixtures/layout.html` (a fixed header, a wrapping link,
@@ -176,7 +176,21 @@ the page's own `isTrusted` reports:
    once, and after the dialog is answered (by the test's own DevTools
    session, as the user would) commands work again.
 
-For point 8 only, this suite launches the browser with
+8. Own/descendant pseudo-elements: trusted clicks; unrelated pseudo-element
+   overlays are refused by unit tests.
+9. A tab closed by the test's Chrome API during a text wait returns prompt
+   `NOT_FOUND` (not a full timeout).
+10. Two native windows have distinct Chrome `windowId`s; input reaches the
+    target tab of the second window.
+11. Three iframe form submission/history.back cycles keep snapshots responsive.
+12. Three returns to a scrolled document allow its link to be clicked.
+
+Points 11–12 are local regression scenarios, not reproductions of the exact
+CodePen AX hang or Wikipedia's transient cover from manual run 3.
+Unit tests separately cover a never-answering CDP poll: tab removal interrupts
+it and the wait's absolute deadline expires without another poll.
+
+For the browser witness, this suite launches the browser with
 `--remote-debugging-port=0` (test harness, `watchExtensionCdp`): the test
 attaches its own DevTools session to the extension's service worker and wraps
 `chrome.debugger.sendCommand` there to record method names. Nothing in CROT

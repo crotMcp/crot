@@ -215,13 +215,15 @@ tests point 19). The cards below implement it and must not weaken it.
   a forbidden CDP method cannot be sent; manual run on at least three real
   sites recorded (carried over from the WP-18 spike).
 - **Status:** merged (PR #22, `main` `d273473`); manual run 1 fixes merged
-  in PR #23; manual run 2 fixes in PR #24 (branch
-  `wp-24-manual-run-2-fixes`). Implemented
+  in PR #23; manual run 2 fixes merged in PR #24 (`a101008`). Implemented
   and covered by unit tests and the real-Chromium E2E
   (`tests-e2e/browser/browser-v1.e2e.test.ts`). Manual run 1 on real sites
   (owner) is recorded with its fixes in `docs/acceptance/WP-24-manual-run-1.md`,
-  run 2 in `docs/acceptance/WP-24-manual-run-2.md`; run 3 on the fixed build
-  has **not** been performed.
+  run 2 in `docs/acceptance/WP-24-manual-run-2.md`; run 3 is recorded in
+  `docs/acceptance/WP-24-manual-run-3.md` (16 pass, 4 partial, 2 fail).
+  Run-3 fixes in `wp-24-manual-run-3-fixes` cover pseudo-element ancestry
+  and interruption/deadline of blocked wait polls; C1/B2 observations and
+  manual audit/approval checks keep acceptance open.
 
 ### WP-25 — Dialogs, file choosers, background screenshots, debugger lifecycle
 - **Size:** M. **Depends on:** WP-24 (trusted input, frames and shadow DOM

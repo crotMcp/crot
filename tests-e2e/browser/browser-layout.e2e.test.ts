@@ -293,4 +293,91 @@ describe.runIf(linux)("browser v1 E2E: layout and frames (manual run 2)", () => 
     );
     expect(after.isError).toBe(false);
   });
+  it("clicks own and descendant pseudo-elements with trusted input", async () => {
+    const snap = await openLayout();
+    await h.ok(client(), "browser_click", { tabId, ref: find(snap, "button", "Pseudo button").ref });
+    await waitEvent("pseudo-click");
+    await h.ok(client(), "browser_click", { tabId, ref: find(snap, "button", "Descendant pseudo").ref });
+    await waitEvent("descendant-pseudo-click");
+    expect(events("pseudo-click")[0].query.get("trusted")).toBe("1");
+    expect(events("descendant-pseudo-click")[0].query.get("trusted")).toBe("1");
+  });
+
+  it("wait terminates promptly when the user closes the tab during the wait", async () => {
+    const opened = await h.ok<ControlResult>(client(), "browser_tab_open", {
+      url: server.origin + "/layout.html",
+      waitUntil: "load",
+    });
+    const started = Date.now();
+    const pending = h.fails(client(), "browser_wait", { tabId: opened.tabId, text: "___NEVER___", timeoutMs: 10000 });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await witness!.closeTab(opened.tabId);
+    const error = await pending;
+    expect(error.code).toBe("NOT_FOUND");
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  it("reports distinct native windowIds and targets the tab in the second window", async () => {
+    const opened = await witness!.openWindow(formUrl());
+    try {
+      const listed = await h.ok<{ tabs: { tabId: number; windowId: number }[] }>(client(), "browser_tabs_list");
+      const first = listed.tabs.find((t) => t.tabId === tabId)!;
+      const second = listed.tabs.find((t) => t.tabId === opened.tabId)!;
+      expect(second.windowId).toBe(opened.windowId);
+      expect(second.windowId).not.toBe(first.windowId);
+      await h.ok(client(), "browser_click", { tabId: opened.tabId, selector: "#pseudo-button" });
+      await waitEvent("pseudo-click", 2);
+    } finally {
+      await witness!.closeWindow(opened.windowId);
+    }
+  });
+  it("frame form submission and history.back keep snapshots responsive over three cycles", async () => {
+    const opened = await h.ok<ControlResult>(client(), "browser_tab_open", {
+      url: server.origin + "/history.html",
+      waitUntil: "load",
+    });
+    const snapOf = () => h.ok<Snapshot>(client(), "browser_snapshot", { tabId: opened.tabId });
+    const ready = async (name: string) =>
+      h.waitFor(
+        async () => {
+          const snap = await snapOf();
+          return snap.elements.some((e) => e.name === name) ? snap : undefined;
+        },
+        10000,
+        name,
+      );
+    try {
+      for (let i = 0; i < 3; i++) {
+        let snap = await ready("History submit");
+        await h.ok(client(), "browser_type", {
+          tabId: opened.tabId,
+          ref: find(snap, "textbox", "Email").ref,
+          text: "history@example.test",
+          clear: true,
+        });
+        await h.ok(client(), "browser_click", { tabId: opened.tabId, ref: find(snap, "button", "History submit").ref });
+        snap = await ready("History back");
+        await h.ok(client(), "browser_click", { tabId: opened.tabId, ref: find(snap, "button", "History back").ref });
+        await ready("History submit");
+      }
+    } finally {
+      await witness!.closeTab(opened.tabId);
+    }
+  });
+
+  it("a scrolled link can be clicked after back restores the document", async () => {
+    for (let i = 0; i < 3; i++) {
+      await openLayout();
+      await h.ok(client(), "browser_scroll", { tabId, deltaY: 900 });
+      await h.ok(client(), "browser_navigate", { tabId, url: server.origin + "/history-echo.html", waitUntil: "load" });
+      await h.ok(client(), "browser_history", { tabId, action: "back", waitUntil: "load" });
+      const snap = await snapshot();
+      const before = events("wrap-click").length;
+      await h.ok(client(), "browser_click", {
+        tabId,
+        ref: find(snap, "link", "a link that wraps over several lines").ref,
+      });
+      await waitEvent("wrap-click", before + 1);
+    }
+  });
 });

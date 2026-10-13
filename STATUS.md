@@ -10,8 +10,10 @@ package PR updates this file.
 **WP-24 — Browser v1: CDP backend, snapshot and refs, trusted input,
 frames, shadow DOM, waits, history — implemented, merged; acceptance open**
 (PR #22 merged into `main` as `d273473`; started from `main` `9ce0574`).
-Manual run 1 fixes merged in PR #23 (`96dde26`); manual run 2 fixes are in
-PR #24 (branch `wp-24-manual-run-2-fixes`, awaiting merge by the owner). User docs: [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)
+Manual run 1 fixes merged in PR #23 (`96dde26`); manual run 2 fixes merged in
+PR #24 (`a101008`). Manual run 3 is recorded in
+[`docs/acceptance/WP-24-manual-run-3.md`](docs/acceptance/WP-24-manual-run-3.md);
+run-3 fixes are in branch `wp-24-manual-run-3-fixes` (acceptance open). User docs: [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)
 ("Browser v1: CDP backend"), [`docs/BROWSER_E2E.md`](docs/BROWSER_E2E.md)
 ("Browser v1 suite"). Normative contract: ARCHITECTURE.md §27 AD-16 (not
 changed).
@@ -62,10 +64,18 @@ changed).
   `frameRef` (AD-16 point 5) on all target commands and waits, JavaScript
   dialogs fail at once instead of after 30 s, dialogs first in snapshots;
   new E2E file `tests-e2e/browser/browser-layout.e2e.test.ts`.
-- **Not done — WP-24 acceptance still open:** a manual run on the build with
-  the run-2 fixes has **not** been performed yet. ARCHITECTURE.md status markers for
-  §7.1 / AD-16 are not changed in this PR (only through an approved AD
-  edit by the owner).
+- **Manual run 3 (owner, Chrome 153, run-2 build):** 22 executed rows:
+  16 pass, 4 partial, 2 fail; G5 pending, H not run. Recorded in
+  [`docs/acceptance/WP-24-manual-run-3.md`](docs/acceptance/WP-24-manual-run-3.md).
+  Own/descendant pseudo-elements are included in hit-test ancestry (B4);
+  waits observe native tab removal and an absolute deadline even during a
+  blocked CDP poll (E5). Two native windows report distinct IDs in local E2E.
+  CodePen's AX hang and Wikipedia's transient obscured error remain open;
+  local history regressions do not prove those incidents fixed.
+- **Not done — WP-24 acceptance still open:** manual confirmation on the run-3
+  fixes, the remaining observations and audit/approval scenarios. ARCHITECTURE.md
+  status markers for §7.1 / AD-16 are not changed in this PR (only through an
+  approved AD edit by the owner).
 - **Out of scope (own packages):** dialogs, file chooser, background
   screenshots, tab group (WP-25); upload and download (WP-26, OD-8);
   remote explicit `tabId`, `openedBy`, two-agent ordering tests (WP-27).
@@ -390,8 +400,8 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 ## Next
 
 **WP-24 — Browser v1 (CDP backend): implemented, merged** (PR #22, `d273473`; run-1 fixes in PR #23; run-2 fixes in PR #24;
-see "Last completed"). Its acceptance is not closed until the manual run on
-three real third-party sites is performed and recorded. Owner's order after
+see "Last completed"). Real-site manual runs are recorded; acceptance remains
+open for run-3 fixes, unresolved observations and incomplete audit/approval checks. Owner's order after
 WP-24: OD-9 (L1 on macOS and Windows; opens WP-23b/c and the OD-6 spike),
 OD-8 (download hand-over, before WP-26), then WP-38 preparation starting
 with the open WP-29 items. Critical path: chain B continues WP-32 → WP-33 →
@@ -399,7 +409,7 @@ WP-40; WP-32 waits for WP-24…WP-27 and WP-38.
 
 | WP | What | State |
 | --- | --- | --- |
-| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | implemented, PR #22 and PR #23 merged; run-2 fixes in PR #24 awaiting merge; real-Chromium E2E green; manual runs 1 and 2 done (findings fixed in PR #23 and PR #24), run 3 on the fixed build **not performed** (acceptance open) |
+| WP-24 | Browser v1: CDP backend, snapshot and references, trusted input, frames, shadow DOM, waiting, history (AD-16) | implemented, PR #22–#24 merged; manual runs 1–3 recorded; run-3 fixes in `wp-24-manual-run-3-fixes`; B4 fixed, E5 blocked-poll mechanism guarded; C1/B2 and manual audit/approvals remain open (acceptance open) |
 | WP-31 | Remote permission profile and presets (AD-13, AD-19, AD-23) | Done, merged (PR #21, `9ce0574`); code verified at `9ca7b5b`, CI 11/11 green; AD-23 recorded (`69408c3`; point 4 wording `4a654f5`); user docs updated (`99fb2c6`); end-to-end check of the real upload/download gates: WP-26 acceptance; see "Last completed" |
 | WP-30 | Device tunnel adapter (AD-22, device side) | Done, merged (PR #20): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32) |
 | WP-25, WP-27 | Browser dialogs / file chooser / background screenshots / tab group; per-tab queue for remote, explicit `tabId`, `openedBy` | unblocked by WP-24 |
