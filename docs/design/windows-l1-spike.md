@@ -53,8 +53,14 @@ or complete L1 acceptance**. AccessCheck does not prove MIC, traversal,
 TOCTOU, inherited handles, IPC or descendants. Test failures cannot be
 converted into skips on the dedicated Windows jobs.
 
-`.github/workflows/windows-l1-spike.yml` requires native Node architecture and
-records the OS build. Windows Server 2025 x64 provides native API evidence,
+A dedicated `.github/workflows/windows-l1-spike.yml` is prepared locally but
+not published yet: the GitHub connection rejects workflow writes with HTTP
+403; the same code/docs payload without the workflow succeeds. Existing CI
+will execute native tests on its Windows x64 runner. ARM64 evidence remains
+pending, not passed. Publishing the prepared workflow requires Workflows write
+permission (classic PAT: `workflow`).
+
+The prepared workflow requires native Node architecture and records the OS build. Windows Server 2025 x64 provides native API evidence,
 not Windows 11 x64 client qualification. Windows 11 ARM64 provides a native
 ARM64 run; its exact build is recorded, not assumed to cover all versions.
 Both jobs also exercise existing ACL, DPAPI and Job Object tests because this

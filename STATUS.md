@@ -414,7 +414,8 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 **Active engineering stage — WP-23c restricted-token spike.** Owner authorized
 implementation work after the OD-9 proposal; native Windows x64 and ARM64 stay
 in the v1 target. Native restricted-token/DACL primitives and a required
-architecture-specific CI matrix are being added; see
+architecture-specific CI matrix are being added (workflow publication is
+blocked by GitHub Workflows write permission); see
 [`docs/design/windows-l1-spike.md`](docs/design/windows-l1-spike.md).
 This is not a production L1 backend or a completed OD-6 decision. macOS and
 Windows runtime confinement remains `not_implemented`/fail-closed until the
