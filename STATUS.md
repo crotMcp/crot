@@ -5,6 +5,18 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
+## WP-23c current continuation — not accepted
+
+Production Windows PowerShell shell preparation now imports the fixed system
+Utility manifest from `$PSHOME` before ordinary user scripts. Code `43f7392`
+passes the 15-second Low redirection gate through the shared production helper,
+a real Core stdout/stderr/exit regression and all 11 CI checks. Bare raw
+PowerShell discovery remains a reported timeout. Transparent Medium workspace
+writes, global outside-Low write isolation, native stdio byte bridge, the
+Windows confinement backend and actual protected-resource qualification are
+still missing. **Not Windows L1 acceptance; availability stays fail-closed;
+PR #27 stays Draft/open.** See [pinned continuation and criterion status](docs/design/windows-l1-continuation.md).
+
 ## Last completed
 
 **WP-24 — Browser v1: CDP backend, snapshot and refs, trusted input,

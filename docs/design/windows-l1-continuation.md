@@ -1,0 +1,150 @@
+# WP-23c continuation — WinPS shell initialization fix
+
+**Partial implementation, not Windows L1 acceptance.** Production Windows
+confinement still reports `not_implemented`; PR #27 stays open and Draft. No
+backend, write-through filesystem, global write boundary or architecture
+selection is claimed by the 11 green checks below.
+
+## Restored baseline and implementation commits
+
+The supplied handoff was restored in a fresh Linux checkout. `git fetch origin`
+confirmed source and remote branch HEAD
+`3c913841f28276e4b9d1819d9a5d10f42e5d06c1`, with no unpublished patch.
+Koffi 3.3.2 installed through a fresh `npm ci`. Its baseline `npm run check`
+passed: 1522 core tests / 140 skips; 147 extension tests. Windows-only skips are
+not Windows proof.
+
+- `3a677623c36669290eca3a431bc742c6602c4132`: owned debugger output now retains
+  native and managed call-site names with separate budgets, removes addresses,
+  parameter text and unrelated output, and runs native stacks before CLR stacks.
+  Three portable regressions cover sanitization and independent budgets. Added
+  paired trusted/Low discovery, explicit import and assembly-load controls.
+- `43f739224cf39c7bac688aa5609de5959e73f001`: **production shell preparation**
+  explicitly imports Windows PowerShell's Utility module from that runtime's
+  `$PSHOME` before the unchanged user script. `shellCommand` selects this only
+  for legacy `powershell`, not `pwsh` or POSIX. Core's existing ProcessService
+  already calls that shell provider after authorization. No second permission
+  system, audit change, new launch backend or availability change was added.
+
+The module-qualified `Microsoft.PowerShell.Core\Import-Module` uses an explicit
+runtime-relative manifest, not a name searched in the project or user module
+path. `-ErrorAction Stop` prevents continuation into the user script if
+initialization fails. Initialization executes **inside the launched child**;
+for the Low probe the token/Job setup is completed before any child code runs.
+There is no trusted execution of the user's program before lowering integrity,
+no insecure retry, no execution-policy override and no disabling of module
+analysis, auto-loading or security checks.
+
+Changed production code: `src/core/platform/shells.ts`. Coverage includes
+`tests/platform/windows-command.test.ts`, the native Low redirection gate and
+`tests/capabilities/process.test.ts`'s real Core shell regression.
+
+## What the native comparison actually established
+
+At `3a67762`, raw discovery of Out-File timed out at 15 seconds for the trusted
+process as well as the earlier Low case. Explicit import of the fixed system
+Utility manifest completed for both trusted and Low processes, followed by
+ordinary expression redirection and verified output. CDB completed with exit 0
+on both Node versions. The pipeline native stack at that snapshot is in CLR
+`ClassLoader::PopulateAvailableClassHashTable` / nested-type hash-table work,
+not a demonstrated RPC wait or the normal remoting listener wait.
+
+This does **not** identify every unrelated assembly encountered by discovery,
+prove an infinite deadlock or explain every internal CLR cause. It does prove
+that the observed failure is not unique to Low integrity and that loading the
+required system module explicitly avoids this discovery path. The known
+Utility assembly loads successfully in both identities in the corrected GAC
+control at `43f7392`.
+
+Two new diagnostic fixture defects at `3a67762` remain visible in the archived
+failed results: an early trusted-control assertion prevented collecting the
+paired Low discovery row, and the assembly control guessed a DLL next to
+powershell.exe. The latter was an invalid test input, not an isolation denial.
+`43f7392` collects both identities before assertions and loads the one fixed
+Utility DLL under the system GAC directory. No functional acceptance assertion
+was removed to fix those fixture defects.
+
+## Strict gate and real Core regression
+
+The original ordinary redirection script is unchanged. The supported
+`bounded-runtime` row now uses the **same shared shell preparation as Core**,
+not a test-only import wrapper. Each child still has its original 15-second
+functional deadline; output content, completion and Medium-attempt assertions
+remain. The prior bare invocation is retained as `bounded-runtime-raw`, with
+all observations preserved. The suite allowance is 150 seconds only to include
+that additional raw observation/debugger collection, not to extend the
+functional deadline.
+
+Both native Node versions at `43f7392` observe:
+
+- `bounded-runtime`: exit 0, private-Low UTF-16 output contains the marker;
+  `low-complete;medium-attempt` is reached, then
+  `System.UnauthorizedAccessException` / `OutFileCommand` FileOpenFailure;
+  no Medium output file. This is a reached MIC denial, **not** successful
+  transparent Medium workspace writing.
+- `bounded-runtime-raw`: still reaches `low-attempt` and times out without
+  output. Direct `process.exec` of powershell.exe with arbitrary arguments is
+  **not fixed** by the shell-provider initialization. Other arbitrary module
+  discovery is not qualified or claimed fixed.
+- The separate Core regression starts a local unconfined PowerShell shell with
+  a fresh profile/cache and verifies real Medium file content, stdout, stderr
+  and exit 23 before 15 seconds. It proves production process correctness,
+  **not** confinement or a Low-to-Medium writable view.
+- All seven original `workspace-native.test.ts` RPC gates pass. That remains
+  special-adapter behavior, not ordinary filesystem compatibility.
+
+NUL stdio remains a research startup mode. This change does not implement the
+native stdin/stdout/stderr byte bridge or independently qualify every inherited
+handle case.
+
+## Pinned evidence
+
+All decoded event arrays (including repeated titles, raw timeouts and fixture
+failures) and full check snapshots are in
+`docs/evidence/windows-l1-continuation/`. `manifest.json` records the SHA-256 of
+each JSON file's exact stored bytes. Gzip/base64 annotation parts were retrieved
+only after Windows checks completed and verified for complete ordered parts.
+
+| Source HEAD | Synthetic PR checkout | Windows Node 20 | Windows Node 22 | Overall |
+| --- | --- | --- | --- | --- |
+| `3a677623c36669290eca3a431bc742c6602c4132` | `ad4284cc3e95c3b4e9a229cb0628a92bcb433d65` | FAIL; strict gate and two new fixture controls | Same | 9 success / 2 failure |
+| `43f739224cf39c7bac688aa5609de5959e73f001` | `89b79d98559e25873a5965c5ec4e84dd62a8be6c` | PASS, [job 116160740422](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38654435566/job/116160740422) | PASS, [job 116160740353](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38654435566/job/116160740353) | 11 success |
+
+The event field `sourceBaseline=4031536a...` is a historical hardcoded probe
+label, **not** the tested source HEAD. Source pins above come from GitHub's
+commit checks and the published branch; `testedCheckout` records the merge
+checkout independently. Documentation commits are separate from these code
+pins.
+
+Measured configuration: Windows Server 2025 Datacenter, Rtl 10.0.26100,
+UBR 33438, x64; Node 20 v20.20.2 / libuv 1.46.0 and Node 22 v22.23.3 /
+libuv 1.51.0; WinPS 5.1.26100.33438. Trusted parent High IL/elevated, children
+Low IL. These admin-runner results are **not** standard-user, Windows 11 or
+native ARM64 qualification. No workflow-write authorization limit from the old
+connection is asserted as a fact about this session.
+
+Local full `npm run check` on `43f7392` passed: **1526 core / 144 skipped**,
+**147 extension**; lint/format/types/builds passed. Local runtime was Node v24.14.1 on Linux x86_64, not a
+native Windows substitute. All four actual Linux L1 CI jobs, Linux/macOS
+Node 20/22, extension checks and real Chromium CI passed on that source pin.
+
+## Full acceptance status — remains OPEN
+
+| Required criterion | Result of this continuation | Blocking work still required |
+| --- | --- | --- |
+| Developer workflows / same Medium backing / unchanged user SDs | Not met | Transparent ordinary Node/cmd/PS writes against original backing; no ACL/IL weakening; full SD comparison |
+| Process correctness and lifecycle | Partial | Shared WinPS shell redirection fixed; real native byte bridge, bounded production environment, cancellation/crash/recovery/tree qualification still missing |
+| Global write boundary | Not met | Unapproved Low sibling remains writable; MIC alone is not an allowed-write policy |
+| Protected actual CROT state/control/Docker | Not met | Actual service fixtures, secret store/device key, control/IPC/self-approval/Docker and descendants/concurrent attacks |
+| Native supported-machine acceptance | Partial | Node 20/22 x64 Server shell/RPC gates pass; ordinary Medium positives/full negatives, Windows 11/standard-user/ARM64 remain unqualified |
+| Regression | Met for pinned code | Full local check and all 11 native/regression CI checks passed; this alone is not L1 acceptance |
+| Production integration | Partial compatibility fix only | No Windows CommandConfinement backend or filesystem/global boundary; NativeHost remains fail-closed for remote workspace process/shell |
+| No known critical blockers | Not met | All above critical gaps remain; raw direct WinPS discovery also remains a bounded-runtime limitation |
+
+No user workspace labels or ACL grants were changed. ARCHITECTURE.md,
+WP-25/26/27, Linux confinement, existing permissions/full_control/local
+semantics and the macOS/Windows ARM64 v1 targets are unchanged. OD-6/OD-9
+remain open. A new filesystem/identity/driver trust boundary must follow the
+project's decision-before-code order and be proven by a real vertical slice;
+this shell fix is not that mechanism decision. The full requested implementation
+has **not** been delivered or accepted, and no backend is enabled.

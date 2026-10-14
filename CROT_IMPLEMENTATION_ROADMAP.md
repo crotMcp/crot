@@ -613,7 +613,17 @@ IPC. Real CROT IPC provisioning and complete production L1 remain open. Stage 6 
 production boundary; this research primitive
 neither enables L1 nor completes Windows remote shell/process acceptance.
 
-Stage 6A diagnostic report: [`61d0f87a`](https://github.com/mysteriumpersonae/crot-mcp/commit/61d0f87a395ed1962cdbc4b19c7c482698a992e4) has nine passing non-Windows checks and two failing Windows jobs. Empty PATH fixes direct Node 20 spawning/observed Job cleanup, but cmd loses PATH; fixed PATHEXT restores the WinPS 5.1 version probe. PowerShell exit/redirection remains OPEN. RPC modifies real Medium files, not ordinary fs support; unapproved Low-sibling CRUD succeeds, exposing an unmet global outside-write boundary. See [`docs/design/windows-l1-stage6a.md`](docs/design/windows-l1-stage6a.md) for pinned evidence, open failures and mechanism comparison. No acceptance or production activation.
+**Current continuation (partial, not accepted):** production WinPS shell
+preparation at `43f7392` explicitly imports the system Utility manifest from
+`$PSHOME`. Shared-launch ordinary Low redirection completes in its unchanged
+15-second deadline and reaches Medium denial; a real Core regression checks
+file content/stdout/stderr/exit. All 11 CI checks pass at that source pin.
+Bare direct WinPS discovery still times out. Same-backing Medium writes,
+global outside-Low denial, native stdio transport and the Windows confinement
+backend remain missing; OD-6/OD-9 stay open and availability stays fail-closed.
+See [continuation and full criterion status](docs/design/windows-l1-continuation.md).
+
+**Historical pin — not overwritten:** Stage 6A diagnostic report: [`61d0f87a`](https://github.com/mysteriumpersonae/crot-mcp/commit/61d0f87a395ed1962cdbc4b19c7c482698a992e4) has nine passing non-Windows checks and two failing Windows jobs. Empty PATH fixes direct Node 20 spawning/observed Job cleanup, but cmd loses PATH; fixed PATHEXT restores the WinPS 5.1 version probe. PowerShell exit/redirection remains OPEN. RPC modifies real Medium files, not ordinary fs support; unapproved Low-sibling CRUD succeeds, exposing an unmet global outside-write boundary. See [`docs/design/windows-l1-stage6a.md`](docs/design/windows-l1-stage6a.md) for pinned evidence, open failures and mechanism comparison. No acceptance or production activation.
 
 - **Objective:** children of `shell.execute` and `process.manage` in
   workspace mode run under the fixed AD-13 point 4 profile.

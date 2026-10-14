@@ -4,6 +4,11 @@ Status: diagnostic report delivered; remaining failures explicitly OPEN. **Not W
 
 Branch: `wp-23c-restricted-token-spike`; [draft PR #27](https://github.com/mysteriumpersonae/crot-mcp/pull/27), not merged. Starting point: `4031536a45d67743e5fe25b18faaf36895692f67`. Final tested code: [`61d0f87a395ed1962cdbc4b19c7c482698a992e4`](https://github.com/mysteriumpersonae/crot-mcp/commit/61d0f87a395ed1962cdbc4b19c7c482698a992e4). This documentation commit does not replace that evidence pin. `ARCHITECTURE.md`, WP-25/26/27, workflows and production source are unchanged by stage 6A. Existing failing assertions were not converted to skips.
 
+**Historical pin:** the findings below remain attached to their original code.
+Later production WinPS shell preparation and fresh Node 20/22 evidence are in
+[the continuation](windows-l1-continuation.md); neither report accepts full
+Windows L1.
+
 ## 1. Outcome and decision boundary
 
 - Node 20's missing-PATH spawn failure is an environment/libuv compatibility issue, not a demonstrated Low-IL child-creation prohibition. An explicit empty PATH fixes direct Node launches and proves actual detached-descendant Job cleanup. It does **not** fix the cmd path, where the Node client's environment no longer contains PATH.
