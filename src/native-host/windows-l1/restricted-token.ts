@@ -134,7 +134,7 @@ export function bindRestrictedTokens(
       validateSid(restrictingSid);
       const source: { value?: unknown } = {};
       const sid: { value?: unknown } = {};
-      const common: { value?: unknown } = {};
+      const common: { value?: unknown }[] = [];
       const logon: { value?: unknown } = {};
       if (probeLogonSid !== undefined && (!commonProbeSid || !/^S-1-5-5-\d+-\d+$/.test(probeLogonSid)))
         throw new CrotError("INVALID_INPUT", "Windows token spike: invalid probe logon SID.");
@@ -157,10 +157,15 @@ export function bindRestrictedTokens(
           if (!/^S-1-5-21-\d+-\d+-\d+-\d+$/.test(restrictingSid))
             throw new CrotError(
               "INVALID_INPUT",
-              "Windows token spike: common probe read SID requires a unique restricting SID.",
+              "Windows token spike: common probe SIDs require a unique restricting SID.",
             );
-          if (!success(convertSid("S-1-5-32-545", common)) || nullHandle(common.value))
-            throw failure("common probe SID");
+          // Research baseline mirrors the common-resource SIDs in Chromium's
+          // USER_LIMITED token, not its complete sandbox or production policy.
+          for (const value of ["S-1-5-32-545", "S-1-1-0", "S-1-5-12"]) {
+            const out: { value?: unknown } = {};
+            common.push(out);
+            if (!success(convertSid(value, out)) || nullHandle(out.value)) throw failure("common probe SID");
+          }
         }
         if (probeLogonSid !== undefined && (!success(convertSid(probeLogonSid, logon)) || nullHandle(logon.value)))
           throw failure("probe logon SID");
@@ -173,11 +178,11 @@ export function bindRestrictedTokens(
               null,
               0,
               null,
-              probeLogonSid !== undefined ? 3 : commonProbeSid ? 2 : 1,
+              1 + common.length + (probeLogonSid !== undefined ? 1 : 0),
               [
                 { Sid: sid.value, Attributes: 0 },
-                { Sid: common.value ?? null, Attributes: 0 },
-                { Sid: logon.value ?? null, Attributes: 0 },
+                ...common.map((out) => ({ Sid: out.value, Attributes: 0 })),
+                ...(probeLogonSid !== undefined ? [{ Sid: logon.value, Attributes: 0 }] : []),
               ],
               primary,
             ),
@@ -206,7 +211,7 @@ export function bindRestrictedTokens(
         throw error;
       } finally {
         if (!nullHandle(logon.value)) localFree(logon.value);
-        if (!nullHandle(common.value)) localFree(common.value);
+        for (const out of common) if (!nullHandle(out.value)) localFree(out.value);
         if (!nullHandle(sid.value)) localFree(sid.value);
         if (!nullHandle(source.value)) closeHandle(source.value);
       }

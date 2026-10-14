@@ -52,8 +52,10 @@ describe.runIf(isWindows)("Windows L1 spike: actual suspended restricted child a
         host.platform.baseEnvironment,
       )
     ).trim();
-    expect(logonSid).toMatch(/^S-1-5-5-\d+-\d+$/);
-    token = (await loadRestrictedTokens()).create(uniqueSid, true, logonSid);
+    // A CI service token may have no logon SID. Do not invent one or skip
+    // actual launch tests; exercise the native common-resource candidate.
+    if (logonSid) expect(logonSid).toMatch(/^S-1-5-5-\d+-\d+$/);
+    token = (await loadRestrictedTokens()).create(uniqueSid, true, logonSid || undefined);
     token.prepareProbeObjects(await currentUserSid(windowsTools(process.env.SystemRoot ?? "C:\\Windows")));
     protectedDir = path.join(dirs.outside, "protected");
     await host.platform.privateFiles.ensureDirectory(protectedDir);

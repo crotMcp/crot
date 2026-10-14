@@ -22,7 +22,8 @@ int ConvertStringSidToSidW(uint16_t *sid, HANDLE_OUT *out) {
   out->value = alloc(2); return 1;
 }
 int CreateRestrictedToken(void *src, uint32_t flags, uint32_t n1, void *p1, uint32_t n2, void *p2, uint32_t n3, SID_ATTRIBUTES *sid, HANDLE_OUT *out) {
-  if (fault == 3 || !src || flags != 1 || n1 || p1 || n2 || p2 || (n3 < 1 || n3 > 3) || !sid->Sid || sid->Attributes || (n3 >= 2 && (!sid[1].Sid || sid[1].Attributes)) || (n3 == 3 && (!sid[2].Sid || sid[2].Attributes))) return 0;
+  if (fault == 3 || !src || flags != 1 || n1 || p1 || n2 || p2 || (n3 != 1 && n3 != 4 && n3 != 5)) return 0;
+  for (uint32_t i = 0; i < n3; i++) if (!sid[i].Sid || sid[i].Attributes) return 0;
   out->value = alloc(3); return 1;
 }
 int IsTokenRestricted(void *token) { return fault == 4 ? 0 : (*(int *)token == 3); }
