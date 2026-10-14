@@ -100,7 +100,7 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
   it("stopping a mediated run ends its native descendant tree", async () => {
     const report = path.join(low, "tree.json");
     const grandchild = `require('fs').writeFileSync(${JSON.stringify(report)},JSON.stringify({pid:process.pid}));setInterval(()=>{},1000);`;
-    const script = `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(grandchild)}],{detached:true,stdio:'ignore'});c.on('exit',code=>require('fs').writeFileSync(${JSON.stringify(report + ".exit")},JSON.stringify({code})));setInterval(()=>{},1000);`;
+    const script = `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(grandchild)}],{detached:true,stdio:'ignore'});c.on('exit',code=>require('fs').writeFileSync(${JSON.stringify(report + ".exit")},JSON.stringify({code})));c.on('error',e=>require('fs').writeFileSync(${JSON.stringify(report + ".exit")},JSON.stringify({spawnError:e.code,errno:e.errno})));setInterval(()=>{},1000);`;
     const child = token.launchProbe(
       {
         executable: process.execPath,
@@ -185,7 +185,7 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
       for (const key of ["before", "after", "outside", "secret"]) expect(["EACCES", "EPERM"]).toContain(result[key]);
       expect(result.refused).toEqual(Array(10).fill(false));
       expect(result.badCapability).toBe(false);
-      expect(result.descendant).toEqual({ code: 0, stdout: '{"ok":true}', stderr: "" });
+      expect(result.descendant).toEqual({ code: 0, stdout: '{"ok":true}', stderr: "", error: null });
       expect(await readFile(path.join(dirs.workspace, "host-visible.txt"), "utf8")).toBe("настоящий Medium workspace");
       expect(await readFile(path.join(dirs.workspace, "descendant.txt"), "utf8")).toBe("child");
       expect(await readFile(outside, "utf8")).toBe("outside unchanged");

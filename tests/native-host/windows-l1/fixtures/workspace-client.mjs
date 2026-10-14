@@ -101,7 +101,12 @@ try {
     encoding: "utf8",
     timeout: 15000,
   });
-  result.descendant = { code: child.status, stdout: child.stdout, stderr: child.stderr };
+  result.descendant = {
+    code: child.status,
+    stdout: child.stdout,
+    stderr: child.stderr,
+    error: child.error ? { code: child.error.code ?? null, errno: child.error.errno ?? null } : null,
+  };
   if (process.env.CROT_PROBE_CAPTURE === "1") {
     process.stdout.write("stdout: Привет 😀\n");
     process.stderr.write("stderr: проверка\n");
