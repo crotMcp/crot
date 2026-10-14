@@ -1,17 +1,20 @@
 /**
  * WP-23c spike: native restricted-token creation and DACL access checks.
- * Not a CommandConfinement backend. No process is launched/impersonated and
+ * Not a CommandConfinement backend. Research probes may launch restricted children;
  * this module must not be used to report L1 available. AccessCheck proves
  * only the supplied security descriptor's discretionary access decision,
  * not MIC, IPC, traversal, TOCTOU or descendant confinement.
  */
 import { CrotError } from "../../core/errors.js";
 import { validateSid, validateWindowsPath } from "../validation.js";
+import type { JobObject } from "../windows-job.js";
+import { bindProbeLauncher, type ProbeSpec, type ProbeProcess } from "./probe-process.js";
 
 type NativeFunction = (...args: unknown[]) => unknown;
 export interface TokenFfi {
   load(name: string): { func(signature: string): NativeFunction };
   struct(name: string, members: Record<string, string>): unknown;
+  sizeof(name: string): number;
 }
 export interface TokenLibraries {
   readonly advapi32: string;
@@ -27,6 +30,8 @@ export interface RestrictedToken {
   readonly closed: boolean;
   /** Check the current file DACL using a restricted impersonation token. */
   fileDaclAccess(file: string): DaclAccess;
+  /** Research only: takes an empty Job and resumes only after assignment. */
+  launchProbe(spec: ProbeSpec, job: JobObject): ProbeProcess;
   /** Release both primary and impersonation handles. Idempotent. */
   close(): void;
 }
@@ -40,6 +45,7 @@ const DWORD = "CROT_L1_TOKEN_DWORD";
 const SID_ATTRIBUTES = "CROT_L1_SID_ATTRIBUTES";
 const MAPPING = "CROT_L1_GENERIC_MAPPING";
 const DISABLE_MAX_PRIVILEGE = 0x1;
+const TOKEN_ASSIGN_PRIMARY = 0x1;
 const TOKEN_DUPLICATE = 0x2;
 const TOKEN_IMPERSONATE = 0x4;
 const TOKEN_QUERY = 0x8;
@@ -98,6 +104,7 @@ export function bindRestrictedTokens(
   const accessCheck = a.func(
     `int __stdcall AccessCheck(void *sd, void *token, uint32_t access, ${MAPPING} *mapping, void *privileges, _Inout_ ${DWORD} *length, _Out_ ${DWORD} *granted, _Out_ ${DWORD} *allowed)`,
   );
+  const launchProbe = bindProbeLauncher(ffi, libraries);
   const failure = (api: string, error: unknown = lastError()) => {
     // No file paths, SID values, payloads or native diagnostics in errors.
     const code = typeof error === "number" && Number.isInteger(error) ? error : "unknown";
@@ -111,7 +118,10 @@ export function bindRestrictedTokens(
       const primary: { value?: unknown } = {};
       const impersonation: { value?: unknown } = {};
       try {
-        if (!success(openToken(currentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY, source)) || nullHandle(source.value))
+        if (
+          !success(openToken(currentProcess(), TOKEN_ASSIGN_PRIMARY | TOKEN_DUPLICATE | TOKEN_QUERY, source)) ||
+          nullHandle(source.value)
+        )
           throw failure("OpenProcessToken");
         if (!success(convertSid(restrictingSid, sid)) || nullHandle(sid.value)) throw failure("ConvertStringSidToSidW");
         if (
@@ -201,6 +211,14 @@ export function bindRestrictedTokens(
             if (!nullHandle(sd.value)) localFree(sd.value);
           }
         },
+        launchProbe: (spec, job) => {
+          if (closed) {
+            const empty = job.accounting();
+            if (!job.closed && empty?.active === 0 && empty.total === 0) job.close();
+            throw new CrotError("OPERATION_FAILED", "Windows token spike: token is closed.");
+          }
+          return launchProbe(primary.value, spec, job);
+        },
         close: () => {
           if (closed) return;
           closed = true;
@@ -222,7 +240,7 @@ export async function loadRestrictedTokens(): Promise<RestrictedTokenApi> {
     throw new CrotError("OPERATION_FAILED", "Windows token spike requires native 64-bit Windows.");
   const module: unknown = await import(FFI_MODULE);
   const ffi = ((module as { default?: unknown } | null)?.default ?? module) as Partial<TokenFfi> | undefined;
-  if (!ffi || typeof ffi.load !== "function" || typeof ffi.struct !== "function")
+  if (!ffi || typeof ffi.load !== "function" || typeof ffi.struct !== "function" || typeof ffi.sizeof !== "function")
     throw new CrotError("OPERATION_FAILED", "Windows token spike: koffi module is unavailable.");
   return bindRestrictedTokens(ffi as TokenFfi);
 }

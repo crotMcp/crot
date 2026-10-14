@@ -26,7 +26,10 @@ MIC, token integrity, process/IPC permissions or privilege escape.
 
 The module is intentionally not registered in NativeHost and does not change
 `CommandConfinement`, `crot_status`, permissions, approvals or the existing
-`not_implemented` refusal. It launches no process and changes no user ACL.
+`not_implemented` refusal. Stage 2 adds an internal research-only restricted
+process probe; it is not a Core tool or production launcher. Tests change only
+ACLs in disposable fixture directories, never user files or the installed Node
+executable.
 This research implementation creates no new production trust boundary.
 
 ## Tests and exact meaning of results
@@ -52,10 +55,10 @@ The first Windows CI run exposed three fixture failures: PowerShell `Get-Acl`
 requires a module not available in the restricted CROT environment. The
 fixture now uses direct .NET `File.GetAccessControl`/`SetAccessControl`, matching
 the existing ACL implementation. No environment/security exception was added;
-the next native CI run must pass before results are accepted.
+the corrected native Node 20/22 jobs passed at `10bab7bf`.
 
-These are real DACL decisions using a restricted token, **not child execution
-or complete L1 acceptance**. AccessCheck does not prove MIC, traversal,
+Stage 1 established real DACL decisions using a restricted token, **not child
+execution or complete L1 acceptance**. AccessCheck does not prove MIC, traversal,
 TOCTOU, inherited handles, IPC or descendants. Test failures cannot be
 converted into skips on the dedicated Windows jobs.
 
@@ -73,17 +76,55 @@ Both jobs also exercise existing ACL, DPAPI and Job Object tests because this
 is a new architecture-specific qualification, not repetition of Linux tests.
 JSON test reports are retained on success and failure.
 
-## Next bounded experiments (not implemented in this stage)
+## Stage 2 — pre-execution native restricted process probes
+
+`probe-process.ts` adds `CreateProcessAsUserW` with a restricted primary token,
+`CREATE_SUSPENDED`, `CREATE_UNICODE_ENVIRONMENT`, `CREATE_NO_WINDOW`, explicit
+UTF-16 environment and `bInheritHandles=false`. STARTUPINFO and
+PROCESS_INFORMATION ABI sizes are verified (64-bit x64/ARM64 layout).
+The primary token is opened with query/duplicate/assign-primary rights.
+
+The launcher verifies a fresh empty Job, creates the suspended process,
+assigns it, checks Job accounting, and only then calls `ResumeThread`. Native
+creation/assignment/accounting/resume failures terminate the child and dispose
+owned handles/Job. No retry outside the restricted-token path exists. A
+nonempty or unverifiable Job is not closed: it may belong to another workload.
+The probe polls exit without blocking and closes its Job to end detached
+children even after the direct parent exits.
+
+There is no stdio bridge or inherited service environment. This is a canary
+probe, not production shell/process integration. The public tool catalogue,
+ExecutionGuard, PermissionEngine and NativeHost confinement are unchanged.
+
+Additional native Windows cases (not counted as passed until their CI jobs
+succeed) cover:
+
+- actual child file reads/writes: CROT-like secret and outside-directory
+  creation denied; explicit disposable workspace write succeeds;
+- copied native Node executable in a space-containing path, quoted Unicode,
+  empty/quote/backslash/metacharacter argv; parent-only environment absent;
+- injected Job assignment failure: no user-code marker, suspended PID gone;
+- detached grandchild inherits the token restriction; Job close terminates it
+  after the parent exits;
+- actual nonzero exit status.
+
+The portable compiled ABI suite verifies ordering, partial native failures,
+no resume on assignment failure, handle cleanup and no takeover of an existing
+Job. These are not substitutes for the real Windows cases. Native standard-user
+(not only CI admin), stdio/handle allowlist, MIC/IPC, spawn escape matrix and
+full developer-read baseline remain open.
+
+## Remaining bounded experiments
 
 1. **Preserve legitimate developer reads:** compare the full restricting-SID
    candidate with a write-restricted token plus an explicit CROT-secret read
    boundary (for example a verified mandatory-label/identity mechanism), or
    an AppContainer/identity broker. Write restriction or low IL alone does
    not protect CROT reads. No global weakening of user-file ACLs is allowed.
-2. **Pre-execution boundary:** native suspended restricted-token process
-   creation, safe stdio handles, verified Job assignment before resume;
-   destroy the child on every partial failure. Existing launch-before-assign
-   plus taskkill fallback is not acceptable for this confined path.
+2. **Production pre-execution boundary:** qualify the research native path
+   for standard-user service execution, add a safe stdio/handle allowlist and
+   connect it only after the approved mechanism meets the full profile.
+   Existing launch-before-assign/taskkill fallback stays forbidden for L1.
 3. **Actual canary execution:** child and grandchildren attempt secret reads,
    outside writes, DPAPI extraction, handle duplication, named-pipe/control
    access, GUI self-approval and breakaway; concurrently run positive shell,

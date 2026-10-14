@@ -14,7 +14,7 @@ uint32_t GetLastError(void) { return 5; }
 int CloseHandle(void *h) { if (!h) return 0; free(h); live--; return 1; }
 void *LocalFree(void *p) { CloseHandle(p); return 0; }
 int OpenProcessToken(void *p, uint32_t access, HANDLE_OUT *out) {
-  if (fault == 1 || access != 10 || p != (void *)(intptr_t)-1) return 0;
+  if (fault == 1 || access != 11 || p != (void *)(intptr_t)-1) return 0;
   out->value = alloc(1); return 1;
 }
 int ConvertStringSidToSidW(uint16_t *sid, HANDLE_OUT *out) {
@@ -43,3 +43,30 @@ int AccessCheck(void *sd, void *token, uint32_t access, MAPPING *map, void *priv
   if (fault == 8) { allowed->value = 1; granted->value = 0; }
   return 1;
 }
+
+/* Process ABI stand-in. Keeps order counters; executes no OS process. */
+typedef struct {
+  uint32_t cb; void *reserved, *desktop, *title;
+  uint32_t x, y, xs, ys, xc, yc, fill, flags;
+  uint16_t show, reserved2; void *pReserved2, *in, *out, *err;
+} STARTUP;
+typedef struct { void *process, *thread; uint32_t pid, tid; } PROCESS_INFORMATION;
+static int creates = 0, resumes = 0, kills = 0, phase = 0, assigned = 0;
+void ResetProcessCounters(void) { creates = resumes = kills = phase = assigned = 0; }
+void MarkJobAssigned(void) { assigned = 1; }
+int ResumeCount(void) { return resumes; }
+int KillCount(void) { return kills; }
+int CreateCount(void) { return creates; }
+int CreateProcessAsUserW(void *token, uint16_t *app, uint16_t *cmd, void *pa, void *ta, int inherit, uint32_t flags, uint16_t *env, uint16_t *cwd, STARTUP *si, PROCESS_INFORMATION *out) {
+  creates++;
+  if (fault == 9 || *(int *)token != 3 || !app || !cmd || pa || ta || inherit || flags != 0x08000404 || !env || !cwd || si->cb != sizeof(STARTUP) || si->flags || si->in || si->out || si->err) return 0;
+  out->process = alloc(5); out->thread = alloc(6); out->pid = fault == 10 ? 0 : 42; out->tid = 43; phase = 0; return 1;
+}
+uint32_t ResumeThread(void *thread) {
+  resumes++;
+  if (fault == 11 || *(int *)thread != 6 || !assigned) return 0xffffffff;
+  phase = 1; return 1;
+}
+int TerminateProcess(void *process, uint32_t code) { kills++; phase = 2; return *(int *)process == 5 && code == 1; }
+uint32_t WaitForSingleObject(void *handle, uint32_t ms) { (void)handle; (void)ms; return phase == 2 ? 0 : 258; }
+int GetExitCodeProcess(void *process, DWORD_OUT *out) { if (*(int *)process != 5) return 0; out->value = 1; return 1; }

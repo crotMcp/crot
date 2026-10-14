@@ -417,7 +417,10 @@ in the v1 target. Native restricted-token/DACL primitives and a required
 architecture-specific CI matrix are being added (workflow publication is
 blocked by GitHub Workflows write permission); see
 [`docs/design/windows-l1-spike.md`](docs/design/windows-l1-spike.md).
-This is not a production L1 backend or a completed OD-6 decision. macOS and
+Stage 2 adds research-only suspended restricted child creation, pre-resume Job
+assignment and actual file/descendant/failure probes; native CI is required
+before these cases count as passed. This is not a production L1 backend or a
+completed OD-6 decision. macOS and
 Windows runtime confinement remains `not_implemented`/fail-closed until the
 full boundary and positive remote shell/process acceptance are implemented.
 `ARCHITECTURE.md` and WP-25/26/27 are unchanged in this stage.

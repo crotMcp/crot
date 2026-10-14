@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { JobObject } from "../../../src/native-host/windows-job.js";
+import type { ProbeSpec } from "../../../src/native-host/windows-l1/probe-process.js";
 import {
   bindRestrictedTokens,
   type RestrictedTokenApi,
@@ -28,6 +30,43 @@ let dir = "";
 let api: RestrictedTokenApi;
 let fault: (n: number) => void;
 let live: () => number;
+let resetProcess: () => void;
+let markAssigned: () => void;
+let creates: () => number;
+let resumes: () => number;
+let kills: () => number;
+const spec: ProbeSpec = {
+  executable: "C:\\fixture\\node.exe",
+  args: ["-e", "process.exit(0)"],
+  cwd: "C:\\fixture",
+  env: { SystemRoot: "C:\\Windows" },
+};
+function job(options: { assign?: boolean; accounting?: boolean; empty?: boolean; throws?: boolean } = {}): JobObject {
+  let closed = false;
+  let assigned = false;
+  return {
+    get closed() {
+      return closed;
+    },
+    assign: (pid) => {
+      expect(pid).toBe(42);
+      if (options.throws) throw new Error("assign failed");
+      if (options.assign === false) return false;
+      assigned = true;
+      markAssigned();
+      return true;
+    },
+    accounting: () =>
+      options.accounting === false
+        ? null
+        : { active: assigned || options.empty === false ? 1 : 0, total: assigned || options.empty === false ? 1 : 0 },
+    activeProcessCount: () => (assigned ? 1 : 0),
+    terminate: () => true,
+    close: () => {
+      closed = true;
+    },
+  };
+}
 
 describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real L1)", () => {
   beforeAll(async () => {
@@ -41,6 +80,11 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     expect(bindRestrictedTokens(ffi, { advapi32: lib, kernel32: lib })).toBe(api);
     fault = ffi.load(lib).func("void SetFault(int n)") as typeof fault;
     live = ffi.load(lib).func("int LiveAllocations(void)") as typeof live;
+    resetProcess = ffi.load(lib).func("void ResetProcessCounters(void)") as typeof resetProcess;
+    markAssigned = ffi.load(lib).func("void MarkJobAssigned(void)") as typeof markAssigned;
+    creates = ffi.load(lib).func("int CreateCount(void)") as typeof creates;
+    resumes = ffi.load(lib).func("int ResumeCount(void)") as typeof resumes;
+    kills = ffi.load(lib).func("int KillCount(void)") as typeof kills;
   });
   afterAll(async () => {
     await rm(dir, { recursive: true, force: true });
@@ -90,6 +134,123 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     try {
       for (const p of ["relative", "C:\\bad\0path", 'C:\\bad"path'])
         expect(() => token.fileDaclAccess(p)).toThrow(expect.objectContaining({ code: "INVALID_INPUT" }));
+    } finally {
+      token.close();
+    }
+    expect(live()).toBe(0);
+  });
+  it("creates suspended with explicit env/no inherited handles and resumes only after Job assignment", () => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid);
+    const j = job();
+    const process = token.launchProbe(spec, j);
+    expect(process.pid).toBe(42);
+    expect(process.exitCode()).toBeNull();
+    expect(creates()).toBe(1);
+    expect(resumes()).toBe(1);
+    expect(live()).toBe(3);
+    process.close();
+    process.close();
+    expect(j.closed).toBe(true);
+    expect(process.closed).toBe(true);
+    expect(() => process.exitCode()).toThrow(/closed/);
+    expect(kills()).toBe(1);
+    expect(live()).toBe(2);
+    token.close();
+    expect(live()).toBe(0);
+  });
+  it.each([9, 10, 11])("cleans partial creation/resume failure %i without native leaks", (n) => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid);
+    const j = job();
+    try {
+      fault(n);
+      expect(() => token.launchProbe(spec, j)).toThrow();
+      expect(resumes()).toBe(n === 11 ? 1 : 0);
+      expect(kills()).toBe(n === 9 ? 0 : 1);
+      expect(j.closed).toBe(true);
+      expect(live()).toBe(2);
+    } finally {
+      fault(0);
+      token.close();
+    }
+    expect(live()).toBe(0);
+  });
+  it.each([false, true])("kills a suspended process without resume on Job assignment failure (throws=%s)", (throws) => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid);
+    const j = job({ assign: false, throws });
+    try {
+      expect(() => token.launchProbe(spec, j)).toThrow();
+      expect(creates()).toBe(1);
+      expect(resumes()).toBe(0);
+      expect(kills()).toBe(1);
+      expect(j.closed).toBe(true);
+      expect(live()).toBe(2);
+    } finally {
+      token.close();
+    }
+    expect(live()).toBe(0);
+  });
+  it.each([{ empty: false }, { accounting: false }])(
+    "rejects nonempty/unverifiable Jobs before process creation %j",
+    (options) => {
+      fault(0);
+      resetProcess();
+      const token = api.create(sid);
+      const j = job(options);
+      try {
+        expect(() => token.launchProbe(spec, j)).toThrow();
+        expect(creates()).toBe(0);
+        expect(resumes()).toBe(0);
+        expect(j.closed).toBe(false);
+      } finally {
+        token.close();
+      }
+      expect(live()).toBe(0);
+    },
+  );
+  it("closed tokens close the supplied Job without launching", () => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid);
+    token.close();
+    const j = job();
+    expect(() => token.launchProbe(spec, j)).toThrow(/closed/);
+    expect(creates()).toBe(0);
+    expect(j.closed).toBe(true);
+    expect(live()).toBe(0);
+  });
+  it("closed tokens do not close Jobs that may contain another workload", () => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid);
+    token.close();
+    const j = job({ empty: false });
+    expect(() => token.launchProbe(spec, j)).toThrow(/closed/);
+    expect(j.closed).toBe(false);
+    expect(creates()).toBe(0);
+    expect(live()).toBe(0);
+  });
+  it("rejects invalid executable/argument/environment before creation and disposes the Job", () => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid);
+    try {
+      for (const bad of [
+        { ...spec, executable: "C:\\fixture\\x.cmd" },
+        { ...spec, args: ["bad\0argument"] },
+        { ...spec, env: { PATH: "a", Path: "b" } },
+      ]) {
+        const j = job();
+        expect(() => token.launchProbe(bad, j)).toThrow(expect.objectContaining({ code: "INVALID_INPUT" }));
+        expect(j.closed).toBe(true);
+      }
+      expect(creates()).toBe(0);
+      expect(live()).toBe(2);
     } finally {
       token.close();
     }
