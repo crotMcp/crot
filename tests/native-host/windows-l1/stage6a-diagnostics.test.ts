@@ -130,38 +130,49 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
       if (trusted.exitCode === null) trusted.kill();
     }
   }, 110000);
-  it("records Low spawn failures explicitly and proves tree cleanup only after readiness", async () => {
-    const job = jobs.createKillOnCloseJob();
-    const child = token.launchProbe(
-      { executable: process.execPath, args: [fixture], cwd: workspace, env: baseEnv },
-      job,
-    );
-    processes.push(child);
-    await waitFor(() => child.exitCode() !== null, 110000);
-    const text = await readFile(baseEnv.CROT_6A_RESULT!, "utf8").catch(() => null);
-    if (!text) emit("low-missing", { exitCode: child.exitCode(), accounting: job.accounting() });
-    expect(text).not.toBeNull();
-    const report = JSON.parse(text!);
-    const held = report.rows.find((r: { api: string }) => r.api === "spawn-hold");
-    const ready = !!held?.child?.ready && Number.isInteger(held.pid) && isAlive(held.pid);
-    const before = job.accounting();
-    const parentExitCode = child.exitCode();
-    child.close();
-    if (ready) await waitFor(() => !isAlive(held.pid), 10000);
-    emit("low-runtime", report);
-    emit("low-cleanup", {
-      parentExited: true,
-      parentExitCode,
-      before,
-      readyObserved: ready,
-      descendantGoneAfterJobClose: ready ? !isAlive(held.pid) : null,
-      status: ready ? "exercised" : "NOT_EXERCISED_CHILD_NOT_READY",
-    });
-    expect(report.complete).toBe(true);
-    expect(report.snapshot.integrity).toBe("S-1-16-4096");
-    expect(report.rows.every((r: { attempted: boolean }) => r.attempted)).toBe(true);
-    if (ready) expect(isAlive(held.pid)).toBe(false);
-  }, 130000);
+  it.each(["absent", "empty"] as const)(
+    "records Low spawn with %s PATH and proves tree cleanup only after readiness",
+    async (pathMode) => {
+      const job = jobs.createKillOnCloseJob();
+      const child = token.launchProbe(
+        {
+          executable: process.execPath,
+          args: [fixture],
+          cwd: workspace,
+          env: { ...baseEnv, ...(pathMode === "empty" ? { PATH: "" } : {}) },
+        },
+        job,
+      );
+      processes.push(child);
+      await waitFor(() => child.exitCode() !== null, 110000);
+      const text = await readFile(baseEnv.CROT_6A_RESULT!, "utf8").catch(() => null);
+      if (!text) emit("low-missing", { exitCode: child.exitCode(), accounting: job.accounting() });
+      expect(text).not.toBeNull();
+      const report = JSON.parse(text!);
+      const held = report.rows.find((r: { api: string }) => r.api === "spawn-hold");
+      const ready = !!held?.child?.ready && Number.isInteger(held.pid) && isAlive(held.pid);
+      const before = job.accounting();
+      const parentExitCode = child.exitCode();
+      child.close();
+      if (ready) await waitFor(() => !isAlive(held.pid), 10000);
+      emit(`low-runtime-${pathMode}`, report);
+      emit(`low-cleanup-${pathMode}`, {
+        parentExited: true,
+        parentExitCode,
+        before,
+        readyObserved: ready,
+        descendantGoneAfterJobClose: ready ? !isAlive(held.pid) : null,
+        status: ready ? "exercised" : "NOT_EXERCISED_CHILD_NOT_READY",
+      });
+      expect(report.complete).toBe(true);
+      expect(report.snapshot.integrity).toBe("S-1-16-4096");
+      expect(report.rows.every((r: { attempted: boolean }) => r.attempted)).toBe(true);
+      if (pathMode === "empty")
+        expect(ready, "controlled PATH case must observe an actual live detached descendant").toBe(true);
+      if (ready) expect(isAlive(held.pid)).toBe(false);
+    },
+    130000,
+  );
   it("separates ordinary CRUD and shell redirection from explicit mediation", async () => {
     const label = await loadProbeIntegrity();
     const outsideLow = path.join(dirs.outside, "unapproved-low-control");
@@ -254,36 +265,44 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
       child.close();
     }
   }, 65000);
-  it("localizes PowerShell native invocation versus fully redirected ProcessStartInfo", async () => {
-    const script = await readFile(new URL("./fixtures/stage6a-powershell.ps1", import.meta.url), "utf8");
-    const child = token.launchProbe(
-      {
-        executable: windowsTools(process.env.SystemRoot ?? "C:\\Windows").powershell,
-        args: ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
-        cwd: workspace,
-        env: baseEnv,
-      },
-      jobs.createKillOnCloseJob(),
-    );
-    processes.push(child);
-    let exited = false;
-    try {
-      await waitFor(() => child.exitCode() !== null, 35000);
-      exited = true;
-    } catch {
-      // A diagnostic timeout is reported, not silently counted as compatibility.
-    }
-    const text = await readFile(baseEnv.CROT_6A_PS_REPORT!, "utf8").catch(() => "");
-    const fields = Object.fromEntries(
-      text
-        .trim()
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
-    );
-    emit("powershell", { exited, exitCode: exited ? child.exitCode() : null, fields });
-    child.close();
-    expect(fields.entry, "PowerShell diagnostic entry must actually execute").toBe("1");
-    // Specific failed invocation rows remain failures in the original stage-6 gate.
-  }, 50000);
+  it.each(["baseline", "empty-path", "empty-path-pathext"] as const)(
+    "localizes PowerShell %s native invocation versus fully redirected ProcessStartInfo",
+    async (environmentMode) => {
+      const script = await readFile(new URL("./fixtures/stage6a-powershell.ps1", import.meta.url), "utf8");
+      const child = token.launchProbe(
+        {
+          executable: windowsTools(process.env.SystemRoot ?? "C:\\Windows").powershell,
+          args: ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
+          cwd: workspace,
+          env: {
+            ...baseEnv,
+            ...(environmentMode !== "baseline" ? { PATH: "" } : {}),
+            ...(environmentMode === "empty-path-pathext" ? { PATHEXT: ".EXE;.COM" } : {}),
+          },
+        },
+        jobs.createKillOnCloseJob(),
+      );
+      processes.push(child);
+      let exited = false;
+      try {
+        await waitFor(() => child.exitCode() !== null, 35000);
+        exited = true;
+      } catch {
+        // A diagnostic timeout is reported, not silently counted as compatibility.
+      }
+      const text = await readFile(baseEnv.CROT_6A_PS_REPORT!, "utf8").catch(() => "");
+      const fields = Object.fromEntries(
+        text
+          .trim()
+          .split(/\r?\n/)
+          .filter(Boolean)
+          .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+      );
+      emit(`powershell-${environmentMode}`, { exited, exitCode: exited ? child.exitCode() : null, fields });
+      child.close();
+      expect(fields.entry, "PowerShell diagnostic entry must actually execute").toBe("1");
+      // Specific failed invocation rows remain failures in the original stage-6 gate.
+    },
+    50000,
+  );
 });

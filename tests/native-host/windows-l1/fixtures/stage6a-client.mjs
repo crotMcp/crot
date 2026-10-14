@@ -140,6 +140,7 @@ try {
     env: { ...process.env, CROT_6A_EMIT: "0" },
     windowsHide: true,
     stdio: "pipe",
+    detached: true,
   });
   let holdError = null;
   let holdExit = null;

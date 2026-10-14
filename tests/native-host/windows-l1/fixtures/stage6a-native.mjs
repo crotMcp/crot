@@ -88,6 +88,12 @@ export function snapshot(koffiPath) {
     node: process.version,
     uv: process.versions.uv,
     arch: process.arch,
+    environmentPresence: Object.fromEntries(
+      ["PATH", "PATHEXT", "SYSTEMDRIVE", "USERPROFILE"].map((key) => [
+        key,
+        Object.keys(process.env).some((name) => name.toUpperCase() === key),
+      ]),
+    ),
     os: {
       major: version.readUInt32LE(4),
       minor: version.readUInt32LE(8),
