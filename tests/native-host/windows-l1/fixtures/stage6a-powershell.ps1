@@ -13,8 +13,15 @@ foreach ($mode in @('dotnet-redirected', 'legacy-native')) {
     [IO.File]::WriteAllLines($env:CROT_6A_PS_REPORT, $lines)
     try {
         if ($mode -eq 'legacy-native') {
+            $Error.Clear()
             $global:LASTEXITCODE = $null
             $value = & $env:CROT_6A_NODE '--version'
+            $lines.Add($mode + '.success=' + [string]$?)
+            $lines.Add($mode + '.errorCount=' + [string]$Error.Count)
+            if ($Error.Count -gt 0) {
+                $lines.Add($mode + '.errorId=' + $Error[0].FullyQualifiedErrorId)
+                $lines.Add($mode + '.errorType=' + $Error[0].Exception.GetType().FullName)
+            }
             $lines.Add($mode + '.exit=' + [string]$LASTEXITCODE)
             $lines.Add($mode + '.versionMatched=' + ([string]$value -match '^v[0-9]+\.[0-9]+\.[0-9]+$'))
         } else {

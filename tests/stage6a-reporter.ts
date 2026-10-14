@@ -1,6 +1,17 @@
 /** CI diagnostics only. Does not change test results or compatibility gates. */
 import { readFileSync, writeSync } from "node:fs";
 const emit = (title: string, value: unknown) => {
+  const plain = JSON.stringify(value);
+  if (plain.length > 2800) {
+    const parts = Math.ceil(plain.length / 1800);
+    for (let index = 0; index < parts; index++)
+      emit(`${title}-part-${index + 1}`, {
+        part: index + 1,
+        parts,
+        fragment: plain.slice(index * 1800, (index + 1) * 1800),
+      });
+    return;
+  }
   const text = JSON.stringify(value).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
   writeSync(1, `\n::notice title=${title}::${text}\n`);
 };
@@ -9,7 +20,7 @@ export default class Stage6aReporter {
     const boundedErrors = (items: unknown[]) =>
       items.slice(0, 10).map((item) => {
         const e = item as { name?: string; message?: string };
-        return { name: e.name, message: e.message?.slice(0, 4000) };
+        return { name: e.name, message: e.message?.slice(0, 1200) };
       });
     if (errors.length) emit("CROT-6A-global-errors", boundedErrors(errors));
     const evidence = process.env.CROT_6A_EVIDENCE_FILE;
@@ -43,7 +54,7 @@ export default class Stage6aReporter {
           rows.push({
             name: t.name,
             state: t.result?.state ?? "NOT_RUN",
-            errors: t.result?.errors?.map((e) => ({ name: e.name, message: e.message?.slice(0, 4000) })),
+            errors: t.result?.errors?.map((e) => ({ name: e.name, message: e.message?.slice(0, 1200) })),
           });
         for (const child of t.tasks ?? []) visit(child);
       };
