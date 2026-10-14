@@ -432,7 +432,8 @@ qualification remain required. Stage 4 paired native probes passed at
 The privilege-stripped MIC-only component preserves both normal/hidden Node
 spawning, secret NR denial, static-alias denial and own-token raise denial;
 the SID-filtered candidate's EPERM failures are retained as rejected behavior.
-Full allowed-write/IPC boundaries remain open. This is not a production L1 backend or a
+Full allowed-write/IPC boundaries remain open. Stage 5 adds actual canary
+process memory/handle and native readonly-pipe probes; native evidence pending. This is not a production L1 backend or a
 completed OD-6 decision. macOS and
 Windows runtime confinement remains `not_implemented`/fail-closed until the
 full boundary and positive remote shell/process acceptance are implemented.

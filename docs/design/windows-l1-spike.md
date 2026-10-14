@@ -251,6 +251,33 @@ standard-user/client-version/ARM64 qualification. No user-project labels are
 lowered and no protection is removed from production. Passing expected-gap
 assertions is a research result, never full platform acceptance.
 
+## Stage 5 — memory/handle and readonly IPC canaries
+
+Status: native evidence pending. Only test-owned processes, private pipe
+names and artificial random bytes are used; never a user's process or secret.
+The trusted victim runs inside its own kill-on-close Job. Its exact buffer
+address and an open canary-file handle are provided as test metadata to a
+Low/MIC-only attacker. Trusted controls must first actually read that memory
+and duplicate/read the file handle. Duplicates share offsets, so the probe
+resets the file offset before each read; EOF cannot masquerade as protection.
+Low attacks must fail with access/privilege errors, not invalid-address/ABI
+errors. This is not a general permission to inspect other processes.
+
+IPC uses native read-only CreateFile/ReadFile, not only Node's duplex connect.
+A temporary NW-only Medium pipe is expected to expose the synthetic bytes;
+this explicitly rejects relying on Low/no-write-up for secret-bearing IPC.
+An explicit Medium/NO_READ_UP pipe must refuse the Low reader, while a separate
+Low-labelled local fixture pipe must actually work. A trusted caller must
+read the protected control pipe first. All pipes have fixture-owner DACLs and
+reject remote clients; no existing CROT pipe or ACL is changed.
+
+The fixture blocks pipe connects on Koffi worker threads, not the Node loop;
+the owned victim Job tears down all native handles/threads on success or
+failure. Reports contain API results/counts/match booleans, never canary bytes.
+These probes do not qualify memory writes, injection, races, inherited handles,
+DPAPI, real CROT IPC provisioning, workspace mediation, GUI/network,
+standard-user/ARM64/client-version acceptance or production L1 availability.
+
 ## Remaining bounded experiments
 
 1. **Safe workspace mediation and read-boundary bypass probes:** stage 3

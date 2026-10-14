@@ -605,7 +605,8 @@ bypass/IPC qualification remain required; production is not enabled. Stage 4
 paired probes passed at `418b7d1f` (11 CI green): privilege-stripped MIC-only
 restores tested normal/hidden Node descendants while retaining NR/alias and
 token-raise denials. SID-filtered spawn EPERM remains rejected behavior, not a
-product limitation. Full allowed-write/IPC boundaries remain open. OD-9/OD-6 remain open for the
+product limitation. Full allowed-write/IPC boundaries remain open. Stage 5 native memory/handle
+and readonly-IPC probes are awaiting evidence. OD-9/OD-6 remain open for the
 production boundary; this research primitive
 neither enables L1 nor completes Windows remote shell/process acceptance.
 
