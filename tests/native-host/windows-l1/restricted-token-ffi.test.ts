@@ -379,4 +379,15 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     expect(() => labelFixture("C:\\fixture\\probe", "none" as ProbeLabel)).toThrow(/invalid fixture label/);
     expect(live()).toBe(0);
   });
+  it("marshals privilege-stripped MIC-only with zero SID count/null pointer; rejects implicit filters", () => {
+    fault(0);
+    const token = api.create("S-1-5-21-101-102-103-104", false, undefined, "mic-only");
+    token.prepareProbeObjects("S-1-5-21-201-202-203-204");
+    token.lowerProbeIntegrity();
+    expect(live()).toBe(2);
+    token.close();
+    expect(live()).toBe(0);
+    expect(() => api.create(sid, true, undefined, "mic-only")).toThrow(/extra SID filtering/);
+    expect(live()).toBe(0);
+  });
 });

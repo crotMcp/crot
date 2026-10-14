@@ -220,6 +220,17 @@ path (`src/win/process.c`). The default EPERM is retained as a known rejected
 candidate behavior, not removed from evidence or declared acceptable. Hidden
 launch must actually succeed and retain read restrictions; its result is pending.
 A successful hidden path would not close general console/spawn compatibility.
+The hidden path also returned EPERM at `4cdd9d19`, rejecting the console-only
+hypothesis. The next paired matrix keeps **both WRITE_RESTRICTED spawn failures**
+as evidence and requires a separate privilege-stripped, Low-IL MIC-only token
+(no extra restricting SID list) to launch both hidden and default descendants
+while retaining every project-read, secret-denial, alias and token-raise check.
+This tests whether the second SID access check conflicts with descendant IPC,
+not whether removing protection is an acceptable shortcut. MIC-only has no
+standalone secret protection before NR labels, still cannot write ordinary
+Medium workspaces and does not enforce a complete allowed-Low-write or IPC
+boundary. It cannot enable production L1. IsTokenRestricted is not an L1 test:
+it reports the SID restriction, not privilege removal or MIC enforcement.
 
 These tests still do not qualify process-memory/handle theft, malicious
 reparse replacement races, inherited/broker-provided handles, IPC/DPAPI,

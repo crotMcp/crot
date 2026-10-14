@@ -5,7 +5,7 @@ typedef struct { void *value; } HANDLE_OUT;
 typedef struct { uint32_t value; } DWORD_OUT;
 typedef struct { void *Sid; uint32_t Attributes; } SID_ATTRIBUTES;
 typedef struct { uint32_t read, write, exec, all; } MAPPING;
-static int live = 0, fault = 0;
+static int live = 0, fault = 0, last_restrict_count = 1;
 static void *alloc(int value) { int *p = malloc(sizeof(int)); *p = value; live++; return p; }
 void SetFault(int value) { fault = value; }
 int LiveAllocations(void) { return live; }
@@ -22,11 +22,13 @@ int ConvertStringSidToSidW(uint16_t *sid, HANDLE_OUT *out) {
   out->value = alloc(2); return 1;
 }
 int CreateRestrictedToken(void *src, uint32_t flags, uint32_t n1, void *p1, uint32_t n2, void *p2, uint32_t n3, SID_ATTRIBUTES *sid, HANDLE_OUT *out) {
-  if (fault == 3 || !src || (flags != 1 && flags != 9) || n1 || p1 || n2 || p2 || (n3 != 1 && n3 != 4 && n3 != 5)) return 0;
+  if (fault == 3 || !src || (flags != 1 && flags != 9) || n1 || p1 || n2 || p2 || (n3 != 0 && n3 != 1 && n3 != 4 && n3 != 5)) return 0;
+  if (n3 == 0 && (flags != 1 || sid != NULL)) return 0;
+  last_restrict_count = n3;
   for (uint32_t i = 0; i < n3; i++) if (!sid[i].Sid || sid[i].Attributes) return 0;
   out->value = alloc(3); return 1;
 }
-int IsTokenRestricted(void *token) { return fault == 4 ? 0 : (*(int *)token == 3); }
+int IsTokenRestricted(void *token) { return fault == 4 ? 0 : (*(int *)token == 3 && last_restrict_count > 0); }
 int DuplicateTokenEx(void *token, uint32_t access, void *attr, int level, int type, HANDLE_OUT *out) {
   if (fault == 5 || *(int *)token != 3 || access != 12 || attr || level != 2 || type != 2) return 0;
   out->value = alloc(4); return 1;

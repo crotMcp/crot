@@ -49,7 +49,8 @@ export interface RestrictedTokenApi {
     restrictingSid: string,
     commonProbeSid?: boolean,
     probeLogonSid?: string,
-    restrictionMode?: "all-access" | "write-only",
+    /** mic-only strips privileges but has no additional restricting-SID filter. */
+    restrictionMode?: "all-access" | "write-only" | "mic-only",
   ): RestrictedToken;
 }
 
@@ -141,8 +142,10 @@ export function bindRestrictedTokens(
   };
   const api: RestrictedTokenApi = {
     create: (restrictingSid, commonProbeSid = false, probeLogonSid, restrictionMode = "all-access") => {
-      if (restrictionMode !== "all-access" && restrictionMode !== "write-only")
+      if (!["all-access", "write-only", "mic-only"].includes(restrictionMode))
         throw new CrotError("INVALID_INPUT", "Windows token spike: invalid restriction mode.");
+      if (restrictionMode === "mic-only" && (commonProbeSid || probeLogonSid !== undefined))
+        throw new CrotError("INVALID_INPUT", "Windows token spike: MIC-only probe cannot request extra SID filtering.");
       validateSid(restrictingSid);
       const source: { value?: unknown } = {};
       const sid: { value?: unknown } = {};
@@ -190,19 +193,25 @@ export function bindRestrictedTokens(
               null,
               0,
               null,
-              1 + common.length + (probeLogonSid !== undefined ? 1 : 0),
-              [
-                { Sid: sid.value, Attributes: 0 },
-                ...common.map((out) => ({ Sid: out.value, Attributes: 0 })),
-                ...(probeLogonSid !== undefined ? [{ Sid: logon.value, Attributes: 0 }] : []),
-              ],
+              restrictionMode === "mic-only" ? 0 : 1 + common.length + (probeLogonSid !== undefined ? 1 : 0),
+              restrictionMode === "mic-only"
+                ? null
+                : [
+                    { Sid: sid.value, Attributes: 0 },
+                    ...common.map((out) => ({ Sid: out.value, Attributes: 0 })),
+                    ...(probeLogonSid !== undefined ? [{ Sid: logon.value, Attributes: 0 }] : []),
+                  ],
               primary,
             ),
           ) ||
           nullHandle(primary.value)
         )
           throw failure("CreateRestrictedToken");
-        if (!success(isRestricted(primary.value))) throw failure("IsTokenRestricted", 0);
+        // IsTokenRestricted reports restricting SIDs, not privilege removal or
+        // a complete sandbox. MIC-only deliberately adds no such SIDs. This
+        // research mode is never an L1 availability proof.
+        const restricted = isRestricted(primary.value);
+        if (restrictionMode !== "mic-only" && !success(restricted)) throw failure("IsTokenRestricted", 0);
         if (
           !success(
             duplicate(
