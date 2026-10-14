@@ -17,6 +17,7 @@ import { loadJobObjectApi, type JobObjectApi } from "../../../src/native-host/wi
 import { loadRestrictedTokens, type RestrictedToken } from "../../../src/native-host/windows-l1/restricted-token.js";
 import { loadProbeIntegrity } from "../../../src/native-host/windows-l1/probe-integrity.js";
 import type { ProbeProcess } from "../../../src/native-host/windows-l1/probe-process.js";
+import { ownedStackNames } from "./diagnostics/owned-stack.js";
 import { isAlive, isWindows, makeTempDirs, waitFor, type TempDirs } from "../../helpers.js";
 
 const emit = (section: string, value: unknown) => {
@@ -371,7 +372,7 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
           try {
             stack = execFileSync(
               debuggerPath,
-              ["-pv", "-p", String(child.pid), "-c", ".loadby sos clr;~*e !clrstack;~*k;qd"],
+              ["-pv", "-p", String(child.pid), "-c", "~*k;.loadby sos clr;~*e !clrstack;qd"],
               {
                 encoding: "utf8",
                 timeout: 30000,
@@ -391,15 +392,7 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
             stack = String(failure.stdout ?? "");
           }
         }
-        const frames = stack
-          .split(/\r?\n/)
-          .filter((line) =>
-            /(?:System\.|Microsoft\.PowerShell|Management\.Automation|ConsoleHost|clr!|ntdll!|kernel(?:base|32)!|Thread.*Id)/i.test(
-              line,
-            ),
-          )
-          .slice(0, 100)
-          .map((line) => line.slice(0, 240));
+        const frames = ownedStackNames(stack);
         emit("powershell-owned-stack", { available, debuggerExit, frames });
       }
       child.close();
@@ -418,6 +411,81 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
       }
     }
   }, 120000);
+  it.each(["discovery", "import", "assembly"] as const)(
+    "compares trusted and Low PowerShell %s with the same bounded environment",
+    async (phase) => {
+      const script = await readFile(new URL("./fixtures/powershell-module-load.ps1", import.meta.url), "utf8");
+      for (const principal of ["trusted", "low"] as const) {
+        const profile = path.join(low, `module-${phase}-${principal}`);
+        await mkdir(profile);
+        for (const name of ["local", "roaming"]) await mkdir(path.join(profile, name));
+        const report = path.join(profile, "phase.txt");
+        const output = path.join(profile, "redirect.txt");
+        const env = {
+          SystemRoot: baseEnv.SystemRoot!,
+          WINDIR: baseEnv.SystemRoot!,
+          SystemDrive: path.parse(baseEnv.SystemRoot!).root.replace(/\\$/, ""),
+          PATH: path.join(baseEnv.SystemRoot!, "System32"),
+          PATHEXT: ".EXE;.COM",
+          ComSpec: path.join(baseEnv.SystemRoot!, "System32", "cmd.exe"),
+          TEMP: profile,
+          TMP: profile,
+          USERPROFILE: profile,
+          LOCALAPPDATA: path.join(profile, "local"),
+          APPDATA: path.join(profile, "roaming"),
+          PSModulePath: path.join(baseEnv.SystemRoot!, "System32", "WindowsPowerShell", "v1.0", "Modules"),
+          PSModuleAnalysisCachePath: path.join(profile, "analysis-cache"),
+          CROT_MODULE_PHASE: phase,
+          CROT_MODULE_REPORT: report,
+          CROT_MODULE_OUTPUT: output,
+        };
+        const executable = windowsTools(baseEnv.SystemRoot!).powershell;
+        const args = [
+          "-NoProfile",
+          "-NonInteractive",
+          "-EncodedCommand",
+          Buffer.from(script, "utf16le").toString("base64"),
+        ];
+        let exited = false;
+        let exitCode: number | null = null;
+        if (principal === "trusted") {
+          try {
+            execFileSync(executable, args, { cwd: workspace, env, stdio: "ignore", windowsHide: true, timeout: 15000 });
+            exited = true;
+            exitCode = 0;
+          } catch (error) {
+            const failure = error as { status?: number | null };
+            exitCode = failure.status ?? null;
+            exited = exitCode !== null;
+          }
+        } else {
+          const child = token.launchProbe(
+            { executable, args, cwd: workspace, env, stdio: "nul" },
+            jobs.createKillOnCloseJob(),
+          );
+          processes.push(child);
+          try {
+            await waitFor(() => child.exitCode() !== null, 15000);
+            exited = true;
+            exitCode = child.exitCode();
+          } catch {
+            /* bounded observation, not an accepted failure */
+          }
+          child.close();
+        }
+        const fields = (await readFile(report, "utf8").catch(() => "")).split(/\r?\n/).filter(Boolean);
+        const outputMatches = (await readFile(output, "utf16le").catch(() => "")).includes("module-marker");
+        emit("powershell-module-load", { phase, principal, exited, exitCode, fields, outputMatches });
+        expect(fields).toContain("entry");
+        if (principal === "trusted") {
+          expect(exited, "authorized control must finish").toBe(true);
+          expect(exitCode).toBe(0);
+          expect(outputMatches).toBe(true);
+        }
+      }
+    },
+    40000,
+  );
   it.each(["baseline", "empty-path", "empty-path-pathext"] as const)(
     "localizes PowerShell %s native invocation versus fully redirected ProcessStartInfo",
     async (environmentMode) => {
