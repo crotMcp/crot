@@ -13,6 +13,7 @@ declare module "vitest" {
   export interface ProvidedContext {
     /** Absolute path of the freshly built crot-mcp stdio entry point. */
     crotMcpBin: string;
+    stage6aEvidence: string;
   }
 }
 
@@ -27,6 +28,9 @@ export default function setup(project: TestProject): () => void {
     cwd: root,
     stdio: "inherit",
   });
+  const evidence = path.join(outDir, "stage6a-evidence.jsonl");
+  project.provide("stage6aEvidence", evidence);
+  process.env.CROT_6A_EVIDENCE_FILE = evidence;
   project.provide("crotMcpBin", path.join(outDir, "bin", "crot-mcp.js"));
   return () => rmSync(outDir, { recursive: true, force: true });
 }

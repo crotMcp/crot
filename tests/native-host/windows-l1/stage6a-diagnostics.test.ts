@@ -4,13 +4,13 @@
  */
 import { randomBytes } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { writeSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 import { mkdir, readFile, writeFile, access } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
-import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, inject } from "vitest";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 import { currentUserSid, windowsTools } from "../../../src/native-host/windows-acl.js";
 import { loadJobObjectApi, type JobObjectApi } from "../../../src/native-host/windows-job.js";
@@ -22,7 +22,7 @@ import { isAlive, isWindows, makeTempDirs, waitFor, type TempDirs } from "../../
 const emit = (section: string, value: unknown) => {
   const data = JSON.stringify(value).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
   if (Buffer.byteLength(data) > 48000) throw new Error("Diagnostic annotation too large.");
-  writeSync(1, `\n::notice title=CROT-6A-${section}::${data}\n`);
+  appendFileSync(inject("stage6aEvidence"), JSON.stringify({ title: `CROT-6A-${section}`, value }) + "\n");
 };
 const fixture = fileURLToPath(new URL("./fixtures/stage6a-client.mjs", import.meta.url));
 const koffi = createRequire(import.meta.url).resolve("koffi");
@@ -97,6 +97,7 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
       osVersion: os.version(),
       ubr: Number.parseInt(ubr!, 16),
       parent: native.snapshot(koffi),
+      trustedSecretReadable: (await readFile(secret)).length === 32,
       experimentalSandboxApi: native.sandboxApiAvailability(koffi),
       workspaceSpelling: "проект space 😀",
       configuration: "mic-only Low token; unchanged Medium workspace; private Low temp; explicit environment",
@@ -144,12 +145,13 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
     const held = report.rows.find((r: { api: string }) => r.api === "spawn-hold");
     const ready = !!held?.child?.ready && Number.isInteger(held.pid) && isAlive(held.pid);
     const before = job.accounting();
+    const parentExitCode = child.exitCode();
     child.close();
     if (ready) await waitFor(() => !isAlive(held.pid), 10000);
     emit("low-runtime", report);
     emit("low-cleanup", {
       parentExited: true,
-      parentExitCode: 0,
+      parentExitCode,
       before,
       readyObserved: ready,
       descendantGoneAfterJobClose: ready ? !isAlive(held.pid) : null,

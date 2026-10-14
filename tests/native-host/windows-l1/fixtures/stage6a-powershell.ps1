@@ -8,7 +8,7 @@ $lines.Add('cwdMatches=' + ([IO.Directory]::GetCurrentDirectory() -eq $env:CROT_
 $lines.Add('nodePresent=' + [IO.File]::Exists($env:CROT_6A_NODE))
 $lines.Add('clientPresent=' + [IO.File]::Exists($env:CROT_6A_CLIENT))
 [IO.File]::WriteAllLines($env:CROT_6A_PS_REPORT, $lines)
-foreach ($mode in @('legacy-native', 'dotnet-redirected')) {
+foreach ($mode in @('dotnet-redirected', 'legacy-native')) {
     $lines.Add($mode + '.attempted=1')
     [IO.File]::WriteAllLines($env:CROT_6A_PS_REPORT, $lines)
     try {

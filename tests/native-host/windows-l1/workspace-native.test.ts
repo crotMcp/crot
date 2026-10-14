@@ -3,11 +3,11 @@
  * Not transparent cmd/PowerShell/Node filesystem compatibility or full L1.
  */
 import { randomBytes } from "node:crypto";
-import { writeSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 import { link, mkdir, readFile, rename, symlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, inject } from "vitest";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 import { currentUserSid, windowsTools } from "../../../src/native-host/windows-acl.js";
 import { loadJobObjectApi, type JobObjectApi } from "../../../src/native-host/windows-job.js";
@@ -174,11 +174,40 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
         JSON.stringify({ exit: child.exitCode(), shellReady, shellExit, diagnostics: broker.diagnostics }),
       ).not.toBeNull();
       const result = JSON.parse(text!);
-      writeSync(
-        1,
-        `\n::notice title=CROT-6A-rpc-${shell}::${JSON.stringify({ result, diagnostics: broker.diagnostics }).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}\n`,
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({
+          title: `CROT-6A-rpc-${shell}`,
+          value: {
+            result,
+            diagnostics: broker.diagnostics,
+            hostObserved: {
+              persisted:
+                (await readFile(path.join(dirs.workspace, "host-visible.txt"), "utf8").catch(() => null)) ===
+                "настоящий Medium workspace",
+              outsideUnchanged: (await readFile(outside, "utf8")) === "outside unchanged",
+              secretUnchangedAndTrustedReadable: (await readFile(secret, "utf8")) === "synthetic canary",
+              projectUnchanged:
+                (await readFile(path.join(dirs.workspace, "project.txt"), "utf8")) === "existing project",
+            },
+          },
+        }) + "\n",
       );
-      expect(result.failure, JSON.stringify({ result, diagnostics: broker.diagnostics })).toBeUndefined();
+      expect(
+        result.failure,
+        JSON.stringify({
+          result,
+          diagnostics: broker.diagnostics,
+          hostObserved: {
+            persisted:
+              (await readFile(path.join(dirs.workspace, "host-visible.txt"), "utf8").catch(() => null)) ===
+              "настоящий Medium workspace",
+            outsideUnchanged: (await readFile(outside, "utf8")) === "outside unchanged",
+            secretUnchangedAndTrustedReadable: (await readFile(secret, "utf8")) === "synthetic canary",
+            projectUnchanged: (await readFile(path.join(dirs.workspace, "project.txt"), "utf8")) === "existing project",
+          },
+        }),
+      ).toBeUndefined();
       expect(child.exitCode()).toBe(23);
       expect(result.cwd.toLowerCase()).toBe(dirs.workspace.toLowerCase());
       expect(result.project).toBe("existing project");
