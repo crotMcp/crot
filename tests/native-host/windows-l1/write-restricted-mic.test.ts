@@ -177,16 +177,28 @@ describe.runIf(isWindows)("Windows L1 spike: write-restricted / MIC comparison, 
     expect(r.projectJunction).toBe("ALLOWED");
     expect(await readFile(secret, "utf8")).toBe("owner-content");
   });
-  it("a spawned descendant retains project reads but cannot read the NR secret", async () => {
-    label(dirs.workspace, "low-write");
-    label(secret, "medium-no-read");
-    token.lowerProbeIntegrity();
-    const child = `const fs=require('fs');const attempt=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};console.log(JSON.stringify({project:attempt(()=>fs.readFileSync(${JSON.stringify(project)})),secret:attempt(()=>fs.readFileSync(${JSON.stringify(secret)}))}));`;
-    const body = `(()=>{const p=require('child_process').spawnSync(process.execPath,['-e',${JSON.stringify(child)}],{encoding:'utf8',maxBuffer:4096,timeout:5000,env:{SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP}});return {status:p.status,error:p.error?.code??null,result:p.status===0?JSON.parse(p.stdout):null}})()`;
-    const r = await execute(body);
-    expect(r.error).toBeNull();
-    expect(r.status).toBe(0);
-    expect(r.result.project).toBe("ALLOWED");
-    expect(["EACCES", "EPERM"]).toContain(r.result.secret);
-  });
+  it.each([true, false])(
+    "compares hidden=%s descendant launch without treating console failure as full L1 acceptance",
+    async (hidden) => {
+      label(dirs.workspace, "low-write");
+      label(secret, "medium-no-read");
+      token.lowerProbeIntegrity();
+      const child = `const fs=require('fs');const attempt=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};console.log(JSON.stringify({project:attempt(()=>fs.readFileSync(${JSON.stringify(project)})),secret:attempt(()=>fs.readFileSync(${JSON.stringify(secret)}))}));`;
+      const body = `(()=>{const p=require('child_process').spawnSync(process.execPath,['-e',${JSON.stringify(child)}],{windowsHide:${hidden},encoding:'utf8',maxBuffer:4096,timeout:5000,env:{SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP}});return {status:p.status,error:p.error?.code??null,result:p.status===0?JSON.parse(p.stdout):null}})()`;
+      const r = await execute(body);
+      if (!hidden) {
+        // Observed default-console functional gap at d0057d74, not accepted
+        // product behavior. Keep this evidence alongside the positive hidden
+        // path; do not claim arbitrary descendant/console compatibility.
+        expect(r.error).toBe("EPERM");
+        expect(r.status).toBeNull();
+        expect(r.result).toBeNull();
+      } else {
+        expect(r.error).toBeNull();
+        expect(r.status).toBe(0);
+        expect(r.result.project).toBe("ALLOWED");
+        expect(["EACCES", "EPERM"]).toContain(r.result.secret);
+      }
+    },
+  );
 });

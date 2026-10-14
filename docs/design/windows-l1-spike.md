@@ -210,6 +210,17 @@ project but denied the NR secret. Alias creation is trusted setup, not treated
 as the access-denial proof. Fixture trees are not relabelled after reparse
 points are created. A sandbox-created symlink denial alone would be insufficient.
 
+The first native attempt at `d0057d74` passed token-raise and alias checks
+on Windows Node 20, but `spawnSync` returned EPERM before the descendant ran.
+This is a positive-functionality failure, not a descendant security pass.
+The next comparison tests explicit `windowsHide: true` (matching CROT's existing
+node-launcher setting) versus default console allocation. Libuv sets
+CREATE_NO_WINDOW for the hidden/no-inherited-console path, unlike the default
+path (`src/win/process.c`). The default EPERM is retained as a known rejected
+candidate behavior, not removed from evidence or declared acceptable. Hidden
+launch must actually succeed and retain read restrictions; its result is pending.
+A successful hidden path would not close general console/spawn compatibility.
+
 These tests still do not qualify process-memory/handle theft, malicious
 reparse replacement races, inherited/broker-provided handles, IPC/DPAPI,
 GUI/network, production secret provisioning or ordinary workspace writes.
