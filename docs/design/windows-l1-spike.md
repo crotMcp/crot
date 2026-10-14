@@ -96,6 +96,22 @@ There is no stdio bridge or inherited service environment. This is a canary
 probe, not production shell/process integration. The public tool catalogue,
 ExecutionGuard, PermissionEngine and NativeHost confinement are unchanged.
 
+The first stage-2 native run created processes, but the loader exited with
+`0xC0000022` (STATUS_ACCESS_DENIED) before JavaScript. The corrected experiment
+uses a randomly generated restricting SID plus Builtin Users for common
+Windows loader resources. A default DACL **on the new restricted token only**
+grants the trusted owner, the unique SID and SYSTEM access to newly created
+child kernel objects. The new restricted token object's own DACL uses the same
+principals so the child can query its token; the original service token is not
+modified. It does not change the service token or existing CROT
+file ACLs. Disposable workspace grants use the unique SID, not Builtin Users.
+The native rerun must confirm that this resolves startup.
+
+The common SID is **not read-only**: it can grant whatever an existing host
+ACL permits. This candidate still lacks a complete write boundary outside
+these fixtures, so it cannot be enabled as production L1. No old safety
+contract or existing host ACL is weakened to make tests pass.
+
 Additional native Windows cases (not counted as passed until their CI jobs
 succeed) cover:
 

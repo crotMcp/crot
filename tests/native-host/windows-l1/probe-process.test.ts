@@ -1,8 +1,9 @@
+import { randomBytes } from "node:crypto";
 import { copyFile, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NativeHost } from "../../../src/native-host/native-host.js";
-import { runTool, windowsTools } from "../../../src/native-host/windows-acl.js";
+import { currentUserSid, runTool, windowsTools } from "../../../src/native-host/windows-acl.js";
 import { loadJobObjectApi, type JobObject, type JobObjectApi } from "../../../src/native-host/windows-job.js";
 import { loadRestrictedTokens, type RestrictedToken } from "../../../src/native-host/windows-l1/restricted-token.js";
 import type { ProbeProcess, ProbeSpec } from "../../../src/native-host/windows-l1/probe-process.js";
@@ -12,7 +13,7 @@ const GRANT_FIXTURE = `
 $ErrorActionPreference = 'Stop'
 $p = $env:CROT_TOKEN_FIXTURE
 $acl = [System.IO.Directory]::GetAccessControl($p)
-$sid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-545')
+$sid = [System.Security.Principal.SecurityIdentifier]::new($env:CROT_TOKEN_RESTRICTING_SID)
 $flags = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
 $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, [System.Security.AccessControl.FileSystemRights]::Modify, $flags, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
 $acl.AddAccessRule($rule)
@@ -34,7 +35,10 @@ describe.runIf(isWindows)("Windows L1 spike: actual suspended restricted child a
     dirs = await makeTempDirs();
     host = await NativeHost.start({ startupPath: "inherited", jobObjects: false });
     jobs = await loadJobObjectApi();
-    token = (await loadRestrictedTokens()).create("S-1-5-32-545");
+    const random = randomBytes(16);
+    const uniqueSid = `S-1-5-21-${random.readUInt32LE(0)}-${random.readUInt32LE(4)}-${random.readUInt32LE(8)}-${random.readUInt32LE(12)}`;
+    token = (await loadRestrictedTokens()).create(uniqueSid, true);
+    token.prepareProbeObjects(await currentUserSid(windowsTools(process.env.SystemRoot ?? "C:\\Windows")));
     protectedDir = path.join(dirs.outside, "protected");
     await host.platform.privateFiles.ensureDirectory(protectedDir);
     secret = path.join(protectedDir, "secret.txt");
@@ -43,10 +47,15 @@ describe.runIf(isWindows)("Windows L1 spike: actual suspended restricted child a
     await runTool(
       windowsTools(process.env.SystemRoot ?? "C:\\Windows").powershell,
       ["-NoProfile", "-NonInteractive", "-Command", GRANT_FIXTURE],
-      { ...host.platform.baseEnvironment, CROT_TOKEN_FIXTURE: dirs.workspace },
+      {
+        ...host.platform.baseEnvironment,
+        CROT_TOKEN_FIXTURE: dirs.workspace,
+        CROT_TOKEN_RESTRICTING_SID: token.restrictingSid,
+      },
     );
     executable = path.join(dirs.workspace, "node probe.exe");
     await copyFile(process.execPath, executable);
+    expect(token.fileDaclAccess(executable).readData).toBe(true);
   });
   afterEach(async () => {
     for (const p of probes.splice(0)) p.close();

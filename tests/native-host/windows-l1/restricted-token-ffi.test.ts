@@ -256,6 +256,52 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     }
     expect(live()).toBe(0);
   });
+  it("marshals both unique and common probe SIDs, with no SID allocation leak", () => {
+    fault(0);
+    const token = api.create("S-1-5-21-101-102-103-104", true);
+    try {
+      token.prepareProbeObjects("S-1-5-21-201-202-203-204");
+      expect(live()).toBe(2);
+    } finally {
+      token.close();
+    }
+    expect(live()).toBe(0);
+  });
+  it("prepares only a unique probe token default DACL and releases its descriptor", () => {
+    fault(0);
+    const token = api.create("S-1-5-21-101-102-103-104");
+    try {
+      token.prepareProbeObjects("S-1-5-21-201-202-203-204");
+      expect(live()).toBe(2);
+    } finally {
+      token.close();
+    }
+    expect(live()).toBe(0);
+  });
+  it.each([12, 13, 14, 15])("cleans descriptor on default DACL failure %i", (n) => {
+    fault(0);
+    const token = api.create("S-1-5-21-101-102-103-104");
+    try {
+      fault(n);
+      expect(() => token.prepareProbeObjects("S-1-5-21-201-202-203-204")).toThrow(/failed/);
+      expect(live()).toBe(2);
+    } finally {
+      fault(0);
+      token.close();
+    }
+    expect(live()).toBe(0);
+  });
+  it("does not grant normal group SIDs access to new probe objects", () => {
+    fault(0);
+    const token = api.create(sid);
+    try {
+      expect(() => token.prepareProbeObjects("S-1-5-21-201-202-203-204")).toThrow(/unique restricting SID/);
+      expect(live()).toBe(2);
+    } finally {
+      token.close();
+    }
+    expect(live()).toBe(0);
+  });
   it("does not leak handles across repeated create/check/close cycles", () => {
     fault(0);
     for (let i = 0; i < 200; i++) {

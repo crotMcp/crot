@@ -14,7 +14,7 @@ uint32_t GetLastError(void) { return 5; }
 int CloseHandle(void *h) { if (!h) return 0; free(h); live--; return 1; }
 void *LocalFree(void *p) { CloseHandle(p); return 0; }
 int OpenProcessToken(void *p, uint32_t access, HANDLE_OUT *out) {
-  if (fault == 1 || access != 11 || p != (void *)(intptr_t)-1) return 0;
+  if (fault == 1 || access != 262283 || p != (void *)(intptr_t)-1) return 0;
   out->value = alloc(1); return 1;
 }
 int ConvertStringSidToSidW(uint16_t *sid, HANDLE_OUT *out) {
@@ -22,7 +22,7 @@ int ConvertStringSidToSidW(uint16_t *sid, HANDLE_OUT *out) {
   out->value = alloc(2); return 1;
 }
 int CreateRestrictedToken(void *src, uint32_t flags, uint32_t n1, void *p1, uint32_t n2, void *p2, uint32_t n3, SID_ATTRIBUTES *sid, HANDLE_OUT *out) {
-  if (fault == 3 || !src || flags != 1 || n1 || p1 || n2 || p2 || n3 != 1 || !sid->Sid || sid->Attributes) return 0;
+  if (fault == 3 || !src || flags != 1 || n1 || p1 || n2 || p2 || (n3 != 1 && n3 != 2) || !sid->Sid || sid->Attributes || (n3 == 2 && (!sid[1].Sid || sid[1].Attributes))) return 0;
   out->value = alloc(3); return 1;
 }
 int IsTokenRestricted(void *token) { return fault == 4 ? 0 : (*(int *)token == 3); }
@@ -70,3 +70,19 @@ uint32_t ResumeThread(void *thread) {
 int TerminateProcess(void *process, uint32_t code) { kills++; phase = 2; return *(int *)process == 5 && code == 1; }
 uint32_t WaitForSingleObject(void *handle, uint32_t ms) { (void)handle; (void)ms; return phase == 2 ? 0 : 258; }
 int GetExitCodeProcess(void *process, DWORD_OUT *out) { if (*(int *)process != 5) return 0; out->value = 1; return 1; }
+
+int ConvertStringSecurityDescriptorToSecurityDescriptorW(uint16_t *text, uint32_t revision, HANDLE_OUT *out, void *len) {
+  if (fault == 12 || text[0] != 'D' || revision != 1 || len) return 0;
+  out->value = alloc(9); return 1;
+}
+int GetSecurityDescriptorDacl(void *sd, DWORD_OUT *present, HANDLE_OUT *acl, DWORD_OUT *defaulted) {
+  if (fault == 13 || *(int *)sd != 9) return 0;
+  present->value = 1; acl->value = sd; defaulted->value = 0; return 1;
+}
+int SetTokenInformation(void *token, int kind, HANDLE_OUT *dacl, uint32_t length) {
+  return fault != 14 && *(int *)token == 3 && kind == 6 && length == sizeof(void *) && *(int *)dacl->value == 9;
+}
+
+int SetKernelObjectSecurity(void *object, uint32_t info, void *sd) {
+  return fault != 15 && *(int *)object == 3 && info == 4 && *(int *)sd == 9;
+}
