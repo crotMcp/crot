@@ -4,7 +4,7 @@
   "checkRunId": 116097269360,
   "runId": 38635441734,
   "jobUrl": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441734/job/116097269360",
-  "annotationFileSha256": "42ebe0f842d270e62ee8fdcee31b63c9a7a442e4955638513a84ff1c08b10473",
+  "annotationFileSha256": "c6f0dd4abdc67599ad1704a0b84e0003194000887e21bdfa8f991b96bcb9824f",
   "decoding": "All CROT-6A-bundle fragments ordered by part, base64 decoded, gzip decompressed; duplicate event titles retained. No rows filtered.",
   "events": [
     {
@@ -2462,5 +2462,7 @@
         ]
       }
     }
-  ]
+  ],
+  "annotationResponseSha256": "42ebe0f842d270e62ee8fdcee31b63c9a7a442e4955638513a84ff1c08b10473",
+  "annotationFormatting": "Published annotations are JSON-formatted only; response hash refers to original API response bytes. Annotation file hash refers to published formatted bytes."
 }
