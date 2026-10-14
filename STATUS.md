@@ -437,7 +437,7 @@ handle and readonly-pipe probes passed Windows Node 20/22 at `15bb9357`
 (11 CI green; local check 1470 core / 126 skipped, 147 extension). Low memory
 and handle access are denied after working trusted controls; NW-only IPC
 exposes canary bytes, explicit NR IPC denies Low reads, Low fixture IPC works.
-This does not qualify real CROT IPC provisioning or production L1. This is not a production L1 backend or a
+This does not qualify real CROT IPC provisioning or production L1. Stage 6 now adds a bounded explicit filesystem-RPC experiment against an ordinary Medium root; checks pending. It is NOT transparent shell/Node filesystem support and does NOT complete stage-6 acceptance. See the spike report. This is not a production L1 backend or a
 completed OD-6 decision. macOS and
 Windows runtime confinement remains `not_implemented`/fail-closed until the
 full boundary and positive remote shell/process acceptance are implemented.

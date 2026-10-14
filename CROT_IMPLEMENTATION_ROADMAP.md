@@ -609,7 +609,7 @@ product limitation. Full allowed-write/IPC boundaries remain open. Stage 5 nativ
 and readonly-IPC probes passed at `15bb9357` (Windows Node 20/22, 11 CI green):
 trusted controls read real artificial canaries, Low memory/handle access is
 denied, NR pipe denial contrasts with ordinary-pipe exposure and working Low
-IPC. Real CROT IPC provisioning and complete production L1 remain open. OD-9/OD-6 remain open for the
+IPC. Real CROT IPC provisioning and complete production L1 remain open. Stage 6 adds a bounded explicit workspace-RPC experiment (checks pending), not transparent native filesystem support or stage-6 acceptance; see the spike report. OD-9/OD-6 remain open for the
 production boundary; this research primitive
 neither enables L1 nor completes Windows remote shell/process acceptance.
 

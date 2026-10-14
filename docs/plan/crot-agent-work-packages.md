@@ -179,6 +179,7 @@ own requests. Profile: AD-13 point 4.
 - **Size:** M. **Depends on:** WP-21.
 
 ### WP-23c — L1 for Windows (spike, then restricted / low-IL token + Job Object)
+- **Stage 6 partial experiment:** explicit filesystem RPC into a real ordinary Medium root, with handle-relative operations and bounded local IPC. Checks pending. Not transparent native shell/Node writes, no full stage-6 acceptance or production activation.
 - **Stage 5 evidence:** actual synthetic-victim memory/handle and native
   readonly-pipe probes passed at `15bb9357` (Windows Node 20/22, 11 CI green).
   Trusted controls actually read canaries; Low memory/handle access is denied,

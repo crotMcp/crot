@@ -284,6 +284,76 @@ These probes do not qualify memory writes, injection, races, inherited handles,
 DPAPI, real CROT IPC provisioning, workspace mediation, GUI/network,
 standard-user/ARM64/client-version acceptance or production L1 availability.
 
+## Stage 6 — explicit workspace capability experiment (acceptance OPEN)
+
+This is a bounded **explicit RPC** experiment, not a transparent filesystem
+projection and not completion of stage 6. The native tests target the real
+ordinary Medium directory itself, not a copied Low directory or a mock. The
+Low process must fail direct writes both before and after mediated writes.
+Existing project reads still use the ordinary Windows filesystem.
+
+`workspace-probe.ts` implements four fixed verbs: create, replace UTF-8 file
+contents, rename without replacement, and remove a regular file. The trusted
+research caller selects one local workspace root. Requests cannot supply a
+root, absolute path, stream, handle, executable, command, security descriptor
+or environment. Writes are bounded to 32 KiB; no read/execute/list/link verb.
+This is deliberately not registered as a NativeHost/Core capability or a second
+production permission engine. Production integration still requires the
+existing ExecutionGuard/PermissionEngine and the architecture decision.
+
+The implementation pins the drive and each root ancestor, then opens one
+component at a time relative to directory handles using NtCreateFile,
+OBJ_DONT_REPARSE and FILE_OPEN_REPARSE_POINT. Directory opens exclude concurrent
+write/delete sharing; regular files are opened exclusively, checked for
+reparse/type and a single link before any mutation. New files use FILE_CREATE,
+never overwrite-before-validation. Rename and deletion use the source handle
+and native information classes, with a held destination directory handle;
+rename cannot replace an existing destination. Ambiguous paths, DOS devices,
+short-name spelling, alternate streams and extra request fields are refused.
+No file security setters, process creation, impersonation or dynamic code
+execution exist in the filesystem mediator.
+
+`workspace-pipe-probe.ts` exposes only that fixed capability on a fresh,
+owner-only, local-only Low-labelled named pipe, first-instance protected, with
+a fresh per-run capability. This is a NEW disposable IPC endpoint; it changes
+no workspace label, DACL or existing CROT endpoint. Requests and responses are
+bounded; failed authentication grants no operation and returns no native path,
+content or error detail. Nonblocking native I/O bounds shutdown; the client
+acknowledges the tiny response before server disconnect. A peer can monopolize
+this research endpoint temporarily; it is not an availability-qualified service.
+The per-run capability is test-only, not a CROT credential, and must not be logged.
+
+The three Low client cases invoke the same explicit Node RPC client directly,
+from cmd.exe, and from Windows PowerShell. Tests require real host-visible
+create/write/rename/remove, unchanged outside files and synthetic NR secret,
+rejected junction/hard-link/namespace/stream/short-alias/exec requests, bad
+capability refusal, compatible descendants and a nonzero native exit code.
+Separate tests exercise root pin/release and Job-tree termination. Grammar
+unit tests on Linux establish only request parsing, not Windows security.
+
+**Evidence:** local and native checks are pending for this new code. Earlier
+stage-5 passing results do not validate it. No failures will be turned into
+Windows skips. The existing PR Windows x64 matrix will run on publication;
+no workflow file or ARM64 permission change is part of this experiment.
+
+**Unmet stage-6 acceptance:** ordinary `echo > file`, PowerShell file cmdlets
+and unmodified Node `fs.writeFile` still cannot write the Medium workspace.
+The client is an explicit adapter, not syscall interception; do NOT present it
+as transparent native shell/process support. Shell redirection into private
+Low test outputs is not a safe, byte-preserving inherited stdio handle bridge.
+The grammar has no mkdir, binary/large writes, append, shared writers, directory
+rename, watch or mmap semantics. Root pinning and static alias tests are not a
+complete adversarial mutable-reparse/hard-link race proof. Remaining host Low
+write areas, real protected-path provisioning, IPC/DPAPI/GUI/network, broker
+resource limits and the standard-user/ARM64/Windows11 matrix remain unqualified.
+A transparent filesystem mediation mechanism and an architectural choice are
+still required before calling the full requested prototype complete. A green
+explicit-RPC suite must not be used to lower that acceptance criterion.
+
+API references: [NtCreateFile](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntcreatefile),
+[NtSetInformationFile](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile),
+[named pipe modes](https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-type-read-and-wait-modes).
+
 ## Remaining bounded experiments
 
 1. **Safe workspace mediation and read-boundary bypass probes:** stage 3
