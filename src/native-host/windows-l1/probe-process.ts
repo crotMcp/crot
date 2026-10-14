@@ -7,6 +7,7 @@ import { CrotError } from "../../core/errors.js";
 import type { JobObject } from "../windows-job.js";
 import { validatePid, validateWindowsPath } from "../validation.js";
 import type { TokenFfi, TokenLibraries } from "./restricted-token.js";
+import { bindNulProcessCreation } from "./restricted-stdio.js";
 
 export interface ProbeSpec {
   readonly executable: string;
@@ -14,6 +15,8 @@ export interface ProbeSpec {
   readonly cwd: string;
   /** Explicit environment. Never inherits the CROT service environment. */
   readonly env: Readonly<Record<string, string>>;
+  /** Explicitly owned standard streams; never inherit arbitrary host handles. */
+  readonly stdio?: "nul";
 }
 export interface ProbeProcess {
   readonly pid: number;
@@ -136,7 +139,18 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
       const command = [executable, ...spec.args].map(quoteProbeArgument).join(" ");
       if (command.length >= 32767) throw invalid("command length");
       const env = probeEnvironment(spec.env);
-      if (
+      if (spec.stdio !== undefined && spec.stdio !== "nul") throw invalid("stdio");
+      if (spec.stdio === "nul") {
+        bindNulProcessCreation(ffi, libraries)(
+          token,
+          executable,
+          Buffer.from(`${command}\0`, "utf16le"),
+          FLAGS,
+          env,
+          cwd,
+          info,
+        );
+      } else if (
         !success(
           create(
             token,

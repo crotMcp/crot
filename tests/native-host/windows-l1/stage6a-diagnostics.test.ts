@@ -320,6 +320,7 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
               : ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
           cwd: workspace,
           env,
+          ...(variant === "bounded-runtime" ? { stdio: "nul" as const } : {}),
         },
         jobs.createKillOnCloseJob(),
       );
