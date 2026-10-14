@@ -185,6 +185,7 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
           $si.Arguments='"'+$env:CROT_PROBE_CLIENT+'"'; $si.WorkingDirectory=[IO.Directory]::GetCurrentDirectory();
           $si.UseShellExecute=$false; $si.CreateNoWindow=$true;
           $si.RedirectStandardInput=$true; $si.RedirectStandardOutput=$true; $si.RedirectStandardError=$true;
+          $si.StandardOutputEncoding=[Text.Encoding]::UTF8; $si.StandardErrorEncoding=[Text.Encoding]::UTF8;
           $p=[Diagnostics.Process]::Start($si);
           try { $p.StandardInput.Close();
             if (!$p.WaitForExit(45000)) { $p.Kill(); $p.WaitForExit(5000) | Out-Null; exit 98; }
