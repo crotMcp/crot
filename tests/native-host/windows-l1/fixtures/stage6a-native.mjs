@@ -58,6 +58,7 @@ export function sandboxApiAvailability(koffiPath) {
     release(module);
   }
 }
+export const decodeSidString = (ffi, pointer) => ffi.decode(pointer, "char16_t", -1);
 export function snapshot(koffiPath) {
   const n = api(koffiPath);
   const version = Buffer.alloc(284);
@@ -73,7 +74,7 @@ export function snapshot(koffiPath) {
     const text = {};
     if (!n.sidText(n.ffi.decode(label, "void *"), text)) throw new Error("own integrity SID failed");
     try {
-      integrity = n.ffi.decode(text.value, "str16");
+      integrity = decodeSidString(n.ffi, text.value);
     } finally {
       n.free(text.value);
     }
