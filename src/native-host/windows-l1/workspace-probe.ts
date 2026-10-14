@@ -148,7 +148,10 @@ export async function loadWorkspaceProbe(root: string): Promise<WorkspaceProbe> 
       Buffer.alloc(16),
       null,
       0,
-      directory ? 1 : 0, // Pin directories against write/delete; files exclusive.
+      // Rename internally opens parent directories for writes. Allow write
+      // sharing, but NEVER delete sharing: directory identity remains pinned.
+      // Reparse traversal is independently refused on handle-relative opens.
+      directory ? 3 : 0,
       create ? 2 : 1, // FILE_CREATE (never overwrite) / FILE_OPEN
       0x200020 | (directory ? 1 : 0x40), // no reparse processing, synchronous, correct type
       null,
@@ -170,7 +173,7 @@ export async function loadWorkspaceProbe(root: string): Promise<WorkspaceProbe> 
   if (rootParts.some((p) => !p || p === "." || p === ".." || /[. ]$/.test(p))) throw deny();
   let rootHandle: unknown;
   try {
-    rootHandle = file(root.slice(0, 3), 0x1000a0, 1, null, 3, 0x02200000, null);
+    rootHandle = file(root.slice(0, 3), 0x1000a0, 3, null, 3, 0x02200000, null);
     if (!valid(rootHandle)) throw deny();
     held.push(rootHandle);
     inspect(rootHandle, true);

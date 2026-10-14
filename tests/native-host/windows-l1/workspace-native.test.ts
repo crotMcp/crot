@@ -111,7 +111,13 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
       jobs.createKillOnCloseJob(),
     );
     children.push(child);
-    await waitFor(async () => !!(await readFile(report, "utf8").catch(() => "")), 10000);
+    await waitFor(
+      async () =>
+        !!(await readFile(report, "utf8").catch(() => "")) ||
+        !!(await readFile(report + ".exit", "utf8").catch(() => "")),
+      10000,
+    );
+    expect(await readFile(report + ".exit", "utf8").catch(() => null), "descendant exited before readiness").toBeNull();
     const descendant = JSON.parse(await readFile(report, "utf8")) as { pid: number };
     expect(isAlive(descendant.pid)).toBe(true);
     child.close();
@@ -137,6 +143,8 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
         CROT_PROBE_STDOUT: stdout,
         CROT_PROBE_CAPTURE: shell === "node" ? "0" : "1",
         CROT_PROBE_STDERR: stderr,
+        CROT_PROBE_SHELL_READY: path.join(low, "shell-ready.txt"),
+        CROT_PROBE_SHELL_EXIT: path.join(low, "shell-exit.txt"),
       };
       let executable = process.execPath;
       let args = [client, "", "Unicode 😀", 'quote"slash\\'];
@@ -151,16 +159,18 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
       } else if (shell === "powershell") {
         executable = windowsTools(process.env.SystemRoot ?? "C:\\Windows").powershell;
         const command =
-          "& $env:CROT_PROBE_NODE $env:CROT_PROBE_CLIENT 1> $env:CROT_PROBE_STDOUT 2> $env:CROT_PROBE_STDERR; exit $LASTEXITCODE";
+          "[IO.File]::WriteAllText($env:CROT_PROBE_SHELL_READY,'entered'); & $env:CROT_PROBE_NODE $env:CROT_PROBE_CLIENT 1> $env:CROT_PROBE_STDOUT 2> $env:CROT_PROBE_STDERR; [IO.File]::WriteAllText($env:CROT_PROBE_SHELL_EXIT,[string]$LASTEXITCODE); exit $LASTEXITCODE";
         args = ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")];
       }
       const child = token.launchProbe({ executable, args, cwd: dirs.workspace, env }, jobs.createKillOnCloseJob());
       children.push(child);
       await waitFor(() => child.exitCode() !== null, 60000);
       const text = await readFile(resultFile, "utf8").catch(() => null);
+      const shellReady = await readFile(env.CROT_PROBE_SHELL_READY, "utf8").catch(() => null);
+      const shellExit = await readFile(env.CROT_PROBE_SHELL_EXIT, "utf8").catch(() => null);
       expect(
         text,
-        `native child exit ${child.exitCode()}; diagnostics ${JSON.stringify(broker.diagnostics)}`,
+        JSON.stringify({ exit: child.exitCode(), shellReady, shellExit, diagnostics: broker.diagnostics }),
       ).not.toBeNull();
       const result = JSON.parse(text!);
       expect(result.failure, JSON.stringify({ result, diagnostics: broker.diagnostics })).toBeUndefined();
