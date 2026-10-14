@@ -113,7 +113,7 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
         cwd: workspace,
         env: {
           SystemRoot: process.env.SystemRoot ?? "C:\\Windows",
-          PATH: "",
+          PATH: path.join(process.env.SystemRoot ?? "C:\\Windows", "System32"),
           PATHEXT: ".EXE;.COM",
           TEMP: low,
           TMP: low,
@@ -143,7 +143,7 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
       const stderr = path.join(low, "stderr.txt");
       const env = {
         SystemRoot: process.env.SystemRoot ?? "C:\\Windows",
-        PATH: "",
+        PATH: path.join(process.env.SystemRoot ?? "C:\\Windows", "System32"),
         PATHEXT: ".EXE;.COM",
         CROT_PROBE_KOFFI: createRequire(import.meta.url).resolve("koffi"),
         TEMP: low,
@@ -188,9 +188,11 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
           $si.StandardOutputEncoding=[Text.Encoding]::UTF8; $si.StandardErrorEncoding=[Text.Encoding]::UTF8;
           $p=[Diagnostics.Process]::Start($si);
           try { $p.StandardInput.Close();
+            $outTask=$p.StandardOutput.ReadToEndAsync(); $errTask=$p.StandardError.ReadToEndAsync();
             if (!$p.WaitForExit(45000)) { $p.Kill(); $p.WaitForExit(5000) | Out-Null; exit 98; }
-            [IO.File]::WriteAllText($env:CROT_PROBE_STDOUT,$p.StandardOutput.ReadToEnd());
-            [IO.File]::WriteAllText($env:CROT_PROBE_STDERR,$p.StandardError.ReadToEnd());
+            if (!$outTask.Wait(5000) -or !$errTask.Wait(5000)) { exit 97; }
+            [IO.File]::WriteAllText($env:CROT_PROBE_STDOUT,$outTask.Result);
+            [IO.File]::WriteAllText($env:CROT_PROBE_STDERR,$errTask.Result);
             $code=$p.ExitCode; [IO.File]::WriteAllText($env:CROT_PROBE_SHELL_EXIT,[string]$code);
           } finally { $p.Dispose(); }
           exit $code`;

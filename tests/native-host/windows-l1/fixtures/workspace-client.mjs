@@ -1,7 +1,7 @@
 /* Untrusted test-owned Low process. Explicit RPC client, not fs interception. */
 import process from "node:process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { connect } from "node:net";
+import { requestOnce } from "./workspace-rpc-request.mjs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { snapshot } from "./stage6a-native.mjs";
@@ -11,23 +11,7 @@ const request = async (operation, capability = process.env.CROT_PROBE_CAP) => {
   const deadline = Date.now() + 8000;
   while (true) {
     try {
-      return await new Promise((resolve, reject) => {
-        const socket = connect(process.env.CROT_PROBE_PIPE);
-        let response = "";
-        socket.setTimeout(3000, () => socket.destroy(new Error("timeout")));
-        socket.on("error", reject);
-        socket.on("connect", () => socket.write(JSON.stringify({ capability, request: operation })));
-        socket.on("data", (bytes) => {
-          response += bytes.toString("utf8");
-          if (response.includes("\n")) {
-            socket.end(".");
-            resolve(JSON.parse(response).ok);
-          }
-        });
-        socket.on("end", () => {
-          if (!response) reject(new Error("empty"));
-        });
-      });
+      return await requestOnce(process.env.CROT_PROBE_PIPE, capability, operation);
     } catch (e) {
       if (Date.now() > deadline) throw e;
       await delay(10);

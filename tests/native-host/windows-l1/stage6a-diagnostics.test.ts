@@ -165,7 +165,31 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
         descendantGoneAfterJobClose: ready ? !isAlive(held.pid) : null,
         status: ready ? "exercised" : "NOT_EXERCISED_CHILD_NOT_READY",
       });
-      expect(report.complete).toBe(true);
+      // This is an intentionally incomplete environment negative control, not
+      // the supported launch profile. Exact Node 20/libuv source and paired
+      // native runs establish its failure; preserve and assert that evidence.
+      // The empty-PATH positive case below still requires all real children,
+      // stdout/stderr, secret denials and observed Job cleanup, without skips.
+      if (pathMode === "absent" && process.versions.node.startsWith("20.")) {
+        expect(report.complete).not.toBe(true);
+        expect(report.phase).toBe("before-spawn-pipe");
+        expect(parentExitCode).toBe(1);
+        expect(ready).toBe(false);
+        expect(report.rows).toHaveLength(8);
+        for (const row of report.rows.slice(0, 2)) {
+          expect(row.api).toBe("CreateProcessW");
+          expect(row.error).toBe(0);
+          expect(row.exitCode).toBe(17);
+          expect(row.child.snapshot.integrity).toBe("S-1-16-4096");
+          expect(row.child.secret).toBe("EPERM");
+        }
+        for (const row of report.rows.slice(2)) {
+          expect(row.api).toBe("spawnSync");
+          expect(row.error.code).toBe("ENOENT");
+          expect(row.error.errno).toBe(-4058);
+          expect(row.status).toBeNull();
+        }
+      } else expect(report.complete).toBe(true);
       expect(report.snapshot.integrity).toBe("S-1-16-4096");
       expect(report.rows.every((r: { attempted: boolean }) => r.attempted)).toBe(true);
       if (pathMode === "empty") {
