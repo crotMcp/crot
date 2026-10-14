@@ -1,0 +1,74 @@
+[
+  {
+    "path": ".github",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/61d0f87a395ed1962cdbc4b19c7c482698a992e4/.github",
+    "start_line": 2,
+    "start_column": null,
+    "end_line": 2,
+    "end_column": null,
+    "annotation_level": "warning",
+    "title": "",
+    "message": "Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/",
+    "raw_details": ""
+  },
+  {
+    "path": ".github",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/61d0f87a395ed1962cdbc4b19c7c482698a992e4/.github",
+    "start_line": 740,
+    "start_column": null,
+    "end_line": 740,
+    "end_column": null,
+    "annotation_level": "failure",
+    "title": "",
+    "message": "Process completed with exit code 1.",
+    "raw_details": ""
+  },
+  {
+    "path": ".github",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/61d0f87a395ed1962cdbc4b19c7c482698a992e4/.github",
+    "start_line": 739,
+    "start_column": null,
+    "end_line": 739,
+    "end_column": null,
+    "annotation_level": "notice",
+    "title": "CROT-6A-bundle-2",
+    "message": "{\"codec\":\"gzip-base64\",\"part\":2,\"parts\":2,\"fragment\":\"QNlHiXOrUxs86z702VXjum/bJuO/L01vLh3tr0dcqnk6dJUiaW5bEuy8S4+syWyOQVDWfMD8s/j0mcUTeBIVWiBwfat1T53TL2PcFzeEv0Dr7mzxrc+37u+cTv10vJl1L213abtL2/3Utnt9zhHyKYj4Ip96jCmjYxLYA3oBq0sASf6RoHGegMQr/itykITERvlGbL22x1aSetqh4AMarE2snoqx+cjtXP53Y71yVd5XsfCAQuAbxwdM6V322NF2LHfIYn3P2TOOb88cpIgtHBA2jMgQ3sae+00UBEdJE86th+oV1jMR6Tbt4zM20kYvoJkbzzX7XDFQmazA38tNtxnd8hOaJdzGlZU3JzEr2WLR7R3F5q5j1quzxwIYEu/SZkSvQS+N5eZdGXn6O4vbXjYm9JBHLB3swu2Yi6X2JQbeaCDcWIjHDl6tyTlkmHV4OyRqVGKjxMZt2DB/4EKVGCkqRpZv3MbBPTCis7gcTmKeywW7AlfpPy+lk9UPHw6+KVO6MqUrU7pCpXSx9kbjMRE3NmOYlKYd89Agdg4De/qVPZVOi34qJFJf6nfMt7oy1u5sw0OseViAx4UvEVwQTyFjaS3Ep8w2Z2Z/IZVvjwjzA0CGMCLMRwQlJ16jxI+g+cnXN7rXzC30o8/XNpvP0JSqEYp/ggBpp2FIh4JPQCIlAFCyKQWZY7yNMiNdSaYM5BKjd/dkwqatdiQhJIIokCjdfYIOT9+9NuSNC0a5JBYNBB/PzxTXmSRJktvb6AfarNPfg0Qn2qt3Dck0Z0RxvID0semeoYR06BBJNIiC4BLNQx2UfFHeVUSor9iAb9rlPOB8kk7TKHebna8u396hd5kfTWO1ZaUbEBrcQ+lS9Qm5pIanRH9QCGLAxVhq/AUoVjxbQBBzbtClwcwjhdQIULIL/baJDSmT5jniqYgE8+PuERkSyqRCgnOFZNSXiqpIT+krRLWue3oPFhIQAJEg05mPx7NWJRQPQx0xkAThsY1AwHyJqMoozT2h0cA1FHV4imKbGfNiZuatWYiJhz+hZK5XpyeHr1CMA2RCDWnUccBFn/o+MP0AEjAmlCEfGDWLX7f17Y39p+p6Hsf/UiNIoAspbLOhxL/0oBe/pEycJ2c+NQrIuDZlClGGTD6ho9YVPCS5yJOzciAlCD3wZZ7gIoxtx34LKY76gNwq+uILdGyCjz0qEXwfkSRg0Pbj/P9PNjertIUAAA==\"}",
+    "raw_details": ""
+  },
+  {
+    "path": ".github",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/61d0f87a395ed1962cdbc4b19c7c482698a992e4/.github",
+    "start_line": 737,
+    "start_column": null,
+    "end_line": 737,
+    "end_column": null,
+    "annotation_level": "notice",
+    "title": "CROT-6A-bundle-1",
+    "message": "{\"codec\":\"gzip-base64\",\"part\":1,\"parts\":2,\"fragment\":\"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\"}",
+    "raw_details": ""
+  },
+  {
+    "path": "tests/native-host/windows-l1/workspace-native.test.ts",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/61d0f87a395ed1962cdbc4b19c7c482698a992e4/tests/native-host/windows-l1/workspace-native.test.ts",
+    "start_line": 243,
+    "start_column": null,
+    "end_line": 243,
+    "end_column": null,
+    "annotation_level": "failure",
+    "title": "tests/native-host/windows-l1/workspace-native.test.ts > Windows stage 6: bounded explicit workspace mediation > powershell-dotnet changes the real Medium root via explicit RPC; direct writes and forbidden RPC remain denied",
+    "message": "AssertionError: expected 98 to be 23 // Object.is equality\n\n- Expected\n+ Received\n\n- 23\n+ 98\n\n ❯ tests/native-host/windows-l1/workspace-native.test.ts:243:32\n\n",
+    "raw_details": ""
+  },
+  {
+    "path": "tests/helpers.ts",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/61d0f87a395ed1962cdbc4b19c7c482698a992e4/tests/helpers.ts",
+    "start_line": 70,
+    "start_column": null,
+    "end_line": 70,
+    "end_column": null,
+    "annotation_level": "failure",
+    "title": "tests/native-host/windows-l1/workspace-native.test.ts > Windows stage 6: bounded explicit workspace mediation > powershell changes the real Medium root via explicit RPC; direct writes and forbidden RPC remain denied",
+    "message": "Error: condition not met in time\n ❯ waitFor tests/helpers.ts:70:9\n ❯ tests/native-host/windows-l1/workspace-native.test.ts:201:7\n\n",
+    "raw_details": ""
+  }
+]

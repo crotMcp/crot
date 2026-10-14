@@ -1,0 +1,82 @@
+{
+  "sourceCommit": "61d0f87a395ed1962cdbc4b19c7c482698a992e4",
+  "checks": [
+    {
+      "id": 116097269360,
+      "name": "Node 20 / windows-latest",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441734/job/116097269360"
+    },
+    {
+      "id": 116097269292,
+      "name": "Node 22 / macos-latest",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441734/job/116097269292"
+    },
+    {
+      "id": 116097269229,
+      "name": "Node 22 / windows-latest",
+      "status": "completed",
+      "conclusion": "failure",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441734/job/116097269229"
+    },
+    {
+      "id": 116097269141,
+      "name": "Node 22 / ubuntu-latest",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441734/job/116097269141"
+    },
+    {
+      "id": 116097269091,
+      "name": "Node 20 / macos-latest",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441734/job/116097269091"
+    },
+    {
+      "id": 116097268824,
+      "name": "Node 20 / ubuntu-latest",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441734/job/116097268824"
+    },
+    {
+      "id": 116097268785,
+      "name": "L1 / ubuntu-24.04-arm",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441562/job/116097268785"
+    },
+    {
+      "id": 116097268773,
+      "name": "L1 / ubuntu-22.04-arm",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441562/job/116097268773"
+    },
+    {
+      "id": 116097268769,
+      "name": "L1 / ubuntu-24.04",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441562/job/116097268769"
+    },
+    {
+      "id": 116097268362,
+      "name": "L1 / ubuntu-22.04",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441562/job/116097268362"
+    },
+    {
+      "id": 116097268251,
+      "name": "real-chromium",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441560/job/116097268251"
+    }
+  ]
+}

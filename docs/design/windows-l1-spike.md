@@ -422,3 +422,9 @@ Silicon runners. Nothing in this Windows primitive is claimed as macOS proof.
 Both positive native remote shell/process and the full negative safety suite
 must pass, along with installer/browser UX. `not_implemented`, AccessCheck
 results, mocks, safe refusal or CI definitions alone do not complete WP-23c.
+
+## Stage 6A diagnostic hand-off
+
+Final diagnostic code `61d0f87a395ed1962cdbc4b19c7c482698a992e4`: nine non-Windows checks pass; both native Windows jobs fail. See [stage-6A report](windows-l1-stage6a.md) for exact source/merge SHA, versions, native JSON evidence, failure matrix and alternatives.
+
+Empty PATH fixes direct Node 20 spawn and observed detached-tree cleanup, but the cmd-launched Node environment loses PATH. PATHEXT restores the bounded WinPS 5.1 native version probe; full PowerShell redirection/exit remains open. The .NET path completes RPC effects but times out on child exit. Ordinary Medium writes are still denied, and direct writes to an unapproved Low sibling succeed. Thus RPC is neither transparent developer filesystem support nor a complete global allowed-write boundary. Production remains disabled; WP-23c is not accepted; architecture and WP-25/26/27 are unchanged.

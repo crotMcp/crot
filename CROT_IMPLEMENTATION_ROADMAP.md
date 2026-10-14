@@ -613,6 +613,8 @@ IPC. Real CROT IPC provisioning and complete production L1 remain open. Stage 6 
 production boundary; this research primitive
 neither enables L1 nor completes Windows remote shell/process acceptance.
 
+Stage 6A diagnostic report: [`61d0f87a`](https://github.com/mysteriumpersonae/crot-mcp/commit/61d0f87a395ed1962cdbc4b19c7c482698a992e4) has nine passing non-Windows checks and two failing Windows jobs. Empty PATH fixes direct Node 20 spawning/observed Job cleanup, but cmd loses PATH; fixed PATHEXT restores the WinPS 5.1 version probe. PowerShell exit/redirection remains OPEN. RPC modifies real Medium files, not ordinary fs support; unapproved Low-sibling CRUD succeeds, exposing an unmet global outside-write boundary. See [`docs/design/windows-l1-stage6a.md`](docs/design/windows-l1-stage6a.md) for pinned evidence, open failures and mechanism comparison. No acceptance or production activation.
+
 - **Objective:** children of `shell.execute` and `process.manage` in
   workspace mode run under the fixed AD-13 point 4 profile.
 - **Why:** a remote shell without confinement can read CROT's tokens and

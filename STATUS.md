@@ -443,6 +443,8 @@ Windows runtime confinement remains `not_implemented`/fail-closed until the
 full boundary and positive remote shell/process acceptance are implemented.
 `ARCHITECTURE.md` and WP-25/26/27 are unchanged in this stage.
 
+Stage 6A diagnostic report: [`61d0f87a`](https://github.com/mysteriumpersonae/crot-mcp/commit/61d0f87a395ed1962cdbc4b19c7c482698a992e4) has nine passing non-Windows checks and two failing Windows jobs. Empty PATH fixes direct Node 20 spawning/observed Job cleanup, but cmd loses PATH; fixed PATHEXT restores the WinPS 5.1 version probe. PowerShell exit/redirection remains OPEN. RPC modifies real Medium files, not ordinary fs support; unapproved Low-sibling CRUD succeeds, exposing an unmet global outside-write boundary. See [`docs/design/windows-l1-stage6a.md`](docs/design/windows-l1-stage6a.md) for pinned evidence, open failures and mechanism comparison. No acceptance or production activation.
+
 **WP-24 — Browser v1 (CDP backend): implemented, merged** (PR #22, `d273473`; run-1 fixes in PR #23; run-2 fixes in PR #24;
 see "Last completed"). Real-site manual runs are recorded; acceptance remains
 open for default-load timeout signalling, C1 and final acceptance review. Owner's order after
