@@ -168,6 +168,20 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
       expect(report.complete).toBe(true);
       expect(report.snapshot.integrity).toBe("S-1-16-4096");
       expect(report.rows.every((r: { attempted: boolean }) => r.attempted)).toBe(true);
+      if (pathMode === "empty") {
+        expect(report.rows).toHaveLength(11);
+        for (const row of report.rows) {
+          expect(row.error).toBe(row.api === "CreateProcessW" ? 0 : null);
+          if (row.api !== "spawn-hold") expect(row.api === "CreateProcessW" ? row.exitCode : row.status).toBe(17);
+          expect(row.child?.snapshot.integrity).toBe("S-1-16-4096");
+          expect(row.child?.secret).toBe("EPERM");
+          if (row.stdio === "pipe") {
+            expect(row.stdoutMatched).toBe(true);
+            expect(row.stderrMatched).toBe(true);
+          }
+        }
+      }
+
       if (pathMode === "empty")
         expect(ready, "controlled PATH case must observe an actual live detached descendant").toBe(true);
       if (ready) expect(isAlive(held.pid)).toBe(false);
@@ -218,21 +232,43 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
     expect(report.rows).toHaveLength(15);
     expect(report.rows.every((r: { attempted: boolean }) => r.attempted)).toBe(true);
     // Redirection is attempted independently of launching a Node client.
-    for (const shell of ["cmd", "powershell"]) {
-      const mediumOutput = path.join(workspace, `${shell}-redirection.txt`);
-      const controlOutput = path.join(low, `${shell}-redirection.txt`);
+    const privateProfile = path.join(low, "profile");
+    for (const directory of [privateProfile, path.join(privateProfile, "local"), path.join(privateProfile, "roaming")])
+      await mkdir(directory);
+    const variants: { shell: string; variant: string; extra: Record<string, string> }[] = [
+      { shell: "cmd", variant: "baseline", extra: {} },
+      { shell: "powershell", variant: "minimal-fixed", extra: { PATH: "", PATHEXT: ".EXE;.COM" } },
+      {
+        shell: "powershell",
+        variant: "private-profile",
+        extra: {
+          PATH: "",
+          PATHEXT: ".EXE;.COM",
+          USERPROFILE: privateProfile,
+          LOCALAPPDATA: path.join(privateProfile, "local"),
+          APPDATA: path.join(privateProfile, "roaming"),
+          WINDIR: baseEnv.SystemRoot!,
+          SystemDrive: path.parse(baseEnv.SystemRoot!).root.replace(/\\$/, ""),
+          PSModulePath: path.join(baseEnv.SystemRoot!, "System32", "WindowsPowerShell", "v1.0", "Modules"),
+        },
+      },
+    ];
+    for (const { shell, variant, extra } of variants) {
+      const mediumOutput = path.join(workspace, `${shell}-${variant}-redirection.txt`);
+      const controlOutput = path.join(low, `${shell}-${variant}-redirection.txt`);
       const env: Record<string, string> = {
         ...baseEnv,
+        ...extra,
         CROT_6A_REDIRECT_MEDIUM: mediumOutput,
         CROT_6A_REDIRECT_LOW: controlOutput,
       };
       const tools = windowsTools(baseEnv.SystemRoot!);
-      const marker = path.join(low, `${shell}-redirect-phase.txt`);
+      const marker = path.join(low, `${shell}-${variant}-redirect-phase.txt`);
       env.CROT_6A_REDIRECT_PHASE = marker;
       const script =
         shell === "cmd"
           ? '@echo off\r\necho low-attempt>"%CROT_6A_REDIRECT_PHASE%"\r\necho marker>"%CROT_6A_REDIRECT_LOW%"\r\necho low-complete;medium-attempt>"%CROT_6A_REDIRECT_PHASE%"\r\necho marker>"%CROT_6A_REDIRECT_MEDIUM%"\r\n'
-          : "[IO.File]::WriteAllText($env:CROT_6A_REDIRECT_PHASE,'low-attempt'); 'marker' > $env:CROT_6A_REDIRECT_LOW; [IO.File]::WriteAllText($env:CROT_6A_REDIRECT_PHASE,'low-complete;medium-attempt'); 'marker' > $env:CROT_6A_REDIRECT_MEDIUM";
+          : "$ErrorActionPreference='Stop'; $phase='low-attempt'; [IO.File]::WriteAllText($env:CROT_6A_REDIRECT_PHASE,$phase); try { 'marker' > $env:CROT_6A_REDIRECT_LOW; $phase='low-complete;medium-attempt'; [IO.File]::WriteAllText($env:CROT_6A_REDIRECT_PHASE,$phase); 'marker' > $env:CROT_6A_REDIRECT_MEDIUM; $phase='MEDIUM_WRITE_ALLOWED'; [IO.File]::WriteAllText($env:CROT_6A_REDIRECT_PHASE,$phase); } catch { [IO.File]::WriteAllText($env:CROT_6A_REDIRECT_PHASE,($phase+';error-type='+$_.Exception.GetType().FullName+';error-id='+$_.FullyQualifiedErrorId)); }";
       const scriptPath = path.join(workspace, "redirect.cmd");
       if (shell === "cmd") await writeFile(scriptPath, script);
       const child = token.launchProbe(
@@ -257,6 +293,7 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
       }
       emit("redirection", {
         shell,
+        variant,
         attempted: true,
         exited,
         exitCode: exited ? child.exitCode() : null,

@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
+import { snapshot } from "./stage6a-native.mjs";
 import { setTimeout as delay } from "node:timers/promises";
 
 const request = async (operation, capability = process.env.CROT_PROBE_CAP) => {
@@ -50,6 +51,7 @@ let stage = "project-read";
 try {
   const root = process.cwd();
   const result = {
+    runtime: snapshot(process.env.CROT_PROBE_KOFFI),
     cwd: root,
     argv: process.argv.slice(2),
     project: readFileSync(path.join(root, "project.txt"), "utf8"),
@@ -95,6 +97,7 @@ try {
   // child's independent event loop. Captures the descendant's actual stdout.
   stage = "descendant";
   const child = spawnSync(process.execPath, [process.env.CROT_PROBE_CLIENT], {
+    runtime: snapshot(process.env.CROT_PROBE_KOFFI),
     cwd: root,
     env: { ...process.env, CROT_PROBE_DESCENDANT: "1" },
     windowsHide: true,

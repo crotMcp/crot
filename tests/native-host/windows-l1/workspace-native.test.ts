@@ -5,6 +5,7 @@
 import { randomBytes } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { link, mkdir, readFile, rename, symlink, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, inject } from "vitest";
@@ -26,11 +27,14 @@ if (process.env.CROT_WINDOWS_TOKEN_REQUIRED === "1" && (!isWindows || !["x64", "
 
 describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation", () => {
   let dirs: TempDirs, host: NativeHost, token: RestrictedToken, jobs: JobObjectApi;
+  let workspace: string;
   let broker: WorkspacePipeProbe, low: string, secret: string, outside: string;
   const children: ProbeProcess[] = [];
   const client = fileURLToPath(new URL("./fixtures/workspace-client.mjs", import.meta.url));
   beforeEach(async () => {
     dirs = await makeTempDirs();
+    workspace = path.join(dirs.workspace, "проект space 😀");
+    await mkdir(workspace);
     host = await NativeHost.start({ startupPath: "inherited", jobObjects: false });
     jobs = await loadJobObjectApi();
     const label = await loadProbeIntegrity();
@@ -44,24 +48,24 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
     );
     token.prepareProbeObjects(owner);
     // Ordinary Medium root. No Low label and no new SID grant on this workspace.
-    label(dirs.workspace, "medium-write");
-    await mkdir(path.join(dirs.workspace, "nested"));
-    await writeFile(path.join(dirs.workspace, "project.txt"), "existing project");
+    label(workspace, "medium-write");
+    await mkdir(path.join(workspace, "nested"));
+    await writeFile(path.join(workspace, "project.txt"), "existing project");
     outside = path.join(dirs.outside, "outside.txt");
     secret = path.join(dirs.outside, "synthetic-secret.txt");
     await writeFile(outside, "outside unchanged");
     await writeFile(secret, "synthetic canary");
     await host.platform.privateFiles.protectFile!(secret);
     label(secret, "medium-no-read");
-    await symlink(dirs.outside, path.join(dirs.workspace, "junction"), "junction");
-    await link(secret, path.join(dirs.workspace, "secret-hard.txt"));
-    await link(outside, path.join(dirs.workspace, "ordinary-hard.txt"));
+    await symlink(dirs.outside, path.join(workspace, "junction"), "junction");
+    await link(secret, path.join(workspace, "secret-hard.txt"));
+    await link(outside, path.join(workspace, "ordinary-hard.txt"));
     // Only the disposable private result/temp area is Low.
     low = path.join(dirs.outside, "private-low");
     await mkdir(low);
     label(low, "low-write");
     token.lowerProbeIntegrity();
-    broker = await startWorkspacePipeProbe(dirs.workspace, owner);
+    broker = await startWorkspacePipeProbe(workspace, owner);
   });
   afterEach(async () => {
     for (const child of children.splice(0)) child.close();
@@ -71,32 +75,32 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
     await dirs?.cleanup();
   });
   it("trusted positive control performs real handle-relative CRUD without the pipe", async () => {
-    const direct = await loadWorkspaceProbe(dirs.workspace);
+    const direct = await loadWorkspaceProbe(workspace);
     try {
       expect(() => direct.execute({ op: "create", path: "control.txt", text: "before" }), "create").not.toThrow();
-      expect(await readFile(path.join(dirs.workspace, "control.txt"), "utf8")).toBe("before");
+      expect(await readFile(path.join(workspace, "control.txt"), "utf8")).toBe("before");
       expect(() => direct.execute({ op: "write", path: "control.txt", text: "after" }), "write").not.toThrow();
-      expect(await readFile(path.join(dirs.workspace, "control.txt"), "utf8")).toBe("after");
+      expect(await readFile(path.join(workspace, "control.txt"), "utf8")).toBe("after");
       expect(
         () => direct.execute({ op: "rename", path: "control.txt", destination: "nested/control.txt" }),
         "rename",
       ).not.toThrow();
-      expect(await readFile(path.join(dirs.workspace, "nested/control.txt"), "utf8")).toBe("after");
+      expect(await readFile(path.join(workspace, "nested/control.txt"), "utf8")).toBe("after");
       expect(() => direct.execute({ op: "remove", path: "nested/control.txt" }), "remove").not.toThrow();
-      await expect(readFile(path.join(dirs.workspace, "nested/control.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(path.join(workspace, "nested/control.txt"))).rejects.toMatchObject({ code: "ENOENT" });
     } finally {
       direct.close();
     }
   });
   it("pins the actual workspace against root substitution; idle close releases native handles", async () => {
     const moved = path.join(dirs.outside, "substituted");
-    await expect(rename(dirs.workspace, moved)).rejects.toMatchObject({
+    await expect(rename(workspace, moved)).rejects.toMatchObject({
       code: expect.stringMatching(/^(EPERM|EACCES|EBUSY)$/),
     });
     await broker.close();
     await broker.close();
-    await rename(dirs.workspace, moved);
-    await rename(moved, dirs.workspace);
+    await rename(workspace, moved);
+    await rename(moved, workspace);
   });
   it("stopping a mediated run ends its native descendant tree", async () => {
     const report = path.join(low, "tree.json");
@@ -106,8 +110,15 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
       {
         executable: process.execPath,
         args: ["-e", script],
-        cwd: dirs.workspace,
-        env: { SystemRoot: process.env.SystemRoot ?? "C:\\Windows", TEMP: low, TMP: low, CROT_PROBE_PIPE: broker.pipe },
+        cwd: workspace,
+        env: {
+          SystemRoot: process.env.SystemRoot ?? "C:\\Windows",
+          PATH: "",
+          PATHEXT: ".EXE;.COM",
+          TEMP: low,
+          TMP: low,
+          CROT_PROBE_PIPE: broker.pipe,
+        },
       },
       jobs.createKillOnCloseJob(),
     );
@@ -124,7 +135,7 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
     child.close();
     await waitFor(() => !isAlive(child.pid) && !isAlive(descendant.pid), 10000);
   });
-  it.each(["node", "cmd", "powershell"] as const)(
+  it.each(["node", "cmd", "powershell", "powershell-dotnet"] as const)(
     "%s changes the real Medium root via explicit RPC; direct writes and forbidden RPC remain denied",
     async (shell) => {
       const resultFile = path.join(low, "result.json");
@@ -132,6 +143,9 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
       const stderr = path.join(low, "stderr.txt");
       const env = {
         SystemRoot: process.env.SystemRoot ?? "C:\\Windows",
+        PATH: "",
+        PATHEXT: ".EXE;.COM",
+        CROT_PROBE_KOFFI: createRequire(import.meta.url).resolve("koffi"),
         TEMP: low,
         TMP: low,
         CROT_PROBE_PIPE: broker.pipe,
@@ -150,7 +164,7 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
       let executable = process.execPath;
       let args = [client, "", "Unicode 😀", 'quote"slash\\'];
       if (shell === "cmd") {
-        const script = path.join(dirs.workspace, "run.cmd");
+        const script = path.join(workspace, "run.cmd");
         await writeFile(
           script,
           '@echo off\r\n"%CROT_PROBE_NODE%" "%CROT_PROBE_CLIENT%" 1>"%CROT_PROBE_STDOUT%" 2>"%CROT_PROBE_STDERR%"\r\nexit /b %errorlevel%\r\n',
@@ -163,7 +177,25 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
           "[IO.File]::WriteAllText($env:CROT_PROBE_SHELL_READY,'entered'); & $env:CROT_PROBE_NODE $env:CROT_PROBE_CLIENT 1> $env:CROT_PROBE_STDOUT 2> $env:CROT_PROBE_STDERR; [IO.File]::WriteAllText($env:CROT_PROBE_SHELL_EXIT,[string]$LASTEXITCODE); exit $LASTEXITCODE";
         args = ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")];
       }
-      const child = token.launchProbe({ executable, args, cwd: dirs.workspace, env }, jobs.createKillOnCloseJob());
+      if (shell === "powershell-dotnet") {
+        executable = windowsTools(process.env.SystemRoot ?? "C:\\Windows").powershell;
+        const command = `$ErrorActionPreference='Stop';
+          [IO.File]::WriteAllText($env:CROT_PROBE_SHELL_READY,'entered-dotnet');
+          $si=[Diagnostics.ProcessStartInfo]::new(); $si.FileName=$env:CROT_PROBE_NODE;
+          $si.Arguments='"'+$env:CROT_PROBE_CLIENT+'"'; $si.WorkingDirectory=[IO.Directory]::GetCurrentDirectory();
+          $si.UseShellExecute=$false; $si.CreateNoWindow=$true;
+          $si.RedirectStandardInput=$true; $si.RedirectStandardOutput=$true; $si.RedirectStandardError=$true;
+          $p=[Diagnostics.Process]::Start($si);
+          try { $p.StandardInput.Close();
+            if (!$p.WaitForExit(45000)) { $p.Kill(); $p.WaitForExit(5000) | Out-Null; exit 98; }
+            [IO.File]::WriteAllText($env:CROT_PROBE_STDOUT,$p.StandardOutput.ReadToEnd());
+            [IO.File]::WriteAllText($env:CROT_PROBE_STDERR,$p.StandardError.ReadToEnd());
+            $code=$p.ExitCode; [IO.File]::WriteAllText($env:CROT_PROBE_SHELL_EXIT,[string]$code);
+          } finally { $p.Dispose(); }
+          exit $code`;
+        args = ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")];
+      }
+      const child = token.launchProbe({ executable, args, cwd: workspace, env }, jobs.createKillOnCloseJob());
       children.push(child);
       await waitFor(() => child.exitCode() !== null, 60000);
       const text = await readFile(resultFile, "utf8").catch(() => null);
@@ -183,12 +215,11 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
             diagnostics: broker.diagnostics,
             hostObserved: {
               persisted:
-                (await readFile(path.join(dirs.workspace, "host-visible.txt"), "utf8").catch(() => null)) ===
+                (await readFile(path.join(workspace, "host-visible.txt"), "utf8").catch(() => null)) ===
                 "настоящий Medium workspace",
               outsideUnchanged: (await readFile(outside, "utf8")) === "outside unchanged",
               secretUnchangedAndTrustedReadable: (await readFile(secret, "utf8")) === "synthetic canary",
-              projectUnchanged:
-                (await readFile(path.join(dirs.workspace, "project.txt"), "utf8")) === "existing project",
+              projectUnchanged: (await readFile(path.join(workspace, "project.txt"), "utf8")) === "existing project",
             },
           },
         }) + "\n",
@@ -200,16 +231,17 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
           diagnostics: broker.diagnostics,
           hostObserved: {
             persisted:
-              (await readFile(path.join(dirs.workspace, "host-visible.txt"), "utf8").catch(() => null)) ===
+              (await readFile(path.join(workspace, "host-visible.txt"), "utf8").catch(() => null)) ===
               "настоящий Medium workspace",
             outsideUnchanged: (await readFile(outside, "utf8")) === "outside unchanged",
             secretUnchangedAndTrustedReadable: (await readFile(secret, "utf8")) === "synthetic canary",
-            projectUnchanged: (await readFile(path.join(dirs.workspace, "project.txt"), "utf8")) === "existing project",
+            projectUnchanged: (await readFile(path.join(workspace, "project.txt"), "utf8")) === "existing project",
           },
         }),
       ).toBeUndefined();
       expect(child.exitCode()).toBe(23);
-      expect(result.cwd.toLowerCase()).toBe(dirs.workspace.toLowerCase());
+      expect(result.runtime.integrity).toBe("S-1-16-4096");
+      expect(result.cwd.toLowerCase()).toBe(workspace.toLowerCase());
       expect(result.project).toBe("existing project");
       if (shell === "node") expect(result.argv).toEqual(args.slice(1));
       for (const key of ["create", "write", "rename", "remove", "persist"]) expect(result[key]).toBe(true);
@@ -220,12 +252,12 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
       expect(result.refused).toEqual(Array(10).fill(false));
       expect(result.badCapability).toBe(false);
       expect(result.descendant).toEqual({ code: 0, stdout: '{"ok":true}', stderr: "", error: null });
-      expect(await readFile(path.join(dirs.workspace, "host-visible.txt"), "utf8")).toBe("настоящий Medium workspace");
-      expect(await readFile(path.join(dirs.workspace, "descendant.txt"), "utf8")).toBe("child");
+      expect(await readFile(path.join(workspace, "host-visible.txt"), "utf8")).toBe("настоящий Medium workspace");
+      expect(await readFile(path.join(workspace, "descendant.txt"), "utf8")).toBe("child");
       expect(await readFile(outside, "utf8")).toBe("outside unchanged");
       expect(await readFile(secret, "utf8")).toBe("synthetic canary");
-      expect(await readFile(path.join(dirs.workspace, "project.txt"), "utf8")).toBe("existing project");
-      if (shell === "cmd") {
+      expect(await readFile(path.join(workspace, "project.txt"), "utf8")).toBe("existing project");
+      if (shell === "cmd" || shell === "powershell-dotnet") {
         expect(await readFile(stdout, "utf8")).toContain("stdout: Привет 😀");
         expect(await readFile(stderr, "utf8")).toContain("stderr: проверка");
       }
