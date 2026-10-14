@@ -150,7 +150,8 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
       expect(text).not.toBeNull();
       const report = JSON.parse(text!);
       const held = report.rows.find((r: { api: string }) => r.api === "spawn-hold");
-      const ready = !!held?.child?.ready && Number.isInteger(held.pid) && isAlive(held.pid);
+      const ready =
+        !!held?.child?.ready && held.child.pid === held.pid && Number.isInteger(held.pid) && isAlive(held.pid);
       const before = job.accounting();
       const parentExitCode = child.exitCode();
       child.close();
@@ -220,12 +221,18 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
     for (const shell of ["cmd", "powershell"]) {
       const mediumOutput = path.join(workspace, `${shell}-redirection.txt`);
       const controlOutput = path.join(low, `${shell}-redirection.txt`);
-      const env = { ...baseEnv, CROT_6A_REDIRECT_MEDIUM: mediumOutput, CROT_6A_REDIRECT_LOW: controlOutput };
+      const env: Record<string, string> = {
+        ...baseEnv,
+        CROT_6A_REDIRECT_MEDIUM: mediumOutput,
+        CROT_6A_REDIRECT_LOW: controlOutput,
+      };
       const tools = windowsTools(baseEnv.SystemRoot!);
+      const marker = path.join(low, `${shell}-redirect-phase.txt`);
+      env.CROT_6A_REDIRECT_PHASE = marker;
       const script =
         shell === "cmd"
-          ? '@echo off\r\necho marker>"%CROT_6A_REDIRECT_MEDIUM%"\r\necho marker>"%CROT_6A_REDIRECT_LOW%"\r\n'
-          : "'marker' > $env:CROT_6A_REDIRECT_MEDIUM; 'marker' > $env:CROT_6A_REDIRECT_LOW";
+          ? '@echo off\r\necho low-attempt>"%CROT_6A_REDIRECT_PHASE%"\r\necho marker>"%CROT_6A_REDIRECT_LOW%"\r\necho low-complete;medium-attempt>"%CROT_6A_REDIRECT_PHASE%"\r\necho marker>"%CROT_6A_REDIRECT_MEDIUM%"\r\n'
+          : "[IO.File]::WriteAllText($env:CROT_6A_REDIRECT_PHASE,'low-attempt'); 'marker' > $env:CROT_6A_REDIRECT_LOW; [IO.File]::WriteAllText($env:CROT_6A_REDIRECT_PHASE,'low-complete;medium-attempt'); 'marker' > $env:CROT_6A_REDIRECT_MEDIUM";
       const scriptPath = path.join(workspace, "redirect.cmd");
       if (shell === "cmd") await writeFile(scriptPath, script);
       const child = token.launchProbe(
@@ -253,6 +260,7 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
         attempted: true,
         exited,
         exitCode: exited ? child.exitCode() : null,
+        runtimePhase: await readFile(marker, "utf8").catch(() => null),
         mediumFilePresent: await access(mediumOutput).then(
           () => true,
           () => false,

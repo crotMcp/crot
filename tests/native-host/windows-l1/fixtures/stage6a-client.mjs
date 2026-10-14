@@ -58,6 +58,19 @@ const persist = (phase) => {
 persist("snapshot-complete");
 const reset = () => writeFileSync(childPath, "null");
 try {
+  for (const suspended of [false, true]) {
+    reset();
+    persist(`before-CreateProcessW-${suspended}`);
+    report.rows.push({
+      api: "CreateProcessW",
+      cwd: "workspace",
+      stdio: "no-inheritance",
+      suspended,
+      ...nativeChild(process.env.CROT_6A_KOFFI, fixture, process.env.CROT_6A_WORKSPACE, suspended),
+      child: readChild(),
+    });
+  }
+  persist("native-controls-complete");
   for (const cwd of ["workspace", "privateLow"]) {
     for (const stdio of ["pipe", "ignore", "inherit"]) {
       reset();
@@ -121,19 +134,6 @@ try {
     report.rows.push(row);
     persist(`after-spawn-${stdio}`);
   }
-  for (const suspended of [false, true]) {
-    reset();
-    persist(`before-CreateProcessW-${suspended}`);
-    report.rows.push({
-      api: "CreateProcessW",
-      cwd: "workspace",
-      stdio: "no-inheritance",
-      suspended,
-      ...nativeChild(process.env.CROT_6A_KOFFI, fixture, process.env.CROT_6A_WORKSPACE, suspended),
-      child: readChild(),
-    });
-  }
-  persist("native-controls-complete");
   reset();
   const held = spawn(process.execPath, [fixture, "child", "hold"], {
     cwd: process.env.CROT_6A_WORKSPACE,

@@ -1,22 +1,23 @@
 /** CI diagnostics only. Does not change test results or compatibility gates. */
 import { readFileSync, writeSync } from "node:fs";
-const emit = (title: string, value: unknown) => {
-  const plain = JSON.stringify(value);
-  if (plain.length > 2800) {
-    const parts = Math.ceil(plain.length / 1800);
-    for (let index = 0; index < parts; index++)
-      emit(`${title}-part-${index + 1}`, {
-        part: index + 1,
-        parts,
-        fragment: plain.slice(index * 1800, (index + 1) * 1800),
-      });
-    return;
-  }
-  const text = JSON.stringify(value).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
-  writeSync(1, `\n::notice title=${title}::${text}\n`);
-};
+import { gzipSync } from "node:zlib";
+export function encodeEvidence(events: unknown[]) {
+  const raw = JSON.stringify(events);
+  if (Buffer.byteLength(raw) > 512 * 1024) throw new Error("Diagnostic raw evidence limit exceeded.");
+  const encoded = gzipSync(raw).toString("base64");
+  const count = Math.ceil(encoded.length / 2800);
+  if (count > 8) throw new Error("Diagnostic annotation bundle limit exceeded.");
+  return Array.from({ length: count }, (_, index) => ({
+    codec: "gzip-base64",
+    part: index + 1,
+    parts: count,
+    fragment: encoded.slice(index * 2800, (index + 1) * 2800),
+  }));
+}
 export default class Stage6aReporter {
   onFinished(files: unknown[], errors: unknown[] = []) {
+    const events: { title: string; value: unknown }[] = [];
+    const emit = (title: string, value: unknown) => events.push({ title, value });
     const boundedErrors = (items: unknown[]) =>
       items.slice(0, 10).map((item) => {
         const e = item as { name?: string; message?: string };
@@ -66,5 +67,9 @@ export default class Stage6aReporter {
         rows,
       });
     }
+    // Actions caps notice annotations and each message at 4096 chars.
+    // One compressed bundle transports ALL rows; no selection or filtering.
+    for (const part of encodeEvidence(events))
+      writeSync(1, `\n::notice title=CROT-6A-bundle-${part.part}::${JSON.stringify(part)}\n`);
   }
 }
