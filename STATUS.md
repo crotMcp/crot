@@ -432,8 +432,12 @@ qualification remain required. Stage 4 paired native probes passed at
 The privilege-stripped MIC-only component preserves both normal/hidden Node
 spawning, secret NR denial, static-alias denial and own-token raise denial;
 the SID-filtered candidate's EPERM failures are retained as rejected behavior.
-Full allowed-write/IPC boundaries remain open. Stage 5 adds actual canary
-process memory/handle and native readonly-pipe probes; native evidence pending. This is not a production L1 backend or a
+Full allowed-write/IPC boundaries remain open. Stage 5 real canary memory,
+handle and readonly-pipe probes passed Windows Node 20/22 at `15bb9357`
+(11 CI green; local check 1470 core / 126 skipped, 147 extension). Low memory
+and handle access are denied after working trusted controls; NW-only IPC
+exposes canary bytes, explicit NR IPC denies Low reads, Low fixture IPC works.
+This does not qualify real CROT IPC provisioning or production L1. This is not a production L1 backend or a
 completed OD-6 decision. macOS and
 Windows runtime confinement remains `not_implemented`/fail-closed until the
 full boundary and positive remote shell/process acceptance are implemented.

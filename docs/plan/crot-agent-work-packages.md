@@ -179,6 +179,11 @@ own requests. Profile: AD-13 point 4.
 - **Size:** M. **Depends on:** WP-21.
 
 ### WP-23c — L1 for Windows (spike, then restricted / low-IL token + Job Object)
+- **Stage 5 evidence:** actual synthetic-victim memory/handle and native
+  readonly-pipe probes passed at `15bb9357` (Windows Node 20/22, 11 CI green).
+  Trusted controls actually read canaries; Low memory/handle access is denied,
+  NW-only pipe exposes data, explicit NR denies Low reads and Low IPC works.
+  Not full real CROT IPC/DPAPI or allowed-write/production qualification.
 - **Stage 4 evidence:** paired native MIC matrix passed at `418b7d1f` (11 CI
   green). Privilege-stripped MIC-only restores normal/hidden Node descendants
   while retaining fixture secret/alias and own-token raise denials. SID-filtered

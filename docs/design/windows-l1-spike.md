@@ -253,7 +253,13 @@ assertions is a research result, never full platform acceptance.
 
 ## Stage 5 — memory/handle and readonly IPC canaries
 
-Status: native evidence pending. Only test-owned processes, private pipe
+Native evidence passed at `15bb9357ee2abd5c905006fc051b212dda3c4856`:
+all 11 CI green, including Windows
+[Node 20](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38502122337/job/115651281558)
+and [Node 22](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38502122337/job/115651281814).
+Local `npm run check`: 1470 core passed / 126 skipped, 147 extension passed.
+Both Windows-only memory/IPC tests skip on local Linux, run natively in Windows
+and are not substituted with mock/skip evidence. Only test-owned processes, private pipe
 names and artificial random bytes are used; never a user's process or secret.
 The trusted victim runs inside its own kill-on-close Job. Its exact buffer
 address and an open canary-file handle are provided as test metadata to a

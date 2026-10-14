@@ -606,7 +606,10 @@ paired probes passed at `418b7d1f` (11 CI green): privilege-stripped MIC-only
 restores tested normal/hidden Node descendants while retaining NR/alias and
 token-raise denials. SID-filtered spawn EPERM remains rejected behavior, not a
 product limitation. Full allowed-write/IPC boundaries remain open. Stage 5 native memory/handle
-and readonly-IPC probes are awaiting evidence. OD-9/OD-6 remain open for the
+and readonly-IPC probes passed at `15bb9357` (Windows Node 20/22, 11 CI green):
+trusted controls read real artificial canaries, Low memory/handle access is
+denied, NR pipe denial contrasts with ordinary-pipe exposure and working Low
+IPC. Real CROT IPC provisioning and complete production L1 remain open. OD-9/OD-6 remain open for the
 production boundary; this research primitive
 neither enables L1 nor completes Windows remote shell/process acceptance.
 
