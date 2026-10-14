@@ -597,7 +597,8 @@ Stage 2 native suspended restricted child probes with pre-resume Job assignment
 and child/descendant/failure tests passed Windows Node 20/22 at `a6cdab2e`
 (all 11 CI checks green). The common-resource SID candidate still lacks full
 outside-write/IPC and positive developer-read boundaries; ARM64 and
-standard-user qualification remain open. OD-9/OD-6 remain open for the
+standard-user qualification remain open. Stage 3 write-restricted/MIC
+comparative probes are in progress (native evidence pending). OD-9/OD-6 remain open for the
 production boundary; this research primitive
 neither enables L1 nor completes Windows remote shell/process acceptance.
 

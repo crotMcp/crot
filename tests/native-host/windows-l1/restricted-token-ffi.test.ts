@@ -1,3 +1,4 @@
+import { bindProbeIntegrity, type ProbeLabel } from "../../../src/native-host/windows-l1/probe-integrity.js";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -28,6 +29,7 @@ const cc = compiler();
 const sid = "S-1-5-32-545";
 let dir = "";
 let api: RestrictedTokenApi;
+let labelFixture: (file: string, label: ProbeLabel) => void;
 let fault: (n: number) => void;
 let live: () => number;
 let resetProcess: () => void;
@@ -77,6 +79,7 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     const imported: unknown = await import("koffi");
     const ffi = ((imported as { default?: unknown }).default ?? imported) as TokenFfi;
     api = bindRestrictedTokens(ffi, { advapi32: lib, kernel32: lib });
+    labelFixture = bindProbeIntegrity(ffi, { advapi32: lib, kernel32: lib });
     expect(bindRestrictedTokens(ffi, { advapi32: lib, kernel32: lib })).toBe(api);
     fault = ffi.load(lib).func("void SetFault(int n)") as typeof fault;
     live = ffi.load(lib).func("int LiveAllocations(void)") as typeof live;
@@ -330,6 +333,50 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
         token.close();
       }
     }
+    expect(live()).toBe(0);
+  });
+  it("marshals WRITE_RESTRICTED without changing the default token mode", () => {
+    fault(0);
+    const token = api.create(sid, false, undefined, "write-only");
+    token.lowerProbeIntegrity();
+    expect(live()).toBe(2);
+    token.close();
+    expect(live()).toBe(0);
+    expect(() => token.lowerProbeIntegrity()).toThrow(/closed/);
+  });
+  it("rejects unknown restriction modes before allocating native resources", () => {
+    expect(() => api.create(sid, false, undefined, "none" as "write-only")).toThrow(/restriction mode/);
+    expect(live()).toBe(0);
+  });
+  it.each([2, 16])("releases the integrity SID when native operation %i fails", (n) => {
+    fault(0);
+    const token = api.create(sid);
+    try {
+      fault(n);
+      expect(() => token.lowerProbeIntegrity()).toThrow(/failed/);
+      expect(live()).toBe(2);
+    } finally {
+      fault(0);
+      token.close();
+    }
+    expect(live()).toBe(0);
+  });
+  it.each(["low-write", "medium-write", "medium-no-read"] as const)(
+    "sets only fixture mandatory label %s and frees descriptor",
+    (label) => {
+      fault(0);
+      labelFixture("C:\\fixture\\probe", label);
+      expect(live()).toBe(0);
+    },
+  );
+  it.each([12, 17, 18])("cleans mandatory-label descriptor on native failure %i", (n) => {
+    fault(n);
+    expect(() => labelFixture("C:\\fixture\\probe", "medium-no-read")).toThrow(/mandatory label failed/);
+    expect(live()).toBe(0);
+    fault(0);
+  });
+  it("rejects arbitrary labels without invoking native code", () => {
+    expect(() => labelFixture("C:\\fixture\\probe", "none" as ProbeLabel)).toThrow(/invalid fixture label/);
     expect(live()).toBe(0);
   });
 });

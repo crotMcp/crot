@@ -15,6 +15,7 @@ export interface TokenFfi {
   load(name: string): { func(signature: string): NativeFunction };
   struct(name: string, members: Record<string, string>): unknown;
   sizeof(name: string): number;
+  encode(buffer: Buffer, type: string, value: unknown): void;
 }
 export interface TokenLibraries {
   readonly advapi32: string;
@@ -31,6 +32,8 @@ export interface RestrictedToken {
   readonly restrictingSid: string;
   /** Research only: owner SID must come from the trusted host identity. */
   prepareProbeObjects(ownerSid: string): void;
+  /** Lower only the new primary probe token; DACL AccessCheck remains MIC-blind. */
+  lowerProbeIntegrity(): void;
   /** Check the current file DACL using a restricted impersonation token. */
   fileDaclAccess(file: string): DaclAccess;
   /** Research only: takes an empty Job and resumes only after assignment. */
@@ -42,7 +45,12 @@ export interface RestrictedTokenApi {
   /** The restricting SID is a spike input, not a remotely supplied policy. */
   /** Optional common probe SID supports loader resources; it is NOT read-only. */
   /** Logon SID is trusted research input for BaseNamedObjects, not an IPC boundary. */
-  create(restrictingSid: string, commonProbeSid?: boolean, probeLogonSid?: string): RestrictedToken;
+  create(
+    restrictingSid: string,
+    commonProbeSid?: boolean,
+    probeLogonSid?: string,
+    restrictionMode?: "all-access" | "write-only",
+  ): RestrictedToken;
 }
 
 const HANDLE = "CROT_L1_TOKEN_HANDLE";
@@ -50,6 +58,7 @@ const DWORD = "CROT_L1_TOKEN_DWORD";
 const SID_ATTRIBUTES = "CROT_L1_SID_ATTRIBUTES";
 const MAPPING = "CROT_L1_GENERIC_MAPPING";
 const DISABLE_MAX_PRIVILEGE = 0x1;
+const WRITE_RESTRICTED = 0x8;
 const TOKEN_ASSIGN_PRIMARY = 0x1;
 const TOKEN_ADJUST_DEFAULT = 0x80;
 const WRITE_DAC = 0x40000;
@@ -122,6 +131,7 @@ export function bindRestrictedTokens(
   const setToken = a.func(
     `int __stdcall SetTokenInformation(void *token, int kind, ${DEFAULT_DACL} *info, uint32_t length)`,
   );
+  const setLabel = a.func("int __stdcall SetTokenInformation(void *token, int kind, void *info, uint32_t length)");
   const setObjectDacl = a.func("int __stdcall SetKernelObjectSecurity(void *object, uint32_t info, void *sd)");
   const launchProbe = bindProbeLauncher(ffi, libraries);
   const failure = (api: string, error: unknown = lastError()) => {
@@ -130,7 +140,9 @@ export function bindRestrictedTokens(
     return new CrotError("OPERATION_FAILED", `Windows token spike: ${api} failed (code ${code}).`);
   };
   const api: RestrictedTokenApi = {
-    create: (restrictingSid, commonProbeSid = false, probeLogonSid) => {
+    create: (restrictingSid, commonProbeSid = false, probeLogonSid, restrictionMode = "all-access") => {
+      if (restrictionMode !== "all-access" && restrictionMode !== "write-only")
+        throw new CrotError("INVALID_INPUT", "Windows token spike: invalid restriction mode.");
       validateSid(restrictingSid);
       const source: { value?: unknown } = {};
       const sid: { value?: unknown } = {};
@@ -173,7 +185,7 @@ export function bindRestrictedTokens(
           !success(
             restrict(
               source.value,
-              DISABLE_MAX_PRIVILEGE,
+              DISABLE_MAX_PRIVILEGE | (restrictionMode === "write-only" ? WRITE_RESTRICTED : 0),
               0,
               null,
               0,
@@ -283,6 +295,21 @@ export function bindRestrictedTokens(
             if (!nullHandle(sd.value)) localFree(sd.value);
           }
         },
+        lowerProbeIntegrity: () => {
+          if (closed) throw new CrotError("OPERATION_FAILED", "Windows token spike: token is closed.");
+          const low: { value?: unknown } = {};
+          try {
+            if (!success(convertSid("S-1-16-4096", low)) || nullHandle(low.value)) throw failure("low integrity SID");
+            // TOKEN_MANDATORY_LABEL is SID_AND_ATTRIBUTES. Reserve enough native
+            // input buffer for the struct plus SECURITY_MAX_SID_SIZE (68), so
+            // cbTokenInformation never describes memory beyond our allocation.
+            const buffer = Buffer.alloc(ffi.sizeof(SID_ATTRIBUTES) + 68);
+            ffi.encode(buffer, SID_ATTRIBUTES, { Sid: low.value, Attributes: 0x20 });
+            if (!success(setLabel(primary.value, 25, buffer, buffer.length))) throw failure("low integrity label");
+          } finally {
+            if (!nullHandle(low.value)) localFree(low.value);
+          }
+        },
         fileDaclAccess: (file) => {
           if (closed) throw new CrotError("OPERATION_FAILED", "Windows token spike: token is closed.");
           validateWindowsPath(file);
@@ -324,7 +351,13 @@ export async function loadRestrictedTokens(): Promise<RestrictedTokenApi> {
     throw new CrotError("OPERATION_FAILED", "Windows token spike requires native 64-bit Windows.");
   const module: unknown = await import(FFI_MODULE);
   const ffi = ((module as { default?: unknown } | null)?.default ?? module) as Partial<TokenFfi> | undefined;
-  if (!ffi || typeof ffi.load !== "function" || typeof ffi.struct !== "function" || typeof ffi.sizeof !== "function")
+  if (
+    !ffi ||
+    typeof ffi.load !== "function" ||
+    typeof ffi.struct !== "function" ||
+    typeof ffi.sizeof !== "function" ||
+    typeof ffi.encode !== "function"
+  )
     throw new CrotError("OPERATION_FAILED", "Windows token spike: koffi module is unavailable.");
   return bindRestrictedTokens(ffi as TokenFfi);
 }

@@ -152,6 +152,44 @@ Job. These are not substitutes for the real Windows cases. Native standard-user
 (not only CI admin), stdio/handle allowlist, MIC/IPC, spawn escape matrix and
 full developer-read baseline remain open.
 
+## Stage 3 — write restriction and mandatory integrity comparison
+
+Status: implemented as research probes; native results pending. No production
+backend, installer, existing CROT ACL or user-project label is changed.
+`CreateRestrictedToken` can now use an explicit research-only `write-only`
+mode (`DISABLE_MAX_PRIVILEGE | WRITE_RESTRICTED`); the default remains the
+stage-1/2 all-access restriction. `lowerProbeIntegrity` lowers only the newly
+created primary probe token to Low. Its DACL-check impersonation token is
+not a substitute for checking MIC: AccessCheck here deliberately loads no SACL.
+`probe-integrity.ts` binds label-only SetNamedSecurityInfo, with temporary
+fixture labels Low/NW, Medium/NW, and Medium/NW+NR. It never changes the DACL
+or owner. Compiled ABI tests cover buffer allocation, flags, SID/descriptor
+cleanup and native failure paths; these are not Windows security evidence.
+
+The native comparison tests must establish all of the following, not count
+one negative canary as acceptance:
+
+1. Write-only restriction preserves ordinary owner-only project reads, but
+   also reads an unlabelled owner-only CROT-like secret. This expected exposure
+   is a test **against accepting WRITE_RESTRICTED alone**, not a desired policy.
+2. Low IL plus an explicit Medium/NO_READ_UP secret label denies actual secret
+   read/write/delete, while ordinary project reads and a Low-labelled disposable
+   workspace continue working. A DACL-only AccessCheck may still allow the read.
+3. Low IL cannot write an ordinary Medium workspace. This expected functional
+   gap must be resolved with a safe implementation, not by relabelling existing
+   user projects or removing Windows remote shell/process from v1.
+
+Tests alter only disposable temporary fixture paths. They do not establish
+safe production label provisioning, parent/alias/reparse/handle coverage,
+secret-store/DPAPI/IPC/network boundaries, desktop self-approval prevention,
+standard-user privileges, or x64/ARM64 version-matrix qualification.
+
+Microsoft references:
+[WRITE_RESTRICTED](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken),
+[Mandatory Integrity Control / NO_READ_UP](https://learn.microsoft.com/en-us/windows/win32/secauthz/mandatory-integrity-control),
+[label-only security updates](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setnamedsecurityinfow).
+Low IL alone normally provides no-write-up, **not secret-read isolation**.
+
 ## Remaining bounded experiments
 
 1. **Preserve legitimate developer reads:** compare the full restricting-SID

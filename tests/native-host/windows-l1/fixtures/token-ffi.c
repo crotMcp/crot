@@ -22,7 +22,7 @@ int ConvertStringSidToSidW(uint16_t *sid, HANDLE_OUT *out) {
   out->value = alloc(2); return 1;
 }
 int CreateRestrictedToken(void *src, uint32_t flags, uint32_t n1, void *p1, uint32_t n2, void *p2, uint32_t n3, SID_ATTRIBUTES *sid, HANDLE_OUT *out) {
-  if (fault == 3 || !src || flags != 1 || n1 || p1 || n2 || p2 || (n3 != 1 && n3 != 4 && n3 != 5)) return 0;
+  if (fault == 3 || !src || (flags != 1 && flags != 9) || n1 || p1 || n2 || p2 || (n3 != 1 && n3 != 4 && n3 != 5)) return 0;
   for (uint32_t i = 0; i < n3; i++) if (!sid[i].Sid || sid[i].Attributes) return 0;
   out->value = alloc(3); return 1;
 }
@@ -73,7 +73,7 @@ uint32_t WaitForSingleObject(void *handle, uint32_t ms) { (void)handle; (void)ms
 int GetExitCodeProcess(void *process, DWORD_OUT *out) { if (*(int *)process != 5) return 0; out->value = 1; return 1; }
 
 int ConvertStringSecurityDescriptorToSecurityDescriptorW(uint16_t *text, uint32_t revision, HANDLE_OUT *out, void *len) {
-  if (fault == 12 || text[0] != 'D' || revision != 1 || len) return 0;
+  if (fault == 12 || (text[0] != 'D' && text[0] != 'S') || revision != 1 || len) return 0;
   out->value = alloc(9); return 1;
 }
 int GetSecurityDescriptorDacl(void *sd, DWORD_OUT *present, HANDLE_OUT *acl, DWORD_OUT *defaulted) {
@@ -81,9 +81,23 @@ int GetSecurityDescriptorDacl(void *sd, DWORD_OUT *present, HANDLE_OUT *acl, DWO
   present->value = 1; acl->value = sd; defaulted->value = 0; return 1;
 }
 int SetTokenInformation(void *token, int kind, HANDLE_OUT *dacl, uint32_t length) {
-  return fault != 14 && *(int *)token == 3 && kind == 6 && length == sizeof(void *) && *(int *)dacl->value == 9;
+  if (*(int *)token != 3) return 0;
+  if (kind == 25) {
+    SID_ATTRIBUTES *label = (SID_ATTRIBUTES *)dacl;
+    return fault != 16 && length == sizeof(SID_ATTRIBUTES) + 68 && label->Attributes == 0x20 && *(int *)label->Sid == 2;
+  }
+  return fault != 14 && kind == 6 && length == sizeof(void *) && *(int *)dacl->value == 9;
 }
 
 int SetKernelObjectSecurity(void *object, uint32_t info, void *sd) {
   return fault != 15 && *(int *)object == 3 && info == 4 && *(int *)sd == 9;
+}
+
+int GetSecurityDescriptorSacl(void *sd, DWORD_OUT *present, HANDLE_OUT *acl, DWORD_OUT *defaulted) {
+  if (fault == 17 || *(int *)sd != 9) return 0;
+  present->value = 1; acl->value = sd; defaulted->value = 0; return 1;
+}
+uint32_t SetNamedSecurityInfoW(uint16_t *path, int type, uint32_t info, void *owner, void *group, void *dacl, void *sacl) {
+  if (fault == 18 || !path || type != 1 || info != 0x10 || owner || group || dacl || *(int *)sacl != 9) return 5;
+  return 0;
 }
