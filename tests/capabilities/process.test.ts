@@ -156,6 +156,39 @@ describe.runIf(isWindows)("process: shell (Windows)", () => {
     expect(r.stderr.trim()).toBe("err");
   });
 
+  it("runs ordinary WinPS redirection through Core with a fresh module cache", async () => {
+    // Local, unconfined process correctness only. The Low token gate separately
+    // calls the same shell provider; neither test establishes complete L1.
+    const profile = path.join(dirs.outside, "fresh-powershell-profile");
+    await mkdir(path.join(profile, "local"), { recursive: true });
+    await mkdir(path.join(profile, "roaming"));
+    const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
+    const output = path.join(dirs.workspace, "ordinary проба.txt");
+    const r = await core.processes.shell(ctx, {
+      shell: "powershell",
+      script:
+        "'маркер' > $env:CROT_REDIRECT; [Console]::WriteLine('stdout-marker'); [Console]::Error.WriteLine('stderr-marker'); exit 23",
+      timeoutMs: 15000,
+      env: {
+        PATH: path.join(systemRoot, "System32"),
+        PATHEXT: ".EXE;.COM",
+        USERPROFILE: profile,
+        LOCALAPPDATA: path.join(profile, "local"),
+        APPDATA: path.join(profile, "roaming"),
+        TEMP: profile,
+        TMP: profile,
+        PSModulePath: path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "Modules"),
+        PSModuleAnalysisCachePath: path.join(profile, "analysis-cache"),
+        CROT_REDIRECT: output,
+      },
+    });
+    expect(r.timedOut).toBe(false);
+    expect(r.exitCode).toBe(23);
+    expect(r.stdout.trim()).toBe("stdout-marker");
+    expect(r.stderr.trim()).toBe("stderr-marker");
+    expect(await readFile(output, "utf16le")).toContain("маркер");
+  });
+
   it("uses cmd as the default shell", () => {
     expect(core.platform.info.defaultShell).toBe("cmd");
   });

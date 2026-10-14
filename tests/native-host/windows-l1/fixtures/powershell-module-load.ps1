@@ -7,7 +7,12 @@ Record 'entry'
 try {
     if ($env:CROT_MODULE_PHASE -eq 'assembly') {
         Record 'assembly-attempt:Microsoft.PowerShell.Commands.Utility'
-        $assembly = [Reflection.Assembly]::LoadFrom($PSHOME + '\Microsoft.PowerShell.Commands.Utility.dll')
+        # WinPS stores this DLL in the GAC, not necessarily next to powershell.exe.
+        # Only the fixed system assembly directory is inspected, never host/user modules.
+        $root = $env:SystemRoot + '\Microsoft.NET\assembly\GAC_MSIL\Microsoft.PowerShell.Commands.Utility'
+        $files = [IO.Directory]::GetFiles($root, 'Microsoft.PowerShell.Commands.Utility.dll', [IO.SearchOption]::AllDirectories)
+        if ($files.Length -ne 1) { throw [InvalidOperationException]::new('Ambiguous system assembly') }
+        $assembly = [Reflection.Assembly]::LoadFrom($files[0])
         Record ('assembly-loaded:' + $assembly.GetName().Name)
     }
     if ($env:CROT_MODULE_PHASE -ne 'discovery') {

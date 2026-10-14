@@ -12,8 +12,19 @@ export const POWERSHELL_PRELUDE =
   "try{[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)}catch{};" +
   "$OutputEncoding=[System.Text.UTF8Encoding]::new($false);";
 
-export function powershellCommand(executable: string, script: string): CommandSpec {
-  const prelude = POWERSHELL_PRELUDE;
+/**
+ * Windows PowerShell 5.1 may enumerate unrelated binary modules while discovering
+ * Out-File (including expression redirection) with a fresh analysis cache. Load
+ * its standard Utility module from this runtime's own PSHOME, never by a name
+ * resolved through a project/user PSModulePath. Import stays inside the child,
+ * after the launcher's token/Job setup. Failure stops before the user script;
+ * there is no unconfined retry, security-check switch or execution-policy bypass.
+ */
+export const WINDOWS_POWERSHELL_MODULE_PRELUDE =
+  "Microsoft.PowerShell.Core\\Import-Module ($PSHOME+'\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop;";
+
+export function powershellCommand(executable: string, script: string, windowsPowerShell = false): CommandSpec {
+  const prelude = POWERSHELL_PRELUDE + (windowsPowerShell ? WINDOWS_POWERSHELL_MODULE_PRELUDE : "");
   const encoded = Buffer.from(prelude + script, "utf16le").toString("base64");
   return {
     file: executable,
@@ -27,6 +38,7 @@ export function shellCommand(shell: ShellInfo, script: string): CommandSpec {
     case "cmd":
       return cmdScriptCommand(shell.path, script);
     case "powershell":
+      return powershellCommand(shell.path, script, true);
     case "pwsh":
       return powershellCommand(shell.path, script);
     case "sh":

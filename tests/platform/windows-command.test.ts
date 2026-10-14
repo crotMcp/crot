@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { POWERSHELL_PRELUDE, powershellCommand, shellCommand } from "../../src/core/platform/shells.js";
+import {
+  POWERSHELL_PRELUDE,
+  WINDOWS_POWERSHELL_MODULE_PRELUDE,
+  powershellCommand,
+  shellCommand,
+} from "../../src/core/platform/shells.js";
 import {
   batchFileCommand,
   CMD_SCRIPT_VARIABLE,
@@ -118,6 +123,25 @@ describe("shell invocations (pure)", () => {
     const decoded = Buffer.from(spec.args[4]!, "base64").toString("utf16le");
     expect(decoded).toBe(`${POWERSHELL_PRELUDE}Write-Output 'é "q"'`);
     expect(POWERSHELL_PRELUDE).toContain("[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)");
+  });
+
+  it("initializes legacy Windows PowerShell from PSHOME before the unchanged user script", () => {
+    const script = "'маркер' > $env:OUTPUT; exit 23";
+    const spec = shellCommand(
+      { id: "powershell", path: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" },
+      script,
+    );
+    const decoded = Buffer.from(spec.args[4]!, "base64").toString("utf16le");
+    expect(decoded).toBe(POWERSHELL_PRELUDE + WINDOWS_POWERSHELL_MODULE_PRELUDE + script);
+    expect(spec.display).toBe(script);
+    expect(WINDOWS_POWERSHELL_MODULE_PRELUDE).toContain("Microsoft.PowerShell.Core\\Import-Module");
+    expect(WINDOWS_POWERSHELL_MODULE_PRELUDE).toContain("$PSHOME+");
+    expect(WINDOWS_POWERSHELL_MODULE_PRELUDE).toContain("-ErrorAction Stop;");
+    expect(WINDOWS_POWERSHELL_MODULE_PRELUDE).not.toMatch(
+      /ExecutionPolicy|PSModuleAutoLoadingPreference|PSLockdownPolicy/,
+    );
+    const modern = shellCommand({ id: "pwsh", path: "pwsh" }, script);
+    expect(Buffer.from(modern.args[4]!, "base64").toString("utf16le")).toBe(POWERSHELL_PRELUDE + script);
   });
 
   it("uses -c for POSIX shells", () => {

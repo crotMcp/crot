@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import os from "node:os";
 import { beforeEach, afterEach, describe, expect, it, inject } from "vitest";
+import { shellCommand } from "../../../src/core/platform/shells.js";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 import { currentUserSid, windowsTools } from "../../../src/native-host/windows-acl.js";
 import { loadJobObjectApi, type JobObjectApi } from "../../../src/native-host/windows-job.js";
@@ -280,7 +281,7 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
       },
       {
         shell: "powershell",
-        variant: "bounded-runtime",
+        variant: "bounded-runtime-raw",
         extra: {
           PATH: path.join(baseEnv.SystemRoot!, "System32"),
           PATHEXT: ".EXE;.COM",
@@ -295,6 +296,7 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
         },
       },
     ];
+    variants.push({ ...variants[variants.length - 1]!, variant: "bounded-runtime" });
     for (const { shell, variant, extra } of variants) {
       const mediumOutput = path.join(workspace, `${shell}-${variant}-redirection.txt`);
       const controlOutput = path.join(low, `${shell}-${variant}-redirection.txt`);
@@ -319,10 +321,17 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
           args:
             shell === "cmd"
               ? ["/d", "/c", "redirect.cmd"]
-              : ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
+              : variant === "bounded-runtime"
+                ? shellCommand({ id: "powershell", path: tools.powershell }, script).args
+                : [
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-EncodedCommand",
+                    Buffer.from(script, "utf16le").toString("base64"),
+                  ],
           cwd: workspace,
           env,
-          ...(variant === "bounded-runtime" ? { stdio: "nul" as const } : {}),
+          ...(["bounded-runtime", "bounded-runtime-raw"].includes(variant) ? { stdio: "nul" as const } : {}),
         },
         jobs.createKillOnCloseJob(),
       );
@@ -350,7 +359,7 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
           () => false,
         ),
       });
-      if (variant === "bounded-runtime" && !exited) {
+      if (["bounded-runtime", "bounded-runtime-raw"].includes(variant) && !exited) {
         // Read call-site names of this exact owned child only. No dump, no
         // arbitrary PID endpoint, no debugger commands from the Low process.
         const debuggerPath = path.join(
@@ -393,10 +402,12 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
           }
         }
         const frames = ownedStackNames(stack);
-        emit("powershell-owned-stack", { available, debuggerExit, frames });
+        emit("powershell-owned-stack", { variant, available, debuggerExit, frames });
       }
       child.close();
       if (variant === "bounded-runtime") {
+        // Use the shared production shell invocation with its fixed system-module
+        // initialization; the user script and 15 s deadline are unchanged.
         // Actual supported environment must complete ordinary Out-File, not
         // merely launch a native Node client or report a timed-out probe.
         expect(exited, "PowerShell must complete ordinary private-temp redirection").toBe(true);
@@ -410,11 +421,13 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
         ).toBe(false);
       }
     }
-  }, 120000);
+  }, 150000);
   it.each(["discovery", "import", "assembly"] as const)(
     "compares trusted and Low PowerShell %s with the same bounded environment",
     async (phase) => {
       const script = await readFile(new URL("./fixtures/powershell-module-load.ps1", import.meta.url), "utf8");
+      const observations: { principal: string; exited: boolean; exitCode: number | null; outputMatches: boolean }[] =
+        [];
       for (const principal of ["trusted", "low"] as const) {
         const profile = path.join(low, `module-${phase}-${principal}`);
         await mkdir(profile);
@@ -477,10 +490,16 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
         const outputMatches = (await readFile(output, "utf16le").catch(() => "")).includes("module-marker");
         emit("powershell-module-load", { phase, principal, exited, exitCode, fields, outputMatches });
         expect(fields).toContain("entry");
-        if (principal === "trusted") {
-          expect(exited, "authorized control must finish").toBe(true);
-          expect(exitCode).toBe(0);
-          expect(outputMatches).toBe(true);
+        observations.push({ principal, exited, exitCode, outputMatches });
+      }
+      // Raw auto-discovery is the negative environment control, for both
+      // identities. It must not prevent collection of the Low observation.
+      // Explicit system import/assembly controls must genuinely work.
+      if (phase !== "discovery") {
+        for (const row of observations) {
+          expect(row.exited, `${row.principal} fixed-module control must finish`).toBe(true);
+          expect(row.exitCode).toBe(0);
+          expect(row.outputMatches).toBe(true);
         }
       }
     },
