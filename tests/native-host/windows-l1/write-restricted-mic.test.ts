@@ -1,6 +1,7 @@
 /** Comparative research, not production L1 acceptance. Never relabel user files. */
 import { randomBytes } from "node:crypto";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { copyFile, link, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NativeHost } from "../../../src/native-host/native-host.js";
@@ -73,7 +74,7 @@ describe.runIf(isWindows)("Windows L1 spike: write-restricted / MIC comparison, 
         executable,
         args: [
           "-e",
-          `const fs=require('fs');const attempt=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};const r=(${body});fs.writeFileSync(${JSON.stringify(result)},JSON.stringify(r));`,
+          `void(async()=>{const fs=require('fs');const attempt=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};const r=await(${body});fs.writeFileSync(${JSON.stringify(result)},JSON.stringify(r));})();`,
         ],
         cwd: dirs.workspace,
         env: {
@@ -136,5 +137,56 @@ describe.runIf(isWindows)("Windows L1 spike: write-restricted / MIC comparison, 
     await waitFor(() => p.exitCode() !== null, 10000);
     expect(p.exitCode()).toBe(0);
     expect(["EACCES", "EPERM"]).toContain(JSON.parse(await readFile(result, "utf8")).outcome);
+  });
+  it("cannot raise its own token from Low to Medium, with a successful same-Low API control", async () => {
+    label(dirs.workspace, "low-write");
+    label(secret, "medium-no-read");
+    token.lowerProbeIntegrity();
+    const fixture = new URL("./fixtures/raise-integrity.mjs", import.meta.url).href;
+    const koffi = createRequire(import.meta.url).resolve("koffi");
+    const r = await execute(`import(${JSON.stringify(fixture)}).then(m=>m.default(${JSON.stringify(koffi)}))`);
+    expect(r.open).toBe(1);
+    expect(r.lowSid).toBe(1);
+    expect(r.mediumSid).toBe(1);
+    expect(r.sameLow).toBe(1);
+    expect(r.raise).toBe(0);
+    // ERROR_ACCESS_DENIED / ERROR_PRIVILEGE_NOT_HELD, not a malformed ABI error.
+    expect([5, 1314]).toContain(r.raiseError);
+  });
+  it("secret MIC survives preexisting hard-link and junction aliases; normal project aliases remain readable", async () => {
+    label(dirs.workspace, "low-write");
+    label(secret, "medium-no-read");
+    const hard = path.join(dirs.workspace, "secret-hard-link.txt");
+    const projectHard = path.join(dirs.workspace, "project-hard-link.txt");
+    const junction = path.join(dirs.workspace, "outside-junction");
+    // Trusted setup creates actual aliases; denied alias creation is not proof
+    // that opening an existing alias is protected. Do not relabel a tree after
+    // creating a reparse point (that could alter the target fixture labels).
+    await link(secret, hard);
+    await link(project, projectHard);
+    await symlink(dirs.outside, junction, "junction");
+    token.lowerProbeIntegrity();
+    const alias = path.join(junction, path.basename(secret));
+    const projectAlias = path.join(junction, path.basename(project));
+    const copy = path.join(dirs.workspace, "must-not-extract-secret.txt");
+    const r = await execute(
+      `{hard:attempt(()=>fs.readFileSync(${JSON.stringify(hard)})),junction:attempt(()=>fs.readFileSync(${JSON.stringify(alias)})),copy:attempt(()=>fs.copyFileSync(${JSON.stringify(hard)},${JSON.stringify(copy)})),projectHard:attempt(()=>fs.readFileSync(${JSON.stringify(projectHard)})),projectJunction:attempt(()=>fs.readFileSync(${JSON.stringify(projectAlias)}))}`,
+    );
+    for (const key of ["hard", "junction", "copy"]) expect(["EACCES", "EPERM"]).toContain(r[key]);
+    expect(r.projectHard).toBe("ALLOWED");
+    expect(r.projectJunction).toBe("ALLOWED");
+    expect(await readFile(secret, "utf8")).toBe("owner-content");
+  });
+  it("a spawned descendant retains project reads but cannot read the NR secret", async () => {
+    label(dirs.workspace, "low-write");
+    label(secret, "medium-no-read");
+    token.lowerProbeIntegrity();
+    const child = `const fs=require('fs');const attempt=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};console.log(JSON.stringify({project:attempt(()=>fs.readFileSync(${JSON.stringify(project)})),secret:attempt(()=>fs.readFileSync(${JSON.stringify(secret)}))}));`;
+    const body = `(()=>{const p=require('child_process').spawnSync(process.execPath,['-e',${JSON.stringify(child)}],{encoding:'utf8',maxBuffer:4096,timeout:5000,env:{SystemRoot:process.env.SystemRoot,TEMP:process.env.TEMP,TMP:process.env.TMP}});return {status:p.status,error:p.error?.code??null,result:p.status===0?JSON.parse(p.stdout):null}})()`;
+    const r = await execute(body);
+    expect(r.error).toBeNull();
+    expect(r.status).toBe(0);
+    expect(r.result.project).toBe("ALLOWED");
+    expect(["EACCES", "EPERM"]).toContain(r.result.secret);
   });
 });

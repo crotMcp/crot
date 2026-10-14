@@ -198,6 +198,23 @@ Microsoft references:
 [label-only security updates](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setnamedsecurityinfow).
 Low IL alone normally provides no-write-up, **not secret-read isolation**.
 
+## Stage 4 — adversarial MIC probes
+
+Status: implemented; native evidence pending. No production changes.
+Three additional native cases require: (1) opening the child's own token and
+successfully setting Low again as an API/rights/ABI control, followed by denial
+of raising to Medium with access/privilege error; (2) denial of secret reads
+and copying through actual precreated hard-link/junction aliases, with
+ordinary project aliases readable; (3) a real descendant still reading the
+project but denied the NR secret. Alias creation is trusted setup, not treated
+as the access-denial proof. Fixture trees are not relabelled after reparse
+points are created. A sandbox-created symlink denial alone would be insufficient.
+
+These tests still do not qualify process-memory/handle theft, malicious
+reparse replacement races, inherited/broker-provided handles, IPC/DPAPI,
+GUI/network, production secret provisioning or ordinary workspace writes.
+The native suite must pass without converting failures to skips.
+
 ## Remaining bounded experiments
 
 1. **Safe workspace mediation and read-boundary bypass probes:** stage 3

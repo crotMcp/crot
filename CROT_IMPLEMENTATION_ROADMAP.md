@@ -601,7 +601,8 @@ standard-user qualification remain open. Stage 3 write-restricted/MIC
 comparisons passed native Windows Node 20/22 at `14084c6f` (11 CI green):
 permitted owner-only reads plus labelled-secret denial work in fixtures, but
 ordinary Medium-workspace writes fail at Low IL. Safe workspace mediation and
-bypass/IPC qualification remain required; production is not enabled. OD-9/OD-6 remain open for the
+bypass/IPC qualification remain required; production is not enabled. Stage 4
+token-raise, alias and descendant probes are awaiting native evidence. OD-9/OD-6 remain open for the
 production boundary; this research primitive
 neither enables L1 nor completes Windows remote shell/process acceptance.
 
