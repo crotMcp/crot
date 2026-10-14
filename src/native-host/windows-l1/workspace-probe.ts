@@ -11,7 +11,8 @@ export type WorkspaceProbeRequest =
   | { op: "create" | "write"; path: string; text: string }
   | { op: "remove"; path: string }
   | { op: "rename"; path: string; destination: string };
-const deny = () => new CrotError("PERMISSION_DENIED", "Workspace probe request refused.");
+const deny = (stage = "request", status?: number) =>
+  new CrotError("PERMISSION_DENIED", "Workspace probe request refused.", { stage, status });
 
 /** No normalization/repair: one spelling, no streams, namespaces or DOS aliases. */
 export function probeRelativePath(value: unknown): string[] {
@@ -112,14 +113,14 @@ export async function loadWorkspaceProbe(root: string): Promise<WorkspaceProbe> 
   };
   const inspect = (h: unknown, directory: boolean) => {
     const bytes = Buffer.alloc(52); // BY_HANDLE_FILE_INFORMATION, identical on x64/ARM64.
-    if (!info(h, bytes)) throw deny();
+    if (!info(h, bytes)) throw deny("metadata");
     const attributes = bytes.readUInt32LE(0);
     if (
       (attributes & 0x400) !== 0 || // Never operate on a reparse point.
       Boolean(attributes & 0x10) !== directory ||
       (!directory && bytes.readUInt32LE(40) !== 1) // Reject existing hard-link aliases.
     )
-      throw deny();
+      throw deny("object-type-or-links", bytes.readUInt32LE(40));
   };
   const relative = (parent: unknown, component: string, directory: boolean, create = false) => {
     const text = Buffer.from(component + "\0", "utf16le");
@@ -153,7 +154,7 @@ export async function loadWorkspaceProbe(root: string): Promise<WorkspaceProbe> 
       null,
       0,
     );
-    if (Number(status) < 0 || !valid(out.value)) throw deny();
+    if (Number(status) < 0 || !valid(out.value)) throw deny("open", Number(status));
     try {
       inspect(out.value, directory);
       return out.value;
@@ -203,9 +204,11 @@ export async function loadWorkspaceProbe(root: string): Promise<WorkspaceProbe> 
         if (request.op === "create" || request.op === "write") {
           const bytes = Buffer.from(request.text, "utf8");
           const count: { value?: number } = {};
-          if (!write(h, bytes, bytes.length, count, null) || count.value !== bytes.length || !eof(h)) throw deny();
+          if (!write(h, bytes, bytes.length, count, null) || count.value !== bytes.length || !eof(h))
+            throw deny("write");
         } else if (request.op === "remove") {
-          if (Number(set(h, Buffer.alloc(16), Buffer.from([1]), 1, 13)) < 0) throw deny();
+          const status = Number(set(h, Buffer.alloc(16), Buffer.from([1]), 1, 13));
+          if (status < 0) throw deny("remove", status);
         } else if (request.op === "rename") {
           const destination = probeRelativePath(request.destination);
           const destinationParent = parent(destination);
@@ -216,7 +219,8 @@ export async function loadWorkspaceProbe(root: string): Promise<WorkspaceProbe> 
           ffi.encode(buffer.subarray(8), "CROT_WS_HANDLE", { value: destinationParent });
           buffer.writeUInt32LE(text.length - 2, 16);
           text.copy(buffer, 20);
-          if (Number(set(h, Buffer.alloc(16), buffer, buffer.length, 10)) < 0) throw deny();
+          const status = Number(set(h, Buffer.alloc(16), buffer, buffer.length, 10));
+          if (status < 0) throw deny("rename", status);
         }
       } finally {
         release(handles);

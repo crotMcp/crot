@@ -70,8 +70,8 @@ uint32_t ResumeThread(void *thread) {
   if (fault == 11 || *(int *)thread != 6 || !assigned) return 0xffffffff;
   phase = 1; return 1;
 }
-int TerminateProcess(void *process, uint32_t code) { kills++; phase = 2; return *(int *)process == 5 && code == 1; }
-uint32_t WaitForSingleObject(void *handle, uint32_t ms) { (void)handle; (void)ms; return phase == 2 ? 0 : 258; }
+int TerminateProcess(void *process, uint32_t code) { kills++; if (fault == 19 || fault == 20) return 0; phase = 2; return *(int *)process == 5 && code == 1; }
+uint32_t WaitForSingleObject(void *handle, uint32_t ms) { (void)handle; if (fault == 19 && ms == 5000) phase = 2; return phase == 2 ? 0 : 258; }
 int GetExitCodeProcess(void *process, DWORD_OUT *out) { if (*(int *)process != 5) return 0; out->value = 1; return 1; }
 
 int ConvertStringSecurityDescriptorToSecurityDescriptorW(uint16_t *text, uint32_t revision, HANDLE_OUT *out, void *len) {

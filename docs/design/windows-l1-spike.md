@@ -331,7 +331,7 @@ capability refusal, compatible descendants and a nonzero native exit code.
 Separate tests exercise root pin/release and Job-tree termination. Grammar
 unit tests on Linux establish only request parsing, not Windows security.
 
-**Evidence:** first local `npm run check` passed: 1507 core tests / 131 skipped, 147 extension tests. The five new native tests skip on Linux, not counted as local Windows passes. First Windows Node 20 run at `af2daa8` exposed a fixture environment error: spreading the platform environment included names rejected by the research launcher grammar (for example Windows names with parentheses). Four launch tests failed before process creation; root pin/release passed. The fixture now supplies only explicit supported environment names; the validator was NOT relaxed. Native rerun pending. Earlier
+**Evidence:** first local `npm run check` passed: 1507 core tests / 131 skipped, 147 extension tests. The five new native tests skip on Linux, not counted as local Windows passes. First Windows Node 20 run at `af2daa8` exposed a fixture environment error: spreading the platform environment included names rejected by the research launcher grammar (for example Windows names with parentheses). Four launch tests failed before process creation; root pin/release passed. The fixture now supplies only explicit supported environment names; the validator was NOT relaxed. Second run at `cceff99` still FAILED on Windows Node 20/22: Node/cmd clients returned a failure result, PowerShell produced no result file, and the tree test exposed teardown/readiness issues. These are unresolved positive-path failures, NOT accepted product behavior. Added a direct trusted CRUD control, stage-only client diagnostics, bounded trusted-side native status diagnostics (never sent to Low), and a bounded wait for a process already terminating after Job teardown. ABI tests require an actual signalled handle after a failed TerminateProcess and still reject an uncompleted kill. The tree readiness marker must now come from the descendant itself, not merely its parent's spawn return. Third native run pending. Earlier
 stage-5 passing results do not validate it. No failures will be turned into
 Windows skips. The existing PR Windows x64 matrix will run on publication;
 no workflow file or ARM64 permission change is part of this experiment.
@@ -349,6 +349,29 @@ resource limits and the standard-user/ARM64/Windows11 matrix remain unqualified.
 A transparent filesystem mediation mechanism and an architectural choice are
 still required before calling the full requested prototype complete. A green
 explicit-RPC suite must not be used to lower that acceptance criterion.
+
+### Transparent mediation follow-up (not implemented or qualified)
+
+The explicit RPC experiment cannot satisfy unmodified native file calls.
+The next candidate worth a separate bounded experiment is a WinFsp-backed
+writable view over the SAME backing root, not a project copy. The upstream
+[passthrough tutorial](https://winfsp.dev/doc/WinFsp-Tutorial) documents native
+open/create/read/write/rename callbacks and security-descriptor callbacks.
+That describes a possible adapter surface, NOT evidence that its sample meets
+CROT's boundary. Its string concatenation, security forwarding, sharing and
+service-identity assumptions must not be copied as a confinement policy.
+Actual Low-view/Medium-backing behavior, protected aliases, mutable races,
+crash consistency and driver deployment would all need real Windows tests.
+No driver was installed, dependency added, filesystem mounted or success
+claimed in this experiment. A production driver/identity/IPC boundary requires
+an architecture decision; this change does not make one.
+
+ProjFS alone is not established here as a write-through security mediator.
+Its documented [operation notifications](https://learn.microsoft.com/en-us/windows/win32/projfs/file-system-operation-notifications)
+include notifications AFTER create/overwrite/modified-file close; receiving
+those notifications is not proof that every native write is synchronously
+confined and applied to the real backing workspace. Neither a Low copy with
+later synchronization nor success on only an RPC helper closes acceptance.
 
 API references: [NtCreateFile](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntcreatefile),
 [NtSetInformationFile](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile),

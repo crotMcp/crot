@@ -5,6 +5,7 @@
  */
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
+import { CrotError } from "../../core/errors.js";
 import { validateSid } from "../validation.js";
 import type { TokenFfi } from "./restricted-token.js";
 import { loadWorkspaceProbe, type WorkspaceProbe } from "./workspace-probe.js";
@@ -15,6 +16,8 @@ export interface WorkspacePipeProbe {
   readonly pipe: string;
   /** Research run capability, not a CROT credential. Do not log. */
   readonly capability: string;
+  /** Bounded trusted-side diagnostics, never transmitted to the Low client. */
+  readonly diagnostics: readonly { stage: string; status?: number }[];
   close(): Promise<void>;
 }
 
@@ -55,6 +58,7 @@ export async function startWorkspacePipeProbe(root: string, ownerSid: string): P
   const close = k.func("int __stdcall CloseHandle(void *handle)");
   const pipe = `\\\\.\\pipe\\crot-workspace-probe-${randomBytes(24).toString("hex")}`;
   const capability = randomBytes(32).toString("hex");
+  const diagnostics: { stage: string; status?: number }[] = [];
   const sd: { value?: unknown } = {};
   let handle: unknown;
   try {
@@ -100,7 +104,8 @@ export async function startWorkspacePipeProbe(root: string, ownerSid: string): P
         if (stopped) break;
         let accepted = false;
         try {
-          if (!ok || !count.value || count.value >= MAX_MESSAGE) throw new Error("frame");
+          if (!ok || !count.value || count.value >= MAX_MESSAGE)
+            throw new CrotError("INVALID_INPUT", "Workspace pipe frame refused.", { stage: "frame" });
           const envelope = JSON.parse(bytes.subarray(0, count.value).toString("utf8")) as Record<string, unknown>;
           if (
             !envelope ||
@@ -111,11 +116,17 @@ export async function startWorkspacePipeProbe(root: string, ownerSid: string): P
             envelope.capability.length !== 64 ||
             !timingSafeEqual(Buffer.from(envelope.capability, "utf8"), Buffer.from(capability, "utf8"))
           )
-            throw new Error("capability");
+            throw new CrotError("PERMISSION_DENIED", "Workspace pipe capability refused.", { stage: "capability" });
           workspace.execute(envelope.request);
           accepted = true;
-        } catch {
+        } catch (error) {
           // No paths, contents, capabilities or native error details on wire.
+          if (error instanceof CrotError && diagnostics.length < 16) {
+            diagnostics.push({
+              stage: typeof error.details?.stage === "string" ? error.details.stage : "unknown",
+              ...(typeof error.details?.status === "number" ? { status: error.details.status } : {}),
+            });
+          }
         }
         if (!stopped) {
           const response = Buffer.from(JSON.stringify({ ok: accepted }) + "\n");
@@ -144,6 +155,7 @@ export async function startWorkspacePipeProbe(root: string, ownerSid: string): P
   return {
     pipe,
     capability,
+    diagnostics,
     close() {
       closing ??= (async () => {
         stopped = true;

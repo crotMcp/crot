@@ -17,6 +17,7 @@ import {
   startWorkspacePipeProbe,
   type WorkspacePipeProbe,
 } from "../../../src/native-host/windows-l1/workspace-pipe-probe.js";
+import { loadWorkspaceProbe } from "../../../src/native-host/windows-l1/workspace-probe.js";
 import { isAlive, isWindows, makeTempDirs, waitFor, type TempDirs } from "../../helpers.js";
 
 if (process.env.CROT_WINDOWS_TOKEN_REQUIRED === "1" && (!isWindows || !["x64", "arm64"].includes(process.arch)))
@@ -68,6 +69,24 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
     await host?.close();
     await dirs?.cleanup();
   });
+  it("trusted positive control performs real handle-relative CRUD without the pipe", async () => {
+    const direct = await loadWorkspaceProbe(dirs.workspace);
+    try {
+      expect(() => direct.execute({ op: "create", path: "control.txt", text: "before" }), "create").not.toThrow();
+      expect(await readFile(path.join(dirs.workspace, "control.txt"), "utf8")).toBe("before");
+      expect(() => direct.execute({ op: "write", path: "control.txt", text: "after" }), "write").not.toThrow();
+      expect(await readFile(path.join(dirs.workspace, "control.txt"), "utf8")).toBe("after");
+      expect(
+        () => direct.execute({ op: "rename", path: "control.txt", destination: "nested/control.txt" }),
+        "rename",
+      ).not.toThrow();
+      expect(await readFile(path.join(dirs.workspace, "nested/control.txt"), "utf8")).toBe("after");
+      expect(() => direct.execute({ op: "remove", path: "nested/control.txt" }), "remove").not.toThrow();
+      await expect(readFile(path.join(dirs.workspace, "nested/control.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      direct.close();
+    }
+  });
   it("pins the actual workspace against root substitution; idle close releases native handles", async () => {
     const moved = path.join(dirs.outside, "substituted");
     await expect(rename(dirs.workspace, moved)).rejects.toMatchObject({
@@ -80,7 +99,8 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
   });
   it("stopping a mediated run ends its native descendant tree", async () => {
     const report = path.join(low, "tree.json");
-    const script = `const c=require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});require('fs').writeFileSync(${JSON.stringify(report)},JSON.stringify({pid:c.pid}));setInterval(()=>{},1000);`;
+    const grandchild = `require('fs').writeFileSync(${JSON.stringify(report)},JSON.stringify({pid:process.pid}));setInterval(()=>{},1000);`;
+    const script = `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(grandchild)}],{detached:true,stdio:'ignore'});c.on('exit',code=>require('fs').writeFileSync(${JSON.stringify(report + ".exit")},JSON.stringify({code})));setInterval(()=>{},1000);`;
     const child = token.launchProbe(
       {
         executable: process.execPath,
@@ -137,8 +157,13 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
       const child = token.launchProbe({ executable, args, cwd: dirs.workspace, env }, jobs.createKillOnCloseJob());
       children.push(child);
       await waitFor(() => child.exitCode() !== null, 60000);
-      const result = JSON.parse(await readFile(resultFile, "utf8"));
-      expect(result.failure).toBeUndefined();
+      const text = await readFile(resultFile, "utf8").catch(() => null);
+      expect(
+        text,
+        `native child exit ${child.exitCode()}; diagnostics ${JSON.stringify(broker.diagnostics)}`,
+      ).not.toBeNull();
+      const result = JSON.parse(text!);
+      expect(result.failure, JSON.stringify({ result, diagnostics: broker.diagnostics })).toBeUndefined();
       expect(child.exitCode()).toBe(23);
       expect(result.cwd.toLowerCase()).toBe(dirs.workspace.toLowerCase());
       expect(result.project).toBe("existing project");

@@ -181,6 +181,22 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     }
     expect(live()).toBe(0);
   });
+  it.each([19, 20])("requires a signalled process after a racing termination failure (%i)", (n) => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid);
+    const child = token.launchProbe(spec, job());
+    try {
+      fault(n);
+      if (n === 19) expect(() => child.close()).not.toThrow();
+      else expect(() => child.close()).toThrow(/TerminateProcess/);
+      expect(live()).toBe(2);
+    } finally {
+      fault(0);
+      token.close();
+    }
+    expect(live()).toBe(0);
+  });
   it.each([false, true])("kills a suspended process without resume on Job assignment failure (throws=%s)", (throws) => {
     fault(0);
     resetProcess();

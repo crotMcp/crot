@@ -107,7 +107,11 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
     let ownsJob = false;
     const killDirect = () => {
       if (!nullHandle(info.hProcess) && wait(info.hProcess, 0) !== WAIT_OBJECT) {
-        if (!success(terminate(info.hProcess, 1)) && wait(info.hProcess, 0) !== WAIT_OBJECT)
+        // TerminateJobObject is asynchronous. TerminateProcess can report
+        // ACCESS_DENIED for an already-terminating process whose handle is not
+        // signalled yet. Require actual bounded completion, never call that
+        // error a successful kill without waiting.
+        if (!success(terminate(info.hProcess, 1)) && wait(info.hProcess, 5000) !== WAIT_OBJECT)
           throw failure("TerminateProcess");
         if (wait(info.hProcess, 5000) !== WAIT_OBJECT) throw failure("termination wait");
       }

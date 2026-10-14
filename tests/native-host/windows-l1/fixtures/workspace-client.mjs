@@ -46,6 +46,7 @@ if (process.env.CROT_PROBE_DESCENDANT === "1") {
   process.stdout.write(JSON.stringify({ ok }));
   process.exit(ok ? 0 : 1);
 }
+let stage = "project-read";
 try {
   const root = process.cwd();
   const result = {
@@ -54,17 +55,27 @@ try {
     project: readFileSync(path.join(root, "project.txt"), "utf8"),
     before: attempt(() => writeFileSync(path.join(root, "direct.txt"), "denied")),
   };
+  stage = "rpc-create";
   result.create = await request({ op: "create", path: "native.txt", text: "исходный 😀" });
+  if (!result.create) throw new Error("create refused");
+  stage = "read-created";
   result.created = readFileSync(path.join(root, "native.txt"), "utf8");
+  stage = "rpc-write";
   result.write = await request({ op: "write", path: "native.txt", text: "изменён 😀" });
+  stage = "rpc-rename";
   result.rename = await request({ op: "rename", path: "native.txt", destination: "nested/итог.txt" });
+  if (!result.rename) throw new Error("rename refused");
+  stage = "read-renamed";
   result.renamed = readFileSync(path.join(root, "nested/итог.txt"), "utf8");
+  stage = "rpc-remove";
   result.remove = await request({ op: "remove", path: "nested/итог.txt" });
   result.removed = attempt(() => readFileSync(path.join(root, "nested/итог.txt")));
+  stage = "rpc-persist";
   result.persist = await request({ op: "create", path: "host-visible.txt", text: "настоящий Medium workspace" });
   result.after = attempt(() => writeFileSync(path.join(root, "direct-after.txt"), "denied"));
   result.outside = attempt(() => writeFileSync(process.env.CROT_PROBE_OUTSIDE, "denied"));
   result.secret = attempt(() => readFileSync(process.env.CROT_PROBE_SECRET));
+  stage = "negative-matrix";
   result.refused = [];
   for (const operation of [
     { op: "create", path: "../outside-created.txt", text: "denied" },
@@ -82,6 +93,7 @@ try {
   result.badCapability = await request({ op: "remove", path: "project.txt" }, "0".repeat(64));
   // Async spawn: a sync wait would block neither the trusted broker nor this
   // child's independent event loop. Captures the descendant's actual stdout.
+  stage = "descendant";
   const child = spawnSync(process.execPath, [process.env.CROT_PROBE_CLIENT], {
     cwd: root,
     env: { ...process.env, CROT_PROBE_DESCENDANT: "1" },
@@ -98,6 +110,6 @@ try {
   process.exitCode = 23;
 } catch {
   // Never leak test capability or synthetic secret to logs.
-  writeFileSync(process.env.CROT_PROBE_RESULT, JSON.stringify({ failure: true }));
+  writeFileSync(process.env.CROT_PROBE_RESULT, JSON.stringify({ failure: true, stage }));
   process.exitCode = 99;
 }
