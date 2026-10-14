@@ -276,6 +276,22 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
           PSModulePath: path.join(baseEnv.SystemRoot!, "System32", "WindowsPowerShell", "v1.0", "Modules"),
         },
       },
+      {
+        shell: "powershell",
+        variant: "bounded-runtime",
+        extra: {
+          PATH: path.join(baseEnv.SystemRoot!, "System32"),
+          PATHEXT: ".EXE;.COM",
+          ComSpec: path.join(baseEnv.SystemRoot!, "System32", "cmd.exe"),
+          USERPROFILE: privateProfile,
+          LOCALAPPDATA: path.join(privateProfile, "local"),
+          APPDATA: path.join(privateProfile, "roaming"),
+          WINDIR: baseEnv.SystemRoot!,
+          SystemDrive: path.parse(baseEnv.SystemRoot!).root.replace(/\\$/, ""),
+          PSModulePath: path.join(baseEnv.SystemRoot!, "System32", "WindowsPowerShell", "v1.0", "Modules"),
+          PSModuleAnalysisCachePath: path.join(privateProfile, "module-analysis-cache"),
+        },
+      },
     ];
     for (const { shell, variant, extra } of variants) {
       const mediumOutput = path.join(workspace, `${shell}-${variant}-redirection.txt`);
@@ -332,8 +348,21 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
         ),
       });
       child.close();
+      if (variant === "bounded-runtime") {
+        // Actual supported environment must complete ordinary Out-File, not
+        // merely launch a native Node client or report a timed-out probe.
+        expect(exited, "PowerShell must complete ordinary private-temp redirection").toBe(true);
+        expect(await readFile(controlOutput, "utf16le")).toContain("marker");
+        expect(await readFile(marker, "utf8")).toContain("low-complete;medium-attempt");
+        expect(
+          await access(mediumOutput).then(
+            () => true,
+            () => false,
+          ),
+        ).toBe(false);
+      }
     }
-  }, 65000);
+  }, 85000);
   it.each(["baseline", "empty-path", "empty-path-pathext"] as const)(
     "localizes PowerShell %s native invocation versus fully redirected ProcessStartInfo",
     async (environmentMode) => {
