@@ -96,33 +96,55 @@ There is no stdio bridge or inherited service environment. This is a canary
 probe, not production shell/process integration. The public tool catalogue,
 ExecutionGuard, PermissionEngine and NativeHost confinement are unchanged.
 
-The first stage-2 native run created processes, but the loader exited with
-`0xC0000022` (STATUS_ACCESS_DENIED) before JavaScript. The corrected experiment
-uses a randomly generated restricting SID plus Builtin Users for common
-Windows loader resources. A default DACL **on the new restricted token only**
-grants the trusted owner, the unique SID and SYSTEM access to newly created
-child kernel objects. The new restricted token object's own DACL uses the same
-principals so the child can query its token; the original service token is not
-modified. It does not change the service token or existing CROT
-file ACLs. Disposable workspace grants use the unique SID, not Builtin Users.
-The rerun at `62622c30` still returned `0xC0000022`: changing only new-object DACLs did not resolve startup. The next bounded experiment also adds the trusted current logon SID to the restricting set, without adding the owner SID. Chromium's `USER_LIMITED` profile explicitly requires the logon SID to create objects in the session BaseNamedObjects namespace (`sandbox/win/src/restricted_token_utils.cc`). The fixture queries that SID from the trusted Windows identity and rejects non-logon values. At `150c7149`, CI service identities returned no logon SID, so that run stopped during fixture setup and did not test the startup hypothesis. The next common-resource candidate uses Builtin Users, Everyone and Restricted Code, matching the common-resource restricting set in Chromium's `USER_LIMITED` case; an actual logon SID is added only when present. No user/owner SID is added, no missing logon SID is fabricated, and all actual launch/canary tests still run without skips. This candidate's common ACL and IPC exposure must be measured before any production policy is selected. This is a startup hypothesis to validate natively, not a claimed root cause or completed IPC isolation.
+### Startup investigation and confirmed native result
 
-The common and logon SIDs are **not read-only**: they can grant whatever an existing host
-ACL permits. This candidate still lacks a complete write boundary outside
-these fixtures, so it cannot be enabled as production L1. No old safety
-contract or existing host ACL is weakened to make tests pass.
+The first stage-2 native run (`f4268b6d`) created suspended processes, but
+Windows exited with `0xC0000022` (STATUS_ACCESS_DENIED) before JavaScript.
+Changing only the new restricted token's default/object DACLs (`62622c30`)
+did not resolve startup. These DACLs grant only the trusted owner, a generated
+unique SID and SYSTEM, without modifying the original service token or any
+existing CROT file ACL. Disposable workspace grants use the unique SID, not a
+normal user/group.
 
-Additional native Windows cases (not counted as passed until their CI jobs
-succeed) cover:
+The logon-SID fixture at `150c7149` found no logon SID in CI service identities
+and stopped in setup. This was a fixture assumption failure, not proof of an
+unsupported Windows configuration. The current experiment queries the trusted
+Windows identity and adds an actual logon SID only when present. It never
+fabricates one, adds the owner's SID to the restricting set, or skips actual
+launch tests when the logon SID is absent.
 
-- actual child file reads/writes: CROT-like secret and outside-directory
-  creation denied; explicit disposable workspace write succeeds;
-- copied native Node executable in a space-containing path, quoted Unicode,
+The native passing candidate (`a6cdab2e`) uses the unique SID plus Builtin Users,
+Everyone and Restricted Code, with the optional actual logon SID. The common
+resource set is informed by Chromium's `USER_LIMITED` case in
+[`restricted_token_utils.cc`](https://github.com/chromium/chromium/blob/main/sandbox/win/src/restricted_token_utils.cc).
+This experiment establishes a working resource baseline, **not the exact
+object responsible for the earlier loader failure**, and it does not adopt or
+claim Chromium's complete sandbox.
+
+All **11 existing CI checks passed** at
+`a6cdab2eace879e4c19eebcb776506b687a52638`, including native Windows
+[Node 20](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38492897789/job/115622022632)
+and [Node 22](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38492897789/job/115622022728).
+Local `npm run check` passed: 1458 core tests, 110 skipped; 147 extension tests.
+Windows-only cases are skipped locally on Linux, not counted as local Windows
+passes. The actual Windows cases passed without new skips:
+
+- child execution: CROT-like canary read/write and creation in its protected
+  directory denied; explicit disposable workspace write succeeds;
+- copied native Node executable in a space-containing path, Unicode,
   empty/quote/backslash/metacharacter argv; parent-only environment absent;
 - injected Job assignment failure: no user-code marker, suspended PID gone;
-- detached grandchild inherits the token restriction; Job close terminates it
+- detached grandchild inherits the secret-read restriction; Job close ends it
   after the parent exits;
 - actual nonzero exit status.
+
+**The common and logon SIDs are not read-only.** Existing host ACLs may grant
+them writes or IPC access outside these fixtures. The passing canaries do not
+establish a complete outside-write/IPC boundary, and this candidate cannot be
+enabled as production L1. Existing CROT ACLs, authorizations and production
+fail-closed behavior are unchanged. Owner-only developer reads remain an
+unresolved functional requirement; Windows ARM64, Windows 11 client versions
+and standard-user execution are not qualified by these x64 CI results.
 
 The portable compiled ABI suite verifies ordering, partial native failures,
 no resume on assignment failure, handle cleanup and no takeover of an existing

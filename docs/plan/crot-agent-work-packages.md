@@ -179,6 +179,12 @@ own requests. Profile: AD-13 point 4.
 - **Size:** M. **Depends on:** WP-21.
 
 ### WP-23c — L1 for Windows (spike, then restricted / low-IL token + Job Object)
+- **Stage 2 evidence:** research restricted child launch (suspended until Job
+  assignment), file-canary/argv/environment/descendant/failure/exit probes
+  passed native Windows Node 20/22 at `a6cdab2e` (11 CI checks green). Not full
+  L1: outside-write/IPC, owner-only developer reads, stdio/handle boundary,
+  standard-user and native ARM64 qualification remain open. See
+  [`docs/design/windows-l1-spike.md`](../design/windows-l1-spike.md).
 - **Current stage:** native restricted-token/DACL spike in progress following
   owner authorization; x64 and ARM64 remain in the target. See
   `docs/design/windows-l1-spike.md`. No production L1 availability is claimed;

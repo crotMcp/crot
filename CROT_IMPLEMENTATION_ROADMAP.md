@@ -593,8 +593,11 @@ spike first, then restricted / low-IL token + Job Object).
 [`docs/L1.md`](docs/L1.md)). WP-23b is not implemented. WP-23c's native restricted-token/DACL spike is
 in progress following owner authorization to proceed with engineering work;
 see [`docs/design/windows-l1-spike.md`](docs/design/windows-l1-spike.md).
-Stage 2 adds native suspended restricted child probes with Job assignment
-before resume and child/descendant/failure tests. OD-9/OD-6 remain open for the
+Stage 2 native suspended restricted child probes with pre-resume Job assignment
+and child/descendant/failure tests passed Windows Node 20/22 at `a6cdab2e`
+(all 11 CI checks green). The common-resource SID candidate still lacks full
+outside-write/IPC and positive developer-read boundaries; ARM64 and
+standard-user qualification remain open. OD-9/OD-6 remain open for the
 production boundary; this research primitive
 neither enables L1 nor completes Windows remote shell/process acceptance.
 
