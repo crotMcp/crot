@@ -41,7 +41,8 @@ export interface RestrictedToken {
 export interface RestrictedTokenApi {
   /** The restricting SID is a spike input, not a remotely supplied policy. */
   /** Optional common probe SID supports loader resources; it is NOT read-only. */
-  create(restrictingSid: string, commonProbeSid?: boolean): RestrictedToken;
+  /** Logon SID is trusted research input for BaseNamedObjects, not an IPC boundary. */
+  create(restrictingSid: string, commonProbeSid?: boolean, probeLogonSid?: string): RestrictedToken;
 }
 
 const HANDLE = "CROT_L1_TOKEN_HANDLE";
@@ -129,11 +130,14 @@ export function bindRestrictedTokens(
     return new CrotError("OPERATION_FAILED", `Windows token spike: ${api} failed (code ${code}).`);
   };
   const api: RestrictedTokenApi = {
-    create: (restrictingSid, commonProbeSid = false) => {
+    create: (restrictingSid, commonProbeSid = false, probeLogonSid) => {
       validateSid(restrictingSid);
       const source: { value?: unknown } = {};
       const sid: { value?: unknown } = {};
       const common: { value?: unknown } = {};
+      const logon: { value?: unknown } = {};
+      if (probeLogonSid !== undefined && (!commonProbeSid || !/^S-1-5-5-\d+-\d+$/.test(probeLogonSid)))
+        throw new CrotError("INVALID_INPUT", "Windows token spike: invalid probe logon SID.");
       const primary: { value?: unknown } = {};
       const impersonation: { value?: unknown } = {};
       try {
@@ -158,6 +162,8 @@ export function bindRestrictedTokens(
           if (!success(convertSid("S-1-5-32-545", common)) || nullHandle(common.value))
             throw failure("common probe SID");
         }
+        if (probeLogonSid !== undefined && (!success(convertSid(probeLogonSid, logon)) || nullHandle(logon.value)))
+          throw failure("probe logon SID");
         if (
           !success(
             restrict(
@@ -167,10 +173,11 @@ export function bindRestrictedTokens(
               null,
               0,
               null,
-              commonProbeSid ? 2 : 1,
+              probeLogonSid !== undefined ? 3 : commonProbeSid ? 2 : 1,
               [
                 { Sid: sid.value, Attributes: 0 },
                 { Sid: common.value ?? null, Attributes: 0 },
+                { Sid: logon.value ?? null, Attributes: 0 },
               ],
               primary,
             ),
@@ -198,6 +205,7 @@ export function bindRestrictedTokens(
         if (!nullHandle(primary.value)) closeHandle(primary.value);
         throw error;
       } finally {
+        if (!nullHandle(logon.value)) localFree(logon.value);
         if (!nullHandle(common.value)) localFree(common.value);
         if (!nullHandle(sid.value)) localFree(sid.value);
         if (!nullHandle(source.value)) closeHandle(source.value);

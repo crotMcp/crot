@@ -10,7 +10,7 @@ meet the product contract. WSL and x64-on-ARM execution are not acceptance.
 `src/native-host/windows-l1/restricted-token.ts` binds native Windows APIs
 through the existing koffi dependency:
 
-- opens the current process token with query/duplicate rights;
+- opens the current process token with query/duplicate/assign-primary/adjust-default and WRITE_DAC rights;
 - creates a token with `DISABLE_MAX_PRIVILEGE` and one restricting SID;
 - verifies `IsTokenRestricted` and duplicates an impersonation token for
   `AccessCheck` (it never impersonates the running CROT service);
@@ -105,9 +105,9 @@ child kernel objects. The new restricted token object's own DACL uses the same
 principals so the child can query its token; the original service token is not
 modified. It does not change the service token or existing CROT
 file ACLs. Disposable workspace grants use the unique SID, not Builtin Users.
-The native rerun must confirm that this resolves startup.
+The rerun at `62622c30` still returned `0xC0000022`: changing only new-object DACLs did not resolve startup. The next bounded experiment also adds the trusted current logon SID to the restricting set, without adding the owner SID. Chromium's `USER_LIMITED` profile explicitly requires the logon SID to create objects in the session BaseNamedObjects namespace (`sandbox/win/src/restricted_token_utils.cc`). The fixture obtains that SID from the trusted Windows identity and rejects non-logon values. This is a startup hypothesis to validate natively, not a claimed root cause or completed IPC isolation.
 
-The common SID is **not read-only**: it can grant whatever an existing host
+The common and logon SIDs are **not read-only**: they can grant whatever an existing host
 ACL permits. This candidate still lacks a complete write boundary outside
 these fixtures, so it cannot be enabled as production L1. No old safety
 contract or existing host ACL is weakened to make tests pass.

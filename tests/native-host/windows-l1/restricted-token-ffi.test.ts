@@ -267,6 +267,24 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     }
     expect(live()).toBe(0);
   });
+  it("marshals a trusted logon SID for the session object namespace", () => {
+    fault(0);
+    const token = api.create("S-1-5-21-101-102-103-104", true, "S-1-5-5-101-102");
+    expect(live()).toBe(2);
+    token.close();
+    expect(live()).toBe(0);
+  });
+  it.each(["S-1-5-32-545", "S-1-5-21-1-2-3-4", "S-1-5-5-1-2\0"])(
+    "rejects non-logon probe SID %s before allocation",
+    (value) => {
+      expect(() => api.create("S-1-5-21-101-102-103-104", true, value)).toThrow(/logon SID/);
+      expect(live()).toBe(0);
+    },
+  );
+  it("rejects a logon SID outside the explicit common-resource experiment", () => {
+    expect(() => api.create("S-1-5-21-101-102-103-104", false, "S-1-5-5-1-2")).toThrow(/logon SID/);
+    expect(live()).toBe(0);
+  });
   it("prepares only a unique probe token default DACL and releases its descriptor", () => {
     fault(0);
     const token = api.create("S-1-5-21-101-102-103-104");

@@ -37,7 +37,23 @@ describe.runIf(isWindows)("Windows L1 spike: actual suspended restricted child a
     jobs = await loadJobObjectApi();
     const random = randomBytes(16);
     const uniqueSid = `S-1-5-21-${random.readUInt32LE(0)}-${random.readUInt32LE(4)}-${random.readUInt32LE(8)}-${random.readUInt32LE(12)}`;
-    token = (await loadRestrictedTokens()).create(uniqueSid, true);
+    const tools = windowsTools(process.env.SystemRoot ?? "C:\\Windows");
+    // Trusted fixture identity, not remote policy input. Logon SID enables the
+    // session BaseNamedObjects path; IPC isolation is explicitly not proven.
+    const logonSid = (
+      await runTool(
+        tools.powershell,
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "[System.Security.Principal.WindowsIdentity]::GetCurrent().Groups | Where-Object { $_.Value -match '^S-1-5-5-\\d+-\\d+$' } | ForEach-Object { $_.Value }",
+        ],
+        host.platform.baseEnvironment,
+      )
+    ).trim();
+    expect(logonSid).toMatch(/^S-1-5-5-\d+-\d+$/);
+    token = (await loadRestrictedTokens()).create(uniqueSid, true, logonSid);
     token.prepareProbeObjects(await currentUserSid(windowsTools(process.env.SystemRoot ?? "C:\\Windows")));
     protectedDir = path.join(dirs.outside, "protected");
     await host.platform.privateFiles.ensureDirectory(protectedDir);
