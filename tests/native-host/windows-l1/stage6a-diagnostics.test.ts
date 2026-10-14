@@ -24,6 +24,7 @@ const emit = (section: string, value: unknown) => {
   if (Buffer.byteLength(data) > 48000) throw new Error("Diagnostic annotation too large.");
   appendFileSync(inject("stage6aEvidence"), JSON.stringify({ title: `CROT-6A-${section}`, value }) + "\n");
 };
+const nativeArchitecture = process.arch;
 const fixture = fileURLToPath(new URL("./fixtures/stage6a-client.mjs", import.meta.url));
 const koffi = createRequire(import.meta.url).resolve("koffi");
 if (process.env.CROT_WINDOWS_TOKEN_REQUIRED === "1" && (!isWindows || !["x64", "arm64"].includes(process.arch)))
@@ -348,6 +349,59 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
           () => false,
         ),
       });
+      if (variant === "bounded-runtime" && !exited) {
+        // Read call-site names of this exact owned child only. No dump, no
+        // arbitrary PID endpoint, no debugger commands from the Low process.
+        const debuggerPath = path.join(
+          path.parse(baseEnv.SystemRoot!).root,
+          "Program Files (x86)",
+          "Windows Kits",
+          "10",
+          "Debuggers",
+          nativeArchitecture,
+          "cdb.exe",
+        );
+        const available = await access(debuggerPath).then(
+          () => true,
+          () => false,
+        );
+        let stack = "";
+        let debuggerExit: number | null = null;
+        if (available) {
+          try {
+            stack = execFileSync(
+              debuggerPath,
+              ["-pv", "-p", String(child.pid), "-c", ".loadby sos clr;~*e !clrstack;~*k;qd"],
+              {
+                encoding: "utf8",
+                timeout: 30000,
+                maxBuffer: 1024 * 1024,
+                env: {
+                  SystemRoot: baseEnv.SystemRoot!,
+                  PATH: path.join(baseEnv.SystemRoot!, "System32"),
+                  TEMP: dirs.outside,
+                  TMP: dirs.outside,
+                },
+              },
+            );
+            debuggerExit = 0;
+          } catch (error) {
+            const failure = error as { status?: number; stdout?: string | Buffer };
+            debuggerExit = failure.status ?? null;
+            stack = String(failure.stdout ?? "");
+          }
+        }
+        const frames = stack
+          .split(/\r?\n/)
+          .filter((line) =>
+            /(?:System\.|Microsoft\.PowerShell|Management\.Automation|ConsoleHost|clr!|ntdll!|kernel(?:base|32)!|Thread.*Id)/i.test(
+              line,
+            ),
+          )
+          .slice(0, 100)
+          .map((line) => line.slice(0, 240));
+        emit("powershell-owned-stack", { available, debuggerExit, frames });
+      }
       child.close();
       if (variant === "bounded-runtime") {
         // Actual supported environment must complete ordinary Out-File, not
@@ -363,7 +417,7 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
         ).toBe(false);
       }
     }
-  }, 85000);
+  }, 120000);
   it.each(["baseline", "empty-path", "empty-path-pathext"] as const)(
     "localizes PowerShell %s native invocation versus fully redirected ProcessStartInfo",
     async (environmentMode) => {
