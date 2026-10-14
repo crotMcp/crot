@@ -154,7 +154,14 @@ full developer-read baseline remain open.
 
 ## Stage 3 — write restriction and mandatory integrity comparison
 
-Status: implemented as research probes; native results pending. No production
+Status: native comparative probes passed at
+`14084c6ff54840f588ce870851eb7f0b0c0dc5fd`, **not production L1 acceptance**.
+All 11 CI checks passed, including native Windows
+[Node 20](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38495613676/job/115630575415)
+and [Node 22](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38495613676/job/115630575234).
+Local `npm run check`: 1469 core passed / 113 skipped; 147 extension passed.
+The three Windows-only comparison tests skip on local Linux and passed in the
+Windows jobs; no native failures were converted to skips. No production
 backend, installer, existing CROT ACL or user-project label is changed.
 `CreateRestrictedToken` can now use an explicit research-only `write-only`
 mode (`DISABLE_MAX_PRIVILEGE | WRITE_RESTRICTED`); the default remains the
@@ -166,8 +173,9 @@ fixture labels Low/NW, Medium/NW, and Medium/NW+NR. It never changes the DACL
 or owner. Compiled ABI tests cover buffer allocation, flags, SID/descriptor
 cleanup and native failure paths; these are not Windows security evidence.
 
-The native comparison tests must establish all of the following, not count
-one negative canary as acceptance:
+The native comparison established all three of the following. Expected
+exposure/functional-gap assertions identify rejected standalone candidates;
+a green comparative suite does not turn those weaknesses into product guarantees:
 
 1. Write-only restriction preserves ordinary owner-only project reads, but
    also reads an unlabelled owner-only CROT-like secret. This expected exposure
@@ -192,11 +200,14 @@ Low IL alone normally provides no-write-up, **not secret-read isolation**.
 
 ## Remaining bounded experiments
 
-1. **Preserve legitimate developer reads:** compare the full restricting-SID
-   candidate with a write-restricted token plus an explicit CROT-secret read
-   boundary (for example a verified mandatory-label/identity mechanism), or
-   an AppContainer/identity broker. Write restriction or low IL alone does
-   not protect CROT reads. No global weakening of user-file ACLs is allowed.
+1. **Safe workspace mediation and read-boundary bypass probes:** stage 3
+   establishes permitted owner-only reads and explicit secret NR denial, but
+   also the Medium-workspace write gap. Next test inheritance, token/handle,
+   alias/reparse and IPC bypasses, then qualify an isolated write view or
+   brokered workspace without lowering existing user-file labels. Compare an
+   AppContainer/identity broker if required to meet the same positive/negative
+   contract. WRITE_RESTRICTED or Low IL alone remains rejected; no global
+   weakening of user-file ACLs is allowed.
 2. **Production pre-execution boundary:** qualify the research native path
    for standard-user service execution, add a safe stdio/handle allowlist and
    connect it only after the approved mechanism meets the full profile.

@@ -179,6 +179,11 @@ own requests. Profile: AD-13 point 4.
 - **Size:** M. **Depends on:** WP-21.
 
 ### WP-23c — L1 for Windows (spike, then restricted / low-IL token + Job Object)
+- **Stage 3 evidence:** write-restricted/MIC comparisons passed native Windows
+  Node 20/22 at `14084c6f` (11 CI green). Ordinary owner-only reads and explicit
+  secret NO_READ_UP coexist in disposable fixtures, but Low IL prevents writing
+  ordinary Medium workspaces. Production remains fail-closed; workspace
+  mediation and token/handle/alias/IPC bypass qualification are still required.
 - **Stage 2 evidence:** research restricted child launch (suspended until Job
   assignment), file-canary/argv/environment/descendant/failure/exit probes
   passed native Windows Node 20/22 at `a6cdab2e` (11 CI checks green). Not full
