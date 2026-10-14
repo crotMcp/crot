@@ -3,6 +3,7 @@
  * Not transparent cmd/PowerShell/Node filesystem compatibility or full L1.
  */
 import { randomBytes } from "node:crypto";
+import { writeSync } from "node:fs";
 import { link, mkdir, readFile, rename, symlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -173,7 +174,8 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
         JSON.stringify({ exit: child.exitCode(), shellReady, shellExit, diagnostics: broker.diagnostics }),
       ).not.toBeNull();
       const result = JSON.parse(text!);
-      process.stdout.write(
+      writeSync(
+        1,
         `::notice title=CROT-6A-rpc-${shell}::${JSON.stringify({ result, diagnostics: broker.diagnostics }).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}\n`,
       );
       expect(result.failure, JSON.stringify({ result, diagnostics: broker.diagnostics })).toBeUndefined();

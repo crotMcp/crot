@@ -4,6 +4,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
+import { writeSync } from "node:fs";
 import { mkdir, readFile, writeFile, access } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -21,7 +22,7 @@ import { isAlive, isWindows, makeTempDirs, waitFor, type TempDirs } from "../../
 const emit = (section: string, value: unknown) => {
   const data = JSON.stringify(value).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
   if (Buffer.byteLength(data) > 48000) throw new Error("Diagnostic annotation too large.");
-  process.stdout.write(`::notice title=CROT-6A-${section}::${data}\n`);
+  writeSync(1, `::notice title=CROT-6A-${section}::${data}\n`);
 };
 const fixture = fileURLToPath(new URL("./fixtures/stage6a-client.mjs", import.meta.url));
 const koffi = createRequire(import.meta.url).resolve("koffi");
