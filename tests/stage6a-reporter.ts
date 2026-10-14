@@ -5,7 +5,13 @@ const emit = (title: string, value: unknown) => {
   writeSync(1, `\n::notice title=${title}::${text}\n`);
 };
 export default class Stage6aReporter {
-  onFinished(files: unknown[]) {
+  onFinished(files: unknown[], errors: unknown[] = []) {
+    const boundedErrors = (items: unknown[]) =>
+      items.slice(0, 10).map((item) => {
+        const e = item as { name?: string; message?: string };
+        return { name: e.name, message: e.message?.slice(0, 4000) };
+      });
+    if (errors.length) emit("CROT-6A-global-errors", boundedErrors(errors));
     const evidence = process.env.CROT_6A_EVIDENCE_FILE;
     if (evidence) {
       try {
@@ -18,7 +24,12 @@ export default class Stage6aReporter {
       }
     }
     for (const file of files) {
-      const f = file as { filepath?: string; name?: string; result?: { state?: string }; tasks?: unknown[] };
+      const f = file as {
+        filepath?: string;
+        name?: string;
+        result?: { state?: string; errors?: unknown[] };
+        tasks?: unknown[];
+      };
       if (!/(stage6a-diagnostics|workspace-native)\.test\.ts$/.test(f.filepath ?? f.name ?? "")) continue;
       const rows: unknown[] = [];
       const visit = (task: unknown) => {
@@ -40,6 +51,7 @@ export default class Stage6aReporter {
       emit("CROT-6A-test-summary", {
         file: (f.filepath ?? f.name)?.split(/[\\/]/).pop(),
         state: f.result?.state,
+        fileErrors: boundedErrors(f.result?.errors ?? []),
         rows,
       });
     }
