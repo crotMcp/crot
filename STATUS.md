@@ -8,9 +8,11 @@ package PR updates this file.
 ## WP-23c current continuation — not accepted
 
 Production Windows PowerShell shell preparation now imports the fixed system
-Utility manifest from `$PSHOME` before ordinary user scripts. Code `43f7392`
+Utility manifest from `$PSHOME` before ordinary user scripts. Production fix `43f7392`, qualified with the aligned legacy gate at `01ed8ce`,
 passes the 15-second Low redirection gate through the shared production helper,
-a real Core stdout/stderr/exit regression and all 11 CI checks. Bare raw
+a real Core stdout/stderr/exit regression and all 11 CI checks at `01ed8ce`.
+The separate `ec11e2e` rerun failure is retained; its legacy RPC invocation still
+used raw startup until the shared-helper alignment. Bare raw
 PowerShell discovery remains a reported timeout. Transparent Medium workspace
 writes, global outside-Low write isolation, native stdio byte bridge, the
 Windows confinement backend and actual protected-resource qualification are

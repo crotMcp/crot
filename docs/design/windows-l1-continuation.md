@@ -5,6 +5,34 @@ confinement still reports `not_implemented`; PR #27 stays open and Draft. No
 backend, write-through filesystem, global write boundary or architecture
 selection is claimed by the 11 green checks below.
 
+## Latest qualification and retained rerun failure
+
+**Latest qualified code/test source: `01ed8cece9c867bc7aef9e56b3c7c0b793bf14c7`.**
+All 11 checks completed successfully; synthetic checkout
+`475650d5e17e52ee02e1e4b89c63732464e34c10`.
+Windows [Node 20 job 116167869297](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38656643071/job/116167869297)
+and [Node 22 job 116167869398](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38656643071/job/116167869398)
+pass the strict ordinary-redirection and all original workspace-RPC assertions.
+Full local `npm run check` on this source passed again: 1526 core / 144 skipped,
+147 extension. The implementation in `src/` is unchanged from `43f7392`.
+
+The documentation-only HEAD `ec11e2e0dae0b4d3f0bcb70ca2b5f5fe266ab331` had
+**9 successful / 2 failed** checks on its separate rerun: the initialized
+strict redirection gate passed, but the legacy `powershell` workspace-RPC test
+timed out on both Node versions. That test still used a raw runtime invocation,
+not Core's initialized shell preparation. The failure is retained in the full
+check/event snapshots; the earlier 11/11 at `43f7392` is not retroactively
+rewritten as a durable raw-startup guarantee.
+
+`01ed8ce` makes that legacy RPC gate use the same production `shellCommand`
+preparation. Its user command, 60-second existing exit wait, ordinary stream
+redirection, exit 23, RPC CRUD/negatives, Unicode and observed-descendant
+assertions are unchanged. The separate module-free .NET path is unchanged.
+The original raw discovery/redirection controls still explicitly time out; no
+raw direct-process compatibility guarantee is inferred from initialized-shell
+success. This correction aligns the product-like test with the production fix,
+not a separate fixture-only module workaround.
+
 ## Restored baseline and implementation commits
 
 The supplied handoff was restored in a fresh Linux checkout. `git fetch origin`
@@ -110,6 +138,14 @@ only after Windows checks completed and verified for complete ordered parts.
 | `3a677623c36669290eca3a431bc742c6602c4132` | `ad4284cc3e95c3b4e9a229cb0628a92bcb433d65` | FAIL; strict gate and two new fixture controls | Same | 9 success / 2 failure |
 | `43f739224cf39c7bac688aa5609de5959e73f001` | `89b79d98559e25873a5965c5ec4e84dd62a8be6c` | PASS, [job 116160740422](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38654435566/job/116160740422) | PASS, [job 116160740353](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38654435566/job/116160740353) | 11 success |
 
+Additional retained pins:
+
+- `ec11e2e`: documentation-only source above, Windows rerun FAIL at
+  [Node 20 job 116164221850](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38655518644/job/116164221850)
+  and [Node 22 job 116164221991](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38655518644/job/116164221991).
+- `01ed8ce`: corrected shared-initialization legacy gate, latest successful
+  qualification and exact merge/job pins at the top of this report.
+
 The event field `sourceBaseline=4031536a...` is a historical hardcoded probe
 label, **not** the tested source HEAD. Source pins above come from GitHub's
 commit checks and the published branch; `testedCheckout` records the merge
@@ -137,7 +173,7 @@ Node 20/22, extension checks and real Chromium CI passed on that source pin.
 | Global write boundary | Not met | Unapproved Low sibling remains writable; MIC alone is not an allowed-write policy |
 | Protected actual CROT state/control/Docker | Not met | Actual service fixtures, secret store/device key, control/IPC/self-approval/Docker and descendants/concurrent attacks |
 | Native supported-machine acceptance | Partial | Node 20/22 x64 Server shell/RPC gates pass; ordinary Medium positives/full negatives, Windows 11/standard-user/ARM64 remain unqualified |
-| Regression | Met for pinned code | Full local check and all 11 native/regression CI checks passed; this alone is not L1 acceptance |
+| Regression | Met at latest qualified code/test pin | Full local check and all 11 native/regression CI checks passed; this alone is not L1 acceptance |
 | Production integration | Partial compatibility fix only | No Windows CommandConfinement backend or filesystem/global boundary; NativeHost remains fail-closed for remote workspace process/shell |
 | No known critical blockers | Not met | All above critical gaps remain; raw direct WinPS discovery also remains a bounded-runtime limitation |
 

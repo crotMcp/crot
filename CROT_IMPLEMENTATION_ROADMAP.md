@@ -617,7 +617,9 @@ neither enables L1 nor completes Windows remote shell/process acceptance.
 preparation at `43f7392` explicitly imports the system Utility manifest from
 `$PSHOME`. Shared-launch ordinary Low redirection completes in its unchanged
 15-second deadline and reaches Medium denial; a real Core regression checks
-file content/stdout/stderr/exit. All 11 CI checks pass at that source pin.
+file content/stdout/stderr/exit. All 11 CI checks pass at latest qualified source `01ed8ce` after aligning the
+legacy RPC gate with this production helper. The intervening `ec11e2e` rerun
+failure is retained as raw-startup evidence.
 Bare direct WinPS discovery still times out. Same-backing Medium writes,
 global outside-Low denial, native stdio transport and the Windows confinement
 backend remain missing; OD-6/OD-9 stay open and availability stays fail-closed.
