@@ -173,6 +173,9 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
         JSON.stringify({ exit: child.exitCode(), shellReady, shellExit, diagnostics: broker.diagnostics }),
       ).not.toBeNull();
       const result = JSON.parse(text!);
+      process.stdout.write(
+        `::notice title=CROT-6A-rpc-${shell}::${JSON.stringify({ result, diagnostics: broker.diagnostics }).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A")}\n`,
+      );
       expect(result.failure, JSON.stringify({ result, diagnostics: broker.diagnostics })).toBeUndefined();
       expect(child.exitCode()).toBe(23);
       expect(result.cwd.toLowerCase()).toBe(dirs.workspace.toLowerCase());

@@ -4,7 +4,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, access } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -159,6 +159,98 @@ describe.runIf(isWindows)("Windows stage 6A diagnostic observations, not L1 acce
     expect(report.rows.every((r: { attempted: boolean }) => r.attempted)).toBe(true);
     if (ready) expect(isAlive(held.pid)).toBe(false);
   }, 130000);
+  it("separates ordinary CRUD and shell redirection from explicit mediation", async () => {
+    const label = await loadProbeIntegrity();
+    const outsideLow = path.join(dirs.outside, "unapproved-low-control");
+    await mkdir(outsideLow);
+    // NEW disposable control only; never relabel a user's file or workspace.
+    label(outsideLow, "low-write");
+    const roots = { mediumWorkspace: workspace, privateLowControl: low, outsideLowControl: outsideLow };
+    for (const root of Object.values(roots))
+      for (const op of ["read", "write", "rename", "remove"])
+        await writeFile(path.join(root, `${op} проба.txt`), "before");
+    const file = fileURLToPath(new URL("./fixtures/stage6a-writes.mjs", import.meta.url));
+    const process = token.launchProbe(
+      {
+        executable: baseEnv.CROT_6A_NODE!,
+        args: [file],
+        cwd: workspace,
+        env: { ...baseEnv, CROT_6A_OUTSIDE_LOW: outsideLow },
+      },
+      jobs.createKillOnCloseJob(),
+    );
+    processes.push(process);
+    await waitFor(() => process.exitCode() !== null, 20000);
+    const report = JSON.parse(await readFile(baseEnv.CROT_6A_RESULT!, "utf8"));
+    const observed = [];
+    for (const [area, root] of Object.entries(roots)) {
+      const exists = async (name: string) =>
+        access(path.join(root, name)).then(
+          () => true,
+          () => false,
+        );
+      observed.push({
+        area,
+        created: await exists("create проба.txt"),
+        written: await readFile(path.join(root, "write проба.txt"), "utf8"),
+        renamed: await exists("renamed проба.txt"),
+        sourceStillPresent: await exists("rename проба.txt"),
+        removed: !(await exists("remove проба.txt")),
+      });
+    }
+    emit("ordinary-crud", { exitCode: process.exitCode(), ...report, observed });
+    expect(report.cwdMatched).toBe(true);
+    expect(report.rows).toHaveLength(15);
+    expect(report.rows.every((r: { attempted: boolean }) => r.attempted)).toBe(true);
+    // Redirection is attempted independently of launching a Node client.
+    for (const shell of ["cmd", "powershell"]) {
+      const mediumOutput = path.join(workspace, `${shell}-redirection.txt`);
+      const controlOutput = path.join(low, `${shell}-redirection.txt`);
+      const env = { ...baseEnv, CROT_6A_REDIRECT_MEDIUM: mediumOutput, CROT_6A_REDIRECT_LOW: controlOutput };
+      const tools = windowsTools(baseEnv.SystemRoot!);
+      const script =
+        shell === "cmd"
+          ? '@echo off\r\necho marker>"%CROT_6A_REDIRECT_MEDIUM%"\r\necho marker>"%CROT_6A_REDIRECT_LOW%"\r\n'
+          : "'marker' > $env:CROT_6A_REDIRECT_MEDIUM; 'marker' > $env:CROT_6A_REDIRECT_LOW";
+      const scriptPath = path.join(workspace, "redirect.cmd");
+      if (shell === "cmd") await writeFile(scriptPath, script);
+      const child = token.launchProbe(
+        {
+          executable: shell === "cmd" ? path.join(baseEnv.SystemRoot!, "System32", "cmd.exe") : tools.powershell,
+          args:
+            shell === "cmd"
+              ? ["/d", "/c", "redirect.cmd"]
+              : ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
+          cwd: workspace,
+          env,
+        },
+        jobs.createKillOnCloseJob(),
+      );
+      processes.push(child);
+      let exited = false;
+      try {
+        await waitFor(() => child.exitCode() !== null, 15000);
+        exited = true;
+      } catch {
+        /* reported */
+      }
+      emit("redirection", {
+        shell,
+        attempted: true,
+        exited,
+        exitCode: exited ? child.exitCode() : null,
+        mediumFilePresent: await access(mediumOutput).then(
+          () => true,
+          () => false,
+        ),
+        lowFilePresent: await access(controlOutput).then(
+          () => true,
+          () => false,
+        ),
+      });
+      child.close();
+    }
+  }, 65000);
   it("localizes PowerShell native invocation versus fully redirected ProcessStartInfo", async () => {
     const script = await readFile(new URL("./fixtures/stage6a-powershell.ps1", import.meta.url), "utf8");
     const child = token.launchProbe(
