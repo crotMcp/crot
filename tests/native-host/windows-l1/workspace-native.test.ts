@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, inject } from "vitest";
+import { shellCommand } from "../../../src/core/platform/shells.js";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 import { currentUserSid, windowsTools } from "../../../src/native-host/windows-acl.js";
 import { loadJobObjectApi, type JobObjectApi } from "../../../src/native-host/windows-job.js";
@@ -175,7 +176,10 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
         executable = windowsTools(process.env.SystemRoot ?? "C:\\Windows").powershell;
         const command =
           "[IO.File]::WriteAllText($env:CROT_PROBE_SHELL_READY,'entered'); & $env:CROT_PROBE_NODE $env:CROT_PROBE_CLIENT 1> $env:CROT_PROBE_STDOUT 2> $env:CROT_PROBE_STDERR; [IO.File]::WriteAllText($env:CROT_PROBE_SHELL_EXIT,[string]$LASTEXITCODE); exit $LASTEXITCODE";
-        args = ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(command, "utf16le").toString("base64")];
+        // Match Core's actual WinPS shell initialization, not a raw runtime
+        // invocation whose cold-cache discovery remains a negative control.
+        // Script, streams, exit and every RPC/descendant assertion stay intact.
+        args = [...shellCommand({ id: "powershell", path: executable }, command).args];
       }
       if (shell === "powershell-dotnet") {
         executable = windowsTools(process.env.SystemRoot ?? "C:\\Windows").powershell;
