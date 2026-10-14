@@ -331,7 +331,7 @@ capability refusal, compatible descendants and a nonzero native exit code.
 Separate tests exercise root pin/release and Job-tree termination. Grammar
 unit tests on Linux establish only request parsing, not Windows security.
 
-**Evidence:** local and native checks are pending for this new code. Earlier
+**Evidence:** first local `npm run check` passed: 1507 core tests / 131 skipped, 147 extension tests. The five new native tests skip on Linux, not counted as local Windows passes. First Windows Node 20 run at `af2daa8` exposed a fixture environment error: spreading the platform environment included names rejected by the research launcher grammar (for example Windows names with parentheses). Four launch tests failed before process creation; root pin/release passed. The fixture now supplies only explicit supported environment names; the validator was NOT relaxed. Native rerun pending. Earlier
 stage-5 passing results do not validate it. No failures will be turned into
 Windows skips. The existing PR Windows x64 matrix will run on publication;
 no workflow file or ARM64 permission change is part of this experiment.

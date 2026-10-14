@@ -86,7 +86,7 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
         executable: process.execPath,
         args: ["-e", script],
         cwd: dirs.workspace,
-        env: { ...host.platform.baseEnvironment, TEMP: low, TMP: low, CROT_PROBE_PIPE: broker.pipe },
+        env: { SystemRoot: process.env.SystemRoot ?? "C:\\Windows", TEMP: low, TMP: low, CROT_PROBE_PIPE: broker.pipe },
       },
       jobs.createKillOnCloseJob(),
     );
@@ -104,7 +104,7 @@ describe.runIf(isWindows)("Windows stage 6: bounded explicit workspace mediation
       const stdout = path.join(low, "stdout.txt");
       const stderr = path.join(low, "stderr.txt");
       const env = {
-        ...host.platform.baseEnvironment,
+        SystemRoot: process.env.SystemRoot ?? "C:\\Windows",
         TEMP: low,
         TMP: low,
         CROT_PROBE_PIPE: broker.pipe,
