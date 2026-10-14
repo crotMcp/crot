@@ -22,7 +22,7 @@ import { isAlive, isWindows, makeTempDirs, waitFor, type TempDirs } from "../../
 const emit = (section: string, value: unknown) => {
   const data = JSON.stringify(value).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
   if (Buffer.byteLength(data) > 48000) throw new Error("Diagnostic annotation too large.");
-  writeSync(1, `::notice title=CROT-6A-${section}::${data}\n`);
+  writeSync(1, `\n::notice title=CROT-6A-${section}::${data}\n`);
 };
 const fixture = fileURLToPath(new URL("./fixtures/stage6a-client.mjs", import.meta.url));
 const koffi = createRequire(import.meta.url).resolve("koffi");
