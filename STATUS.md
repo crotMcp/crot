@@ -427,8 +427,12 @@ Node 20/22 at `14084c6f` (11 CI checks green; local check 1469 core passed /
 113 skipped, 147 extension passed). Owner-only reads plus explicit secret
 NO_READ_UP work in fixtures, but Low IL blocks ordinary Medium-workspace
 writes. No production activation; safe workspace mediation and bypass/IPC
-qualification remain required. Stage 4 adds native token-raise, precreated
-alias and MIC descendant probes; native evidence pending. This is not a production L1 backend or a
+qualification remain required. Stage 4 paired native probes passed at
+`418b7d1f` (11 CI green; local check 1470 core / 124 skipped, 147 extension).
+The privilege-stripped MIC-only component preserves both normal/hidden Node
+spawning, secret NR denial, static-alias denial and own-token raise denial;
+the SID-filtered candidate's EPERM failures are retained as rejected behavior.
+Full allowed-write/IPC boundaries remain open. This is not a production L1 backend or a
 completed OD-6 decision. macOS and
 Windows runtime confinement remains `not_implemented`/fail-closed until the
 full boundary and positive remote shell/process acceptance are implemented.

@@ -198,51 +198,66 @@ Microsoft references:
 [label-only security updates](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setnamedsecurityinfow).
 Low IL alone normally provides no-write-up, **not secret-read isolation**.
 
-## Stage 4 — adversarial MIC probes
+## Stage 4 — adversarial MIC probes and descendant compatibility
 
-Status: implemented; native evidence pending. No production changes.
-Three additional native cases require: (1) opening the child's own token and
-successfully setting Low again as an API/rights/ABI control, followed by denial
-of raising to Medium with access/privilege error; (2) denial of secret reads
-and copying through actual precreated hard-link/junction aliases, with
-ordinary project aliases readable; (3) a real descendant still reading the
-project but denied the NR secret. Alias creation is trusted setup, not treated
-as the access-denial proof. Fixture trees are not relabelled after reparse
-points are created. A sandbox-created symlink denial alone would be insufficient.
+Native paired matrix passed at
+`418b7d1fee04c55e6e3dfe2b51ed404b3019f99c`: all 11 CI checks green,
+including Windows [Node 20](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38499124778/job/115641617524)
+and [Node 22](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38499124778/job/115641617375).
+Local `npm run check`: 1470 core passed / 124 skipped; 147 extension passed.
+Windows-only cases skip locally on Linux, not in the native Windows suites.
+No production changes, availability claim or final OD-6 selection.
 
-The first native attempt at `d0057d74` passed token-raise and alias checks
-on Windows Node 20, but `spawnSync` returned EPERM before the descendant ran.
-This is a positive-functionality failure, not a descendant security pass.
-The next comparison tests explicit `windowsHide: true` (matching CROT's existing
-node-launcher setting) versus default console allocation. Libuv sets
-CREATE_NO_WINDOW for the hidden/no-inherited-console path, unlike the default
-path (`src/win/process.c`). The default EPERM is retained as a known rejected
-candidate behavior, not removed from evidence or declared acceptable. Hidden
-launch must actually succeed and retain read restrictions; its result is pending.
-A successful hidden path would not close general console/spawn compatibility.
-The hidden path also returned EPERM at `4cdd9d19`, rejecting the console-only
-hypothesis. The next paired matrix keeps **both WRITE_RESTRICTED spawn failures**
-as evidence and requires a separate privilege-stripped, Low-IL MIC-only token
-(no extra restricting SID list) to launch both hidden and default descendants
-while retaining every project-read, secret-denial, alias and token-raise check.
-This tests whether the second SID access check conflicts with descendant IPC,
-not whether removing protection is an acceptable shortcut. MIC-only has no
-standalone secret protection before NR labels, still cannot write ordinary
-Medium workspaces and does not enforce a complete allowed-Low-write or IPC
-boundary. It cannot enable production L1. IsTokenRestricted is not an L1 test:
-it reports the SID restriction, not privilege removal or MIC enforcement.
+The matrix runs the same file/alias/token/descendant checks for two candidates:
 
-These tests still do not qualify process-memory/handle theft, malicious
-reparse replacement races, inherited/broker-provided handles, IPC/DPAPI,
-GUI/network, production secret provisioning or ordinary workspace writes.
-The native suite must pass without converting failures to skips.
+| Probe | WRITE_RESTRICTED + Low MIC | Privilege-stripped Low MIC, no extra restricting SIDs |
+| --- | --- | --- |
+| Ordinary owner-only project read | Allowed | Allowed |
+| Secret without NR label (before Low/NR setup) | Exposed: standalone candidate rejected | Exposed: standalone candidate rejected |
+| NR-labelled secret read/write/delete; hard-link/junction read/copy | Denied in fixture | Denied in fixture |
+| Normal project hard-link/junction read | Allowed | Allowed |
+| Set own token Low again (positive API/rights/ABI control) | Succeeds | Succeeds |
+| Raise own token to Medium | Denied (access/privilege error) | Denied (access/privilege error) |
+| Normal and hidden Node descendants with pipe stdio | EPERM: functional gap, rejected candidate | Launch succeeds; project read allowed, NR secret read denied |
+| Ordinary Medium workspace write at Low IL | Denied: functional gap | Denied: functional gap |
+
+The first native attempt (`d0057d74`) exposed the ordinary spawn failure;
+`4cdd9d19` also failed with `windowsHide: true`, rejecting the console-only
+hypothesis. Both SID-filtered spawn failures remain explicit evidence in the
+paired suite, not skipped or declared acceptable product behavior. The passing
+MIC-only descendant branch must actually launch with both window settings and
+retain the secret denial. Removing the extra SID filter restores these tested
+workflows; the exact failing kernel object in the earlier path is not identified.
+
+The MIC-only research mode uses CreateRestrictedToken/DISABLE_MAX_PRIVILEGE
+without an added restricting SID list, then Low IL and explicit fixture NR
+labels. The original default all-access SID restriction is unchanged. This
+mode is **not a complete L1 backend**: IsTokenRestricted reports restricting
+SIDs, not privilege removal/MIC, and no availability is inferred from it.
+The engineering direction for the next experiment is this compatible MIC
+component plus a separately verified allowed-write/IPC/secret boundary, not
+retaining a SID-filter candidate by sacrificing normal process spawning.
+
+Trusted setup creates real hard links and a junction before the low child
+opens them; denial of alias creation alone would not prove protected reads.
+Fixture trees are not relabelled after reparse points are created. Only
+throwaway paths are modified. The token-raise attempt first proves the same
+API can set Low, so a malformed call is not counted as an escalation denial.
+
+Still unqualified: process-memory/handle theft, mutable reparse races,
+inherited/broker-provided handles, IPC/DPAPI, GUI/network, all host Low-labelled
+write locations, production secret provisioning, ordinary workspace writes,
+standard-user/client-version/ARM64 qualification. No user-project labels are
+lowered and no protection is removed from production. Passing expected-gap
+assertions is a research result, never full platform acceptance.
 
 ## Remaining bounded experiments
 
 1. **Safe workspace mediation and read-boundary bypass probes:** stage 3
    establishes permitted owner-only reads and explicit secret NR denial, but
-   also the Medium-workspace write gap. Next test inheritance, token/handle,
-   alias/reparse and IPC bypasses, then qualify an isolated write view or
+   also the Medium-workspace write gap. Stage 4 qualifies static aliases,
+   own-token raise denial and compatible MIC-only descendants. Next test
+   process-memory/handle, mutable reparse and IPC bypasses, then qualify an isolated write view or
    brokered workspace without lowering existing user-file labels. Compare an
    AppContainer/identity broker if required to meet the same positive/negative
    contract. WRITE_RESTRICTED or Low IL alone remains rejected; no global

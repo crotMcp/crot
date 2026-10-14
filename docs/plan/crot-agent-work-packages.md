@@ -179,6 +179,12 @@ own requests. Profile: AD-13 point 4.
 - **Size:** M. **Depends on:** WP-21.
 
 ### WP-23c — L1 for Windows (spike, then restricted / low-IL token + Job Object)
+- **Stage 4 evidence:** paired native MIC matrix passed at `418b7d1f` (11 CI
+  green). Privilege-stripped MIC-only restores normal/hidden Node descendants
+  while retaining fixture secret/alias and own-token raise denials. SID-filtered
+  spawn EPERM is retained as rejected behavior. Medium-workspace writes,
+  complete allowed-write/IPC and memory/handle/race proofs remain open; no
+  production activation or final OD-6 decision.
 - **Stage 3 evidence:** write-restricted/MIC comparisons passed native Windows
   Node 20/22 at `14084c6f` (11 CI green). Ordinary owner-only reads and explicit
   secret NO_READ_UP coexist in disposable fixtures, but Low IL prevents writing
