@@ -5387,3 +5387,31 @@ absolute-NT probe, explicitly name that result `ntMetadata`, and preserve the
 exact bounded failing NTSTATUS when an owner NT control fails. This minimum
 handle would still carry FILE_ANY_ACCESS controls; no IOCTL is invoked. Keep
 both namespaces' positive controls mandatory and all existing actor gates.
+
+**AD-28 supported-bootstrap amendment (before implementation):** `9faa901`
+passes all owner Win32/NT controls and owned executable preparation, but both
+profiles fail CreateProcess before child entry. Microsoft's documented public
+launch sequence creates a profile for a NEW moniker; DeriveAppContainerSid is
+for deriving an existing identity and is not itself profile provisioning.
+Replace the profileless experiment with **fresh CreateAppContainerProfile /
+DeleteAppContainerProfile ownership**, not a retry with fewer capabilities,
+looser LPAC/token/Job checks or an existing/shared profile. Names remain unique
+and <=64 characters. ERROR_ALREADY_EXISTS is failure: never adopt/delete it.
+Only S_OK grants ownership. Record exact names in a fixed retained owner table
+before creation, mark owned only after success; delete only exact owned profiles
+after their Jobs settle and all process/token handles close. Failed deletion
+retains the owner, blocks fresh allocation, retries at helper teardown and
+reports cleanup failure rather than qualified evidence. No original/parent/
+global ACL is altered by CROT. Public OS profile APIs create their own new
+per-user/per-package objects with the platform's isolation policy.
+
+This amended fixture is disposable hosted-native CI only, not production:
+profile cleanup on abrupt helper/host death and durable crash recovery are
+**unqualified**. A future backend must implement/verify that ownership/recovery
+contract before shipping. Normal API deletion is not crash-lifetime proof.
+Native literal-zero NT opens with the correct non-directory options, all data
+access grants/aliases and actual runtime/global/network gates also remain
+mandatory before any safe mechanism selection; metadata denial alone is not
+full control-plane isolation proof. Reference: Microsoft Learn,
+`/windows/win32/secauthz/implementing-an-appcontainer` and
+`/windows/win32/api/userenv/nf-userenv-createappcontainerprofile`.

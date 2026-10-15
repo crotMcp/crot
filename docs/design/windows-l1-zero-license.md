@@ -66,11 +66,17 @@ Sources:
 ## Implemented qualification experiment (not backend)
 
 `native/windows-workspace-view/control-profile-probe.h` runs only with the fixed
-trusted `--diagnose-control-profiles` helper option. It derives separate unique
-AppContainer/LPAC SIDs, creates new private executable objects with exact-package
+trusted `--diagnose-control-profiles` helper option. The initial profileless experiment failed CreateProcess before child entry.
+The supported-bootstrap continuation creates separate new per-user profiles with
+CreateAppContainerProfile, obtains their unique AppContainer/LPAC SIDs, creates
+new private executable objects with exact-package
 RX, launches a fixed co-located CROT-owned native child suspended into an empty
 kill-on-close Job **at creation**, and checks actual package SID/zero capabilities/
-Low IL/LPAC state/Job membership before resume. No persistent profiles are created.
+Low IL/LPAC state/Job membership before resume. Only S_OK grants profile ownership; existing profiles are never adopted. Exact
+profile owners are retained for deletion after the child Job settles and token/
+process handles close. Cleanup failure stops fresh allocation and is not qualified
+evidence. Teardown retries the exact owned profiles. Abrupt-death/crash recovery
+is unqualified: this remains a disposable hosted-CI experiment, never production.
 Only those newly created objects receive ACLs; parent/original/global/device SDs
 are never changed. Fixed child code repeats token readback after entry.
 
@@ -93,7 +99,10 @@ pinned signed Dokan provisioning, actor deadlines and security assertions stay.
 
 **Important limit:** no package is granted raw-device or workspace rights in this
 experiment. Even four access denials do not prove control/data separation after
-data access is enabled. Next gates must include that exact grant, original
+data access is enabled. Next gates must grant only projected data access while preserving raw control
+isolation (if raw-device grants are required, test them explicitly and reject
+any reopened control), probe literal-zero native opens with the correct open
+options, and prove original
 Medium immediate-host CRUD and SD identity, ready Node20/22/cmd/WinPS descendants,
 outside-Low/protected state/Docker/network/aliases/races/lifetime and independent
 Windows11 standard-user x64/ARM64 coverage. No criterion is marked met by design.

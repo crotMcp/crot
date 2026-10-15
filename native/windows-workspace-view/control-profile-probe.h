@@ -3,6 +3,27 @@
 DWORD controlProfileDiagnostic=0;
 DWORD controlProfileNtStatus=0; // last fixed native prerequisite status, NTSTATUS or Win32 code
 bool diagnoseControlProfiles=false;
+struct ProfileOwner { std::wstring name; bool owned=false; bool settled=true; };
+std::array<ProfileOwner,2> controlProfileOwners{};
+bool retryControlProfileCleanup() {
+  // Token/process close failures must be retried before profile deletion.
+  { std::lock_guard<std::mutex> lock(releaseLock);
+    for (const auto h:retained) if (h) return false;
+  }
+  bool okay=true;
+  for (auto& owner:controlProfileOwners) if (owner.owned) {
+    if (!owner.settled) { okay=false; continue; }
+    bool removed=false;
+    for (unsigned attempt=0;attempt<10;attempt++) {
+      const HRESULT hr=DeleteAppContainerProfile(owner.name.c_str());
+      if (hr==S_OK) { removed=true; break; }
+      Sleep(25);
+    }
+    if (removed) { owner.owned=false; owner.name.clear(); }
+    else okay=false; // exact name retained, no adoption or broad cleanup
+  }
+  return okay;
+}
 struct Attributes {
   std::vector<unsigned char> storage;
   PPROC_THREAD_ATTRIBUTE_LIST p=nullptr;
@@ -36,9 +57,17 @@ DWORD oneControlProfile(const std::wstring& device,const std::wstring& source,
   const auto target=directory+L"\\control-profile-child.exe";
   Handle probeJob,process,thread;
   try {
-    // Public API; no profile/registry registration or persistent identity.
+    // Microsoft's public sequence provisions a NEW per-user profile first.
+    // Never adopt an existing profile; reserve bookkeeping before OS mutation.
     outcome=0x20b;
-    if (package.empty() || package.size()>64 || FAILED(DeriveAppContainerSidFromAppContainerName(package.c_str(),&packageSid)) || !packageSid) deny();
+    if (package.empty() || package.size()>64) deny();
+    for (const auto& owner:controlProfileOwners) if (owner.owned) deny();
+    auto& profile=controlProfileOwners[lpac?1:0]; profile.name=package;
+    const HRESULT created=CreateAppContainerProfile(package.c_str(),L"CROT native control probe",
+        L"Disposable zero-capability diagnostic",nullptr,0,&packageSid);
+    if (created==S_OK) profile.owned=true;
+    if (created!=S_OK || !packageSid) { controlProfileNtStatus=static_cast<DWORD>(created); deny(); }
+
     LPWSTR text=nullptr;
     outcome=0x20c;
     if (!ConvertSidToStringSidW(packageSid,&text)) deny();
@@ -95,6 +124,7 @@ DWORD oneControlProfile(const std::wstring& device,const std::wstring& source,
       deny();
     }
     process.h=pi.hProcess; thread.h=pi.hThread; jobSettled=false;
+    controlProfileOwners[lpac?1:0].settled=false;
     outcome=0x204;
     BOOL member=FALSE; Handle token;
     if (!IsProcessInJob(process.h,probeJob.h,&member) || !member ||
@@ -127,6 +157,7 @@ DWORD oneControlProfile(const std::wstring& device,const std::wstring& source,
       jobSettled=!!QueryInformationJobObject(probeJob.h,JobObjectBasicAccountingInformation,&a,sizeof(a),nullptr) && !a.ActiveProcesses;
     }
   }
+  controlProfileOwners[lpac?1:0].settled=jobSettled;
   // Retain failed handle ownership in the existing helper registry. A failed
   // cleanup cannot produce qualified profile evidence or new allocations.
   release(thread.h); thread.h=INVALID_HANDLE_VALUE;
@@ -137,11 +168,13 @@ DWORD oneControlProfile(const std::wstring& device,const std::wstring& source,
   if (directoryOwned && jobSettled && !RemoveDirectoryW(directory.c_str())) clean=false;
   if (sd && LocalFree(sd)) clean=false;
   if (packageSid && FreeSid(packageSid)!=nullptr) clean=false;
+  if (!retryControlProfileCleanup()) clean=false;
   if (!clean) { fault(); return 0x20a; }
   return outcome;
 }
 DWORD probeControlProfiles(const std::wstring& device) {
   try {
+    if (!retryControlProfileCleanup()) return 0xa5c00000u;
     // Positive controls precede untrusted identities. Check both namespaces and
     // both access masks; an absent endpoint is not a denial result.
     const auto raw=L"\\\\?\\GLOBALROOT"+device;

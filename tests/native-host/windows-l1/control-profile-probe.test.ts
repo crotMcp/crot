@@ -35,9 +35,9 @@ describe("AppContainer/LPAC diagnostic protocol (not native evidence)", () => {
     expect(decodeControlProfileDiagnostic("a5d00000")).toEqual({ completed: false, stage: "owner-controls-or-setup" });
     expect(decodeControlProfileDiagnostic("a5c00000")).toEqual({ completed: false, stage: "cleanup" });
   });
-  it("distinguishes package derivation, owned-directory and executable ACL setup failures", () => {
+  it("distinguishes new-profile creation, owned-directory and executable ACL setup failures", () => {
     expect(decodeControlProfileDiagnostic(frame(0x20b, 0x20f))).toMatchObject({
-      appContainer: { ready: false, stage: "package-sid-derive" },
+      appContainer: { ready: false, stage: "package-profile-create" },
       lpac: { ready: false, stage: "owned-directory-create" },
     });
     expect(decodeControlProfileDiagnostic(frame(0x211, 0x210))).toMatchObject({

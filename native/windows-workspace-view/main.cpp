@@ -517,7 +517,7 @@ int wmain(int argc,wchar_t** argv) {
   joinInput(input);
   if (initialized) DokanShutdown();
   rootPins.clear(); root=INVALID_HANDLE_VALUE; release(job.h); job.h=INVALID_HANDLE_VALUE;
-  if (!retryReleases() || failed) result=3;
+  if (!retryReleases() || !retryControlProfileCleanup() || failed) result=3;
   if (projected && LocalFree(projected)) result=3;
   if (ownerSid && LocalFree(ownerSid)) result=3;
   if (uniqueSid && LocalFree(uniqueSid)) result=3;

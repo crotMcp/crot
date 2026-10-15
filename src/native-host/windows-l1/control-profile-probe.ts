@@ -12,7 +12,7 @@ const stages = [
   "loader-0142",
   "child-not-ready",
   "cleanup",
-  "package-sid-derive",
+  "package-profile-create",
   "package-sid-format",
   "owner-sid-format",
   "owned-descriptor",
