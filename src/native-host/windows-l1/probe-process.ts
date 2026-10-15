@@ -257,6 +257,51 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
         } finally {
           observing = false;
         }
+        if (!spec.diagnostics.debugOnlyThisProcess) {
+          // An external debugger reports attached before its initial attach
+          // suspension has necessarily been released. Wait for it to finish;
+          // never consume its suspension with an additional ResumeThread.
+          // This is diagnostic-only and observes THIS held child thread, not a
+          // PID opener, actor-provided handle or production readiness shortcut.
+          const queryThread = ffi
+            .load(libraries.ntdll ?? "ntdll.dll")
+            .func(
+              `int32_t __stdcall NtQueryInformationThread(void *thread, uint32_t kind, _Out_ ${DWORD} *count, uint32_t size, _Out_ ${DWORD} *returned)`,
+            );
+          const deadline = Date.now() + 10000;
+          const sleeper = new Int32Array(new SharedArrayBuffer(4));
+          for (;;) {
+            const count: { value?: number } = {},
+              returned: { value?: number } = {};
+            const nativeStatus = Number(queryThread(info.hThread, 35, count, 4, returned));
+            if (
+              nativeStatus !== 0 ||
+              returned.value !== 4 ||
+              !Number.isSafeInteger(count.value) ||
+              count.value! < 1 ||
+              count.value! > 0x7fffffff
+            )
+              throw new CrotError(
+                "OPERATION_FAILED",
+                "Windows process probe: owned diagnostic suspend observation failed.",
+                {
+                  stage: "owned diagnostic suspend observation",
+                  nativeStatus,
+                },
+              );
+            if (count.value === 1) break;
+            if (Date.now() >= deadline)
+              throw new CrotError(
+                "OPERATION_FAILED",
+                "Windows process probe: owned diagnostic attach suspension deadline failed.",
+                {
+                  stage: "owned diagnostic attach suspension deadline",
+                  previousSuspendCount: count.value,
+                },
+              );
+            Atomics.wait(sleeper, 0, 0, 10);
+          }
+        }
       }
       const previousSuspendCount = resume(info.hThread);
       if (previousSuspendCount !== 1) {

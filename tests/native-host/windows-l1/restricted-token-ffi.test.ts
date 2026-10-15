@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { JobObject } from "../../../src/native-host/windows-job.js";
 import type { ProbeSpec } from "../../../src/native-host/windows-l1/probe-process.js";
 import {
@@ -80,9 +80,9 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     execFileSync(cc!, ["-shared", "-fPIC", "-o", lib, source]);
     const imported: unknown = await import("koffi");
     const ffi = ((imported as { default?: unknown }).default ?? imported) as TokenFfi;
-    api = bindRestrictedTokens(ffi, { advapi32: lib, kernel32: lib });
+    api = bindRestrictedTokens(ffi, { advapi32: lib, kernel32: lib, ntdll: lib });
     labelFixture = bindProbeIntegrity(ffi, { advapi32: lib, kernel32: lib });
-    expect(bindRestrictedTokens(ffi, { advapi32: lib, kernel32: lib })).toBe(api);
+    expect(bindRestrictedTokens(ffi, { advapi32: lib, kernel32: lib, ntdll: lib })).toBe(api);
     fault = ffi.load(lib).func("void SetFault(int n)") as typeof fault;
     live = ffi.load(lib).func("int LiveAllocations(void)") as typeof live;
     resetProcess = ffi.load(lib).func("void ResetProcessCounters(void)") as typeof resetProcess;
@@ -283,6 +283,78 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     expect(live()).toBe(2);
     fault(0);
     token.close();
+    expect(live()).toBe(0);
+  });
+  it("waits for the debugger's extra attach suspension to leave before consuming exactly its own one", () => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid);
+    fault(32);
+    const child = token.launchProbe(
+      {
+        ...spec,
+        diagnostics: { debugOnlyThisProcess: false, beforeResume: () => undefined },
+      },
+      job(),
+    );
+    expect(resumes()).toBe(1);
+    child.close();
+    fault(0);
+    token.close();
+    expect(live()).toBe(0);
+  });
+  it.each([33, 34, 35, 37])("refuses invalid owned suspend query %i before any resume", (n) => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid),
+      j = job();
+    fault(n);
+    try {
+      expect(() =>
+        token.launchProbe(
+          {
+            ...spec,
+            diagnostics: { debugOnlyThisProcess: false, beforeResume: () => undefined },
+          },
+          j,
+        ),
+      ).toThrow("owned diagnostic suspend observation");
+      expect(resumes()).toBe(0);
+      expect(kills()).toBe(1);
+      expect(j.closed).toBe(true);
+      expect(live()).toBe(2);
+    } finally {
+      fault(0);
+      token.close();
+    }
+    expect(live()).toBe(0);
+  });
+  it("bounds persistent debugger suspension without an extra resume, false readiness or leaked child", () => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid),
+      j = job();
+    fault(36);
+    const now = vi.spyOn(Date, "now").mockReturnValueOnce(0).mockReturnValue(10001);
+    try {
+      expect(() =>
+        token.launchProbe(
+          {
+            ...spec,
+            diagnostics: { debugOnlyThisProcess: false, beforeResume: () => undefined },
+          },
+          j,
+        ),
+      ).toThrow("owned diagnostic attach suspension deadline");
+      expect(resumes()).toBe(0);
+      expect(kills()).toBe(1);
+      expect(j.closed).toBe(true);
+      expect(live()).toBe(2);
+    } finally {
+      now.mockRestore();
+      fault(0);
+      token.close();
+    }
     expect(live()).toBe(0);
   });
   it.each([9, 10, 11])("cleans partial creation/resume failure %i without native leaks", (n) => {

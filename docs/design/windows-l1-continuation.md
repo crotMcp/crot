@@ -5,6 +5,40 @@ confinement still reports `not_implemented`; PR #27 stays open and Draft. No
 backend, write-through filesystem, global write boundary or architecture
 selection is claimed by the 11 green checks below.
 
+## Latest native checkpoint `0625595` — still NOT accepted
+
+Implementation source `0625595d5b720677f4642ba07fb1915896dad021`:
+**9 completed successful checks /2 Windows failures**. All four real Linux L1
+jobs, Linux/macOS Node20/22 and Chromium pass. Full local1624 Core /166 skipped
+and147 extension. Windows native jobs:
+[Node20](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38676382474/job/116230833930),
+[Node22](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38676382474/job/116230834028).
+Full checks/events/annotations retained with manifest. Existing native byte,
+Job, strict PS/RPC gates remain, without assertion weakening. Strong-token
+startup/NUL/ordinary descendants and shells remain red; all eight criterion
+statuses below remain unchanged (the older table's exact281b559 evidence is
+historical, not mislabeled as new source proof).
+
+The native diagnostic now proves **ResumeThread previousSuspendCount=2** on
+both Node20/22. CDB's attached flag arrives while an extra suspension is still
+present. The new follow-up queries ThreadSuspendCount (NtQueryInformationThread
+class35, ULONG, since Windows8.1), read-only over the already held owned thread.
+It waits at most10s for count1, then still requires the real ResumeThread return
+exactly1. It NEVER performs an extra resume, changes the thread context, accepts
+count0/2 as successful launch or exposes thread handles/PID openers. Nonzero
+NTSTATUS, wrong output size, malformed/count0 and deadline fail before resume;
+production/Core does not forward diagnostics. This is a diagnostic ordering fix,
+not a filesystem/token/runtime compatibility solution or new permission system.
+The native ABI declaration is checked against the public phnt thread enum:
+https://github.com/winsiderss/systeminformer/blob/master/phnt/include/ntpsapi.h
+(no third-party implementation is copied).
+
+Focused portable/C-ABI follow-up:90 passed (68 token ABI,2 process ownership,
+4 fixed debugger lifetime,16 environment/arguments). Added delayed attach2→1,
+unsupported query, count0, wrong size, invalid ULONG and persistent-suspension
+cases. They prove no extra resume and no lost child on failure; native CI for
+this source remains pending, and USER32/root cause is NOT claimed solved.
+
 ## Current acceptance checkpoint — native source `281b559`, NOT accepted
 
 Source `281b5590892a4c689aa19906ff6cdcfb47bbdb55` has nine completed
@@ -727,3 +761,5 @@ FFI-exception I/O start paths still need further audit; this does not claim
 exhaustive exceptional-path qualification or completion of criterion2/8.
 
 Final local full check of this byte setup/count-diagnostic change: **1624 Core passed /166 skipped;147 extension passed**, including lint/format/types/builds. Focused portable/C-ABI suite:94 passed (62 token ABI,11 byte state,5 byte ABI,16 environment/argument). Runtime Linux x64 Node24.14.1; local Windows skips are not native proof. Native CI for this new source is pending.
+
+Read-only attach synchronization full local check: **1630 Core passed /166 skipped;147 extension passed**, including lint/format/types/builds. Native Windows requalification remains pending; local platform skips are not acceptance.

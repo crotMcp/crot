@@ -7,23 +7,23 @@ package PR updates this file.
 
 ## WP-23c current continuation — not accepted
 
-Latest completed native source `281b559`: **9 successful checks /2 Windows
+Latest completed native source `0625595`: **9 successful checks /2 Windows
 failures**. All four Linux L1 jobs, Linux/macOS Node20/22 and real Chromium pass.
-Full local check for that source:1614 Core /166 skipped and147 extension.
+Full local check for that source:1624 Core /166 skipped and147 extension.
 Node22 direct unique-token private CRUD/unrelated-Low write and WRITE_DAC denial
 pass; ordinary NUL reopen fails EPERM after a trusted working control. Node20
 exits0xc0000142 before JS; descendants/cmd/WinPS remain red. Owned debugger
-attachment still fails the exact ResumeThread gate on both runtimes; previous
-logs did not capture the numeric suspend count. No security denial is inferred
+attachment still fails the exact ResumeThread gate on both runtimes; its actual previous suspend count is2 on both runtimes. No security denial is inferred
 from missing readiness, and no suspend-count assertion is weakened.
 
-Current byte cleanup follow-up retains failed event/parent closes, partial
-transport setup handles and descriptors until native release succeeds; persistent
-failure blocks further allocation. Fault-injection covers recovery and no-growth
-without double release. ResumeThread errors now record the actual native count,
-with GetLastError only for the failure sentinel. Native requalification for
-these changes is pending; latest completed native evidence is pinned above.
-Full local check of this change:1624 Core /166 skipped and147 extension passed.
+Byte cleanup at0625595 retains failed event/parent closes, partial setup
+handles and descriptors until native release succeeds. Fault injection checks
+persistent failure, no allocation growth and recovery without double release.
+Current diagnostic follow-up waits READ-ONLY for CDB's initial attach suspension
+to leave before consuming the launcher's own one. It queries only the exact held
+child thread; no extra ResumeThread, external handle/PID authority or production
+readiness claim. Unsupported/malformed native query, count0 or a persistent
+extra suspension fail before resume. Native requalification pending.
 
 Implemented components include native byte stdio/ProcessLauncher through the
 existing Core (`3b91370`, historical 11/11 CI), bounded launch environment,

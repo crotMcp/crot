@@ -20,6 +20,8 @@ export interface TokenFfi {
 export interface TokenLibraries {
   readonly advapi32: string;
   readonly kernel32: string;
+  /** Only the fixed owned diagnostic needs a read-only native thread query. */
+  readonly ntdll?: string;
 }
 export interface DaclAccess {
   /** FILE_READ_DATA only; not all file-read operations. */
@@ -81,7 +83,7 @@ export function bindRestrictedTokens(
   ffi: TokenFfi,
   libraries: TokenLibraries = { advapi32: "advapi32.dll", kernel32: "kernel32.dll" },
 ): RestrictedTokenApi {
-  const key = `${libraries.advapi32}\0${libraries.kernel32}`;
+  const key = `${libraries.advapi32}\0${libraries.kernel32}\0${libraries.ntdll ?? "ntdll.dll"}`;
   let perModule = bound.get(ffi);
   if (!perModule) {
     perModule = new Map();

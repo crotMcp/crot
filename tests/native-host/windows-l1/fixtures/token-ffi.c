@@ -66,8 +66,8 @@ typedef struct {
   uint16_t show, reserved2; void *pReserved2, *in, *out, *err;
 } STARTUP;
 typedef struct { void *process, *thread; uint32_t pid, tid; } PROCESS_INFORMATION;
-static int creates = 0, resumes = 0, kills = 0, phase = 0, assigned = 0;
-void ResetProcessCounters(void) { creates = resumes = kills = phase = assigned = 0; }
+static int creates = 0, resumes = 0, kills = 0, phase = 0, assigned = 0, suspend_queries = 0;
+void ResetProcessCounters(void) { creates = resumes = kills = phase = assigned = suspend_queries = 0; }
 void MarkJobAssigned(void) { assigned = 1; }
 int ResumeCount(void) { return resumes; }
 int KillCount(void) { return kills; }
@@ -82,6 +82,7 @@ uint32_t ResumeThread(void *thread) {
   if (fault == 11 || *(int *)thread != 6 || !assigned) return 0xffffffff;
   if (fault == 30) return 0;
   if (fault == 31) return 2;
+  if (fault == 32 && suspend_queries < 3) return 2;
   phase = 1; return 1;
 }
 int TerminateProcess(void *process, uint32_t code) { kills++; if (fault == 19 || fault == 20) return 0; phase = 2; return *(int *)process == 5 && code == 1; }
@@ -89,6 +90,13 @@ uint32_t WaitForSingleObject(void *handle, uint32_t ms) { (void)handle; if (faul
 int CheckRemoteDebuggerPresent(void *process, DWORD_OUT *out) {
   if (*(int *)process != 5 || fault == 28) return 0;
   out->value = fault == 29 ? 2 : 1; return 1;
+}
+int32_t NtQueryInformationThread(void *thread, uint32_t kind, DWORD_OUT *out, uint32_t size, DWORD_OUT *returned) {
+  suspend_queries++;
+  if (*(int *)thread != 6 || kind != 35 || size != 4 || fault == 33) return (int32_t)0xc0000003;
+  out->value = (fault == 32 && suspend_queries < 3) || fault == 36 ? 2 : fault == 34 ? 0 : fault == 37 ? 0xffffffff : 1;
+  returned->value = fault == 35 ? 0 : 4;
+  return 0;
 }
 int GetExitCodeProcess(void *process, DWORD_OUT *out) { if (*(int *)process != 5) return 0; out->value = 1; return 1; }
 
