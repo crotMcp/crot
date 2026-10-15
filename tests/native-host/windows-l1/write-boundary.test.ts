@@ -58,8 +58,31 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
     loadBytePipeApi: typeof loadBytePipeApi;
     createOwnedDesktop: typeof import("../../../src/native-host/windows-l1/owned-desktop.js").createOwnedDesktop;
   };
-  beforeEach(async () => {
+  // Four trusted tool calls each already have a 30s deadline; the owned
+  // desktop has a separate 10s handshake. Vitest's default 10s hook can expire
+  // while valid setup still owns live resources. This composition budget does
+  // not change any actor readiness/exit/security assertion or operation timer.
+  const fixtureDeadline = 150_000;
+  let setupPending: Promise<void> = Promise.resolve();
+  let owned: {
+    dirs?: TempDirs;
+    host?: NativeHost;
+    token?: RestrictedToken;
+    desktop?: OwnedDesktop;
+    launcher?: NativeProcessLauncher;
+  } = {};
+  const setup = async () => {
+    owned = {};
+    const started = Date.now();
+    const phase = (name: string) =>
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({ title: "CROT-6A-fixture-setup", value: { phase: name, elapsedMs: Date.now() - started } }) +
+          "\n",
+      );
     dirs = await makeTempDirs();
+    owned.dirs = dirs;
+    phase("directories");
     // All native ownership brands and Koffi type registries must come from ONE
     // built module graph. Mixing TS and built copies would register native
     // types twice and, worse, break exact byte-stdio ownership authority.
@@ -87,10 +110,15 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
         ].map(built),
       )),
     );
+    phase("module-graph");
     host = await native.NativeHost.start({ startupPath: "inherited", jobObjects: true });
+    owned.host = host;
+    phase("native-host");
     const tools = windowsTools(process.env.SystemRoot ?? "C:\\Windows");
     const ownerSid = await currentUserSid(tools);
     token = createCommandToken(await native.loadRestrictedTokens(), ownerSid);
+    owned.token = token;
+    phase("actor-token");
     privateRoot = path.join(dirs.outside, "new-crot-owned");
     outside = path.join(dirs.outside, "unapproved-low");
     await mkdir(privateRoot);
@@ -105,9 +133,11 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       CROT_OWNED_WRITE_ROOT: privateRoot,
       CROT_WRITE_FILTER_SID: token.restrictingSid,
     });
+    phase("owned-write-grant");
     project = path.join(dirs.workspace, "owner-only-project.txt");
     await writeFile(project, "project control");
     await host.platform.privateFiles.protectFile!(project);
+    phase("project-control");
     const target = path.join(outside, "target.txt");
     await writeFile(target, "unchanged");
     // Working same-owner trusted controls, not a startup failure called denial.
@@ -128,6 +158,8 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       restrictingSid: token.restrictingSid,
       systemRoot: process.env.SystemRoot ?? "C:\\Windows",
     });
+    owned.desktop = desktop;
+    phase("owned-desktop");
     bnoIsolation = native.createBnoIsolation();
     launcher = new native.NativeProcessLauncher({
       bnoIsolation,
@@ -140,23 +172,32 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       resolver: host.platform.launcher,
       childEnvironment,
     });
-  });
+    owned.launcher = launcher;
+    phase("ready");
+  };
+  beforeEach(() => {
+    setupPending = setup();
+    return setupPending;
+  }, fixtureDeadline);
   afterEach(async () => {
+    // A failed/expired hook is not cancellation of its Promise. Settle the
+    // exact setup before releasing resources or allowing another fixture.
+    await setupPending.catch(() => undefined);
     try {
-      if (launcher) await launcher.close();
-      else await desktop?.close();
+      if (owned.launcher) await owned.launcher.close();
+      else await owned.desktop?.close();
     } finally {
       try {
-        token?.close();
+        owned.token?.close();
       } finally {
         try {
-          await host?.close();
+          await owned.host?.close();
         } finally {
-          await dirs?.cleanup();
+          await owned.dirs?.cleanup();
         }
       }
     }
-  });
+  }, fixtureDeadline);
   const body = () =>
     `const fs=require('fs');const attempt=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};const r={ready:true,project:attempt(()=>fs.readFileSync(${JSON.stringify(project)})),privateWrite:attempt(()=>fs.writeFileSync(${JSON.stringify(path.join(privateRoot, "allowed.txt"))},'allowed')),outsideCreate:attempt(()=>fs.writeFileSync(${JSON.stringify(path.join(outside, "forbidden.txt"))},'forbidden')),outsideWrite:attempt(()=>fs.writeFileSync(${JSON.stringify(path.join(outside, "target.txt"))},'forbidden'))};process.stdout.write(JSON.stringify(r));`;
   async function runCommand(spec: CommandSpec, expectedCode = 0) {

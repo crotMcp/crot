@@ -26,3 +26,17 @@ by shutdown/EOF. It is not exposed to the actor. Stdout contains one fixed ready
 marker; errors contain only bounded status codes, not paths/SIDs/content.
 EOF or any unexpected control byte unmounts; mutation transport failures are
 never replayed. Actor termination must precede view/helper teardown.
+
+## Control-plane prerequisite (not a qualification workaround)
+
+Dokan2.3.1 applies only the DACL from VolumeSecurityDescriptor to its raw disk
+control device; supplying a Low SACL does not install that device label. Raw
+control dispatch bypasses filesystem callbacks, and token/event IOCTLs use
+FILE_ANY_ACCESS. Do not lower the raw device label to make data writes pass.
+Before publishing READY, the helper tests harmless zero-access/read-only opens
+of only its own exact new raw device using a read-back unique WRITE_RESTRICTED
+Low profile. Any successful open or unverifiable failure rejects readiness and
+unmounts. No token/event IOCTL is invoked by this self-test. A failed prerequisite
+is not an actor denial or filesystem success. This is a fail-closed experimental
+check, NOT proof of atomic isolation from concurrent actors. A suitable signed
+mechanism must separately protect control handles while enabling Low data I/O.
