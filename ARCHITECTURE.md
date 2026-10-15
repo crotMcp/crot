@@ -5118,3 +5118,46 @@ protected state files by an unconfined process of the same OS user.
 **Implementation (WP-31).** **[Partial]** — PR #21, not merged. Points 1–7
 and 9–12 are implemented and covered by tests. Point 8: the gate exists,
 but no upload operation exists and the real upload path is not tested.
+
+### AD-24. Owned noninteractive Win32 desktop for the Windows unique write-filter implementation slice (WP-23c; not OD-6/OD-9 acceptance)
+
+**Context / necessity.** Native source `8e6a01d` traces a unique-SID
+WRITE_RESTRICTED Low actor failing in user32.dll initialization before JavaScript
+on Windows Node 20 and 22. No filesystem attempt or global write denial was
+reached. Adding Everyone/Builtin Users/logon SIDs would change the global write
+boundary, and changing an existing user's window-station/desktop ACL would widen
+an unrelated resource. Neither is an acceptable compatibility workaround.
+
+**Decision before implementation.** Provision a new random-name noninteractive
+window station and desktop with an explicit owner/System/unique-restricting-SID
+DACL and Low mandatory label. Only new CROT-owned user objects are changed. A
+fixed trusted helper performs its process/thread desktop association in its own
+process, never on the Core/service/tray thread and never executing user code.
+The actor starts suspended with this explicit desktop; existing restricted-token,
+three-handle stdio allowlist, empty Job verification/assignment and resume order
+remain in force. User code is never first executed with a weaker token.
+
+The helper accepts only validated host-generated names and SIDs, reports bounded
+readiness, and supports only shutdown. It is not an exec/filesystem/permission
+broker and is not exposed by RPC. It runs under a host-owned kill-on-close Job;
+its failure ends dependent actor runs. All actor trees stop before normal helper
+teardown; abrupt helper/host shutdown and repeated teardown require native gates.
+The helper restores its own borrowed original station/desktop before closing
+owned handles and never closes borrowed handles. No switch of the interactive
+input desktop, broad window-station grant, hook permission across accounts,
+registry/IFEO change or user security-descriptor change is allowed.
+
+**Scope / qualification.** This authorizes the necessary new user-object trust
+boundary for implementation, not a conclusion that user32 failure is wholly
+explained or the Windows L1 mechanism is accepted. Ordinary Node/cmd/WinPS,
+normal/hidden and ignored-stdio descendants, owner-only project reads, unrelated
+Low writes/ACL mutation, actual protected state/IPC/Docker, lifecycle and a
+transparent same-backing filesystem still must pass through the production
+interfaces. No available=true registration or weaker retry is allowed before
+all mandatory properties qualify. OD-6/OD-9, Windows 11 standard-user and native
+ARM64 qualification remain open; no v1 platform target is removed. Filesystem
+view/driver selection is not made by this decision.
+
+**Implementation status.** In progress, native qualification pending. Existing
+ExecutionGuard/PermissionEngine, exposure, full-control/local semantics,
+Linux/macOS confinement and WP-25/26/27 are unchanged.

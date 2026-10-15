@@ -77,6 +77,7 @@ export function bindNulProcessCreation(ffi: TokenFfi, libraries: TokenLibraries)
     environment: Buffer,
     cwd: string,
     info: object,
+    desktop?: Buffer,
   ): void => {
     let handle: unknown;
     let attributes: Buffer | undefined;
@@ -102,7 +103,14 @@ export function bindNulProcessCreation(ffi: TokenFfi, libraries: TokenLibraries)
       if (!ok(update(attributes, 0, 0x20002, handles, handles.length, null, null)))
         throw failure("explicit handle allowlist");
       const startup = {
-        startup: { cb: 112, dwFlags: 0x100, hStdInput: handle, hStdOutput: handle, hStdError: handle },
+        startup: {
+          cb: 112,
+          dwFlags: 0x100,
+          hStdInput: handle,
+          hStdOutput: handle,
+          hStdError: handle,
+          ...(desktop ? { lpDesktop: desktop } : {}),
+        },
         attributes,
       };
       // SUSPENDED and NO_WINDOW remain set by the caller. No unrestricted
@@ -155,6 +163,7 @@ export function bindPipeProcessCreation(ffi: TokenFfi, libraries: TokenLibraries
     cwd: string,
     info: object,
     stdio: NativeByteStdio,
+    desktop?: Buffer,
   ): void => {
     const child = ownedStdioHandles(stdio);
     if (child.length !== 3 || child.some(invalidHandle)) throw failure("owned handle validation", 0);
@@ -182,7 +191,14 @@ export function bindPipeProcessCreation(ffi: TokenFfi, libraries: TokenLibraries
         inherited.push(handle);
       }
       const startup = {
-        startup: { cb: 112, dwFlags: 0x100, hStdInput: child[0], hStdOutput: child[1], hStdError: child[2] },
+        startup: {
+          cb: 112,
+          dwFlags: 0x100,
+          hStdInput: child[0],
+          hStdOutput: child[1],
+          hStdError: child[2],
+          ...(desktop ? { lpDesktop: desktop } : {}),
+        },
         attributes,
       };
       if (!ok(create(token, executable, command, null, null, 1, flags | 0x80000, environment, cwd, startup, info)))

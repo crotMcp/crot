@@ -89,6 +89,7 @@ function counter(value: unknown): number | null {
 
 class KernelJob implements JobObject {
   private isClosed = false;
+  private readonly pendingProcessHandles = new Set<unknown>();
 
   constructor(
     private readonly k32: Kernel32,
@@ -104,11 +105,23 @@ class KernelJob implements JobObject {
     if (this.isClosed) throw new CrotError("OPERATION_FAILED", "The Job Object is closed.");
     const proc = this.k32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
     if (isNullHandle(proc)) return false;
+    this.pendingProcessHandles.add(proc);
+    let assigned = false;
+    let failure: unknown;
     try {
-      return succeeded(this.k32.AssignProcessToJobObject(this.handle, proc));
-    } finally {
-      this.k32.CloseHandle(proc);
+      assigned = succeeded(this.k32.AssignProcessToJobObject(this.handle, proc));
+    } catch (error) {
+      failure = error;
     }
+    try {
+      if (!succeeded(this.k32.CloseHandle(proc)))
+        throw new CrotError("OPERATION_FAILED", "CloseHandle (process assignment) failed.");
+      this.pendingProcessHandles.delete(proc);
+    } catch (error) {
+      failure ??= error;
+    }
+    if (failure) throw failure;
+    return assigned;
   }
 
   accounting(): JobAccounting | null {
@@ -137,9 +150,28 @@ class KernelJob implements JobObject {
   }
 
   close(): void {
-    if (this.isClosed) return;
-    this.isClosed = true;
-    this.k32.CloseHandle(this.handle);
+    let failure: unknown;
+    if (!this.isClosed) {
+      try {
+        if (!succeeded(this.k32.CloseHandle(this.handle)))
+          throw new CrotError("OPERATION_FAILED", "CloseHandle (Job Object) failed.");
+        this.isClosed = true;
+      } catch (error) {
+        failure = error;
+      }
+    }
+    // Failed closes retain their exact owned handles. Retry cleanup without
+    // reopening by PID, and attempt all resources even after the first error.
+    for (const handle of this.pendingProcessHandles) {
+      try {
+        if (!succeeded(this.k32.CloseHandle(handle)))
+          throw new CrotError("OPERATION_FAILED", "CloseHandle (process assignment) failed.");
+        this.pendingProcessHandles.delete(handle);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure) throw failure;
   }
 }
 
@@ -189,6 +221,12 @@ function bind(ffi: FfiModule): Kernel32 {
   return k32;
 }
 
+/** Native binding seam. Platform and self-test checks remain in loadJobObjectApi. */
+export function bindJobObjectApi(ffi: FfiModule): JobObjectApi {
+  const k32 = bind(ffi);
+  return { createKillOnCloseJob: () => createJob(k32) };
+}
+
 /**
  * Bind the Job Object API and verify it with a self-test (create, configure,
  * query and close a job). Throws OPERATION_FAILED where it is unavailable:
@@ -213,8 +251,7 @@ export async function loadJobObjectApi(load: FfiLoader = defaultLoader): Promise
   }
   const ffi = candidate as unknown as FfiModule;
   try {
-    const k32 = bind(ffi);
-    const api: JobObjectApi = { createKillOnCloseJob: () => createJob(k32) };
+    const api = bindJobObjectApi(ffi);
     const probe = api.createKillOnCloseJob();
     try {
       const counters = probe.accounting();

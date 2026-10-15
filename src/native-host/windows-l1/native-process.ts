@@ -17,6 +17,7 @@ import type {
 import type { JobObjectApi } from "../windows-job.js";
 import { createNativeByteStdio, type BytePipeApi, type NativeByteStdio } from "./byte-stdio.js";
 import type { ProbeProcess } from "./probe-process.js";
+import type { OwnedDesktop } from "./owned-desktop.js";
 import type { WindowsLaunchEnvironment } from "./launch-environment.js";
 import type { RestrictedToken } from "./restricted-token.js";
 
@@ -28,6 +29,8 @@ export interface NativeProcessOptions {
   readonly ownerSid: string;
   readonly environment: EnvironmentPolicy;
   readonly childEnvironment: WindowsLaunchEnvironment;
+  /** Ownership transfers to the launcher, which stops actors before teardown. */
+  readonly desktop?: OwnedDesktop;
   readonly resolver: Pick<ProcessLauncher, "resolveCommand">;
 }
 
@@ -48,6 +51,7 @@ class NativeManagedProcess implements ManagedProcess {
     private readonly io: NativeByteStdio,
     input: boolean,
     private readonly forget: () => void,
+    private readonly cleanupFailed: (failure: Error) => void,
   ) {
     this.pid = child.pid;
     this.stdin = input ? io.stdin : null;
@@ -129,6 +133,7 @@ class NativeManagedProcess implements ManagedProcess {
     this.finish(this.child.finalExitCode);
     if (failed) {
       this.fault ??= new CrotError("OPERATION_FAILED", "Native process cleanup failed.", undefined, { cause: failed });
+      this.cleanupFailed(this.fault);
       throw this.fault;
     }
     this.disposed = true;
@@ -144,9 +149,20 @@ export class NativeProcessLauncher implements ProcessLauncher {
     gracefulTermination: false,
   } as const);
   private closed = false;
+  private blocked?: Error;
   private readonly processes = new Set<NativeManagedProcess>();
   private readonly starting = new Set<Promise<ManagedProcess>>();
-  constructor(private readonly options: NativeProcessOptions) {}
+  constructor(private readonly options: NativeProcessOptions) {
+    if (options.desktop) {
+      if (options.desktop.closed || options.desktop.restrictingSid !== options.token.restrictingSid)
+        throw new CrotError("INVALID_INPUT", "Native process desktop does not match the owned token.");
+      void options.desktop.exited.then(() => {
+        if (this.closed) return;
+        this.blocked ??= new CrotError("OPERATION_FAILED", "Native process desktop helper exited.");
+        for (const process of this.processes) void process.terminate("force").catch(() => undefined);
+      });
+    }
+  }
   resolveCommand(command: string, args: readonly string[], options: ResolveCommandOptions): Promise<CommandSpec> {
     return this.options.resolver.resolveCommand(command, args, {
       ...options,
@@ -164,10 +180,12 @@ export class NativeProcessLauncher implements ProcessLauncher {
   }
   private async start(spec: CommandSpec, options: LaunchOptions): Promise<ManagedProcess> {
     if (this.closed) throw new CrotError("OPERATION_FAILED", "Native process launcher is closed.");
+    if (this.blocked) throw this.blocked;
     const io = await createNativeByteStdio(this.options.pipes, this.options.ownerSid);
     let child: ProbeProcess | undefined;
     try {
       if (this.closed) throw new CrotError("OPERATION_FAILED", "Native process launcher is closed.");
+      if (this.blocked) throw this.blocked;
       const job = this.options.jobs.createKillOnCloseJob();
       try {
         child = this.options.token.launchProbe(
@@ -180,6 +198,7 @@ export class NativeProcessLauncher implements ProcessLauncher {
               ? {}
               : { windowsVerbatimArguments: spec.windowsVerbatimArguments }),
             stdio: io,
+            ...(this.options.desktop ? { desktop: this.options.desktop.desktop } : {}),
           },
           job,
         );
@@ -193,7 +212,15 @@ export class NativeProcessLauncher implements ProcessLauncher {
         }
         throw error;
       }
-      const process = new NativeManagedProcess(child, io, options.stdin, () => this.processes.delete(process));
+      const process = new NativeManagedProcess(
+        child,
+        io,
+        options.stdin,
+        () => this.processes.delete(process),
+        (failure) => {
+          this.blocked ??= failure;
+        },
+      );
       this.processes.add(process);
       return process;
     } catch (error) {
@@ -212,6 +239,7 @@ export class NativeProcessLauncher implements ProcessLauncher {
     const results = await Promise.allSettled([...this.processes].map((process) => process.terminate("force")));
     const failure = results.find((result) => result.status === "rejected");
     if (failure?.status === "rejected") throw failure.reason;
+    await this.options.desktop?.close();
   }
   closeSync(): void {
     this.closed = true;
@@ -224,5 +252,6 @@ export class NativeProcessLauncher implements ProcessLauncher {
       }
     }
     if (error) throw error;
+    this.options.desktop?.closeSync();
   }
 }

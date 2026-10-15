@@ -8,6 +8,7 @@ import type { JobObject } from "../windows-job.js";
 import { validatePid, validateWindowsPath } from "../validation.js";
 import type { TokenFfi, TokenLibraries } from "./restricted-token.js";
 import { isNativeByteStdio, releaseStdioChildEnds, type NativeByteStdio } from "./byte-stdio.js";
+import { validateOwnedDesktopName } from "./user-objects.js";
 import { bindPipeProcessCreation, bindNulProcessCreation } from "./restricted-stdio.js";
 
 export interface ProbeSpec {
@@ -20,6 +21,8 @@ export interface ProbeSpec {
   readonly env: Readonly<Record<string, string>>;
   /** Explicitly owned standard streams; never inherit arbitrary host handles. */
   readonly stdio?: "nul" | NativeByteStdio;
+  /** AD-24 trusted, newly owned noninteractive station/desktop, never caller input. */
+  readonly desktop?: string;
   /** Owned research diagnostics only; never forwarded from Core/CommandSpec. */
   readonly diagnostics?: { readonly debugOnlyThisProcess: true; readonly beforeResume: (pid: number) => void };
 }
@@ -108,6 +111,9 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
   const failure = (stage: string) =>
     new CrotError("OPERATION_FAILED", `Windows process probe: ${stage} failed (code ${lastError()}).`);
 
+  // Preserve exact ownership if a failed launch cannot be cleaned up. There is
+  // no successful recovery claim or subsequent launch through this binding.
+  const failedLaunchCleanup = new Set<object>();
   /** Takes ownership only after verifying a fresh empty Job; closes owned Jobs on failure. */
   return (token: unknown, spec: ProbeSpec, job: JobObject): ProbeProcess => {
     const info: { hProcess?: unknown; hThread?: unknown; dwProcessId?: number; dwThreadId?: number } = {};
@@ -127,15 +133,22 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
       }
     };
     const releaseHandles = () => {
-      const thread = info.hThread;
-      const process = info.hProcess;
-      info.hThread = undefined;
-      info.hProcess = undefined;
-      const threadOK = nullHandle(thread) || success(release(thread));
-      const processOK = nullHandle(process) || success(release(process));
-      if (!threadOK || !processOK) throw failure("CloseHandle");
+      let error: unknown;
+      for (const key of ["hThread", "hProcess"] as const) {
+        const handle = info[key];
+        if (nullHandle(handle)) continue;
+        try {
+          if (!success(release(handle))) throw failure("CloseHandle");
+          info[key] = undefined;
+        } catch (cause) {
+          error ??= cause;
+        }
+      }
+      if (error) throw error;
     };
     try {
+      if (failedLaunchCleanup.size)
+        throw new CrotError("OPERATION_FAILED", "Windows process probe has incomplete failed-launch cleanup.");
       const empty = job.accounting();
       if (job.closed || !empty || empty.active !== 0 || empty.total !== 0) throw failure("empty Job verification");
       // A nonempty/unverifiable Job may belong to another workload. Never close it.
@@ -154,6 +167,8 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
       ].join(" ");
       if (command.length >= 32767) throw invalid("command length");
       const env = probeEnvironment(spec.env);
+      const desktop =
+        spec.desktop === undefined ? undefined : Buffer.from(`${validateOwnedDesktopName(spec.desktop)}\0`, "utf16le");
       if (
         spec.diagnostics &&
         (spec.diagnostics.debugOnlyThisProcess !== true || typeof spec.diagnostics.beforeResume !== "function")
@@ -170,6 +185,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
           cwd,
           info,
           ownedStdio,
+          desktop,
         );
       } else if (spec.stdio === "nul") {
         bindNulProcessCreation(ffi, libraries)(
@@ -180,6 +196,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
           env,
           cwd,
           info,
+          desktop,
         );
       } else if (
         !success(
@@ -193,7 +210,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
             flags,
             env,
             cwd,
-            { cb: 104 },
+            { cb: 104, ...(desktop ? { lpDesktop: desktop } : {}) },
             info,
           ),
         )
@@ -217,6 +234,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
       if (!success(release(info.hThread))) throw failure("thread CloseHandle");
       info.hThread = undefined;
       let closed = false;
+      let resourcesReleased = false;
       let finalExitCode: number | null = null;
       const readExit = () => {
         const state = wait(info.hProcess, 0);
@@ -240,42 +258,50 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
           return readExit();
         },
         close: () => {
-          if (closed) return;
+          if (resourcesReleased) return;
           closed = true;
-          try {
-            // Even an exited parent may leave live descendants in its Job.
-            const killed = job.terminate(1);
-            killDirect();
-            readExit();
-            if (!killed && (job.accounting()?.active ?? 1) !== 0) throw failure("Job termination");
-          } finally {
+          let error: unknown;
+          const attempt = (action: () => void) => {
             try {
-              job.close();
-            } finally {
-              try {
-                releaseHandles();
-              } finally {
-                ownedStdio?.closeSync();
-              }
+              action();
+            } catch (cause) {
+              error ??= cause;
             }
-          }
+          };
+          attempt(() => {
+            // An exited direct parent may still own live descendants.
+            const killed = job.closed || job.terminate(1);
+            if (!nullHandle(info.hProcess)) {
+              killDirect();
+              readExit();
+            }
+            if (!killed && (job.accounting()?.active ?? 1) !== 0) throw failure("Job termination");
+          });
+          attempt(() => job.close());
+          attempt(releaseHandles);
+          attempt(() => ownedStdio?.closeSync());
+          if (error) throw error;
+          resourcesReleased = true;
         },
       };
     } catch (error) {
-      try {
-        if (assigned) job.terminate(1);
-        if (launched || !nullHandle(info.hProcess)) killDirect();
-      } finally {
+      let cleanupFailed = false;
+      const attempt = (action: () => void) => {
         try {
-          if (ownsJob) job.close();
-        } finally {
-          try {
-            releaseHandles();
-          } finally {
-            ownedStdio?.closeSync();
-          }
+          action();
+        } catch {
+          cleanupFailed = true;
         }
-      }
+      };
+      if (assigned)
+        attempt(() => {
+          job.terminate(1);
+        });
+      if (launched || !nullHandle(info.hProcess)) attempt(killDirect);
+      if (ownsJob) attempt(() => job.close());
+      attempt(releaseHandles);
+      attempt(() => ownedStdio?.closeSync());
+      if (cleanupFailed) failedLaunchCleanup.add({ info, job, ownedStdio });
       throw error;
     }
   };

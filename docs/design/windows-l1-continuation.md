@@ -323,3 +323,41 @@ remain open. A new filesystem/identity/driver trust boundary must follow the
 project's decision-before-code order and be proven by a real vertical slice;
 this shell fix is not that mechanism decision. The full requested implementation
 has **not** been delivered or accepted, and no backend is enabled.
+
+## Active continuation: owned Win32 desktop (AD-24), qualification pending
+
+The current implementation adds a fixed trusted helper owning a randomly named,
+noninteractive window station and desktop. Only these NEW objects receive the
+owner/SYSTEM/unique-token SID descriptor and Low mandatory label. No existing
+station, desktop or workspace security descriptor is modified. The helper is
+inside a host-owned kill-on-close Job; actor launch remains suspended until its
+separate Job is assigned. Helper failure blocks launches and kills active actors;
+normal disposal terminates actors before disposing the helper. There is no
+arbitrary helper RPC or actor code before restriction. Native qualification is
+mandatory; this is not a claim that the loader blocker is resolved.
+
+The motivating pinned result is `8e6a01de3d4d29d826b6ae7436357857680e3d69`:
+9 CI jobs succeeded (including all four real Linux L1 jobs), while both Windows
+Node 20/22 jobs FAILED the unchanged unique-token startup gates. The owned loader
+trace identifies `user32.dll` initialization failure, followed by oleaut32 delay
+load failure and final STATUS_DLL_INIT_FAILED (0xc0000142), not a filesystem
+security denial. Exact trace and check snapshots are stored under
+`docs/evidence/windows-l1-continuation/8e6a01d-*`.
+
+That pin also measured failed-launch handle batches: Node 20 [223,230,230,230],
+Node 22 [227,242,242,242]. The original cold-growth failure at `fb86f97` remains
+recorded. Both subsequent 25-launch steady batches had zero growth and satisfy
+the unchanged <=2 growth bound. This is repeated-launch evidence, not proof of
+all crash/teardown semantics.
+
+Cleanup is additionally hardened: failed Job/process/stdio closes retain the
+exact owned handles for retry; incomplete cleanup blocks later launches instead
+of reporting a clean lifecycle. Portable fault-injection tests distinguish these
+contracts from actual Windows kernel proof.
+
+Acceptance remains OPEN: no transparent same-Medium-backing filesystem path,
+actual protected CROT-service fixture qualification, complete supported-machine
+matrix or production CommandConfinement backend is claimed. Backend availability
+stays none/not_implemented and the PR remains Draft. The earlier full-acceptance
+table describes the last qualified baseline; the active Windows gates above are
+currently red, not green regression acceptance.

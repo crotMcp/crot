@@ -1,0 +1,110 @@
+[
+  {
+    "path": ".github",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/8e6a01de3d4d29d826b6ae7436357857680e3d69/.github",
+    "start_line": 2,
+    "start_column": null,
+    "end_line": 2,
+    "end_column": null,
+    "annotation_level": "warning",
+    "title": "",
+    "message": "Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/",
+    "raw_details": ""
+  },
+  {
+    "path": ".github",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/8e6a01de3d4d29d826b6ae7436357857680e3d69/.github",
+    "start_line": 853,
+    "start_column": null,
+    "end_line": 853,
+    "end_column": null,
+    "annotation_level": "failure",
+    "title": "",
+    "message": "Process completed with exit code 1.",
+    "raw_details": ""
+  },
+  {
+    "path": ".github",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/8e6a01de3d4d29d826b6ae7436357857680e3d69/.github",
+    "start_line": 852,
+    "start_column": null,
+    "end_line": 852,
+    "end_column": null,
+    "annotation_level": "notice",
+    "title": "CROT-6A-bundle-3",
+    "message": "{\"codec\":\"gzip-base64\",\"part\":3,\"parts\":3,\"fragment\":\"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\"}",
+    "raw_details": ""
+  },
+  {
+    "path": ".github",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/8e6a01de3d4d29d826b6ae7436357857680e3d69/.github",
+    "start_line": 850,
+    "start_column": null,
+    "end_line": 850,
+    "end_column": null,
+    "annotation_level": "notice",
+    "title": "CROT-6A-bundle-2",
+    "message": "{\"codec\":\"gzip-base64\",\"part\":2,\"parts\":3,\"fragment\":\"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\"}",
+    "raw_details": ""
+  },
+  {
+    "path": ".github",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/8e6a01de3d4d29d826b6ae7436357857680e3d69/.github",
+    "start_line": 848,
+    "start_column": null,
+    "end_line": 848,
+    "end_column": null,
+    "annotation_level": "notice",
+    "title": "CROT-6A-bundle-1",
+    "message": "{\"codec\":\"gzip-base64\",\"part\":1,\"parts\":3,\"fragment\":\"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\"}",
+    "raw_details": ""
+  },
+  {
+    "path": "tests/native-host/windows-l1/write-boundary.test.ts",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/8e6a01de3d4d29d826b6ae7436357857680e3d69/tests/native-host/windows-l1/write-boundary.test.ts",
+    "start_line": 110,
+    "start_column": null,
+    "end_line": 110,
+    "end_column": null,
+    "annotation_level": "failure",
+    "title": "tests/native-host/windows-l1/write-boundary.test.ts > Windows unique write-filter component \u2014 real global Low denial > retains that boundary in an actually ready Node descendant (windowsHide=true)",
+    "message": "AssertionError: expected { code: 3221225794, stderrEmpty: true } to deeply equal { code: +0, stderrEmpty: true }\n\n- Expected\n+ Received\n\n  {\n-   \"code\": 0,\n+   \"code\": 3221225794,\n    \"stderrEmpty\": true,\n  }\n\n \u276f run tests/native-host/windows-l1/write-boundary.test.ts:110:71\n \u276f tests/native-host/windows-l1/write-boundary.test.ts:170:20\n\n",
+    "raw_details": ""
+  },
+  {
+    "path": "tests/native-host/windows-l1/write-boundary.test.ts",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/8e6a01de3d4d29d826b6ae7436357857680e3d69/tests/native-host/windows-l1/write-boundary.test.ts",
+    "start_line": 110,
+    "start_column": null,
+    "end_line": 110,
+    "end_column": null,
+    "annotation_level": "failure",
+    "title": "tests/native-host/windows-l1/write-boundary.test.ts > Windows unique write-filter component \u2014 real global Low denial > retains that boundary in an actually ready Node descendant (windowsHide=false)",
+    "message": "AssertionError: expected { code: 3221225794, stderrEmpty: true } to deeply equal { code: +0, stderrEmpty: true }\n\n- Expected\n+ Received\n\n  {\n-   \"code\": 0,\n+   \"code\": 3221225794,\n    \"stderrEmpty\": true,\n  }\n\n \u276f run tests/native-host/windows-l1/write-boundary.test.ts:110:71\n \u276f tests/native-host/windows-l1/write-boundary.test.ts:170:20\n\n",
+    "raw_details": ""
+  },
+  {
+    "path": "tests/native-host/windows-l1/write-boundary.test.ts",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/8e6a01de3d4d29d826b6ae7436357857680e3d69/tests/native-host/windows-l1/write-boundary.test.ts",
+    "start_line": 110,
+    "start_column": null,
+    "end_line": 110,
+    "end_column": null,
+    "annotation_level": "failure",
+    "title": "tests/native-host/windows-l1/write-boundary.test.ts > Windows unique write-filter component \u2014 real global Low denial > runs ordinary Node APIs with owner-project reads, private writes and unrelated Low denial",
+    "message": "AssertionError: expected { code: 3221225794, stderrEmpty: true } to deeply equal { code: +0, stderrEmpty: true }\n\n- Expected\n+ Received\n\n  {\n-   \"code\": 0,\n+   \"code\": 3221225794,\n    \"stderrEmpty\": true,\n  }\n\n \u276f run tests/native-host/windows-l1/write-boundary.test.ts:110:71\n \u276f tests/native-host/windows-l1/write-boundary.test.ts:164:18\n\n",
+    "raw_details": ""
+  },
+  {
+    "path": "tests/native-host/windows-l1/write-boundary.test.ts",
+    "blob_href": "https://github.com/mysteriumpersonae/crot-mcp/blob/8e6a01de3d4d29d826b6ae7436357857680e3d69/tests/native-host/windows-l1/write-boundary.test.ts",
+    "start_line": 157,
+    "start_column": null,
+    "end_line": 157,
+    "end_column": null,
+    "annotation_level": "failure",
+    "title": "tests/native-host/windows-l1/write-boundary.test.ts > Windows unique write-filter component \u2014 real global Low denial > traces the exact owned unique-token loader before JS (diagnosis is not a denial proof)",
+    "message": "AssertionError: expected 3221225794 to be +0 // Object.is equality\n\n- Expected\n+ Received\n\n- 0\n+ 3221225794\n\n \u276f tests/native-host/windows-l1/write-boundary.test.ts:157:36\n\n",
+    "raw_details": ""
+  }
+]

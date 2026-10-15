@@ -4,6 +4,8 @@ import { createRequire } from "node:module";
 import { startOwnedLoaderTrace, type OwnedLoaderTrace } from "./diagnostics/owned-loader.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import type { OwnedDesktop } from "../../../src/native-host/windows-l1/owned-desktop.js";
 import { afterEach, beforeEach, describe, expect, it, inject } from "vitest";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 import { currentUserSid, runTool, windowsTools } from "../../../src/native-host/windows-acl.js";
@@ -28,9 +30,10 @@ $acl.AddAccessRule($rule)
 describe.runIf(isWindows)("Windows unique write-filter component — real global Low denial", () => {
   let dirs: TempDirs, host: NativeHost, token: RestrictedToken, launcher: NativeProcessLauncher;
   let privateRoot: string, outside: string, project: string;
+  let desktop: OwnedDesktop;
   beforeEach(async () => {
     dirs = await makeTempDirs();
-    host = await NativeHost.start({ startupPath: "inherited", jobObjects: false });
+    host = await NativeHost.start({ startupPath: "inherited", jobObjects: true });
     const tools = windowsTools(process.env.SystemRoot ?? "C:\\Windows");
     const ownerSid = await currentUserSid(tools);
     token = createCommandToken(await loadRestrictedTokens(), ownerSid);
@@ -63,7 +66,18 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       runtimeBins: [path.dirname(process.execPath)],
     });
     for (const dir of Object.values(childEnvironment.directories)) await mkdir(dir, { recursive: true });
+    const compiled = path.resolve(path.dirname(inject("crotMcpBin")), "../native-host/windows-l1/owned-desktop.js");
+    const { createOwnedDesktop } = (await import(
+      pathToFileURL(compiled).href
+    )) as typeof import("../../../src/native-host/windows-l1/owned-desktop.js");
+    desktop = await createOwnedDesktop({
+      launcher: host.platform.launcher,
+      ownerSid,
+      restrictingSid: token.restrictingSid,
+      systemRoot: process.env.SystemRoot ?? "C:\\Windows",
+    });
     launcher = new NativeProcessLauncher({
+      desktop,
       token,
       ownerSid,
       pipes: await loadBytePipeApi(),
@@ -74,10 +88,20 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
     });
   });
   afterEach(async () => {
-    await launcher?.close();
-    token?.close();
-    await host?.close();
-    await dirs?.cleanup();
+    try {
+      if (launcher) await launcher.close();
+      else await desktop?.close();
+    } finally {
+      try {
+        token?.close();
+      } finally {
+        try {
+          await host?.close();
+        } finally {
+          await dirs?.cleanup();
+        }
+      }
+    }
   });
   const body = () =>
     `const fs=require('fs');const attempt=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};const r={ready:true,project:attempt(()=>fs.readFileSync(${JSON.stringify(project)})),privateWrite:attempt(()=>fs.writeFileSync(${JSON.stringify(path.join(privateRoot, "allowed.txt"))},'allowed')),outsideCreate:attempt(()=>fs.writeFileSync(${JSON.stringify(path.join(outside, "forbidden.txt"))},'forbidden')),outsideWrite:attempt(()=>fs.writeFileSync(${JSON.stringify(path.join(outside, "target.txt"))},'forbidden'))};process.stdout.write(JSON.stringify(r));`;
@@ -138,6 +162,7 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
         cwd: dirs.workspace,
         env: environment.prepare({}),
         stdio: "nul",
+        desktop: desktop.desktop,
         diagnostics: {
           debugOnlyThisProcess: true,
           beforeResume: (pid) => {
