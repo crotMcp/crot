@@ -1,8 +1,10 @@
 /** Mandatory native unique-SID component gate, not full filesystem acceptance. */
-import { appendFileSync } from "node:fs";
+import { appendFileSync, openSync, closeSync, readSync, writeSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { ownedAccessStack } from "./diagnostics/owned-access-stack.js";
 import { createRequire } from "node:module";
 import { startOwnedLoaderTrace, type OwnedLoaderTrace } from "./diagnostics/owned-loader.js";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OwnedDesktop } from "../../../src/native-host/windows-l1/owned-desktop.js";
@@ -262,8 +264,113 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       child.close();
     }
   }, 25000);
+  it("captures fixed owned startup access-denial call sites without raw memory/arguments", async () => {
+    const root = process.env.SystemRoot ?? "C:\\Windows";
+    const debuggerPath = path.join(
+      path.parse(root).root,
+      "Program Files (x86)",
+      "Windows Kits",
+      "10",
+      "Debuggers",
+      process.arch,
+      "cdb.exe",
+    );
+    const debuggerAvailable = await access(debuggerPath).then(
+      () => true,
+      () => false,
+    );
+    const n = randomBytes(16),
+      helperSid = `S-1-5-21-${n.readUInt32LE(0)}-${n.readUInt32LE(4)}-${n.readUInt32LE(8)}-${n.readUInt32LE(12)}`;
+    const helperToken = (await native.loadRestrictedTokens()).create(helperSid, false, undefined, "mic-only");
+    const ownerSid = await currentUserSid(windowsTools(root));
+    helperToken.prepareProbeObjects(ownerSid);
+    const debugRoot = path.join(dirs.outside, "owned-debug");
+    await host.platform.privateFiles.ensureDirectory(debugRoot);
+    (await native.loadProbeIntegrity())(debugRoot, "medium-no-read");
+    const log = path.join(debugRoot, "owned-access-stack.log");
+    const debuggerTrace = ownedAccessStack({
+      debuggerPath,
+      log,
+      cwd: dirs.outside,
+      systemRoot: root,
+      token: helperToken,
+      jobs: await native.loadJobObjectApi(),
+    });
+    let child: import("../../../src/native-host/windows-l1/probe-process.js").ProbeProcess | undefined;
+    try {
+      child = token.launchProbe(
+        {
+          executable: process.execPath,
+          args: ["-e", "process.exit(0)"],
+          cwd: dirs.workspace,
+          env: { SystemRoot: root, TEMP: privateRoot, TMP: privateRoot },
+          desktop: desktop.desktop,
+          console: "owned-hidden",
+          stdio: "nul",
+          ...(debuggerAvailable
+            ? {
+                diagnostics: {
+                  debugOnlyThisProcess: false,
+                  beforeResume: (pid: number) => {
+                    try {
+                      debuggerTrace.beforeResume(pid);
+                    } catch (error) {
+                      debuggerTrace.close();
+                      throw error;
+                    }
+                  },
+                },
+              }
+            : {}),
+        },
+        (await native.loadJobObjectApi()).createKillOnCloseJob(),
+      );
+      const deadline = Date.now() + 15000;
+      while (child.exitCode() === null && Date.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({
+          title: "CROT-6A-unique-owned-access-stack",
+          value: {
+            status: debuggerAvailable ? "COLLECTED" : "UNAVAILABLE",
+            ...debuggerTrace.collect(),
+            exitCode: child.exitCode(),
+          },
+        }) + "\n",
+      );
+      expect(child.exitCode()).toBe(0);
+    } finally {
+      try {
+        child?.close();
+      } finally {
+        try {
+          debuggerTrace.close();
+        } finally {
+          try {
+            helperToken.close();
+          } finally {
+            await rm(debugRoot, { recursive: true, force: true });
+          }
+        }
+      }
+    }
+  }, 45000);
   it("runs ordinary Node APIs with owner-project reads, private writes and unrelated Low denial", async () => {
     await verify(await run(body()));
+  });
+  it("supports ordinary NUL reopen needed by ignored-stdio descendants after a trusted working control", async () => {
+    const fd = openSync("\\\\.\\NUL", "r+");
+    try {
+      expect(writeSync(fd, Buffer.from("x"))).toBe(1);
+      expect(readSync(fd, Buffer.alloc(1), 0, 1, null)).toBe(0);
+    } finally {
+      closeSync(fd);
+    }
+    const observed = await run(
+      "const fs=require('fs');let opened=false,written=null,read=null,error=null,fd;try{fd=fs.openSync('\\\\\\\\.\\\\NUL','r+');opened=true;written=fs.writeSync(fd,Buffer.from('x'));read=fs.readSync(fd,Buffer.alloc(1),0,1,null)}catch(e){error=e.code}finally{if(fd!==undefined)fs.closeSync(fd)}console.log(JSON.stringify({ready:true,opened,written,read,error}));",
+    );
+    expect(observed).toEqual({ ready: true, opened: true, written: 1, read: 0, error: null });
   });
   it.each([false, true])(
     "retains that boundary in an actually ready Node descendant (windowsHide=%s)",

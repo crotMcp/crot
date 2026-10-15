@@ -26,7 +26,7 @@ export interface ProbeSpec {
   /** AD-24 new hidden console, only inside the owned noninteractive desktop. */
   readonly console?: "owned-hidden";
   /** Owned research diagnostics only; never forwarded from Core/CommandSpec. */
-  readonly diagnostics?: { readonly debugOnlyThisProcess: true; readonly beforeResume: (pid: number) => void };
+  readonly diagnostics?: { readonly debugOnlyThisProcess: boolean; readonly beforeResume: (pid: number) => void };
 }
 export interface ProbeProcess {
   readonly pid: number;
@@ -173,12 +173,13 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
         spec.desktop === undefined ? undefined : Buffer.from(`${validateOwnedDesktopName(spec.desktop)}\0`, "utf16le");
       if (
         spec.diagnostics &&
-        (spec.diagnostics.debugOnlyThisProcess !== true || typeof spec.diagnostics.beforeResume !== "function")
+        (typeof spec.diagnostics.debugOnlyThisProcess !== "boolean" ||
+          typeof spec.diagnostics.beforeResume !== "function")
       )
         throw invalid("owned diagnostics");
       if (spec.console !== undefined && (spec.console !== "owned-hidden" || !desktop)) throw invalid("owned console");
       const consoleFlags = spec.console === "owned-hidden" ? 0x10 : 0x08000000;
-      const flags = FLAGS | consoleFlags | (spec.diagnostics ? 0x2 : 0);
+      const flags = FLAGS | consoleFlags | (spec.diagnostics?.debugOnlyThisProcess ? 0x2 : 0);
       if (ownedStdio) {
         bindPipeProcessCreation(ffi, libraries)(
           token,

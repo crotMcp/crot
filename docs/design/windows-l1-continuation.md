@@ -456,3 +456,40 @@ needed to distinguish label installation from DACL mapping/control differences;
 no descriptor mismatch is silently accepted. Portable gates cover the exact
 LABEL-only setter targets, setter failure cleanup, mismatch refusal, and refusal
 of hidden-console mode without an owned desktop or on WinSta0\\Default.
+
+### `b62ea10`: explicit user-object Low installation verified; remaining failures
+
+The exact kernel owner/DACL/Low-label self-test now passes on both native
+runtimes, so the previous descriptor mismatch was not bypassed: the two fresh
+objects are explicitly labeled before verification. Node22 direct private-write /
+unrelated Low denial and native owner WRITE_DAC denial still pass. Node20 exits
+0xc0000142 before JS; normal/hidden/ignored descendants and WinPS remain red.
+Ignored stdio reports EPERM in the Node spawn path; cmd produces the expected
+output/exit23 but also Access Denied. Hidden-console allocation alone did not
+resolve those failures. No ordinary-process acceptance is claimed. Full local
+check passed: 1576 Core /164 skips;147 extension.
+
+This native run has 8 successful and 3 failed CI checks: the two Windows jobs
+above, plus Ubuntu24 x64 L1. Its exact annotations show external ECR
+`toomanyrequests: Data limit exceeded` while pulling Alpine, not an assertion
+failure in Linux isolation. This is not counted as green regression. The other three real Linux L1
+jobs and Linux/macOS/Chromium checks passed.
+
+The next diagnostic records ONLY symbolic call-site rows at fixed Access Denied
+breakpoints in one freshly created owned suspended actor, using a separate
+trusted debugger Job and fixed commands. No arbitrary PID endpoint, executable,
+script, user environment or debugger command is accepted. Its temporary log is
+inside a new owner-only Medium-NR fixture directory, deleted on cleanup; only
+sanitized symbols/standalone markers leave it, not raw addresses/frame arguments.
+Echoed debugger commands are explicitly excluded by portable tests. Missing SDK
+diagnosis is UNAVAILABLE, not a claim of an exercised debugger; the actual actor
+exit assertion and all existing ordinary/runtime gates remain mandatory.
+A separate ordinary NUL-reopen test adds a working trusted control; no global
+NUL/device ACL is modified to make the unique token succeed.
+
+A NEW attempt to add an extra fast-feedback workflow with the current GitHub
+connection was rejected with HTTP403 (`Resource not accessible by personal
+access token`) while creating the workflow tree. It made no repository change.
+The original CI workflow and all original mandatory gates remain unchanged;
+the failure is not bypassed through another credential/path. This is fresh
+connection evidence, not an inference from the old handoff's permissions.
