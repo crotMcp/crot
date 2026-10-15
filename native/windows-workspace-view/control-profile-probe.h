@@ -37,23 +37,30 @@ DWORD oneControlProfile(const std::wstring& device,const std::wstring& source,
   Handle probeJob,process,thread;
   try {
     // Public API; no profile/registry registration or persistent identity.
-    if (FAILED(DeriveAppContainerSidFromAppContainerName(package.c_str(),&packageSid)) || !packageSid) deny();
+    outcome=0x20b;
+    if (package.empty() || package.size()>64 || FAILED(DeriveAppContainerSidFromAppContainerName(package.c_str(),&packageSid)) || !packageSid) deny();
     LPWSTR text=nullptr;
+    outcome=0x20c;
     if (!ConvertSidToStringSidW(packageSid,&text)) deny();
     std::wstring sid;
     try { sid=text; } catch (...) { LocalFree(text); throw; }
     if (LocalFree(text)) deny();
     LPWSTR ownerText=nullptr;
+    outcome=0x20d;
     if (!ConvertSidToStringSidW(ownerSid,&ownerText)) deny();
     std::wstring owner;
     try { owner=ownerText; } catch (...) { LocalFree(ownerText); throw; }
     if (LocalFree(ownerText)) deny();
     const auto sddl=L"D:P(A;OICI;FA;;;"+owner+L")(A;OICI;FA;;;SY)(A;OICI;GRGX;;;"+sid+L")";
+    outcome=0x20e;
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(),1,&sd,nullptr)) deny();
     SECURITY_ATTRIBUTES sa{sizeof(sa),sd,FALSE};
     // Collision is failure, never adoption or rewriting an existing object.
+    outcome=0x20f;
     if (!CreateDirectoryW(directory.c_str(),&sa)) deny(); directoryOwned=true;
+    outcome=0x210;
     if (!CopyFileW(source.c_str(),target.c_str(),TRUE)) deny(); fileOwned=true;
+    outcome=0x211;
     if (!SetFileSecurityW(target.c_str(),DACL_SECURITY_INFORMATION,sd)) deny();
     outcome=0x202;
     probeJob.h=CreateJobObjectW(nullptr,nullptr); if (!probeJob.valid()) deny();
@@ -144,9 +151,11 @@ DWORD probeControlProfiles(const std::wstring& device) {
     // cleanup only after the exact helper exits. Its environment TEMP may be
     // a not-yet-created layout path; never assume GetTempPath creates it.
     const auto base=binary.substr(0,separator)+L"\\crot-control-"+nonce;
-    const DWORD ac=oneControlProfile(device,source,base+L"-ac",L"crot.control."+nonce+L".ac",false);
+    // Keep every derived name below the public profile-name 64-character bound.
+    const auto package=L"crot.cp."+nonce.substr(5);
+    const DWORD ac=oneControlProfile(device,source,base+L"-ac",package+L".ac",false);
     if (failed || ac==0x20a) return 0xa5c00000u;
-    const DWORD lpac=oneControlProfile(device,source,base+L"-lpac",L"crot.control."+nonce+L".lpac",true);
+    const DWORD lpac=oneControlProfile(device,source,base+L"-lpac",package+L".lpac",true);
     if (failed || lpac==0x20a) return 0xa5c00000u;
     return 0xa5b00000u|ac|(lpac<<10);
   } catch (...) { return 0xa5d00008u; }

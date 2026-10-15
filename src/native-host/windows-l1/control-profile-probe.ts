@@ -12,6 +12,13 @@ const stages = [
   "loader-0142",
   "child-not-ready",
   "cleanup",
+  "package-sid-derive",
+  "package-sid-format",
+  "owner-sid-format",
+  "owned-descriptor",
+  "owned-directory-create",
+  "owned-executable-copy",
+  "owned-executable-dacl",
 ] as const;
 function profile(bits: number) {
   if (bits & 0x200) {
