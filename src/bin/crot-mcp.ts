@@ -28,7 +28,7 @@ import { parseConfig } from "../core/config/load.js";
 import { CORE_VERSION } from "../core/crot-core.js";
 import { CrotError } from "../core/errors.js";
 import { hostDirectories, osFamily } from "../core/platform/node-platform.js";
-import { createPrivateFileProtection } from "../core/platform/private-files.js";
+import { createServicePrivateFiles } from "../service/private-files.js";
 import { ControlClient, waitForServiceExit } from "../service/control-client.js";
 import { secretCredentialStore } from "../service/endpoints.js";
 import type { ControlStatus } from "../service/protocol.js";
@@ -82,7 +82,7 @@ async function shim(command: ServeCommand, argv: readonly string[]): Promise<voi
     argv,
     entry: fileURLToPath(import.meta.url),
     stateDir: hostDirectories(process.env).state,
-    privateFiles: createPrivateFileProtection(windows),
+    privateFiles: createServicePrivateFiles(windows),
     log,
     signals: SHUTDOWN_SIGNALS,
   });
@@ -95,7 +95,7 @@ async function runService(command: ServeCommand, launch: "on-demand" | "managed"
     command,
     launch,
     stateDir: hostDirectories(process.env).state,
-    privateFiles: createPrivateFileProtection(windows),
+    privateFiles: createServicePrivateFiles(windows),
     log,
     requestStop: (reason) => stop(reason),
   });
@@ -140,7 +140,7 @@ async function runService(command: ServeCommand, launch: "on-demand" | "managed"
 async function controlClient(): Promise<ControlClient | undefined> {
   return ControlClient.connect({
     stateDir: hostDirectories(process.env).state,
-    privateFiles: createPrivateFileProtection(windows),
+    privateFiles: createServicePrivateFiles(windows),
   });
 }
 
@@ -184,7 +184,7 @@ async function serviceStop(): Promise<void> {
     client.close();
   }
   const stateDir = hostDirectories(process.env).state;
-  const credential = await secretCredentialStore(stateDir, createPrivateFileProtection(windows)).read("service");
+  const credential = await secretCredentialStore(stateDir, createServicePrivateFiles(windows)).read("service");
   const stopped = await waitForServiceExit(stateDir, credential, 15_000);
   if (!stopped) throw new CrotError("OPERATION_FAILED", `The CROT service (pid ${String(pid)}) did not stop in time.`);
   process.stdout.write(`CROT service stopped (pid ${String(pid)})\n`);
@@ -194,7 +194,7 @@ async function serviceStop(): Promise<void> {
 async function secrets(command: SecretsCommand): Promise<void> {
   const options = {
     stateDir: hostDirectories(process.env).state,
-    privateFiles: createPrivateFileProtection(windows),
+    privateFiles: createServicePrivateFiles(windows),
     ...(command.config ? { config: command.config } : {}),
   };
   switch (command.action) {
@@ -223,7 +223,7 @@ async function installBrowser(): Promise<void> {
     nodePath: process.execPath,
     // dist/bin/crot-browser-relay.js next to this file.
     relayScript: fileURLToPath(new URL("./crot-browser-relay.js", import.meta.url)),
-    privateFiles: createPrivateFileProtection(windows),
+    privateFiles: createServicePrivateFiles(windows),
     ...(windows ? { registry: regExeWriter(process.env.SystemRoot ?? "C:\\Windows") } : {}),
   });
   process.stdout.write(formatInstallResult(result));

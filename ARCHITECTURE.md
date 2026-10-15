@@ -5216,3 +5216,38 @@ as a compatibility fallback. This decision adds no broker/permission system.
 none/not_implemented, remote launch fail-closed, OD-6/OD-9 OPEN, PR27 Draft/open.
 Windows ARM64/Windows11/standard-user qualification and every eight-criterion
 acceptance requirement remain independent and mandatory.
+
+### AD-26. Windows CROT-owned service state: owner-only DACL and Medium no-read-up label before content
+
+**Decision before implementation.** Bootstrap must not create service credentials
+with an inherited-ACL provider and later treat NativeHost's owner-only DACL as
+protection from the same-user Low actor. For actual Windows service/shim/secret
+operations use a dedicated private-file provider: protected owner-only DACL and
+Medium NW+NR mandatory label, installed and kernel-read-back verified on empty
+new files before content. Missing native support/failed verification is an error,
+never an inherited-ACL downgrade. POSIX behavior and the generic platform provider
+are unchanged; no activation of Windows CommandConfinement follows.
+
+Only files explicitly owned/used as CROT state and newly CROT-created private
+directories are provisioned. Existing arbitrary directories are NOT relabeled or
+recursively rewritten. Exact known old state files are hardened before service
+secret initialization; no recursive scan of user files or external config path.
+Handle-relative no-reparse ancestor pinning and file-type/single-link validation
+precede mutation; handles remain pinned through set/read-back. No caller handle,
+remote path authority, ambient device/namespace ACL or user workspace SD changes.
+Failed native releases retain exact owners and block allocation until cleanup.
+
+The service's Core audit/bridge/state writers must use the same trusted provider
+rather than silently switch back to weaker private-file protection. This changes
+private-state provisioning, not ExecutionGuard/PermissionEngine, permissions,
+exposure or local/full-control semantics. Same-user Medium owner controls remain
+usable. Low service/shim execution or an unsupported state storage layout must
+fail explicitly, not expose credentials.
+
+**Qualification/status:** implementation in progress. Native actual-service
+fixtures need trusted reads/control followed by ready-actor read/write/control
+attempts; no canary/credential bytes in evidence. Existing-file migration, atomic
+write failure, aliases, resource lifetime and native supported-user/arch matrix
+remain mandatory. This does NOT by itself protect every external config path,
+Docker/network endpoint or create a transparent workspace. OD-6/OD-9 and WP-23c
+acceptance stay OPEN; no production L1 backend registration.

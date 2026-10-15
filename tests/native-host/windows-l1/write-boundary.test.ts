@@ -37,6 +37,14 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
   let desktop: OwnedDesktop;
   let bnoIsolation: BnoIsolation;
   let native: {
+    CrotService: typeof import("../../../src/service/service.js").CrotService;
+    createServicePrivateFiles: typeof import("../../../src/service/private-files.js").createServicePrivateFiles;
+    ControlClient: typeof import("../../../src/service/control-client.js").ControlClient;
+    openSecretStore: typeof import("../../../src/service/secrets/store.js").openSecretStore;
+    generateSecret: typeof import("../../../src/service/secrets/store.js").generateSecret;
+    secretFile: typeof import("../../../src/service/secrets/backends.js").secretFile;
+    secretCredentialStore: typeof import("../../../src/service/endpoints.js").secretCredentialStore;
+    serviceEndpoint: typeof import("../../../src/service/endpoints.js").serviceEndpoint;
     createBnoIsolation: typeof import("../../../src/native-host/windows-l1/bno-isolation.js").createBnoIsolation;
     NativeHost: typeof import("../../../src/native-host/native-host.js").NativeHost;
     NativeProcessLauncher: typeof import("../../../src/native-host/windows-l1/native-process.js").NativeProcessLauncher;
@@ -57,6 +65,12 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       {},
       ...(await Promise.all(
         [
+          "service/service.js",
+          "service/private-files.js",
+          "service/control-client.js",
+          "service/secrets/store.js",
+          "service/secrets/backends.js",
+          "service/endpoints.js",
           "native-host/windows-l1/bno-isolation.js",
           "native-host/native-host.js",
           "native-host/windows-job.js",
@@ -220,6 +234,107 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
     expect(await readFile(path.join(privateRoot, "allowed.txt"), "utf8")).toBe("allowed");
     expect(await readFile(path.join(outside, "target.txt"), "utf8")).toBe("unchanged");
   };
+  it("protects actual service secrets/settings/audit with working owner controls and ready-actor attempts", async () => {
+    // Real CrotService and real SecretStore, not lookalike canary paths. This
+    // fixture is not Docker, arbitrary external config or self-approval coverage.
+    const stateDir = path.join(dirs.outside, "actual-service-state");
+    const privateFiles = native.createServicePrivateFiles(true);
+    await mkdir(stateDir); // legacy inherited-ACL installation, not a Low parent
+    const legacy = native.generateSecret();
+    await writeFile(native.secretFile(stateDir, "service-token"), legacy + "\n");
+    const audit = path.join(stateDir, "audit.jsonl");
+    const service = await native.CrotService.start({
+      command: {
+        kind: "serve",
+        config: {
+          workspace: { root: dirs.workspace },
+          environment: { path: "inherited" },
+          secrets: { store: "file" },
+          browser: { enabled: false },
+          audit: { sink: "file", path: audit },
+        },
+        warnings: [],
+      },
+      launch: "managed",
+      stateDir,
+      privateFiles,
+      log: () => undefined,
+      requestStop: () => undefined,
+    });
+    if (service === "already_running") throw new Error("unexpected fixture service collision");
+    let control: Awaited<ReturnType<typeof native.ControlClient.connect>>;
+    try {
+      const store = await native.openSecretStore(stateDir, privateFiles);
+      await store.write("device-key", native.generateSecret());
+      control = await native.ControlClient.connect({ stateDir, privateFiles });
+      if (!control) throw new Error("owner control did not connect");
+      expect(await control.request("ping")).toEqual({ pid: process.pid, state: "running" });
+      const changed = await control.request("preset.set", { value: "require-approval" });
+      expect(changed).toMatchObject({ ok: true });
+      expect((await store.read("service-token")) === legacy).toBe(true);
+      const files = [
+        native.secretFile(stateDir, "service-token"),
+        native.secretFile(stateDir, "control-token"),
+        native.secretFile(stateDir, "device-key"),
+        path.join(stateDir, "service-settings.json"),
+        audit,
+      ];
+      const before = await Promise.all(files.map((f) => readFile(f)));
+      expect(before.every((b) => b.length > 0)).toBe(true);
+      for (const file of files) expect((await privateFiles.inspect(file)).ownerOnly).toBe(true);
+      const credential = await native.secretCredentialStore(stateDir, privateFiles).read("control");
+      if (!credential) throw new Error("actual control credential missing");
+      const endpoint = native.serviceEndpoint(stateDir, "control", credential).path;
+      const channelModule = pathToFileURL(
+        path.resolve(path.dirname(inject("crotMcpBin")), "..", "service/channel.js"),
+      ).href;
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({
+          title: "CROT-6A-actual-state-owner-control",
+          value: {
+            serviceStarted: true,
+            ownerAuthenticated: true,
+            ownerSettingsWrite: true,
+            legacyCredentialPreserved: true,
+            privateDescriptorsVerified: files.length,
+            actorAttempted: false,
+          },
+        }) + "\n",
+      );
+      // Import is outside the denial catch: module/startup failure cannot pass.
+      // Deliberately wrong fixture credential, never the service's real secret.
+      const script = `const fs=require('fs');(async()=>{const {connectChannel}=await import(${JSON.stringify(channelModule)});const attempt=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};const files=${JSON.stringify(files)};const reads=files.map(f=>attempt(()=>fs.readFileSync(f)));const writes=files.map(f=>attempt(()=>fs.writeFileSync(f,'forbidden')));let endpointResult='ALLOWED';try{const c=await connectChannel(${JSON.stringify(endpoint)},{channel:'control',credential:'invalid-fixture-credential',maxFrameBytes:1048576});await c.close()}catch(e){endpointResult=e.reason||e.code||'unexpected'}process.stdout.write(JSON.stringify({ready:true,reads,writes,endpointAttempted:true,endpointResult}))})().catch(()=>process.exit(71));`;
+      const observed = await run(script);
+      const reads = observed.reads as unknown[],
+        writes = observed.writes as unknown[];
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({
+          title: "CROT-6A-actual-state-ready-actor",
+          value: {
+            ready: observed.ready,
+            reads,
+            writes,
+            endpointAttempted: observed.endpointAttempted,
+            endpointResult: observed.endpointResult,
+          },
+        }) + "\n",
+      );
+      expect(observed.ready).toBe(true);
+      expect(reads).toHaveLength(files.length);
+      expect(writes).toHaveLength(files.length);
+      for (const result of [...reads, ...writes]) expect(["EPERM", "EACCES"]).toContain(result);
+      expect(observed.endpointAttempted).toBe(true);
+      expect(["unreachable", "unauthenticated", "EACCES", "EPERM"]).toContain(observed.endpointResult);
+      // No secret values or paths are emitted on assertion failure.
+      expect((await Promise.all(files.map((f) => readFile(f)))).every((b, i) => b.equals(before[i]!))).toBe(true);
+      expect(await control.request("ping")).toEqual({ pid: process.pid, state: "running" });
+    } finally {
+      control?.close();
+      await service.shutdown("actual state fixture end");
+    }
+  }, 45000);
   it("traces the exact owned unique-token loader before JS (diagnosis is not a denial proof)", async () => {
     const ffi = createRequire(import.meta.url)("koffi");
     let trace: OwnedLoaderTrace | undefined;

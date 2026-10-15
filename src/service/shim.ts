@@ -12,7 +12,7 @@
  * client restarts the server like after any crash.
  */
 import { spawn } from "node:child_process";
-import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { ftruncateSync, closeSync, openSync, readSync, statSync } from "node:fs";
 import path from "node:path";
 import type { ServeCommand } from "../cli/options.js";
 import { flushStream, installLifecycle, type LifecycleHost } from "../cli/lifecycle.js";
@@ -195,13 +195,14 @@ async function startService(options: ShimOptions) {
     // No log yet.
   }
   const mode = options.privateFiles.fileMode ?? 0o600;
-  const fd = openSync(logFile, size > MAX_SERVICE_LOG_BYTES ? "w" : "a", mode);
-  // Owner-only like the other state files (POSIX: the mode above; Windows: an owner-only ACL).
-  if (options.privateFiles.protectFile) await options.privateFiles.protectFile(logFile).catch(() => undefined);
+  const fd = openSync(logFile, "a", mode);
+
   const startOffset = size > MAX_SERVICE_LOG_BYTES ? 0 : size;
   let exitCode: number | null | undefined;
   let spawnError: Error | undefined;
   try {
+    if (options.privateFiles.protectFile) await options.privateFiles.protectFile(logFile);
+    if (size > MAX_SERVICE_LOG_BYTES) ftruncateSync(fd, 0);
     const child = spawn(
       process.execPath,
       [...process.execArgv, options.entry, "service", "run", "--on-demand", ...options.argv],
