@@ -42,7 +42,8 @@ export default class Stage6aReporter {
         result?: { state?: string; errors?: unknown[] };
         tasks?: unknown[];
       };
-      if (!/(stage6a-diagnostics|workspace-native)\.test\.ts$/.test(f.filepath ?? f.name ?? "")) continue;
+      if (!/(stage6a-diagnostics|workspace-native|native-process)\.test\.ts$/.test(f.filepath ?? f.name ?? ""))
+        continue;
       const rows: unknown[] = [];
       const visit = (task: unknown) => {
         const t = task as {

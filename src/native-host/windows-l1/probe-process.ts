@@ -7,20 +7,25 @@ import { CrotError } from "../../core/errors.js";
 import type { JobObject } from "../windows-job.js";
 import { validatePid, validateWindowsPath } from "../validation.js";
 import type { TokenFfi, TokenLibraries } from "./restricted-token.js";
-import { bindNulProcessCreation } from "./restricted-stdio.js";
+import { isNativeByteStdio, releaseStdioChildEnds, type NativeByteStdio } from "./byte-stdio.js";
+import { bindPipeProcessCreation, bindNulProcessCreation } from "./restricted-stdio.js";
 
 export interface ProbeSpec {
   readonly executable: string;
   readonly args: readonly string[];
   readonly cwd: string;
+  /** Trusted CommandSpec cmd.exe wrapper arguments are already escaped. */
+  readonly windowsVerbatimArguments?: boolean;
   /** Explicit environment. Never inherits the CROT service environment. */
   readonly env: Readonly<Record<string, string>>;
   /** Explicitly owned standard streams; never inherit arbitrary host handles. */
-  readonly stdio?: "nul";
+  readonly stdio?: "nul" | NativeByteStdio;
 }
 export interface ProbeProcess {
   readonly pid: number;
   readonly closed: boolean;
+  /** Captured before releasing the native handle, including forced close. */
+  readonly finalExitCode: number | null;
   /** Non-blocking poll; null while running, otherwise the DWORD exit code. */
   exitCode(): number | null;
   /** Ends the complete job and releases native process/job handles. */
@@ -49,8 +54,7 @@ export function probeEnvironment(env: Readonly<Record<string, string>>): Buffer 
     a.toUpperCase() < b.toUpperCase() ? -1 : a.toUpperCase() > b.toUpperCase() ? 1 : 0,
   );
   for (const [key, value] of entries) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || typeof value !== "string" || value.includes("\0"))
-      throw invalid("environment");
+    if (!/^[^=\0]+$/.test(key) || typeof value !== "string" || value.includes("\0")) throw invalid("environment");
     const folded = key.toUpperCase();
     if (seen.has(folded)) throw invalid("duplicate environment name");
     seen.add(folded);
@@ -108,6 +112,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
     let launched = false;
     let assigned = false;
     let ownsJob = false;
+    let ownedStdio: NativeByteStdio | undefined;
     const killDirect = () => {
       if (!nullHandle(info.hProcess) && wait(info.hProcess, 0) !== WAIT_OBJECT) {
         // TerminateJobObject is asynchronous. TerminateProcess can report
@@ -133,14 +138,32 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
       if (job.closed || !empty || empty.active !== 0 || empty.total !== 0) throw failure("empty Job verification");
       // A nonempty/unverifiable Job may belong to another workload. Never close it.
       ownsJob = true;
+      if (isNativeByteStdio(spec.stdio)) ownedStdio = spec.stdio;
+      else if (spec.stdio !== undefined && spec.stdio !== "nul") throw invalid("stdio");
       const executable = validateWindowsPath(spec.executable);
       if (!/\.exe$/i.test(executable)) throw invalid("executable type");
       const cwd = validateWindowsPath(spec.cwd);
-      const command = [executable, ...spec.args].map(quoteProbeArgument).join(" ");
+      // Validate even verbatim arguments; only the trusted shell provider decides
+      // whether cmd.exe needs its pre-escaped command line preserved.
+      spec.args.forEach(quoteProbeArgument);
+      const command = [
+        quoteProbeArgument(executable),
+        ...spec.args.map((arg) => (spec.windowsVerbatimArguments ? arg : quoteProbeArgument(arg))),
+      ].join(" ");
       if (command.length >= 32767) throw invalid("command length");
       const env = probeEnvironment(spec.env);
-      if (spec.stdio !== undefined && spec.stdio !== "nul") throw invalid("stdio");
-      if (spec.stdio === "nul") {
+      if (ownedStdio) {
+        bindPipeProcessCreation(ffi, libraries)(
+          token,
+          executable,
+          Buffer.from(`${command}\0`, "utf16le"),
+          FLAGS,
+          env,
+          cwd,
+          info,
+          ownedStdio,
+        );
+      } else if (spec.stdio === "nul") {
         bindNulProcessCreation(ffi, libraries)(
           token,
           executable,
@@ -180,23 +203,32 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
       assigned = true;
       const contained = job.accounting();
       if (!contained || contained.active < 1 || contained.total < 1) throw failure("Job accounting");
+      if (ownedStdio) releaseStdioChildEnds(ownedStdio);
       if (resume(info.hThread) !== 1) throw failure("ResumeThread");
       if (!success(release(info.hThread))) throw failure("thread CloseHandle");
       info.hThread = undefined;
       let closed = false;
+      let finalExitCode: number | null = null;
+      const readExit = () => {
+        const state = wait(info.hProcess, 0);
+        if (state === WAIT_TIMEOUT) return null;
+        if (state !== WAIT_OBJECT) throw failure("exit wait");
+        const code: { value?: number } = {};
+        if (!success(getExit(info.hProcess, code)) || typeof code.value !== "number") throw failure("exit code");
+        finalExitCode = code.value;
+        return code.value;
+      };
       return {
         pid,
         get closed() {
           return closed;
         },
+        get finalExitCode() {
+          return finalExitCode;
+        },
         exitCode: () => {
           if (closed) throw new CrotError("OPERATION_FAILED", "Windows process probe is closed.");
-          const state = wait(info.hProcess, 0);
-          if (state === WAIT_TIMEOUT) return null;
-          if (state !== WAIT_OBJECT) throw failure("exit wait");
-          const code: { value?: number } = {};
-          if (!success(getExit(info.hProcess, code)) || typeof code.value !== "number") throw failure("exit code");
-          return code.value;
+          return readExit();
         },
         close: () => {
           if (closed) return;
@@ -205,12 +237,17 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
             // Even an exited parent may leave live descendants in its Job.
             const killed = job.terminate(1);
             killDirect();
+            readExit();
             if (!killed && (job.accounting()?.active ?? 1) !== 0) throw failure("Job termination");
           } finally {
             try {
               job.close();
             } finally {
-              releaseHandles();
+              try {
+                releaseHandles();
+              } finally {
+                ownedStdio?.closeSync();
+              }
             }
           }
         },
@@ -223,7 +260,11 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
         try {
           if (ownsJob) job.close();
         } finally {
-          releaseHandles();
+          try {
+            releaseHandles();
+          } finally {
+            ownedStdio?.closeSync();
+          }
         }
       }
       throw error;

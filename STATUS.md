@@ -7,6 +7,13 @@ package PR updates this file.
 
 ## WP-23c current continuation — not accepted
 
+New implementation component: owned OVERLAPPED byte stdio and restricted-token
+ProcessLauncher, wired to the existing Core interfaces for qualification (not
+registered as CommandConfinement). Binary/EOF/backpressure/argv/exit/Job ownership
+and native Core/shell/cancellation gates added; native CI is pending. Portable
+ABI tests explicitly check deferred pointers and cancellation-before-release.
+No filesystem/identity architecture selection or L1 availability is claimed.
+
 Production Windows PowerShell shell preparation now imports the fixed system
 Utility manifest from `$PSHOME` before ordinary user scripts. Production fix `43f7392`, qualified with the aligned legacy gate at `01ed8ce`,
 passes the 15-second Low redirection gate through the shared production helper,
@@ -14,7 +21,7 @@ a real Core stdout/stderr/exit regression and all 11 CI checks at `01ed8ce`.
 The separate `ec11e2e` rerun failure is retained; its legacy RPC invocation still
 used raw startup until the shared-helper alignment. Bare raw
 PowerShell discovery remains a reported timeout. Transparent Medium workspace
-writes, global outside-Low write isolation, native stdio byte bridge, the
+writes, global outside-Low write isolation, native byte transport qualification, the
 Windows confinement backend and actual protected-resource qualification are
 still missing. **Not Windows L1 acceptance; availability stays fail-closed;
 PR #27 stays Draft/open. The `2a09e50` documentation rerun passed both Windows jobs but failed Linux

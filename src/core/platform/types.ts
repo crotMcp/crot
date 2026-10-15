@@ -192,6 +192,8 @@ export interface ManagedProcess {
   /** Resolves when the direct child exits. */
   readonly exited: Promise<ExitStatus>;
   readonly hasExited: boolean;
+  /** Fatal launcher/transport failure, independent of the actual child exit code. */
+  readonly failure?: Error | undefined;
   /**
    * Terminate the process tree. Works after the direct child has exited where
    * the platform allows it (POSIX process groups, Windows Job Objects).

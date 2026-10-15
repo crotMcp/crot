@@ -1,11 +1,55 @@
-# WP-23c continuation — WinPS shell initialization fix
+# WP-23c continuation — WinPS and native process transport
 
 **Partial implementation, not Windows L1 acceptance.** Production Windows
 confinement still reports `not_implemented`; PR #27 stays open and Draft. No
 backend, write-through filesystem, global write boundary or architecture
 selection is claimed by the 11 green checks below.
 
-## Latest qualification and retained rerun failure
+## Native process component — qualification in progress
+
+Continued from verified `6fbfc2d634819f576a7d807ab7389800a37a7d80`
+(11 completed successful checks). The new `byte-stdio.ts` implements owned
+OVERLAPPED byte streams, independent concurrent stdout/stderr draining, bounded
+Node stream backpressure, partial stdin writes and EOF. Asynchronous ReadFile /
+WriteFile use NULL immediate-count pointers: no temporary FFI output object can
+outlive the call. OVERLAPPED, event and data buffers remain pinned until native
+completion; cancellation is acknowledged before release. Incomplete cancellation
+quarantines native memory/handles and prevents further transport creation.
+
+`restricted-stdio.ts` supplies exactly three privately branded child handles via
+PROC_THREAD_ATTRIBUTE_HANDLE_LIST. Parent handles and unrelated inheritable host
+handles are not on that list. The child is still suspended until verified Job
+assignment. Child handle copies are released before resume. The native primary
+process exit code is saved before handle release, including after forced cleanup.
+Trusted cmd.exe wrappers preserve CommandSpec.windowsVerbatimArguments; ordinary
+argv uses CRT escaping. Windows environment names such as ProgramFiles(x86) no
+longer fail an incorrectly POSIX-shaped name validator.
+
+`native-process.ts` implements the existing ProcessLauncher / ManagedProcess
+contract and owns Jobs even after a direct child exits. Core can consume its
+streams through the existing authorized ProcessService. A fatal transport error
+is distinct from a real child exit status (`ManagedProcess.failure`); foreground
+execution and background output reads report it rather than return false
+success. Foreground cleanup now runs in finally. The additive error field is not
+an authorization or permission-policy change; Node/Linux/macOS implementations
+retain their contracts. No new IPC/filesystem broker authority is introduced.
+
+Portable ownership/state-machine tests and compiled C ABI tests check deferred
+buffer writes, NULL count pointers, 64-bit layouts and cancellation-before-free.
+Real Windows gates cover binary megabyte stdio, argv/cwd/environment/exit 23,
+Core stdin/timeout/permission denial, production cmd/WinPS shell preparation,
+.cmd escaping, a ready detached grandchild after parent exit and cancellation
+with pending reads/backpressured writes. CI qualification is pending; Linux skips
+are not native proof. Existing strict WinPS and all original RPC gates remain.
+
+This is an implementation component, not another filesystem RPC adapter and not
+a complete backend. It is intentionally **not registered as CommandConfinement**.
+The MIC-only native fixture is not a global write boundary. Same-backing writes,
+bounded confinement environment, actual CROT state/control/Docker protection,
+crash/recovery and supported-machine matrix remain mandatory unclosed criteria.
+No user workspace SD is modified and production availability remains false.
+
+## Previous qualification and retained rerun failure
 
 **Latest qualified code/test source: `01ed8cece9c867bc7aef9e56b3c7c0b793bf14c7`.**
 All 11 checks completed successfully; synthetic checkout
@@ -188,7 +232,7 @@ Node 20/22, extension checks and real Chromium CI passed on that source pin.
 | Required criterion | Result of this continuation | Blocking work still required |
 | --- | --- | --- |
 | Developer workflows / same Medium backing / unchanged user SDs | Not met | Transparent ordinary Node/cmd/PS writes against original backing; no ACL/IL weakening; full SD comparison |
-| Process correctness and lifecycle | Partial | Shared WinPS shell redirection fixed; real native byte bridge, bounded production environment, cancellation/crash/recovery/tree qualification still missing |
+| Process correctness and lifecycle | Partial | Shared WinPS fix retained; native byte ProcessLauncher component now implemented, native qualification pending. Bounded production environment, crash/recovery and full tree qualification remain open |
 | Global write boundary | Not met | Unapproved Low sibling remains writable; MIC alone is not an allowed-write policy |
 | Protected actual CROT state/control/Docker | Not met | Actual service fixtures, secret store/device key, control/IPC/self-approval/Docker and descendants/concurrent attacks |
 | Native supported-machine acceptance | Partial | Node 20/22 x64 Server shell/RPC gates pass; ordinary Medium positives/full negatives, Windows 11/standard-user/ARM64 remain unqualified |

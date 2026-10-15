@@ -246,6 +246,7 @@ export class ProcessService {
       context,
       { operation: "process.read_output", capability: "process.manage", paths: [record.cwd] },
       async () => {
+        if (record.proc.failure) throw record.proc.failure;
         const out = record.stdout.readFrom(args.stdoutOffset);
         const err = record.stderr.readFrom(args.stderrOffset);
         return {
@@ -420,14 +421,21 @@ export class ProcessService {
       void terminateTree(proc);
     }, timeoutMs);
 
-    const status = await proc.exited;
-    clearTimeout(timer);
-    // Descendants may keep stdio open; wait briefly for the streams, then stop waiting.
-    await Promise.race([Promise.all([ended(proc.stdout), ended(proc.stderr)]), delay(STDIO_CLOSE_GRACE_MS)]);
-    // The command owns its process tree: terminate leftovers (POSIX process group).
-    await proc.terminate("force");
-    proc.stdout.destroy();
-    proc.stderr.destroy();
+    let status;
+    try {
+      status = await proc.exited;
+      // Descendants may keep stdio open; wait briefly, then end the owned tree.
+      await Promise.race([Promise.all([ended(proc.stdout), ended(proc.stderr)]), delay(STDIO_CLOSE_GRACE_MS)]);
+    } finally {
+      clearTimeout(timer);
+      try {
+        await proc.terminate("force");
+      } finally {
+        proc.stdout.destroy();
+        proc.stderr.destroy();
+      }
+    }
+    if (proc.failure) throw proc.failure;
     stdout.end();
     stderr.end();
     const out = stdout.readAll();
