@@ -1286,5 +1286,5 @@ Notes of the product reassessment (§2.7), explicit rather than silent:
 
 **WP-23c AD-28 continuation:** $0 third-party license fees; Dokan commercial use
 permitted under MIT/LGPL obligations, but stock control boundary remains unsafe.
-Fixed AppContainer/LPAC native qualification probe added; native results pending,
-not a production backend or acceptance. See `docs/design/windows-l1-zero-license.md`.
+75ce0f2 implements effective LPAC and literal-zero native qualification probes;
+source-pinned actual results/8 criteria remain partial/NOT MET, not a backend or acceptance. See `docs/design/windows-l1-zero-license.md`.

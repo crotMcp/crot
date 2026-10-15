@@ -1,0 +1,16 @@
+{
+  "sourceHead": "eb60654f685669fc6ba72fc1a6388b32bada8696",
+  "command": "npm run check",
+  "platform": "linux x64",
+  "node": "24.14.1",
+  "exitCode": 0,
+  "core": {
+    "passed": 1729,
+    "skipped": 168
+  },
+  "extension": {
+    "passed": 147
+  },
+  "logSha256": "d8d1cdc8c2841284c52cc05fbfc3a4483c2a4dd830e065176a1f96d5270aaad2",
+  "qualification": "Portable regressions only; native token readback remains failed."
+}

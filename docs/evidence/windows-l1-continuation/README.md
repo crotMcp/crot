@@ -40,3 +40,16 @@ Do not reinterpret setup/pre-JS/compile failures as a successful denial. In
 particular, `control-zero-open` means the Low profile **opened** the raw endpoint;
 the helper then rejected readiness. No sensitive IOCTL was invoked. A mounted
 experimental view is not an accepted safe backend or a complete filesystem pass.
+
+## Zero-license continuation
+
+zero-license-source-review.json pins official Dokan2.3.1.1000 license and control
+sources; not legal clearance or native proof. zero-license-native-summary.json
+whitelists source-specific component phases, complete job statuses and preserved
+Git object identities. It is a convenience index, not a substitute for full events.
+Class46 failures atd43f96b/4804e32 are prerequisites only.75ce0f2 v2 distinguishes
+metadata and literal-zero opens and uses effective AccessCheck LPAC semantics.
+The fixed CROT child exit marker is typed, not cryptographically signed. Only
+pinned upstream MSI/kernel binary signatures are verified. No sensitive IOCTL is
+invoked. No data/raw package grant, production backend or acceptance is implied.
+All original142 manifest hashes must remain identical.

@@ -1,0 +1,1871 @@
+{
+  "formatVersion": 1,
+  "scope": "Native component diagnostics only; no accepted backend or WP23c completion. No sensitive IOCTL invoked.",
+  "latestSource": "75ce0f211fac413b66da877c7f32721359f63fef",
+  "preservedAgainst": "8b00b61aba72c7ba1068316f4c0da86dfb6cbc80",
+  "unchangedSecurityPaths": {
+    "src/core": {
+      "baselineGitObject": "776c9f7bd579fffe74919f236461fe2c68281658",
+      "sourceGitObject": "776c9f7bd579fffe74919f236461fe2c68281658",
+      "identical": true
+    },
+    "tests/native-host/windows-l1/fixtures": {
+      "baselineGitObject": "b6336ec52a85cee3d9ebe9129c3b94c7b87d3c81",
+      "sourceGitObject": "b6336ec52a85cee3d9ebe9129c3b94c7b87d3c81",
+      "identical": true
+    },
+    "tests/native-host/windows-l1/workspace-native.test.ts": {
+      "baselineGitObject": "f65d06e23adbb865907ae7876435c94afb582752",
+      "sourceGitObject": "f65d06e23adbb865907ae7876435c94afb582752",
+      "identical": true
+    },
+    "src/native-host/windows-l1/restricted-token.ts": {
+      "baselineGitObject": "b27f85fad0aabc14aac09f6d653b203795078c45",
+      "sourceGitObject": "b27f85fad0aabc14aac09f6d653b203795078c45",
+      "identical": true
+    },
+    "src/native-host/windows-l1/native-process.ts": {
+      "baselineGitObject": "43a07bc734d2e2c1cb9dfced4f49bd216e217a07",
+      "sourceGitObject": "43a07bc734d2e2c1cb9dfced4f49bd216e217a07",
+      "identical": true
+    },
+    "src/native-host/windows-l1/command-token.ts": {
+      "baselineGitObject": "e74a8b36aea4135951d6c5d00569ae5ad12b258f",
+      "sourceGitObject": "e74a8b36aea4135951d6c5d00569ae5ad12b258f",
+      "identical": true
+    },
+    "src/native-host/windows-l1/launch-environment.ts": {
+      "baselineGitObject": "606673147130d3e72826ac497afa81f459427b0e",
+      "sourceGitObject": "606673147130d3e72826ac497afa81f459427b0e",
+      "identical": true
+    }
+  },
+  "sources": [
+    {
+      "sourceHead": "07afa3cc250f79225199b8997cce64f98f82d8bf",
+      "testedMerge": "0971d20975e619efb222dd87e856958c9ed5b502",
+      "checks": [
+        {
+          "name": "Node 22 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38765702746/job/116528203990"
+        },
+        {
+          "name": "Node 20 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38765702746/job/116528203928"
+        },
+        {
+          "name": "L1 / ubuntu-22.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38765702717/job/116528203856"
+        },
+        {
+          "name": "Node 20 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38765702746/job/116528203832"
+        },
+        {
+          "name": "L1 / ubuntu-24.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38765702717/job/116528203687"
+        },
+        {
+          "name": "Node 20 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38765702746/job/116528203627"
+        },
+        {
+          "name": "Node 22 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38765702746/job/116528203562"
+        },
+        {
+          "name": "L1 / ubuntu-22.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38765702717/job/116528203548"
+        },
+        {
+          "name": "Node 22 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38765702746/job/116528203321"
+        },
+        {
+          "name": "L1 / ubuntu-24.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38765702717/job/116528203301"
+        },
+        {
+          "name": "real-chromium",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38765702730/job/116528203254"
+        }
+      ],
+      "nodes": {
+        "20": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": false,
+                "stage": "owner-controls-or-setup"
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 0,
+              "failed": 13
+            }
+          ]
+        },
+        "22": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": false,
+                "stage": "owner-controls-or-setup"
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 4,
+              "failed": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sourceHead": "dc52bc42e74987a65d077c4051df5a0ffb8add44",
+      "testedMerge": "02128a46e580b177cba38c48e2bdc56d1b47aae5",
+      "checks": [
+        {
+          "name": "Node 22 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766157855/job/116529765709"
+        },
+        {
+          "name": "Node 22 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766157855/job/116529765514"
+        },
+        {
+          "name": "Node 20 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766157855/job/116529765349"
+        },
+        {
+          "name": "Node 20 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766157855/job/116529765303"
+        },
+        {
+          "name": "Node 20 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766157855/job/116529765282"
+        },
+        {
+          "name": "Node 22 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766157855/job/116529765075"
+        },
+        {
+          "name": "L1 / ubuntu-22.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766157853/job/116529765046"
+        },
+        {
+          "name": "L1 / ubuntu-22.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766157853/job/116529764844"
+        },
+        {
+          "name": "L1 / ubuntu-24.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766157853/job/116529764718"
+        },
+        {
+          "name": "L1 / ubuntu-24.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766157853/job/116529764515"
+        },
+        {
+          "name": "real-chromium",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766157795/job/116529764290"
+        }
+      ],
+      "nodes": {
+        "20": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": false,
+                "stage": "owner-controls-or-setup"
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 0,
+              "failed": 13
+            }
+          ]
+        },
+        "22": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": false,
+                "stage": "owner-controls-or-setup"
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 4,
+              "failed": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sourceHead": "673edb6891fe4bdf1bb40c08c00d9de985799c00",
+      "testedMerge": "0d852dfc351df762f93827ef7c3b98d42e0d5524",
+      "checks": [
+        {
+          "name": "Node 20 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766831964/job/116532122878"
+        },
+        {
+          "name": "Node 20 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766831964/job/116532122836"
+        },
+        {
+          "name": "Node 22 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766831964/job/116532122827"
+        },
+        {
+          "name": "Node 22 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766831964/job/116532122761"
+        },
+        {
+          "name": "Node 22 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766831964/job/116532122726"
+        },
+        {
+          "name": "Node 20 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766831964/job/116532122593"
+        },
+        {
+          "name": "L1 / ubuntu-24.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766831930/job/116532122114"
+        },
+        {
+          "name": "L1 / ubuntu-22.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766831930/job/116532122102"
+        },
+        {
+          "name": "L1 / ubuntu-22.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766831930/job/116532121992"
+        },
+        {
+          "name": "real-chromium",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766831940/job/116532121896"
+        },
+        {
+          "name": "L1 / ubuntu-24.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38766831930/job/116532121883"
+        }
+      ],
+      "nodes": {
+        "20": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": false,
+                "stage": "owner-nt-zero"
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 0,
+              "failed": 13
+            }
+          ]
+        },
+        "22": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": false,
+                "stage": "owner-nt-zero"
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 3,
+              "failed": 10
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sourceHead": "ac379926ecdf7d1dac1465e9cc076074c729c161",
+      "testedMerge": "4beae1ce0c087bb57da901a99a59f696d1444e9e",
+      "checks": [
+        {
+          "name": "Node 20 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38768502348/job/116537882661"
+        },
+        {
+          "name": "Node 22 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38768502348/job/116537882610"
+        },
+        {
+          "name": "Node 22 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38768502348/job/116537882476"
+        },
+        {
+          "name": "Node 20 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38768502348/job/116537882388"
+        },
+        {
+          "name": "Node 20 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38768502348/job/116537882347"
+        },
+        {
+          "name": "Node 22 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38768502348/job/116537882140"
+        },
+        {
+          "name": "L1 / ubuntu-22.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38768502005/job/116537881656"
+        },
+        {
+          "name": "L1 / ubuntu-22.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38768502005/job/116537881572"
+        },
+        {
+          "name": "L1 / ubuntu-24.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38768502005/job/116537881386"
+        },
+        {
+          "name": "L1 / ubuntu-24.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38768502005/job/116537880993"
+        },
+        {
+          "name": "real-chromium",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38768501842/job/116537879499"
+        }
+      ],
+      "nodes": {
+        "20": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": true,
+                "ownerControls": true,
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": false,
+                  "stage": "owned-profile-setup"
+                },
+                "lpac": {
+                  "ready": false,
+                  "stage": "owned-profile-setup"
+                }
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 0,
+              "failed": 13
+            }
+          ]
+        },
+        "22": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": true,
+                "ownerControls": true,
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": false,
+                  "stage": "owned-profile-setup"
+                },
+                "lpac": {
+                  "ready": false,
+                  "stage": "owned-profile-setup"
+                }
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 4,
+              "failed": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sourceHead": "9faa901af4980a30d3faf0ff48f2e0035968829b",
+      "testedMerge": "f53a68403247aecf8108d27c72d44255ef1a2d74",
+      "checks": [
+        {
+          "name": "L1 / ubuntu-24.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38769634813/job/116541751656"
+        },
+        {
+          "name": "L1 / ubuntu-22.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38769634813/job/116541751192"
+        },
+        {
+          "name": "L1 / ubuntu-22.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38769634813/job/116541751166"
+        },
+        {
+          "name": "L1 / ubuntu-24.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38769634813/job/116541751051"
+        },
+        {
+          "name": "Node 20 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38769634786/job/116541750862"
+        },
+        {
+          "name": "Node 20 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38769634786/job/116541750788"
+        },
+        {
+          "name": "Node 22 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38769634786/job/116541750622"
+        },
+        {
+          "name": "Node 20 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38769634786/job/116541750504"
+        },
+        {
+          "name": "Node 22 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38769634786/job/116541750493"
+        },
+        {
+          "name": "real-chromium",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38769634808/job/116541750403"
+        },
+        {
+          "name": "Node 22 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38769634786/job/116541750100"
+        }
+      ],
+      "nodes": {
+        "20": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": true,
+                "ownerControls": true,
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": false,
+                  "stage": "process-create"
+                },
+                "lpac": {
+                  "ready": false,
+                  "stage": "process-create"
+                }
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 0,
+              "failed": 13
+            }
+          ]
+        },
+        "22": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": true,
+                "ownerControls": true,
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": false,
+                  "stage": "process-create"
+                },
+                "lpac": {
+                  "ready": false,
+                  "stage": "process-create"
+                }
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 4,
+              "failed": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sourceHead": "2c023adab45017f457615d37db530c7a1bdfa6af",
+      "testedMerge": "8af72b933cd9ab577a7a3a52b260cba7d5df86e7",
+      "checks": [
+        {
+          "name": "Node 20 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771145502/job/116546969931"
+        },
+        {
+          "name": "Node 20 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771145502/job/116546969540"
+        },
+        {
+          "name": "Node 22 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771145502/job/116546969522"
+        },
+        {
+          "name": "Node 22 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771145502/job/116546969498"
+        },
+        {
+          "name": "Node 20 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771145502/job/116546969343"
+        },
+        {
+          "name": "Node 22 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771145502/job/116546969079"
+        },
+        {
+          "name": "L1 / ubuntu-22.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771145336/job/116546968963"
+        },
+        {
+          "name": "L1 / ubuntu-24.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771145336/job/116546968621"
+        },
+        {
+          "name": "real-chromium",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771145335/job/116546968615"
+        },
+        {
+          "name": "L1 / ubuntu-22.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771145336/job/116546968612"
+        },
+        {
+          "name": "L1 / ubuntu-24.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771145336/job/116546968302"
+        }
+      ],
+      "nodes": {
+        "20": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": true,
+                "ownerControls": true,
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": false,
+                  "stage": "process-create-path"
+                },
+                "lpac": {
+                  "ready": false,
+                  "stage": "process-create-path"
+                },
+                "lastNativePrerequisiteStatus": "00000002"
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 0,
+              "failed": 13
+            }
+          ]
+        },
+        "22": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": true,
+                "ownerControls": true,
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": false,
+                  "stage": "process-create-path"
+                },
+                "lpac": {
+                  "ready": false,
+                  "stage": "process-create-path"
+                },
+                "lastNativePrerequisiteStatus": "00000002"
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 4,
+              "failed": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sourceHead": "eb60654f685669fc6ba72fc1a6388b32bada8696",
+      "testedMerge": "e1ddf70199f0783c5d69dd2dd7b06f1b708acd1b",
+      "checks": [
+        {
+          "name": "L1 / ubuntu-22.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771984996/job/116549879862"
+        },
+        {
+          "name": "L1 / ubuntu-24.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771984996/job/116549879768"
+        },
+        {
+          "name": "L1 / ubuntu-22.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771984996/job/116549879640"
+        },
+        {
+          "name": "Node 22 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771984753/job/116549879221"
+        },
+        {
+          "name": "L1 / ubuntu-24.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771984996/job/116549879164"
+        },
+        {
+          "name": "Node 22 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771984753/job/116549879139"
+        },
+        {
+          "name": "Node 20 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771984753/job/116549879078"
+        },
+        {
+          "name": "Node 20 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771984753/job/116549879006"
+        },
+        {
+          "name": "Node 22 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771984753/job/116549878987"
+        },
+        {
+          "name": "real-chromium",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771984849/job/116549878790"
+        },
+        {
+          "name": "Node 20 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38771984753/job/116549878700"
+        }
+      ],
+      "nodes": {
+        "20": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": true,
+                "ownerControls": true,
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": false,
+                  "stage": "suspended-token-readback"
+                },
+                "lpac": {
+                  "ready": false,
+                  "stage": "suspended-token-readback"
+                }
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 0,
+              "failed": 13
+            }
+          ]
+        },
+        "22": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": true,
+                "ownerControls": true,
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": false,
+                  "stage": "suspended-token-readback"
+                },
+                "lpac": {
+                  "ready": false,
+                  "stage": "suspended-token-readback"
+                }
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 4,
+              "failed": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sourceHead": "d43f96b63f365734dc945128ab0e22af215dff21",
+      "testedMerge": "f620798fc376927d189175aba893d358ad9f8ec9",
+      "checks": [
+        {
+          "name": "Node 22 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38773409798/job/116554791731"
+        },
+        {
+          "name": "Node 20 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38773409798/job/116554791533"
+        },
+        {
+          "name": "Node 20 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38773409798/job/116554791403"
+        },
+        {
+          "name": "Node 22 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38773409798/job/116554791346"
+        },
+        {
+          "name": "Node 20 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38773409798/job/116554791290"
+        },
+        {
+          "name": "real-chromium",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38773409855/job/116554790996"
+        },
+        {
+          "name": "Node 22 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38773409798/job/116554790918"
+        },
+        {
+          "name": "L1 / ubuntu-22.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38773409731/job/116554790794"
+        },
+        {
+          "name": "L1 / ubuntu-24.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38773409731/job/116554790311"
+        },
+        {
+          "name": "L1 / ubuntu-24.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38773409731/job/116554790247"
+        },
+        {
+          "name": "L1 / ubuntu-22.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38773409731/job/116554789703"
+        }
+      ],
+      "nodes": {
+        "20": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": true,
+                "ownerControls": true,
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": false,
+                  "stage": "lpac-query"
+                },
+                "lpac": {
+                  "ready": false,
+                  "stage": "lpac-query"
+                },
+                "lastNativePrerequisiteStatus": "00000057"
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 0,
+              "failed": 13
+            }
+          ]
+        },
+        "22": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": true,
+                "ownerControls": true,
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": false,
+                  "stage": "lpac-query"
+                },
+                "lpac": {
+                  "ready": false,
+                  "stage": "lpac-query"
+                },
+                "lastNativePrerequisiteStatus": "00000057"
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 4,
+              "failed": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sourceHead": "4804e323e5831f9cff7df6453fabacd7fb828fd1",
+      "testedMerge": "effc8bbeffc37a12dd0d3123577dfcfc58825a4c",
+      "checks": [
+        {
+          "name": "L1 / ubuntu-24.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38774880885/job/116559832426"
+        },
+        {
+          "name": "L1 / ubuntu-22.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38774880885/job/116559832097"
+        },
+        {
+          "name": "L1 / ubuntu-24.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38774880885/job/116559832053"
+        },
+        {
+          "name": "L1 / ubuntu-22.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38774880885/job/116559831900"
+        },
+        {
+          "name": "Node 20 / macos-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38774880665/job/116559830152"
+        },
+        {
+          "name": "Node 20 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38774880665/job/116559829814"
+        },
+        {
+          "name": "Node 22 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38774880665/job/116559829757"
+        },
+        {
+          "name": "Node 20 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38774880665/job/116559829637"
+        },
+        {
+          "name": "Node 22 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38774880665/job/116559829613"
+        },
+        {
+          "name": "Node 22 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38774880665/job/116559829390"
+        },
+        {
+          "name": "real-chromium",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38774880719/job/116559828999"
+        }
+      ],
+      "nodes": {
+        "20": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": true,
+                "ownerControls": true,
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": false,
+                  "stage": "lpac-query"
+                },
+                "lpac": {
+                  "ready": false,
+                  "stage": "lpac-query"
+                },
+                "lastNativePrerequisiteStatus": "c0000003"
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 0,
+              "failed": 13
+            }
+          ]
+        },
+        "22": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "completed": true,
+                "ownerControls": true,
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": false,
+                  "stage": "lpac-query"
+                },
+                "lpac": {
+                  "ready": false,
+                  "stage": "lpac-query"
+                },
+                "lastNativePrerequisiteStatus": "c0000003"
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 4,
+              "failed": 9
+            }
+          ]
+        }
+      }
+    },
+    {
+      "sourceHead": "75ce0f211fac413b66da877c7f32721359f63fef",
+      "testedMerge": "037b6e9cb00c068ea0b1df91e434ae87a28588e7",
+      "checks": [
+        {
+          "name": "real-chromium",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38776671204/job/116565997441"
+        },
+        {
+          "name": "L1 / ubuntu-24.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38776671229/job/116565994752"
+        },
+        {
+          "name": "L1 / ubuntu-22.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38776671229/job/116565994716"
+        },
+        {
+          "name": "Node 22 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38776671190/job/116565994441"
+        },
+        {
+          "name": "L1 / ubuntu-24.04-arm",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38776671229/job/116565994374"
+        },
+        {
+          "name": "Node 20 / macos-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38776671190/job/116565994346"
+        },
+        {
+          "name": "Node 22 / macos-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38776671190/job/116565994302"
+        },
+        {
+          "name": "Node 20 / windows-latest",
+          "conclusion": "failure",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38776671190/job/116565994293"
+        },
+        {
+          "name": "Node 20 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38776671190/job/116565994258"
+        },
+        {
+          "name": "L1 / ubuntu-22.04",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38776671229/job/116565994114"
+        },
+        {
+          "name": "Node 22 / ubuntu-latest",
+          "conclusion": "success",
+          "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38776671190/job/116565993894"
+        }
+      ],
+      "nodes": {
+        "20": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "protocolVersion": 2,
+                "completed": true,
+                "ownerControls": true,
+                "ownerNtLiteralZero": "access-denied",
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": true,
+                  "win32Zero": "access-denied",
+                  "win32Read": "access-denied",
+                  "ntMetadata": "access-denied",
+                  "ntRead": "access-denied",
+                  "nulReadWriteOpened": false,
+                  "ntLiteralZero": "access-denied"
+                },
+                "lpac": {
+                  "ready": true,
+                  "win32Zero": "access-denied",
+                  "win32Read": "access-denied",
+                  "ntMetadata": "access-denied",
+                  "ntRead": "access-denied",
+                  "nulReadWriteOpened": false,
+                  "ntLiteralZero": "access-denied"
+                }
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 0,
+              "failed": 13
+            }
+          ]
+        },
+        "22": {
+          "workspaceView": [
+            {
+              "phase": "signed-component-build",
+              "value": {
+                "passed": true,
+                "arch": "x64",
+                "version": "2.3.1.1000"
+              }
+            },
+            {
+              "phase": "original-medium-before",
+              "value": {
+                "passed": true,
+                "objects": 2
+              }
+            },
+            {
+              "phase": "control-profile-probes",
+              "value": {
+                "protocolVersion": 2,
+                "completed": true,
+                "ownerControls": true,
+                "ownerNtLiteralZero": "access-denied",
+                "devicePackageAccessGranted": false,
+                "appContainer": {
+                  "ready": true,
+                  "win32Zero": "access-denied",
+                  "win32Read": "access-denied",
+                  "ntMetadata": "access-denied",
+                  "ntRead": "access-denied",
+                  "nulReadWriteOpened": false,
+                  "ntLiteralZero": "access-denied"
+                },
+                "lpac": {
+                  "ready": true,
+                  "win32Zero": "access-denied",
+                  "win32Read": "access-denied",
+                  "ntMetadata": "access-denied",
+                  "ntRead": "access-denied",
+                  "nulReadWriteOpened": false,
+                  "ntLiteralZero": "access-denied"
+                }
+              }
+            }
+          ],
+          "testSummary": [
+            {
+              "file": "native-process.test.ts",
+              "state": "pass",
+              "passed": 11,
+              "failed": 0
+            },
+            {
+              "file": "stage6a-diagnostics.test.ts",
+              "state": "pass",
+              "passed": 10,
+              "failed": 0
+            },
+            {
+              "file": "workspace-native.test.ts",
+              "state": "pass",
+              "passed": 7,
+              "failed": 0
+            },
+            {
+              "file": "write-boundary.test.ts",
+              "state": "fail",
+              "passed": 4,
+              "failed": 9
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

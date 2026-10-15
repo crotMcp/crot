@@ -2,7 +2,7 @@
 
 WP-23c remains OPEN. This document narrows the commercial licensing constraint;
 it does not accept a backend or substitute for the eight mandatory criteria.
-AD-28 records the decision before the experiment code. The signed AD-27 helper,
+AD-28 records the decision before the experiment code. The AD-27 helper with signed Dokan driver,
 PowerShell/RPC gates and unavailable production backend remain unchanged.
 
 ## License decision
@@ -23,6 +23,12 @@ applicable. Do not copy upstream sample/library implementation into proprietary
 CROT without checking that component's license. The diagnostic code here is
 CROT-owned, uses Windows SDK/OS APIs, and embeds no Dokan/Chromium implementation.
 A release compliance checklist and legal review remain a shipping prerequisite.
+A runtime hash/version/signature pin is not an automatic LGPL exception to library
+replacement/relinking requirements. Validate an LGPLv3 section4(d)(0) relinking
+materials route or4(d)(1) suitable compatible shared-library mechanism and applicable
+installation information; do not silently waive either compliance or security.
+CROT remains UNLICENSED; this is conditional engineering/compliance analysis, not
+legal clearance or a change to CROT licensing.
 
 Authoritative sources:
 - https://dokan-dev.github.io/ (FAQ: commercial products; license section).
@@ -40,7 +46,7 @@ and no repository license is changed.
 | --- | --- | --- |
 | Stock signed Dokan + existing WRITE_RESTRICTED Low actor | $0 under LGPL/MIT conditions | **Rejected as currently safe:** native `0eb1519`, `43ff402`, `c6a1c45` demonstrate raw zero-access open before READY. No sensitive IOCTL invoked. |
 | Stock Dokan network mode | $0 under same conditions | **Not an escape hatch:** upstream network volume dispatch calls the same disk control dispatcher. Hiding a raw name is not authentication. |
-| Zero-capability AppContainer / LPAC + same-backing projection | OS APIs; no new third-party license fee | **Experimental qualification only:** native probe added; not selected, no data-device grant, no compatibility/whole-system isolation claim. |
+| Zero-capability AppContainer / LPAC + same-backing projection | OS APIs; no new third-party license fee | **Not qualified:**75ce0f2 fixed children enter, four owner-positive raw controls deny, but NUL RW fails and no projected-data grant/full runtime proof exists. Literal NT0 also denies owner, hence is inconclusive for isolation. |
 | Hardened LGPL Dokan with controller-open capability in kernel | $0 license fee; publish library/driver modifications as required | Technically plausible but **not implemented/qualified**. Needs atomic controller FILE_OBJECT authorization for every privileged operation/alias, authenticated data requests, lifecycle/race proof and a production signed binary. |
 | WinFsp proprietary commercial license | Paid route | Outside this budget; not selected. |
 | Windows Sandbox/VM | Edition/platform prerequisites vary | Not a drop-in or proven $0-license replacement. Mapped folders do not prove all workspace/protected-subtree/alias/lifetime requirements. |
@@ -79,14 +85,20 @@ evidence. Teardown retries the exact owned profiles. Abrupt-death/crash recovery
 is unqualified: this remains a disposable hosted-CI experiment, never production.
 Only those newly created objects receive ACLs; parent/original/global/device SDs
 are never changed. Fixed child code repeats token readback after entry.
+At4804e32, the LPAC SDK class46 query returns STATUS_INVALID_INFO_CLASS even with
+its fixed ULONG ABI.75ce0f2 uses effective public AccessCheck observations instead:
+user-only deny, exact-package positive, AAP distinction and LPAC ARAP positive.
+These are in-memory descriptors only; no object receives a shared-SID grant.
+This verifies effective access semantics, not successful token-flag querying.
 
 Owner positive controls open the exact new raw endpoint with both access masks
 through Win32 GLOBALROOT and absolute NtCreateFile. The absolute-NT minimum uses FILE_READ_ATTRIBUTES | SYNCHRONIZE and a
 non-directory open to match Win32 minimum metadata semantics (not literal zero
-NtCreateFile DesiredAccess, which failed owner controls at `673edb6`). The child
-repeats those four **harmless open/close operations only**; no IOCTL or event/token operation exists.
-The four results distinguish strict native access denied, open success, namespace
-absence, and other failure. A signed fixed exit marker proves child entry; loader
+NtCreateFile DesiredAccess, which failed owner controls at `673edb6`). The v2 child
+repeats those four and a fifth literal-zero NON_DIRECTORY NT open, with a separate
+owner literal-zero classification. These are **harmless open/close operations only**; no IOCTL or event/token operation exists.
+All five results distinguish strict native access denied, open success, namespace
+absence, and other failure. A fixed typed exit marker proves child entry; loader
 0xc0000142, create/readback/wait/protocol/cleanup failures never become denial.
 An ordinary NUL open/close is separately observed, not a stdio workaround.
 
@@ -101,8 +113,7 @@ pinned signed Dokan provisioning, actor deadlines and security assertions stay.
 experiment. Even four access denials do not prove control/data separation after
 data access is enabled. Next gates must grant only projected data access while preserving raw control
 isolation (if raw-device grants are required, test them explicitly and reject
-any reopened control), probe literal-zero native opens with the correct open
-options, and prove original
+any reopened control), validate literal-zero owner/profile results, and prove original
 Medium immediate-host CRUD and SD identity, ready Node20/22/cmd/WinPS descendants,
 outside-Low/protected state/Docker/network/aliases/races/lifetime and independent
 Windows11 standard-user x64/ARM64 coverage. No criterion is marked met by design.
@@ -113,3 +124,61 @@ OS API references:
 - https://learn.microsoft.com/en-us/windows/win32/secauthz/appcontainer-for-legacy-applications-
 - https://learn.microsoft.com/en-us/windows/win32/api/userenv/nf-userenv-deriveappcontainersidfromappcontainername
 - https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute
+
+## Source-pinned native result
+
+Latest source75ce0f2; full local1732 Core/168 skipped +147 extension PASS.
+8/9 non-Windows jobs PASS; 2/2 Windows jobs FAIL. Complete events/checks/merge ancestry and all eight criteria are in
+windows-l1-continuation.md and the evidence manifest. No safe backend is accepted.
+
+- Node20: `{"protocolVersion":2,"completed":true,"ownerControls":true,"ownerNtLiteralZero":"access-denied","devicePackageAccessGranted":false,"appContainer":{"ready":true,"win32Zero":"access-denied","win32Read":"access-denied","ntMetadata":"access-denied","ntRead":"access-denied","nulReadWriteOpened":false,"ntLiteralZero":"access-denied"},"lpac":{"ready":true,"win32Zero":"access-denied","win32Read":"access-denied","ntMetadata":"access-denied","ntRead":"access-denied","nulReadWriteOpened":false,"ntLiteralZero":"access-denied"}}`
+- Node22: `{"protocolVersion":2,"completed":true,"ownerControls":true,"ownerNtLiteralZero":"access-denied","devicePackageAccessGranted":false,"appContainer":{"ready":true,"win32Zero":"access-denied","win32Read":"access-denied","ntMetadata":"access-denied","ntRead":"access-denied","nulReadWriteOpened":false,"ntLiteralZero":"access-denied"},"lpac":{"ready":true,"win32Zero":"access-denied","win32Read":"access-denied","ntMetadata":"access-denied","ntRead":"access-denied","nulReadWriteOpened":false,"ntLiteralZero":"access-denied"}}`
+
+### Interpretation and next implementation gate
+
+At75ce0f2 both native profiles/runtimes reach fixed child entry after actual Low,
+zero-capability, package-SID, Job and effective-access checks. All four Win32/
+metadata/read raw opens deny while the matching owner positive controls succeed.
+The fifth literal NT DesiredAccess0 open also denies the owner: this result is
+**inconclusive for isolation**, not an additional positive-control-backed denial.
+Both profiles report ordinary NUL generic read/write false. A fixed native /MT
+child starting does not establish Node20/22, cmd, WinPS or stdio compatibility.
+`ready:true` in this diagnostic means child entry/predicates, never backend READY.
+
+No safe Windows L1 backend is selected. Stock Dokan remains eligible on license
+fees, but the existing Low profile is rejected for raw reachability. AppContainer/
+LPAC is not a qualified drop-in replacement: NUL compatibility is a concrete
+functional blocker and data-only grants/control separation have not been tested.
+Do not install any grant on shared NUL/raw/global objects to bypass it. Next work
+must demonstrate ordinary named-NUL/runtime semantics with an owned per-execution
+mechanism, or select another mechanism without that compromise; then prove
+projected-data-only grants and every raw alias again. If that cannot be done under
+the stated constraints, this branch cannot be promoted merely because it is $0.
+A hardened upstream/fork route still needs an actual production-signed artifact;
+no free signature, maintainers' acceptance or shipping clearance is promised.
+
+### Release compliance checklist (not yet fulfilled)
+
+- Inventory exact shipped DLL/driver/installer/tools and each component's license.
+- Include notices and LGPLv3/MIT plus applicable incorporated license terms.
+- Provide corresponding LGPL library source and modifications by a compliant method.
+- Validate section4(d)(0) relinking materials or4(d)(1) suitable shared-library
+  replacement; runtime security pins are not an automatic exception.
+- Preserve required modification/reverse-engineering permissions for library debugging,
+  notices and applicable installation information; review the combined-work EULA.
+- Obtain release legal/compliance review without silently relicensing CROT.
+- Separately resolve Windows edition/signing/EV/HLK/infrastructure needs; $0 license
+  fees is not a promise of $0 total distribution cost. No purchase is authorized.
+
+### Corroborated NUL compatibility limit
+
+Microsoft's MXC process-container host-preparation documentation explicitly says
+that default `\Device\Null` security omits AppContainer grants and ordinary NUL
+opens can fail ERROR_ACCESS_DENIED. Its Tier3 workaround prepares shared NUL and
+system-drive-root ACLs for well-known AppContainer SIDs. Those changes are forbidden
+by CROT's current boundaries and were **not** executed. This supports treating the
+native75ce0f2 NUL failure as a real compatibility blocker, not a successful denial
+or a reason to weaken global policy. The document is source-pinned in
+mxc-null-source-review.json; no MXC implementation was copied or deployed.
+
+Source: https://github.com/microsoft/mxc/blob/ae9e3c06469fd2958da546b71bd170932e7f8ba2/docs/backends/process-container/host-prep.md

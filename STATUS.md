@@ -8,10 +8,19 @@ package PR updates this file.
 ## WP-23c current continuation — not accepted
 
 **AD-28: $0 third-party license-fee constraint.** Dokan commercial use is allowed
-subject to its MIT/LGPL obligations; licensing does not fix the confirmed raw
-control blocker. Added fixed OS-only AppContainer/LPAC native qualification
-probe, not a backend or bypass. Native results pending; no criterion closed.
-See `docs/design/windows-l1-zero-license.md`. Production remains unavailable.
+subject to MIT/LGPL compliance, including a validated replacement/relinking route;
+security hash pins are not an automatic LGPL exception. No CROT relicensing.
+Latest source75ce0f2 implements effective LPAC access verification and five native
+raw-open probes, including literal NT DesiredAccess0 with separate owner control.
+The unsupported class46 query at4804e32 is retained as failed prerequisite, not
+access denial. Actual results and eight source-pinned criteria:
+`docs/design/windows-l1-continuation.md`; license/security decision:
+`docs/design/windows-l1-zero-license.md`.
+Full local1732/168 skipped +147 PASS; 8/9 non-Windows jobs PASS; 2/2 Windows jobs FAIL.
+MacOS20 concurrent-start failure is retained; not all CI green. Both native profiles enter and deny four owner-positive raw opens, but literal
+NT0 also denies owner (inconclusive) and NUL RW fails. No data grant or runtime
+compatibility is proven. All criteria stay partial/NOT MET. No production backend, READY bypass or original/global/device ACL
+weakening; fresh profile normal cleanup is implemented, abrupt recovery unqualified.
 
 AD-27 source `ca04414` actually builds and mounts the same-backing component on
 Windows20/22 and verifies original root/file Medium before actor startup. It

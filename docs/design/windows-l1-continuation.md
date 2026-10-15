@@ -3,7 +3,73 @@
 **Partial implementation, not Windows L1 acceptance.** Production Windows
 confinement still reports `not_implemented`; PR #27 stays open and Draft. No
 backend, write-through filesystem, global write boundary or architecture
-selection is claimed by the 11 green checks below.
+selection is claimed by historical green component checks.
+
+## AD-28 current continuation — zero license fees is not security acceptance
+
+**WP-23c NOT accepted; production Windows none/not_implemented; PR27 Draft/open.**
+Dokan's official commercial-use permission under LGPL/MIT removes a mandatory
+third-party commercial-license purchase, not the security or compliance gates.
+No paid WinFsp route, repository relicensing, unsafe backend registration,
+original/global/device ACL weakening or copy-back is introduced.
+
+### Implemented native continuation and exact evidence
+
+| Source | Change and observed native evidence |
+| --- | --- |
+| `07afa3c` / `dc52bc4` | Fixed OS-only AppContainer/LPAC child/controller, same signed Dokan fixture; move new private executable under an existing owned build root. Both native helpers compile; original Medium-before2 passes, owner NT prerequisite fails. |
+| `673edb6` / `ac37992` | Separate owner controls localize the absolute-NT open; metadata/non-directory semantics fix all four owner positive controls on20/22. Not literal-zero denial proof. |
+| `9faa901` / `2c023ad` | Unique profile names <=64; native setup succeeds but CreateProcess returns ERROR_FILE_NOT_FOUND2. No child-entry or denial proof. |
+| `eb60654` | Documented CreateAppContainerProfile/DeleteAppContainerProfile ownership/bootstrap; both processes now created suspended. Exact profile cleanup after Job/token/process settlement; abrupt crash recovery UNQUALIFIED. |
+| `d43f96b` / `4804e32` | Split token predicates; LPAC class46 fails both generic Win32 query87 and fixed native ULONG query STATUS_INVALID_INFO_CLASS0xc0000003. These failed prerequisites are retained, never called isolation. Full local4804:1730/168 skipped +147. |
+| `75ce0f2` | Replace unsupported flag query with public in-memory effective AccessCheck predicate, parent before resume and child after entry. New v2 diagnostic separately observes literal NtCreateFile DesiredAccess0/non-directory and owner control, metadata/read and Win32 opens plus NUL. Full local1732/168 skipped +147; 37 focused portable tests pass. Native results below. |
+
+The effective check requires successfully evaluated user-only denial and exact
+package-positive access, then the documented ALL_APPLICATION_PACKAGES distinction
+(normal AppContainer allowed /LPAC denied, LPAC ALL_RESTRICTED_APPLICATION_PACKAGES
+positive). These descriptors exist only in memory, never installed on real objects;
+no common/shared SID is granted to any filesystem/device object. This is an
+effective-access observation, not a claim that token class46 was supported.
+The original mandatory WRITE_RESTRICTED Low raw-control gate remains unchanged
+and still rejects READY; no sensitive IOCTL/token/event operation is invoked.
+
+**Latest tested source:** `75ce0f211fac413b66da877c7f32721359f63fef`.
+Actual PR merge checkout and source ancestry are verified in75ce0f2-tested-merge.json.
+Native AppContainer/LPAC result (not production readiness):
+
+- Node20: `{"protocolVersion":2,"completed":true,"ownerControls":true,"ownerNtLiteralZero":"access-denied","devicePackageAccessGranted":false,"appContainer":{"ready":true,"win32Zero":"access-denied","win32Read":"access-denied","ntMetadata":"access-denied","ntRead":"access-denied","nulReadWriteOpened":false,"ntLiteralZero":"access-denied"},"lpac":{"ready":true,"win32Zero":"access-denied","win32Read":"access-denied","ntMetadata":"access-denied","ntRead":"access-denied","nulReadWriteOpened":false,"ntLiteralZero":"access-denied"}}`
+- Node22: `{"protocolVersion":2,"completed":true,"ownerControls":true,"ownerNtLiteralZero":"access-denied","devicePackageAccessGranted":false,"appContainer":{"ready":true,"win32Zero":"access-denied","win32Read":"access-denied","ntMetadata":"access-denied","ntRead":"access-denied","nulReadWriteOpened":false,"ntLiteralZero":"access-denied"},"lpac":{"ready":true,"win32Zero":"access-denied","win32Read":"access-denied","ntMetadata":"access-denied","ntRead":"access-denied","nulReadWriteOpened":false,"ntLiteralZero":"access-denied"}}`
+
+**Interpretation:** both profiles really entered the fixed native child and deny
+four owner-positive raw opens. Literal NT0 also denies the owner, so it is not
+isolation evidence. NUL generic RW fails for both profiles/runtimes: a concrete
+runtime/stdio compatibility blocker. No data grant has been enabled. Diagnostic
+`ready:true` is child entry/readback only, never backend readiness. Do not grant
+shared NUL/device/global ACLs to turn these observations green.
+
+**CI:** 8/9 non-Windows jobs PASS; 2/2 Windows jobs FAIL. The macOS Node20 concurrent-service-start assertion also
+failed at this source (one losing start exited1 instead of0); preserve the failure,
+do not claim green CI or attribute it to Windows code without root-cause evidence.
+Earlier4804e32 has all9 non-Windows checks PASS. Core and existing PS/RPC protected
+source identities are verified unchanged against8b00b61 in the native summary.
+
+### Eight mandatory criteria — current result
+
+| # / criterion | Commit and concrete evidence | Status / remaining work |
+| --- | --- | --- |
+| 1 Original Medium backing, ordinary APIs, unchanged SD | `ca04414` actual mount and Medium-before2; `75ce0f2` Medium-before2 again, rejects mandatory raw gate before actor. | NOT MET: no ready same-backing CRUD/after-SD, full sharing/replace/mmap. |
+| 2 Process/env/stdio/lifecycle | `c6a1c45` native process11/11 each runtime; `eb60654` fresh profile ownership; `75ce0f2` fixed-child startup and Job/token gates are separately observed. | PARTIAL: real strong runtime/descendants and abrupt profile/helper recovery unqualified. |
+| 3 Global/outside/Low/aliases/concurrency/network | `43ff402`/`c6a1c45` original raw zero-open blocker; `75ce0f2` five independent raw-open outcomes with owner controls and no sensitive IOCTL. | NOT MET: post-data-grant isolation, all aliases/races/other Jobs/descendants/network absent. |
+| 4 Actual CROT state/control/self-approval/Docker | `9ced362` and `c6a1c45` ready Node22 denies5 actual reads+5 writes and endpoint, with working owner controls. No substitute secrets added at `75ce0f2`. | PARTIAL: Node20 pre-JS, full Docker/self-approval/external settings not qualified. |
+| 5 Node20/22/cmd/WinPS and OS/user/architecture matrix | `75ce0f2` actual hosted Windows20/22 diagnostics, not a production runtime pass. | NOT MET: transparent runtime compatibility; Win11 standard-user x64/ARM64 matrix. |
+| 6 Full regressions / CI | `75ce0f2` local1732+147 pass; complete check records retained including Windows and macOS failures. `4804e32` all9 non-Windows green. Original `43f7392` PS /`01ed8ce` RPC assertions preserved. | PARTIAL: not all CI green; macOS concurrent-start failure needs diagnosis, Windows gates remain red. |
+| 7 Same Core/ExecutionGuard/PermissionEngine, safe backend | `75ce0f2` unchanged src/core Git object versus8b00b61 and protected launcher/token/PS/RPC paths in zero-license-native-summary.json; no production registration. | PARTIAL: no accepted CommandConfinement backend. |
+| 8 No critical blockers, weaker fallback or false proof | `75ce0f2` refuses original raw gate; startup/readback/cleanup errors distinct from strict denied/absent/opened outcomes; literal-zero independent of metadata. | NOT MET: safe control/data, runtime/lifecycle/network/matrix and release compliance blockers remain. |
+
+Every new result is source-pinned in zero-license-native-summary.json plus complete
+lossless Node20/22 event wrappers, checks and tested-merge receipts. The original142
+manifest hashes remain unchanged. See windows-l1-zero-license.md for the conditional
+commercial route and release obligations. No criterion is closed by license terms.
 
 ## AD-27 continuation — actual build/mount, raw control blocker confirmed
 
@@ -1040,3 +1106,16 @@ all eight mandatory criteria still need qualification; matching token read-back
 alone does not close those requirements. Production availability remains false.
 
 Full local check for this AD-25 implementation: **1647 Core passed /166 skipped;147 extension passed**, including lint/format/types/builds. Runtime Linux x64 Node24.14.1. Native BNO/runtime qualification is pending; local platform skips are not evidence of Windows isolation.
+
+### Corroborated NUL compatibility limit
+
+Microsoft's MXC process-container host-preparation documentation explicitly says
+that default `\Device\Null` security omits AppContainer grants and ordinary NUL
+opens can fail ERROR_ACCESS_DENIED. Its Tier3 workaround prepares shared NUL and
+system-drive-root ACLs for well-known AppContainer SIDs. Those changes are forbidden
+by CROT's current boundaries and were **not** executed. This supports treating the
+native75ce0f2 NUL failure as a real compatibility blocker, not a successful denial
+or a reason to weaken global policy. The document is source-pinned in
+mxc-null-source-review.json; no MXC implementation was copied or deployed.
+
+Source: https://github.com/microsoft/mxc/blob/ae9e3c06469fd2958da546b71bd170932e7f8ba2/docs/backends/process-container/host-prep.md
