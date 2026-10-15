@@ -1,0 +1,19 @@
+[
+  {
+    "registry": "dockerhub",
+    "reference": "alpine:3.20",
+    "digest": "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+    "platforms": [
+      ["linux", "amd64", "sha256:c64c687cbea9300178b30c95835354e34c4e4febc4badfe27102879de0483b5e"],
+      ["linux", "arm64", "sha256:45e09956dc667c5eff3583c9d94830261fb1ca0be10a0a7db36266edf5de9e1d"]
+    ]
+  },
+  {
+    "registry": "ecr",
+    "manifestUrl": "https://public.ecr.aws/v2/docker/library/alpine/manifests/3.20",
+    "reference": "alpine:3.20",
+    "digestComputed": "sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc",
+    "advertisedDigest": null,
+    "exactBodyEqualsDockerHub": true
+  }
+]
