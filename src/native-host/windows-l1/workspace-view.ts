@@ -217,7 +217,10 @@ export async function createOwnedWorkspaceView(options: WorkspaceViewOptions): P
       };
       const stderr = (chunk: Buffer) => {
         if (chunk.length) {
-          const code = /^CROT_VIEW_ERROR:([0-9a-f]{8}|internal)\r?\n$/.exec(chunk.toString("ascii"))?.[1];
+          const code =
+            /^CROT_VIEW_ERROR:([0-9a-f]{8}|internal|control-probe|control-zero-open|control-read-open)\r?\n$/.exec(
+              chunk.toString("ascii"),
+            )?.[1];
           finish(fail(code ? `helper startup ${code}` : "helper startup"));
         }
       };

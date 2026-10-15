@@ -27,8 +27,8 @@ static_assert(sizeof(NTSTATUS)==4 && static_cast<NTSTATUS>(-1)<0,"NTSTATUS ABI")
 #include <vector>
 
 namespace {
-struct Error { NTSTATUS status; };
-[[noreturn]] void deny(NTSTATUS s = STATUS_ACCESS_DENIED) { throw Error{s}; }
+struct Error { NTSTATUS status; const char* stage; };
+[[noreturn]] void deny(NTSTATUS s = STATUS_ACCESS_DENIED, const char* stage = nullptr) { throw Error{s,stage}; }
 NTSTATUS winerror() { return DokanNtStatusFromWin32(GetLastError()); }
 std::atomic<bool> failed{false};
 HANDLE stopEvent = nullptr;
@@ -379,6 +379,61 @@ std::wstring field() {
   if (!exactRead(s.data(),n*2) || s.find(L'\0')!=std::wstring::npos) deny();
   return s;
 }
+// Raw control IOCTLs bypass file callbacks. Probe only our exact new endpoint,
+// and only harmless opens; never request tokens or consume/mutate driver events.
+void requireIsolatedControl() {
+  ULONG count=0;
+  struct MountList {
+    PDOKAN_MOUNT_POINT_INFO p;
+    ~MountList() { if (p) DokanReleaseMountPointList(p); }
+  } list{DokanGetMountPointList(FALSE,&count)};
+  if (!list.p || count>1024) deny(STATUS_ACCESS_DENIED,"control-probe");
+  std::wstring device;
+  for (ULONG i=0;i<count;i++) {
+    auto& item=list.p[i];
+    const size_t ml=wcsnlen_s(item.MountPoint,MAX_PATH), dl=wcsnlen_s(item.DeviceName,64);
+    if (ml==MAX_PATH || dl==64) deny(STATUS_ACCESS_DENIED,"control-probe");
+    std::wstring mount(item.MountPoint,ml), candidate(item.DeviceName,dl);
+    if (mount.compare(0,12,L"\\DosDevices\\")==0) mount=mount.substr(12);
+    if (mount.compare(0,4,L"\\??\\")==0) mount=mount.substr(4);
+    if (!sameName(mount,mountPath)) continue;
+    if (!device.empty() || candidate.compare(0,15,L"\\Device\\Volume{")!=0 || candidate.back()!=L'}')
+      deny(STATUS_ACCESS_DENIED,"control-probe");
+    device=candidate;
+  }
+  if (device.empty()) deny(STATUS_ACCESS_DENIED,"control-probe");
+  const std::wstring raw=L"\\\\?\\GLOBALROOT"+device;
+  Handle source, restricted, impersonation;
+  if (!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY|TOKEN_DUPLICATE|TOKEN_ADJUST_DEFAULT|TOKEN_IMPERSONATE,&source.h))
+    deny(STATUS_ACCESS_DENIED,"control-probe");
+  SID_AND_ATTRIBUTES restriction{uniqueSid,0};
+  if (!CreateRestrictedToken(source.h,DISABLE_MAX_PRIVILEGE|WRITE_RESTRICTED,0,nullptr,0,nullptr,1,&restriction,&restricted.h))
+    deny(STATUS_ACCESS_DENIED,"control-probe");
+  SID low{}; SID_IDENTIFIER_AUTHORITY authority=SECURITY_MANDATORY_LABEL_AUTHORITY;
+  if (!InitializeSid(&low,&authority,1)) deny(STATUS_ACCESS_DENIED,"control-probe");
+  *GetSidSubAuthority(&low,0)=SECURITY_MANDATORY_LOW_RID;
+  TOKEN_MANDATORY_LABEL label{{&low,SE_GROUP_INTEGRITY}};
+  if (!SetTokenInformation(restricted.h,TokenIntegrityLevel,&label,sizeof(label)+GetLengthSid(&low)) ||
+      !DuplicateTokenEx(restricted.h,TOKEN_QUERY|TOKEN_IMPERSONATE,nullptr,SecurityImpersonation,TokenImpersonation,&impersonation.h))
+    deny(STATUS_ACCESS_DENIED,"control-probe");
+  auto groups=tokenInfo(impersonation.h,TokenRestrictedSids), il=tokenInfo(impersonation.h,TokenIntegrityLevel);
+  auto g=reinterpret_cast<TOKEN_GROUPS*>(groups.data());
+  if (!IsTokenRestricted(impersonation.h) || g->GroupCount!=1 || !EqualSid(g->Groups[0].Sid,uniqueSid) ||
+      !EqualSid(reinterpret_cast<TOKEN_MANDATORY_LABEL*>(il.data())->Label.Sid,&low))
+    deny(STATUS_ACCESS_DENIED,"control-probe");
+  if (!ImpersonateLoggedOnUser(impersonation.h)) deny(STATUS_ACCESS_DENIED,"control-probe");
+  // No allocation, exception or early return while impersonating. Capture only
+  // booleans/native status; restore before destroying host-owned resources.
+  HANDLE zero=CreateFileW(raw.c_str(),0,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,nullptr);
+  const DWORD ze=GetLastError();
+  HANDLE read=CreateFileW(raw.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,nullptr);
+  const DWORD re=GetLastError();
+  if (!RevertToSelf()) ExitProcess(3);
+  Handle ownedZero(zero), ownedRead(read);
+  if (ownedZero.valid()) deny(STATUS_ACCESS_DENIED,"control-zero-open");
+  if (ownedRead.valid()) deny(STATUS_ACCESS_DENIED,"control-read-open");
+  if (ze!=ERROR_ACCESS_DENIED || re!=ERROR_ACCESS_DENIED) deny(STATUS_ACCESS_DENIED,"control-probe");
+}
 void pinRoot() {
   if (rootPath.size()<3 || !iswalpha(rootPath[0]) || rootPath.substr(1,2)!=L":\\") deny();
   auto p=parts(rootPath.substr(2),true);
@@ -436,6 +491,7 @@ int wmain() {
     DokanInit(); initialized=true;
     const int mounted=DokanCreateFileSystem(&options,&operations,&instance);
     if (mounted!=DOKAN_SUCCESS) deny(static_cast<NTSTATUS>(mounted));
+    requireIsolatedControl();
     // Config stdin is not an operation endpoint. Any byte, EOF, broken pipe or
     // callback fatal stops this exact owned mount. No mutation is replayed.
     input=std::thread([] { unsigned char b=0; DWORD n=0; ReadFile(GetStdHandle(STD_INPUT_HANDLE),&b,1,&n,nullptr); SetEvent(stopEvent); });
@@ -445,7 +501,10 @@ int wmain() {
     WaitForSingleObject(stopEvent,INFINITE); DokanCloseHandle(instance); instance=nullptr;
     joinInput(input);
     result=failed?2:0;
-  } catch (const Error& e) { std::fprintf(stderr,"CROT_VIEW_ERROR:%08lx\n",static_cast<unsigned long>(e.status)); }
+  } catch (const Error& e) {
+    if (e.stage) std::fprintf(stderr,"CROT_VIEW_ERROR:%s\n",e.stage);
+    else std::fprintf(stderr,"CROT_VIEW_ERROR:%08lx\n",static_cast<unsigned long>(e.status));
+  }
     catch (...) { std::fputs("CROT_VIEW_ERROR:internal\n",stderr); }
   if (instance) DokanCloseHandle(instance);
   joinInput(input);

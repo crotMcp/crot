@@ -5309,3 +5309,23 @@ host-immediate original content, unchanged SDs, Job/alias/negative/lifetime proo
 remain mandatory. This component is not an accepted OD-6/OD-9 selection or a
 production CommandConfinement registration. WP-23c and all unfulfilled criteria
 remain OPEN; no permission/full-control semantics are changed.
+
+**AD-27 control-plane correction (before enabling any data-write workaround):**
+Pinned Dokan2.3.1 sys/init.c DokanSetVolumeSecurity installs DACL only, not
+LABEL/SACL from the supplied descriptor. The configured device descriptor is
+for the raw disk/control device, not a substitute for projected file security.
+Its FSCTL_GET_ACCESS_TOKEN / event-control requests are FILE_ANY_ACCESS and raw
+DCB dispatch bypasses CROT's filesystem create callback/Job check. Never infer
+an installed Low label from supplied SDDL or lower the raw device label merely
+to make writes pass. No original/global/shared device ACL is changed.
+
+Before READY, a fixed native self-test must construct/read back the same unique
+WRITE_RESTRICTED Low profile and impersonate it only for zero-access/read-only
+opens of this exact newly owned raw disk endpoint. It never requests a token,
+consumes/mutates events or targets another mount. Unexpected open success or an
+unverifiable result refuses readiness and unmounts; it is a FAILED prerequisite,
+not actor-denial or successful filesystem evidence. Restoring the source thread
+identity is mandatory; inability to revert terminates the helper fail-closed.
+Secure atomic separation of raw control from Low data and concurrent/other-Job
+attacks remains a critical acceptance blocker until native proof exists. This
+component is not an approved OD-6 mechanism or production confinement backend.

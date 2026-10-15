@@ -18,7 +18,7 @@ const config = {
   jobName: `Local\\crot-view-job-${"a".repeat(48)}`,
   protectedRelativeRoots: ["\\.crot", "\\private\\state"],
 };
-function fixture(marker = "CROT_VIEW_READY\n") {
+function fixture(marker = "CROT_VIEW_READY\n", startupError?: string) {
   let closed = false,
     terminated = 0,
     finish!: (s: ExitStatus) => void;
@@ -28,7 +28,7 @@ function fixture(marker = "CROT_VIEW_READY\n") {
   const stdout = new PassThrough(),
     stderr = new PassThrough(),
     stdin = new PassThrough();
-  stdin.once("data", () => queueMicrotask(() => stdout.write(marker)));
+  stdin.once("data", () => queueMicrotask(() => (startupError ? stderr.write(startupError) : stdout.write(marker))));
   stdin.once("finish", () => finish({ code: 0, signal: null }));
   const calls: Record<string, (...a: unknown[]) => unknown> = {
     CreateJobObjectW: () => 1n,
@@ -167,6 +167,15 @@ describe("workspace view ownership", () => {
     await expect(createOwnedWorkspaceView(f.options)).rejects.toThrow("readiness protocol");
     expect(f.closed).toBe(true);
   });
+  it.each(["control-probe", "control-zero-open", "control-read-open"])(
+    "refuses actor readiness on %s and releases the exact failed setup",
+    async (stage) => {
+      const f = fixture("", `CROT_VIEW_ERROR:${stage}\n`);
+      await expect(createOwnedWorkspaceView(f.options)).rejects.toThrow(`helper startup ${stage}`);
+      expect(f.closed).toBe(true);
+      expect(fs.rmdir).toHaveBeenCalled();
+    },
+  );
   it("retains failed mount removal and blocks allocations until exact cleanup is retried", async () => {
     const f = fixture(),
       view = await createOwnedWorkspaceView(f.options);

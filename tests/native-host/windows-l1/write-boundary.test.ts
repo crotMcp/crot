@@ -310,10 +310,13 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
           runtimeBins: [path.dirname(process.execPath)],
         }),
       });
-      const script = `const fs=require('fs');const p=require('path');const a=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};
-const name='native-юникод.txt';fs.writeFileSync(name,'live-original');fs.renameSync(name,'native-renamed.txt');
-fs.writeFileSync('delete-me.txt','delete');fs.unlinkSync('delete-me.txt');
-process.stdout.write(JSON.stringify({ready:true,read:fs.readFileSync('native-renamed.txt','utf8')==='live-original',enumerated:fs.readdirSync('.').includes('native-renamed.txt'),protected:a(()=>fs.readFileSync('VIEW-защита/secret.txt')),hardlink:a(()=>fs.writeFileSync('hardlink.txt','forbidden')),outside:a(()=>fs.writeFileSync(${JSON.stringify(path.join(outside, "view-escape.txt"))},'forbidden'))}));`;
+      const script = `const fs=require('fs');const a=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};
+let phase='create';try{
+const name='native-юникод.txt';fs.writeFileSync(name,'live-original');phase='rename';fs.renameSync(name,'native-renamed.txt');
+phase='delete-create';fs.writeFileSync('delete-me.txt','delete');phase='delete';fs.unlinkSync('delete-me.txt');
+phase='read';const read=fs.readFileSync('native-renamed.txt','utf8')==='live-original';phase='enumerate';const enumerated=fs.readdirSync('.').includes('native-renamed.txt');
+phase='negative';process.stdout.write(JSON.stringify({ready:true,read,enumerated,protected:a(()=>fs.readFileSync('VIEW-защита/secret.txt')),hardlink:a(()=>fs.writeFileSync('hardlink.txt','forbidden')),outside:a(()=>fs.writeFileSync(${JSON.stringify(path.join(outside, "view-escape.txt"))},'forbidden'))}));
+}catch(e){const code=typeof e.code==='string'&&/^E[A-Z0-9_]{1,30}$/.test(e.code)?e.code:'unexpected';process.stdout.write(JSON.stringify({ready:true,failurePhase:phase,errorCode:code}));process.exitCode=1;}`;
       const proc = await actor.launch(
         { file: process.execPath, args: ["-e", script], display: "same-backing filesystem gate" },
         { cwd: view.mount, env: {}, stdin: false },
@@ -342,8 +345,25 @@ process.stdout.write(JSON.stringify({ready:true,read:fs.readFileSync('native-ren
               }),
           ),
         );
+        // Only bounded, fixed diagnostics; never publish stderr, paths or identity.
+        let failurePhase: string | undefined, errorCode: string | undefined;
+        try {
+          const diagnostic = JSON.parse(stdout);
+          if (
+            ["create", "rename", "delete-create", "delete", "read", "enumerate", "negative"].includes(
+              diagnostic.failurePhase,
+            )
+          )
+            failurePhase = diagnostic.failurePhase;
+          if (typeof diagnostic.errorCode === "string" && /^(E[A-Z0-9_]{1,30}|unexpected)$/.test(diagnostic.errorCode))
+            errorCode = diagnostic.errorCode;
+        } catch {
+          /* A pre-JS failure is not a filesystem denial. */
+        }
         event("actor-result", {
           code: result.code,
+          failurePhase,
+          errorCode,
           stderrEmpty: stderrBytes === 0,
           stdoutBytes: Buffer.byteLength(stdout),
         });
