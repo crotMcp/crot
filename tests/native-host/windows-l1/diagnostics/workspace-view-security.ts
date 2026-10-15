@@ -74,11 +74,17 @@ function bind(ffi: SecurityFfi) {
     }
   };
 }
-export function snapshotWorkspaceDescriptor(ffi: SecurityFfi, filename: string) {
+export function snapshotWorkspaceDescriptorDetails(ffi: SecurityFfi, filename: string) {
   let read = bound.get(ffi);
   if (!read) {
     read = bind(ffi);
     bound.set(ffi, read);
   }
   return read(filename);
+}
+
+/** Preserve the original privacy-minimal public contract. */
+export function snapshotWorkspaceDescriptor(ffi: SecurityFfi, filename: string) {
+  const { fingerprint, medium } = snapshotWorkspaceDescriptorDetails(ffi, filename);
+  return { fingerprint, medium };
 }

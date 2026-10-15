@@ -30,31 +30,44 @@ struct Grant {
   if(result==ERROR_SUCCESS)result=SetNamedSecurityInfoW(const_cast<LPWSTR>(path.c_str()),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,next,nullptr);
   if(next)LocalFree(next);if(sd)LocalFree(sd);need(result==ERROR_SUCCESS);
  }
- void add(bool deny=false){change(deny?DENY_ACCESS:GRANT_ACCESS,deny?FILE_ALL_ACCESS:0x1301bf,deny?0:SUB_CONTAINERS_AND_OBJECTS_INHERIT);installed=true;}
+ // A failing setter can have partially applied its ACE. Retain ownership BEFORE
+ // mutation so exception cleanup still attempts removal of our fresh exact SID.
+ void add(bool deny=false){installed=true;change(deny?DENY_ACCESS:GRANT_ACCESS,deny?FILE_ALL_ACCESS:0x1301bf,deny?0:SUB_CONTAINERS_AND_OBJECTS_INHERIT);}
  bool remove(){if(!installed)return true;try{change(REVOKE_ACCESS,0,NO_INHERITANCE);installed=false;return true;}catch(...){return false;}}
  ~Grant(){remove();}
 };
 std::vector<unsigned char> information(HANDLE token,TOKEN_INFORMATION_CLASS kind){DWORD n=0;GetTokenInformation(token,kind,nullptr,0,&n);need(n>=4&&n<=65536);std::vector<unsigned char>b(n);need(!!GetTokenInformation(token,kind,b.data(),n,&n));return b;}
-DWORD launch(const std::wstring& exe,const std::vector<std::wstring>& args,const std::wstring& cwd,PSID package,bool& verified,DWORD& observedExit){
+DWORD launch(const std::wstring& exe,const std::vector<std::wstring>& args,const std::wstring& cwd,PSID package,bool& verified,DWORD& observedExit,bool cmdSyntax=false){
  launchStep="create-job";
  Handle job;job.h=CreateJobObjectW(nullptr,nullptr);need(job.h!=nullptr);
  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};limits.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
  need(!!SetInformationJobObject(job.h,JobObjectExtendedLimitInformation,&limits,sizeof(limits)));
- SIZE_T size=0;InitializeProcThreadAttributeList(nullptr,2,0,&size);need(size>0&&size<65536);
+ launchStep="owned-stdio";
+ SECURITY_ATTRIBUTES sa{sizeof(sa),nullptr,TRUE};Handle input,output,error;
+ input.h=CreateFileW(L"\\\\.\\NUL",GENERIC_READ|GENERIC_WRITE,7,&sa,OPEN_EXISTING,0,nullptr);
+ std::wstring label;for(const char* c=phase;*c;c++)label+=static_cast<wchar_t>(*c);
+ output.h=CreateFileW((cwd+L"\\"+label+L"-stdout.txt").c_str(),GENERIC_WRITE,FILE_SHARE_READ,&sa,CREATE_NEW,0,nullptr);
+ error.h=CreateFileW((cwd+L"\\"+label+L"-stderr.txt").c_str(),GENERIC_WRITE,FILE_SHARE_READ,&sa,CREATE_NEW,0,nullptr);
+ need(input.h!=INVALID_HANDLE_VALUE&&output.h!=INVALID_HANDLE_VALUE&&error.h!=INVALID_HANDLE_VALUE);
+ HANDLE inherited[]={input.h,output.h,error.h};
+ SIZE_T size=0;InitializeProcThreadAttributeList(nullptr,3,0,&size);need(size>0&&size<65536);
  std::vector<unsigned char> storage(size);auto list=reinterpret_cast<PPROC_THREAD_ATTRIBUTE_LIST>(storage.data());
- need(!!InitializeProcThreadAttributeList(list,2,0,&size));
+ need(!!InitializeProcThreadAttributeList(list,3,0,&size));
  SECURITY_CAPABILITIES caps{};caps.AppContainerSid=package;
  bool okay=!!UpdateProcThreadAttribute(list,0,PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,&caps,sizeof(caps),nullptr,nullptr)&&
-   !!UpdateProcThreadAttribute(list,0,PROC_THREAD_ATTRIBUTE_JOB_LIST,&job.h,sizeof(job.h),nullptr,nullptr);
+   !!UpdateProcThreadAttribute(list,0,PROC_THREAD_ATTRIBUTE_JOB_LIST,&job.h,sizeof(job.h),nullptr,nullptr)&&
+   !!UpdateProcThreadAttribute(list,0,PROC_THREAD_ATTRIBUTE_HANDLE_LIST,inherited,sizeof(inherited),nullptr,nullptr);
  if(!okay){DeleteProcThreadAttributeList(list);need(false);}
- STARTUPINFOEXW si{};si.StartupInfo.cb=sizeof(si);si.lpAttributeList=list;PROCESS_INFORMATION pi{};
+ STARTUPINFOEXW si{};si.StartupInfo.cb=sizeof(si);si.lpAttributeList=list;si.StartupInfo.dwFlags=STARTF_USESTDHANDLES;si.StartupInfo.hStdInput=input.h;si.StartupInfo.hStdOutput=output.h;si.StartupInfo.hStdError=error.h;PROCESS_INFORMATION pi{};
  wchar_t win[32768]{};need(GetWindowsDirectoryW(win,32768)>0);
  std::vector<std::wstring> envs={L"SystemRoot="+std::wstring(win),L"WINDIR="+std::wstring(win),L"ComSpec="+std::wstring(win)+L"\\System32\\cmd.exe",L"PATH="+std::wstring(win)+L"\\System32;"+std::wstring(win),L"TEMP="+ownedTemp,L"TMP="+ownedTemp,L"USERPROFILE="+ownedTemp,L"LOCALAPPDATA="+ownedCache,L"APPDATA="+ownedCache};
  std::sort(envs.begin(),envs.end(),[](const auto& a,const auto& b){return _wcsicmp(a.c_str(),b.c_str())<0;});
  std::vector<wchar_t> env;for(const auto& e:envs){env.insert(env.end(),e.begin(),e.end());env.push_back(0);}env.push_back(0);
- std::wstring command=quote(exe);for(const auto& arg:args)command+=L" "+quote(arg);
+ std::wstring command=quote(exe);
+ if(cmdSyntax){need(args.size()==1);command+=L" /d /s /c \""+args[0]+L"\"";}
+ else for(const auto& arg:args)command+=L" "+quote(arg);
  launchStep="create-process";
- okay=!!CreateProcessW(exe.c_str(),command.data(),nullptr,nullptr,FALSE,CREATE_SUSPENDED|CREATE_NO_WINDOW|CREATE_UNICODE_ENVIRONMENT|EXTENDED_STARTUPINFO_PRESENT,env.data(),cwd.c_str(),&si.StartupInfo,&pi);
+ okay=!!CreateProcessW(exe.c_str(),command.data(),nullptr,nullptr,TRUE,CREATE_SUSPENDED|CREATE_NO_WINDOW|CREATE_UNICODE_ENVIRONMENT|EXTENDED_STARTUPINFO_PRESENT,env.data(),cwd.c_str(),&si.StartupInfo,&pi);
  DeleteProcThreadAttributeList(list);need(okay);Handle process,thread,token;process.h=pi.hProcess;thread.h=pi.hThread;
  try {
   launchStep="verify-token-job";
@@ -97,7 +110,7 @@ int wmain(int argc,wchar_t** argv){
   const std::wstring js=L"const f=require('fs');let r={ready:true};try{f.writeFileSync('node-created.txt','live');f.renameSync('node-created.txt','node-renamed.txt');r.read=f.readFileSync('node-renamed.txt','utf8')==='live';f.unlinkSync('node-renamed.txt');const h=f.openSync('\\\\\\\\.\\\\NUL','r+');f.closeSync(h);r.nul=true}catch(e){r.error=e.code;process.exitCode=1}f.writeFileSync('node-result.json',JSON.stringify(r));";
   phase="node";nodeCode=launch(nodeCopy,{L"-e",js},root,package,verified,nodeCode);
   wchar_t system[32768]{};need(GetSystemDirectoryW(system,32768)>0);std::wstring sys=system;
-  phase="cmd";cmdCode=launch(sys+L"\\cmd.exe",{L"/d",L"/c",L"echo cmd-ready>cmd-result.txt & echo nul>NUL"},root,package,verified,cmdCode);
+  phase="cmd";cmdCode=launch(sys+L"\\cmd.exe",{L"echo cmd-ready>cmd-result.txt & echo nul>NUL"},root,package,verified,cmdCode,true);
   const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\"; 'ps-ready' > ps-result.txt; 'nul' > NUL";
   phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified,psCode);
   phase="cleanup";cleanup=secret.remove();cleanup=tools.remove()&&cleanup;cleanup=tmp.remove()&&cleanup;cleanup=workspace.remove()&&cleanup;need(cleanup);

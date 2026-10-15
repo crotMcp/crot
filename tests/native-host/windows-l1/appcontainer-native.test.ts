@@ -1,6 +1,7 @@
 /** Mandatory native AD-29 qualification; never interpreted as production availability. */
+import { createServicePrivateFiles } from "../../../src/service/private-files.js";
 import { createRequire } from "node:module";
-import { snapshotWorkspaceDescriptor } from "./diagnostics/workspace-view-security.js";
+import { snapshotWorkspaceDescriptorDetails } from "./diagnostics/workspace-view-security.js";
 import { execFile } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
@@ -20,9 +21,11 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       );
       for (const p of [workspace!, temp!, cache!, outside!]) await mkdir(p);
       const secret = path.join(workspace!, "protected.txt");
+      await writeFile(secret, "");
+      await createServicePrivateFiles(true).protectFile!(secret);
       await writeFile(secret, "owned fixture");
       const ffi = createRequire(import.meta.url)("koffi");
-      const snapshots = () => [workspace!, secret].map((file) => snapshotWorkspaceDescriptor(ffi, file));
+      const snapshots = () => [workspace!, secret].map((file) => snapshotWorkspaceDescriptorDetails(ffi, file));
       const before = snapshots();
       expect(before.every((s) => s.medium)).toBe(true);
       build = await buildWorkspaceViewFixture();
@@ -49,12 +52,28 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       const nodeResult = await readFile(path.join(workspace!, "node-result.json"), "utf8")
         .then((s) => JSON.parse(s) as unknown)
         .catch(() => undefined);
+      const actorOutput = Object.fromEntries(
+        await Promise.all(
+          ["native", "node", "cmd", "powershell"]
+            .flatMap((name) => ["stdout", "stderr"].map((kind) => `${name}-${kind}.txt`))
+            .map(async (name) => [
+              name,
+              await readFile(path.join(workspace!, name), "utf8")
+                .then((s) => s.slice(0, 2048))
+                .catch(() => null),
+            ]),
+        ),
+      );
       appendFileSync(
         inject("stage6aEvidence"),
         JSON.stringify({
           title: "CROT-6A-native-appcontainer",
           value: {
             ...v,
+            outsideHardlinkOpened: !!(v.nativeCode & 256),
+            protectedReadOpened: !!(v.nativeCode & 512),
+            protectedWriteOpened: !!(v.nativeCode & 1024),
+            actorOutput,
             originalDescriptorsRestored: restored,
             descriptorChanges: before.map((b, i) => ({ before: b, after: after[i] })),
             nodeResult,

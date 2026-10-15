@@ -1,6 +1,9 @@
 /** Portable read-only ABI/fault checks; not native Windows evidence. */
 import { describe, expect, it, vi } from "vitest";
-import { snapshotWorkspaceDescriptor } from "./diagnostics/workspace-view-security.js";
+import {
+  snapshotWorkspaceDescriptor,
+  snapshotWorkspaceDescriptorDetails,
+} from "./diagnostics/workspace-view-security.js";
 function fixture(sddl = "O:SYD:P(A;;FA;;;SY)S:(ML;;NW;;;ME)") {
   let fault = false;
   const get = vi.fn((_name, _kind, _flags, _o, _g, _d, _s, out) => {
@@ -36,6 +39,18 @@ function fixture(sddl = "O:SYD:P(A;;FA;;;SY)S:(ML;;NW;;;ME)") {
   };
 }
 describe("workspace original security snapshot", () => {
+  it("returns only section/ACE hashes and non-principal flags in opt-in detail mode", () => {
+    const sid = "S-1-5-21-1-2-3-1000";
+    const f = fixture(`O:${sid}G:SYD:PAI(A;;FA;;;${sid})(D;;FW;;;SY)S:(ML;;NW;;;ME)`);
+    const result = snapshotWorkspaceDescriptorDetails(f.ffi, "C:\\workspace");
+    expect(Object.keys(result.sections).sort()).toEqual(["D", "G", "O", "S"]);
+    expect(result.daclFlags).toBe("PAI");
+    expect(result.daclAceHashes).toHaveLength(2);
+    for (const h of [...Object.values(result.sections), ...result.daclAceHashes]) expect(h).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(result)).not.toContain(sid);
+    expect(JSON.stringify(result)).not.toContain("(A;");
+    expect(f.free).toHaveBeenCalledTimes(2);
+  });
   it("queries LABEL but serializes SACL, includes owner/group/DACL, emits only hash and Medium boolean", () => {
     const f = fixture();
     const result = snapshotWorkspaceDescriptor(f.ffi, "C:\\workspace");
