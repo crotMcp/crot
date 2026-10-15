@@ -78,6 +78,12 @@ std::wstring fold(std::wstring s) {
   for (auto& c:s) c = static_cast<wchar_t>(towupper(c));
   return s;
 }
+bool sameName(const std::wstring& a,const std::wstring& b) {
+  if (a.size()>32000 || b.size()>32000) deny();
+  const int compared=CompareStringOrdinal(a.c_str(),static_cast<int>(a.size()),b.c_str(),static_cast<int>(b.size()),TRUE);
+  if (!compared) deny(winerror());
+  return compared==CSTR_EQUAL;
+}
 std::vector<std::wstring> parts(const std::wstring& name, bool absolute = false) {
   if (name.empty() || name.size() > 32000 || name.front() != L'\\') deny();
   std::vector<std::wstring> out;
@@ -99,9 +105,8 @@ std::vector<std::wstring> parts(const std::wstring& name, bool absolute = false)
     p=end+1;
   }
   if (!absolute) {
-    auto f=fold(name);
     for (const auto& d:deniedRoots)
-      if (f==d || (f.size()>d.size() && f.compare(0,d.size(),d)==0 && f[d.size()]==L'\\')) deny();
+      if (sameName(name,d) || (name.size()>d.size() && name[d.size()]==L'\\' && sameName(name.substr(0,d.size()),d))) deny();
   }
   return out;
 }
@@ -401,7 +406,7 @@ int wmain() {
     DWORD magic=0; if (!exactRead(&magic,4) || magic!=0x43525631) deny();
     rootPath=field(); mountPath=field(); auto owner=field(), unique=field(); jobName=field();
     DWORD count=0; if (!exactRead(&count,4) || count>1024) deny();
-    for (DWORD i=0;i<count;i++) { auto d=field(); parts(d,true); deniedRoots.push_back(fold(d)); }
+    for (DWORD i=0;i<count;i++) { auto d=field(); parts(d,true); deniedRoots.push_back(d); }
     if (jobName.find(L"Local\\crot-view-job-")!=0 || jobName.size()!=68 ||
         !ConvertStringSidToSidW(owner.c_str(),&ownerSid) || !ConvertStringSidToSidW(unique.c_str(),&uniqueSid) || EqualSid(ownerSid,uniqueSid)) deny();
     job.h=OpenJobObjectW(JOB_OBJECT_QUERY,FALSE,jobName.c_str()); if (!job.valid()) deny(winerror());

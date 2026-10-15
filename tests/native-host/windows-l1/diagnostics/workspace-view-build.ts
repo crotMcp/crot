@@ -71,10 +71,14 @@ export async function buildWorkspaceViewFixture(): Promise<{ helper: string; cle
         "-Command",
         `
 $ErrorActionPreference='Stop'
+Import-Module -Name "$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1" -ErrorAction Stop
+Import-Module -Name "$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1" -ErrorAction Stop
+Import-Module -Name "$PSHOME\\Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1" -ErrorAction Stop
 $d=$env:CROT_VIEW_BUILD
 $msi=Join-Path $d 'driver.msi'
 if ((Get-AuthenticodeSignature -LiteralPath $msi).Status -ne 'Valid') { throw 'Pinned driver signature invalid' }
-Expand-Archive -LiteralPath (Join-Path $d 'sdk.zip') -DestinationPath (Join-Path $d 'sdk')
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::ExtractToDirectory((Join-Path $d 'sdk.zip'),(Join-Path $d 'sdk'))
 $vswhere=Join-Path ([Environment]::GetEnvironmentVariable('ProgramFiles(x86)')) 'Microsoft Visual Studio\\Installer\\vswhere.exe'
 $vs=(& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath)
 if (!$vs) { throw 'MSVC unavailable' }

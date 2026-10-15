@@ -269,7 +269,7 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
         }),
       });
       const ffi = createRequire(import.meta.url)("koffi");
-      const protectedDir = path.join(dirs.workspace, "view-protected");
+      const protectedDir = path.join(dirs.workspace, "view-ЗаЩиТа");
       await mkdir(protectedDir);
       await writeFile(path.join(protectedDir, "secret.txt"), "unchanged protected fixture");
       const linked = path.join(dirs.workspace, "hardlink.txt");
@@ -295,7 +295,7 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
         privateRoot,
         ownerSid,
         restrictingSid: token.restrictingSid,
-        protectedRelativeRoots: ["\\view-protected"],
+        protectedRelativeRoots: ["\\view-ЗаЩиТа"],
         environment: { SystemRoot: systemRoot },
       });
       event("mounted", { passed: true });
@@ -319,7 +319,7 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       const script = `const fs=require('fs');const p=require('path');const a=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};
 const name='native-юникод.txt';fs.writeFileSync(name,'live-original');fs.renameSync(name,'native-renamed.txt');
 fs.writeFileSync('delete-me.txt','delete');fs.unlinkSync('delete-me.txt');
-process.stdout.write(JSON.stringify({ready:true,read:fs.readFileSync('native-renamed.txt','utf8')==='live-original',enumerated:fs.readdirSync('.').includes('native-renamed.txt'),protected:a(()=>fs.readFileSync('view-protected/secret.txt')),hardlink:a(()=>fs.writeFileSync('hardlink.txt','forbidden')),outside:a(()=>fs.writeFileSync(${JSON.stringify(path.join(outside, "view-escape.txt"))},'forbidden'))}));`;
+process.stdout.write(JSON.stringify({ready:true,read:fs.readFileSync('native-renamed.txt','utf8')==='live-original',enumerated:fs.readdirSync('.').includes('native-renamed.txt'),protected:a(()=>fs.readFileSync('VIEW-защита/secret.txt')),hardlink:a(()=>fs.writeFileSync('hardlink.txt','forbidden')),outside:a(()=>fs.writeFileSync(${JSON.stringify(path.join(outside, "view-escape.txt"))},'forbidden'))}));`;
       const proc = await actor.launch(
         { file: process.execPath, args: ["-e", script], display: "same-backing filesystem gate" },
         { cwd: view.mount, env: {}, stdin: false },
