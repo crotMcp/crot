@@ -26,6 +26,21 @@ const stages = [
   "process-create-image",
   "process-create-not-found",
   "process-create-other",
+  "created-job-membership",
+  "created-token-open",
+  "appcontainer-query",
+  "package-sid-query",
+  "capabilities-query",
+  "integrity-query",
+  "lpac-query",
+  "not-appcontainer",
+  "package-sid-mismatch",
+  "capabilities-not-zero",
+  "invalid-integrity-label",
+  "lpac-mismatch",
+  "integrity-medium-not-low",
+  "integrity-high-not-low",
+  "integrity-other-not-low",
 ] as const;
 function profile(bits: number) {
   if (bits & 0x200) {

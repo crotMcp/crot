@@ -55,6 +55,16 @@ describe("AppContainer/LPAC diagnostic protocol (not native evidence)", () => {
       lpac: { ready: false, stage: "process-create-path" },
     });
   });
+  it("does not collapse strict token/Job predicates into denial or allow elevated IL", () => {
+    expect(decodeControlProfileDiagnostic(frame(0x225, 0x226))).toMatchObject({
+      appContainer: { ready: false, stage: "integrity-medium-not-low" },
+      lpac: { ready: false, stage: "integrity-high-not-low" },
+    });
+    expect(decodeControlProfileDiagnostic(frame(0x219, 0x222))).toMatchObject({
+      appContainer: { ready: false, stage: "created-job-membership" },
+      lpac: { ready: false, stage: "capabilities-not-zero" },
+    });
+  });
   it("localizes a failed owner control without turning it into a profile result", () => {
     expect(decodeControlProfileDiagnostic("a5d00004")).toEqual({ completed: false, stage: "owner-nt-read" });
     expect(decodeControlProfileDiagnostic("a5d00007")).toEqual({ completed: false, stage: "owned-nonce" });

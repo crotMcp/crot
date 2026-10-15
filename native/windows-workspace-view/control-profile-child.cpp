@@ -47,7 +47,7 @@ int wmain(int argc,wchar_t** argv) {
       info(token,TokenIntegrityLevel,il) && info(token,static_cast<TOKEN_INFORMATION_CLASS>(46),lpac);
   if (okay) {
     auto sid=reinterpret_cast<TOKEN_MANDATORY_LABEL*>(il.data())->Label.Sid;
-    okay=*reinterpret_cast<DWORD*>(app.data())==1 &&
+    okay=!!*reinterpret_cast<DWORD*>(app.data()) &&
         reinterpret_cast<TOKEN_GROUPS*>(caps.data())->GroupCount==0 && IsValidSid(sid) &&
         *GetSidSubAuthorityCount(sid)==1 && *GetSidSubAuthority(sid,0)==4096 &&
         !!*reinterpret_cast<DWORD*>(lpac.data())==(argv[2][0]==L'1');

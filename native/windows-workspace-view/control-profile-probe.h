@@ -125,19 +125,32 @@ DWORD oneControlProfile(const std::wstring& device,const std::wstring& source,
     }
     process.h=pi.hProcess; thread.h=pi.hThread; jobSettled=false;
     controlProfileOwners[lpac?1:0].settled=false;
-    outcome=0x204;
     BOOL member=FALSE; Handle token;
-    if (!IsProcessInJob(process.h,probeJob.h,&member) || !member ||
-        !OpenProcessToken(process.h,TOKEN_QUERY,&token.h)) deny();
-    auto ac=tokenInfo(token.h,TokenIsAppContainer), ps=tokenInfo(token.h,TokenAppContainerSid),
-        capabilities=tokenInfo(token.h,TokenCapabilities), il=tokenInfo(token.h,TokenIntegrityLevel),
-        less=tokenInfo(token.h,static_cast<TOKEN_INFORMATION_CLASS>(46));
+    outcome=0x219;
+    if (!IsProcessInJob(process.h,probeJob.h,&member) || !member) { controlProfileNtStatus=GetLastError(); deny(); }
+    outcome=0x21a;
+    if (!OpenProcessToken(process.h,TOKEN_QUERY,&token.h)) { controlProfileNtStatus=GetLastError(); deny(); }
+    const auto readback=[&](TOKEN_INFORMATION_CLASS kind) {
+      try { return tokenInfo(token.h,kind); }
+      catch (...) { controlProfileNtStatus=GetLastError(); throw; }
+    };
+    outcome=0x21b; auto ac=readback(TokenIsAppContainer);
+    outcome=0x21c; auto ps=readback(TokenAppContainerSid);
+    outcome=0x21d; auto capabilities=readback(TokenCapabilities);
+    outcome=0x21e; auto il=readback(TokenIntegrityLevel);
+    outcome=0x21f; auto less=readback(static_cast<TOKEN_INFORMATION_CLASS>(46));
     auto label=reinterpret_cast<TOKEN_MANDATORY_LABEL*>(il.data())->Label.Sid;
     auto actualSid=reinterpret_cast<TOKEN_APPCONTAINER_INFORMATION*>(ps.data())->TokenAppContainer;
-    if (*reinterpret_cast<DWORD*>(ac.data())!=1 || !actualSid || !IsValidSid(actualSid) ||
-        !EqualSid(actualSid,packageSid) || reinterpret_cast<TOKEN_GROUPS*>(capabilities.data())->GroupCount ||
-        !IsValidSid(label) || *GetSidSubAuthorityCount(label)!=1 || *GetSidSubAuthority(label,0)!=4096 ||
-        !!*reinterpret_cast<DWORD*>(less.data())!=lpac) deny();
+    outcome=0x220; if (!*reinterpret_cast<DWORD*>(ac.data())) deny();
+    outcome=0x221; if (!actualSid || !IsValidSid(actualSid) || !EqualSid(actualSid,packageSid)) deny();
+    outcome=0x222; if (reinterpret_cast<TOKEN_GROUPS*>(capabilities.data())->GroupCount) deny();
+    outcome=0x223;
+    if (!IsValidSid(label) || *GetSidSubAuthorityCount(label)!=1) deny();
+    const DWORD integrity=*GetSidSubAuthority(label,0);
+    if (integrity!=4096) {
+      outcome=integrity==8192?0x225:integrity==12288?0x226:0x227; deny();
+    }
+    outcome=0x224; if (!!*reinterpret_cast<DWORD*>(less.data())!=lpac) deny();
     outcome=0x205;
     if (ResumeThread(thread.h)!=1) deny();
     outcome=0x206;
