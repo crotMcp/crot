@@ -39,7 +39,13 @@ void main().then(
       Number.isInteger(error.details.nativeCode)
     )
       process.stdout.write(
-        JSON.stringify({ error: { stage: error.details.stage, nativeCode: error.details.nativeCode } }) + "\n",
+        JSON.stringify({
+          error: {
+            stage: error.details.stage,
+            nativeCode: error.details.nativeCode,
+            ...(typeof error.details.layout === "string" ? { layout: error.details.layout } : {}),
+          },
+        }) + "\n",
       );
     process.stderr.write("Owned desktop helper failed.\n");
     process.exitCode = 1;

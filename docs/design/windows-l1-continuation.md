@@ -436,3 +436,23 @@ exact native/stdio/Job owners, block new starts, and retry without disposing the
 helper while an actor cleanup remains incomplete. Two new portable fault tests
 and eight user-object contract tests cover these paths; native proof remains
 mandatory.
+
+### `5d32102`: kernel descriptor self-test correctly refuses readiness
+
+Both Windows Node 20/22 jobs fail BEFORE actor execution because the new kernel
+security-descriptor read-back differs from the intended descriptor. No console,
+Node, shell, descendant or ACL denial is claimed from these setup failures.
+All nine other CI checks pass. Local full check passed: 1575 Core /164 skips,
+147 extension. The exact decoded events/checks are retained.
+
+The follow-up explicitly installs LABEL_SECURITY_INFORMATION on ONLY the two
+fresh owned Win32 objects before reading them back. It does not change the
+borrowed host station/desktop, DACL or owner, and a name collision is refused
+before either setter runs. The exact kernel descriptor comparison stays
+mandatory; it is not removed or replaced with a startup-success test. On mismatch,
+only a bounded layout with personal/random SIDs replaced by OWNER/UNIQUE/OTHER
+is reported, never a raw descriptor, secret, environment or capability. This is
+needed to distinguish label installation from DACL mapping/control differences;
+no descriptor mismatch is silently accepted. Portable gates cover the exact
+LABEL-only setter targets, setter failure cleanup, mismatch refusal, and refusal
+of hidden-console mode without an owned desktop or on WinSta0\\Default.

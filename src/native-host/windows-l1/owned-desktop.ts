@@ -123,7 +123,10 @@ export async function createOwnedDesktop(options: {
             finish(
               new CrotError(
                 "OPERATION_FAILED",
-                `Owned desktop helper: ${value.error.stage} failed (${value.error.nativeCode}).`,
+                `Owned desktop helper: ${value.error.stage} failed (${value.error.nativeCode}).` +
+                  (typeof value.error.layout === "string" && /^[A-Z0-9:;() ,._-]{1,1024}$/.test(value.error.layout)
+                    ? ` Layout: ${value.error.layout}`
+                    : ""),
               ),
             );
             return;

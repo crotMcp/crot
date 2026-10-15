@@ -30,6 +30,7 @@ function fixture(failure?: string) {
       needed.value = 64;
       return sd === null ? 0 : 1;
     }),
+    SetUserObjectSecurity: vi.fn((_h: unknown, _info: Buffer, _sd: unknown) => (failure === "label-set" ? 0 : 1)),
     GetProcessWindowStation: vi.fn(() => 10n),
     GetThreadDesktop: vi.fn(() => 11n),
     SetProcessWindowStation: vi.fn((h) => {
@@ -96,6 +97,12 @@ describe("Owned noninteractive Win32 desktop contract", () => {
     expect(f.calls.CloseDesktop.mock.calls).toEqual([[21n]]);
     expect(f.calls.CloseWindowStation.mock.calls).toEqual([[20n]]);
     expect(f.calls.LocalFree).toHaveBeenCalledWith(50n);
+    expect(
+      f.calls.SetUserObjectSecurity.mock.calls.map((args) => [args[0], (args[1] as Buffer).readUInt32LE(), args[2]]),
+    ).toEqual([
+      [20n, 0x10, 50n],
+      [21n, 0x10, 50n],
+    ]);
   });
   it.each(["collision", "visible", "associate", "create"])(
     "fails closed at %s and never closes borrowed handles",
@@ -113,6 +120,13 @@ describe("Owned noninteractive Win32 desktop contract", () => {
     expect(() => f.create(name, owner, unique)).toThrow("security descriptor verification");
     expect(f.calls.CloseDesktop).toHaveBeenCalledWith(21n);
     expect(f.calls.CloseWindowStation).toHaveBeenCalledWith(20n);
+  });
+  it("fails closed if explicit Low-label installation fails and still restores/closes only owned objects", () => {
+    const f = fixture("label-set");
+    expect(() => f.create(name, owner, unique)).toThrow("station low label install");
+    expect(f.calls.CloseDesktop).toHaveBeenCalledWith(21n);
+    expect(f.calls.CloseWindowStation).toHaveBeenCalledWith(20n);
+    expect(f.events.slice(0, 3)).toEqual(["station:20", "station:10", "desktop:11"]);
   });
   it("retains failed owned close for retry without claiming success", () => {
     const f = fixture("close"),

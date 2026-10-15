@@ -263,6 +263,8 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
         { ...spec, executable: "C:\\fixture\\x.cmd" },
         { ...spec, args: ["bad\0argument"] },
         { ...spec, env: { PATH: "a", Path: "b" } },
+        { ...spec, console: "owned-hidden" as const },
+        { ...spec, desktop: "WinSta0\\Default", console: "owned-hidden" as const },
       ]) {
         const j = job();
         expect(() => token.launchProbe(bad, j)).toThrow(expect.objectContaining({ code: "INVALID_INPUT" }));
