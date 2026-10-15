@@ -3,9 +3,12 @@
 #define WIN32_LEAN_AND_MEAN
 #define WIN32_NO_STATUS
 #include <windows.h>
-// NTSTATUS without winternl.h: Dokan's public fileinfo.h owns UNICODE_STRING.
-#include <ntsecapi.h>
 #undef WIN32_NO_STATUS
+// Exact Windows NTSTATUS ABI (LONG). Both current ntsecapi.h and winternl.h
+// also declare UNICODE_STRING, conflicting with Dokan's public fileinfo.h.
+// Declare only the missing status alias, not a competing SDK structure.
+using NTSTATUS = LONG;
+static_assert(sizeof(NTSTATUS)==4 && static_cast<NTSTATUS>(-1)<0,"NTSTATUS ABI");
 #include <dokan.h>
 #include <sddl.h>
 
