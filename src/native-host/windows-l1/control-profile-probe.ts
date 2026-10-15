@@ -19,6 +19,13 @@ const stages = [
   "owned-directory-create",
   "owned-executable-copy",
   "owned-executable-dacl",
+  "process-create-access-denied",
+  "process-create-privilege",
+  "process-create-path",
+  "process-create-unsupported-or-parameter",
+  "process-create-image",
+  "process-create-not-found",
+  "process-create-other",
 ] as const;
 function profile(bits: number) {
   if (bits & 0x200) {

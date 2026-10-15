@@ -1,7 +1,7 @@
 // AD-28. Included inside the helper's private namespace after tokenInfo().
 // This controller never grants package rights to the raw device or workspace.
 DWORD controlProfileDiagnostic=0;
-DWORD controlProfileNtStatus=0;
+DWORD controlProfileNtStatus=0; // last fixed native prerequisite status, NTSTATUS or Win32 code
 bool diagnoseControlProfiles=false;
 struct Attributes {
   std::vector<unsigned char> storage;
@@ -81,7 +81,19 @@ DWORD oneControlProfile(const std::wstring& device,const std::wstring& source,
     auto command=L"\""+target+L"\" \""+device+L"\" "+(lpac?L"1":L"0");
     outcome=0x203;
     if (!CreateProcessW(target.c_str(),command.data(),nullptr,nullptr,FALSE,
-        CREATE_SUSPENDED|CREATE_NO_WINDOW|EXTENDED_STARTUPINFO_PRESENT,nullptr,directory.c_str(),&startup.StartupInfo,&pi)) deny();
+        CREATE_SUSPENDED|CREATE_NO_WINDOW|EXTENDED_STARTUPINFO_PRESENT,nullptr,directory.c_str(),&startup.StartupInfo,&pi)) {
+      const DWORD error=GetLastError(); controlProfileNtStatus=error;
+      switch (error) {
+        case ERROR_ACCESS_DENIED: outcome=0x212; break;
+        case ERROR_PRIVILEGE_NOT_HELD: outcome=0x213; break;
+        case ERROR_FILE_NOT_FOUND: case ERROR_PATH_NOT_FOUND: outcome=0x214; break;
+        case ERROR_NOT_SUPPORTED: case ERROR_INVALID_PARAMETER: outcome=0x215; break;
+        case ERROR_BAD_EXE_FORMAT: outcome=0x216; break;
+        case ERROR_NOT_FOUND: outcome=0x217; break;
+        default: outcome=0x218; break;
+      }
+      deny();
+    }
     process.h=pi.hProcess; thread.h=pi.hThread; jobSettled=false;
     outcome=0x204;
     BOOL member=FALSE; Handle token;

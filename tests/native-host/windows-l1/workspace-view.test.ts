@@ -191,7 +191,9 @@ describe("workspace view ownership", () => {
   it("preserves a bounded owner NTSTATUS as a failed prerequisite, never actor denial", async () => {
     const f = fixture("", "CROT_VIEW_ERROR:control-zero-open:a5d00002:c000000d\n");
     await expect(createOwnedWorkspaceView({ ...f.options, diagnoseControlProfiles: true })).rejects.toMatchObject({
-      details: { controlProfiles: { completed: false, stage: "owner-nt-metadata", ownerNtStatus: "c000000d" } },
+      details: {
+        controlProfiles: { completed: false, stage: "owner-nt-metadata", lastNativePrerequisiteStatus: "c000000d" },
+      },
     });
     expect(f.closed).toBe(true);
   });

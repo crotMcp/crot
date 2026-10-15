@@ -45,6 +45,16 @@ describe("AppContainer/LPAC diagnostic protocol (not native evidence)", () => {
       lpac: { ready: false, stage: "owned-executable-copy" },
     });
   });
+  it("keeps process-creation errors separate from child entry or access denial", () => {
+    expect(decodeControlProfileDiagnostic(frame(0x212, 0x213))).toMatchObject({
+      appContainer: { ready: false, stage: "process-create-access-denied" },
+      lpac: { ready: false, stage: "process-create-privilege" },
+    });
+    expect(decodeControlProfileDiagnostic(frame(0x215, 0x214))).toMatchObject({
+      appContainer: { ready: false, stage: "process-create-unsupported-or-parameter" },
+      lpac: { ready: false, stage: "process-create-path" },
+    });
+  });
   it("localizes a failed owner control without turning it into a profile result", () => {
     expect(decodeControlProfileDiagnostic("a5d00004")).toEqual({ completed: false, stage: "owner-nt-read" });
     expect(decodeControlProfileDiagnostic("a5d00007")).toEqual({ completed: false, stage: "owned-nonce" });

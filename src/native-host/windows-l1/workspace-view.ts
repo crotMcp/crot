@@ -235,7 +235,12 @@ export async function createOwnedWorkspaceView(options: WorkspaceViewOptions): P
             new CrotError("OPERATION_FAILED", `Workspace view: ${stage} failed.`, {
               stage,
               ...(diagnostic
-                ? { controlProfiles: { ...diagnostic, ...(match?.[3] ? { ownerNtStatus: match[3] } : {}) } }
+                ? {
+                    controlProfiles: {
+                      ...diagnostic,
+                      ...(match?.[3] ? { lastNativePrerequisiteStatus: match[3] } : {}),
+                    },
+                  }
                 : {}),
             }),
           );
