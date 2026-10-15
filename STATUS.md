@@ -7,6 +7,12 @@ package PR updates this file.
 
 ## WP-23c current continuation — not accepted
 
+**AD-28: $0 third-party license-fee constraint.** Dokan commercial use is allowed
+subject to its MIT/LGPL obligations; licensing does not fix the confirmed raw
+control blocker. Added fixed OS-only AppContainer/LPAC native qualification
+probe, not a backend or bypass. Native results pending; no criterion closed.
+See `docs/design/windows-l1-zero-license.md`. Production remains unavailable.
+
 AD-27 source `ca04414` actually builds and mounts the same-backing component on
 Windows20/22 and verifies original root/file Medium before actor startup. It
 DOES NOT pass filesystem acceptance: Node20 fails pre-JS0xc0000142, Node22 code1.

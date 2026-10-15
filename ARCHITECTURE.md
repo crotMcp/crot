@@ -5329,3 +5329,51 @@ identity is mandatory; inability to revert terminates the helper fail-closed.
 Secure atomic separation of raw control from Low data and concurrent/other-Job
 attacks remains a critical acceptance blocker until native proof exists. This
 component is not an approved OD-6 mechanism or production confinement backend.
+
+### AD-28. Zero-fee commercial Windows L1 candidate qualification (WP-23c)
+
+**Decision before code.** Third-party license fees must be $0. Dokan's official
+MIT/LGPL components permit commercial use subject to the exact component
+obligations; proprietary CROT is not automatically excluded. Distribution needs
+license/notices, corresponding library source and LGPL combined-work/relinking,
+modification/reverse-engineering and installation-information compliance as
+applicable. This is an engineering constraint, not a blanket legal clearance.
+WinFsp's paid proprietary route is not selected. No dependencies are relicensed.
+
+Stock signed Dokan remains **unqualified**: AD-27's actual raw zero-access open
+succeeds. Network mode is not a security fix: upstream volume network dispatch
+forwards to the same disk control dispatcher. Neither a hidden name, device
+DACL, supplied-but-uninstalled label nor a user-mode callback authenticates
+FILE_ANY_ACCESS control. A driver fix would need atomic controller-open/file
+object authentication across every control alias and lifetime, plus separately
+qualified production Microsoft signing. An upstream binary signature does not
+cover a local fork. No test-signing, Secure Boot disabling, paid license or
+unbudgeted signing purchase is authorized.
+
+First qualify a public Windows OS-only containment candidate: zero-capability
+AppContainer and LPAC. Add an experimental fixed native child, not a production
+actor or alternate backend. Derive a unique package SID using the public
+DeriveAppContainerSidFromAppContainerName API; do not register persistent
+profiles. Create only a new private executable directory/file, grant that exact
+package RX there, never change original workspace/parent/global/device ACLs.
+Use public SECURITY_CAPABILITIES and LPAC ALL_APPLICATION_PACKAGES_OPT_OUT
+process attributes. Create suspended with an exact owned kill-on-close Job
+assigned at creation; read back package SID, zero capabilities, Low IL, LPAC
+state and Job membership before resume. No capability/regular-profile fallback.
+
+The child performs harmless zero/read opens on **only our newly owned Dokan
+raw endpoint**, through both Win32 GLOBALROOT and absolute NtCreateFile paths.
+Owner positive controls establish both paths exist. No IOCTL, token request,
+event mutation, arbitrary command, inherited handle or foreign mount access.
+A fixed exit signature proves child entry; startup failure, namespace absence,
+timeout and cleanup failure are distinct from access denial. Diagnostic output
+contains fixed bounded status codes only, not paths/SIDs/secret bytes. The
+existing AD-27 mandatory control gate still rejects READY on the old profile;
+no experimental result may bypass it or count as filesystem acceptance.
+
+This first experiment deliberately grants **no package access to the device**.
+Even denial would NOT prove separation after real data access is granted, tool
+compatibility, whole-system network/write isolation or standard-user/ARM64
+qualification. Any positive result requires those further mandatory native
+gates before mechanism selection. Production remains none/not_implemented,
+remote fail-closed, WP-23c and OD-6/OD-9 OPEN; preserve existing PS/RPC gates.

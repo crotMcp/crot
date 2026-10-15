@@ -62,6 +62,7 @@ export async function buildWorkspaceViewFixture(): Promise<{ helper: string; cle
       CROT_VIEW_BUILD: dir,
       CROT_VIEW_ARCH: arm ? "ARM64" : "x64",
       CROT_VIEW_SOURCE: path.resolve("native/windows-workspace-view/main.cpp"),
+      CROT_VIEW_PROBE_SOURCE: path.resolve("native/windows-workspace-view/control-profile-child.cpp"),
     };
     await execute(
       ps,
@@ -85,10 +86,14 @@ if (!$vs) { throw 'MSVC unavailable' }
 $vc=Join-Path $vs 'VC\\Auxiliary\\Build\\vcvarsall.bat'
 $lib=Join-Path $d ('sdk\\'+$env:CROT_VIEW_ARCH+'\\Release\\dokan2.lib')
 $exe=Join-Path $d 'workspace-view.exe'
-foreach ($p in @($vc,$lib,$exe,$d,$env:CROT_VIEW_SOURCE)) { if ($p -match '["%!\\r\\n]') { throw 'Unsafe compiler path' } }
-$line='call "'+$vc+'" '+$env:CROT_VIEW_ARCH+' >nul && cl.exe /nologo /std:c++17 /EHsc /W4 /MT /DUNICODE /D_UNICODE /D_WIN32_WINNT=0x0A00 /I"'+$d+'\\headers" "'+$env:CROT_VIEW_SOURCE+'" /Fo"'+$d+'\\view.obj" /link /OUT:"'+$exe+'" "'+$lib+'" advapi32.lib kernel32.lib'
+$probe=Join-Path $d 'control-profile-child.exe'
+foreach ($p in @($vc,$lib,$exe,$d,$probe,$env:CROT_VIEW_SOURCE,$env:CROT_VIEW_PROBE_SOURCE)) { if ($p -match '["%!\\r\\n]') { throw 'Unsafe compiler path' } }
+$line='call "'+$vc+'" '+$env:CROT_VIEW_ARCH+' >nul && cl.exe /nologo /std:c++17 /EHsc /W4 /MT /DUNICODE /D_UNICODE /D_WIN32_WINNT=0x0A00 /I"'+$d+'\\headers" "'+$env:CROT_VIEW_SOURCE+'" /Fo"'+$d+'\\view.obj" /link /OUT:"'+$exe+'" "'+$lib+'" advapi32.lib kernel32.lib userenv.lib'
 & $env:ComSpec /d /s /c $line
 if ($LASTEXITCODE -ne 0) { throw 'Workspace view native compilation failed' }
+$line='call "'+$vc+'" '+$env:CROT_VIEW_ARCH+' >nul && cl.exe /nologo /std:c++17 /EHsc /W4 /MT /DUNICODE /D_UNICODE /D_WIN32_WINNT=0x0A00 "'+$env:CROT_VIEW_PROBE_SOURCE+'" /Fo"'+$d+'\\control-probe.obj" /link /OUT:"'+$probe+'" advapi32.lib kernel32.lib'
+& $env:ComSpec /d /s /c $line
+if ($LASTEXITCODE -ne 0) { throw 'Control profile child native compilation failed' }
 Copy-Item -LiteralPath (Join-Path $d ('sdk\\'+$env:CROT_VIEW_ARCH+'\\Release\\dokan2.dll')) -Destination (Join-Path $d 'dokan2.dll')
 $p=Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\\msiexec.exe') -ArgumentList @('/i',('"'+$msi+'"'),'/qn','/norestart') -Wait -PassThru
 if ($p.ExitCode -ne 0) { throw ('Pinned driver install did not qualify: '+$p.ExitCode) }

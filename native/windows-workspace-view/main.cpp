@@ -11,6 +11,7 @@ using NTSTATUS = LONG;
 static_assert(sizeof(NTSTATUS)==4 && static_cast<NTSTATUS>(-1)<0,"NTSTATUS ABI");
 #include <dokan.h>
 #include <sddl.h>
+#include <userenv.h>
 
 #include <algorithm>
 #include <array>
@@ -162,6 +163,7 @@ std::vector<unsigned char> tokenInfo(HANDLE token,TOKEN_INFORMATION_CLASS type) 
   if (!GetTokenInformation(token,type,b.data(),n,&n)) deny();
   return b;
 }
+#include "control-profile-probe.h"
 void authorize(PDOKAN_FILE_INFO fi) {
   if (failed || !fi->ProcessId) deny();
   Handle request(DokanOpenRequestorToken(fi));
@@ -403,6 +405,7 @@ void requireIsolatedControl() {
   }
   if (device.empty()) deny(STATUS_ACCESS_DENIED,"control-probe");
   const std::wstring raw=L"\\\\?\\GLOBALROOT"+device;
+  if (diagnoseControlProfiles) controlProfileDiagnostic=probeControlProfiles(device);
   Handle source, restricted, impersonation;
   if (!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY|TOKEN_DUPLICATE|TOKEN_ADJUST_DEFAULT|TOKEN_IMPERSONATE,&source.h))
     deny(STATUS_ACCESS_DENIED,"control-probe");
@@ -459,10 +462,12 @@ void joinInput(std::thread& input) {
   ExitProcess(3); // OS releases this failed helper; no graceful-release claim.
 }
 } // namespace
-int wmain() {
+int wmain(int argc,wchar_t** argv) {
   int result=1; DOKAN_HANDLE instance=nullptr;
   std::thread input; bool initialized=false;
   try {
+    if (argc!=1 && (argc!=2 || wcscmp(argv[1],L"--diagnose-control-profiles"))) deny();
+    diagnoseControlProfiles=argc==2;
     SetDllDirectoryW(L"");
     ntCreate=reinterpret_cast<NtCreate>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtCreateFile"));
     if (!ntCreate) deny();
@@ -502,7 +507,8 @@ int wmain() {
     joinInput(input);
     result=failed?2:0;
   } catch (const Error& e) {
-    if (e.stage) std::fprintf(stderr,"CROT_VIEW_ERROR:%s\n",e.stage);
+    if (e.stage && controlProfileDiagnostic) std::fprintf(stderr,"CROT_VIEW_ERROR:%s:%08lx\n",e.stage,static_cast<unsigned long>(controlProfileDiagnostic));
+    else if (e.stage) std::fprintf(stderr,"CROT_VIEW_ERROR:%s\n",e.stage);
     else std::fprintf(stderr,"CROT_VIEW_ERROR:%08lx\n",static_cast<unsigned long>(e.status));
   }
     catch (...) { std::fputs("CROT_VIEW_ERROR:internal\n",stderr); }

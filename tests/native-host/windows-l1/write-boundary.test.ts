@@ -322,17 +322,26 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       const before = descriptor();
       expect(before.every((s) => s.medium)).toBe(true);
       event("original-medium-before", { passed: true, objects: before.length });
-      view = await native.createOwnedWorkspaceView({
-        helper: built.helper,
-        helperLauncher,
-        jobs: await native.loadViewJobObjectApi(),
-        root: dirs.workspace,
-        privateRoot,
-        ownerSid,
-        restrictingSid: token.restrictingSid,
-        protectedRelativeRoots: ["\\view-ЗаЩиТа"],
-        environment: { SystemRoot: systemRoot },
-      });
+      view = await native
+        .createOwnedWorkspaceView({
+          helper: built.helper,
+          diagnoseControlProfiles: true,
+          helperLauncher,
+          jobs: await native.loadViewJobObjectApi(),
+          root: dirs.workspace,
+          privateRoot,
+          ownerSid,
+          restrictingSid: token.restrictingSid,
+          protectedRelativeRoots: ["\\view-ЗаЩиТа"],
+          environment: { SystemRoot: systemRoot },
+        })
+        .catch((error: unknown) => {
+          if (error && typeof error === "object" && "details" in error) {
+            const details = error.details as { controlProfiles?: unknown } | undefined;
+            if (details?.controlProfiles) event("control-profile-probes", details.controlProfiles);
+          }
+          throw error; // diagnostic output NEVER bypasses the mandatory gate
+        });
       event("mounted", { passed: true });
       // Existing NativeProcessLauncher keeps its suspended-create, exact Job,
       // unique-token, byte-stdio, owned desktop and BNO verification unchanged.

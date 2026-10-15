@@ -2,6 +2,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, lstat, rmdir } from "node:fs/promises";
 import path from "node:path";
+import { decodeControlProfileDiagnostic } from "./control-profile-probe.js";
 import { CrotError } from "../../core/errors.js";
 import type { ManagedProcess, ProcessLauncher } from "../../core/platform/types.js";
 import { ownedViewJobName, type JobObject, type JobObjectApi } from "../windows-job.js";
@@ -10,6 +11,8 @@ const fail = (stage: string) => new CrotError("OPERATION_FAILED", `Workspace vie
 export interface WorkspaceViewOptions {
   /** Trusted packaged helper, never an executable selected by the actor. */
   readonly helper: string;
+  /** Trusted native qualification only. Never a client option or gate bypass. */
+  readonly diagnoseControlProfiles?: boolean;
   readonly helperLauncher: ProcessLauncher;
   readonly jobs: JobObjectApi;
   readonly root: string;
@@ -174,10 +177,14 @@ export async function createOwnedWorkspaceView(options: WorkspaceViewOptions): P
     await mkdir(mount);
     created = true;
     const frame = workspaceViewFrame({ ...options, root, mount, jobName });
-    const spec = await options.helperLauncher.resolveCommand(options.helper, [], {
-      cwd: privateRoot,
-      env: options.environment,
-    });
+    const spec = await options.helperLauncher.resolveCommand(
+      options.helper,
+      options.diagnoseControlProfiles ? ["--diagnose-control-profiles"] : [],
+      {
+        cwd: privateRoot,
+        env: options.environment,
+      },
+    );
     helper = await options.helperLauncher.launch(spec, { cwd: privateRoot, env: options.environment, stdin: true });
     const process = helper;
     helperAlive = true;
@@ -217,11 +224,19 @@ export async function createOwnedWorkspaceView(options: WorkspaceViewOptions): P
       };
       const stderr = (chunk: Buffer) => {
         if (chunk.length) {
-          const code =
-            /^CROT_VIEW_ERROR:([0-9a-f]{8}|internal|control-probe|control-zero-open|control-read-open)\r?\n$/.exec(
+          const match =
+            /^CROT_VIEW_ERROR:([0-9a-f]{8}|internal|control-probe|control-zero-open|control-read-open)(?::([0-9a-f]{8}))?\r?\n$/.exec(
               chunk.toString("ascii"),
-            )?.[1];
-          finish(fail(code ? `helper startup ${code}` : "helper startup"));
+            );
+          const diagnostic =
+            options.diagnoseControlProfiles && match?.[2] ? decodeControlProfileDiagnostic(match[2]) : undefined;
+          const stage = match ? `helper startup ${match[1]}` : "helper startup";
+          finish(
+            new CrotError("OPERATION_FAILED", `Workspace view: ${stage} failed.`, {
+              stage,
+              ...(diagnostic ? { controlProfiles: diagnostic } : {}),
+            }),
+          );
         }
       };
       const pipeError = () => finish(fail("configuration pipe"));

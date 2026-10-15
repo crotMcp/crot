@@ -1282,3 +1282,9 @@ Notes of the product reassessment (§2.7), explicit rather than silent:
   jobs and artifacts (OD-15, WP-44) inside the existing tool contract.
 - *Media, editors and applications:* planned as phases 5–8 (§3, §6.1) and
   never release-blocking for v1 (OD-23).
+
+
+**WP-23c AD-28 continuation:** $0 third-party license fees; Dokan commercial use
+permitted under MIT/LGPL obligations, but stock control boundary remains unsafe.
+Fixed AppContainer/LPAC native qualification probe added; native results pending,
+not a production backend or acceptance. See `docs/design/windows-l1-zero-license.md`.

@@ -176,6 +176,34 @@ describe("workspace view ownership", () => {
       expect(fs.rmdir).toHaveBeenCalled();
     },
   );
+  it("reports bounded profile evidence only for an explicitly trusted diagnostic run", async () => {
+    const f = fixture("", "CROT_VIEW_ERROR:control-zero-open:a5b00000\n");
+    const resolve = vi.spyOn(f.options.helperLauncher, "resolveCommand");
+    await expect(createOwnedWorkspaceView({ ...f.options, diagnoseControlProfiles: true })).rejects.toMatchObject({
+      details: {
+        stage: "helper startup control-zero-open",
+        controlProfiles: { completed: true, ownerControls: true, devicePackageAccessGranted: false },
+      },
+    });
+    expect(resolve.mock.calls[0]?.[1]).toEqual(["--diagnose-control-profiles"]);
+    expect(f.closed).toBe(true);
+  });
+  it("does not expose unsolicited profile diagnostics or treat them as readiness", async () => {
+    const f = fixture("", "CROT_VIEW_ERROR:control-zero-open:a5b00000\n");
+    await expect(createOwnedWorkspaceView(f.options)).rejects.toMatchObject({
+      details: { stage: "helper startup control-zero-open" },
+    });
+    expect(f.closed).toBe(true);
+  });
+  it("keeps a diagnostic setup or cleanup failure behind the mandatory control gate", async () => {
+    for (const frame of ["a5d00000", "a5c00000", "00000000"]) {
+      const f = fixture("", `CROT_VIEW_ERROR:control-zero-open:${frame}\n`);
+      await expect(createOwnedWorkspaceView({ ...f.options, diagnoseControlProfiles: true })).rejects.toThrow(
+        "helper startup control-zero-open",
+      );
+      expect(f.closed).toBe(true);
+    }
+  });
   it("retains failed mount removal and blocks allocations until exact cleanup is retried", async () => {
     const f = fixture(),
       view = await createOwnedWorkspaceView(f.options);
