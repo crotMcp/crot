@@ -17,6 +17,7 @@ import type {
 import type { JobObjectApi } from "../windows-job.js";
 import { createNativeByteStdio, type BytePipeApi, type NativeByteStdio } from "./byte-stdio.js";
 import type { ProbeProcess } from "./probe-process.js";
+import type { WindowsLaunchEnvironment } from "./launch-environment.js";
 import type { RestrictedToken } from "./restricted-token.js";
 
 export interface NativeProcessOptions {
@@ -26,6 +27,7 @@ export interface NativeProcessOptions {
   readonly jobs: JobObjectApi;
   readonly ownerSid: string;
   readonly environment: EnvironmentPolicy;
+  readonly childEnvironment: WindowsLaunchEnvironment;
   readonly resolver: Pick<ProcessLauncher, "resolveCommand">;
 }
 
@@ -146,7 +148,10 @@ export class NativeProcessLauncher implements ProcessLauncher {
   private readonly starting = new Set<Promise<ManagedProcess>>();
   constructor(private readonly options: NativeProcessOptions) {}
   resolveCommand(command: string, args: readonly string[], options: ResolveCommandOptions): Promise<CommandSpec> {
-    return this.options.resolver.resolveCommand(command, args, options);
+    return this.options.resolver.resolveCommand(command, args, {
+      ...options,
+      env: this.options.childEnvironment.prepare(options.env),
+    });
   }
   launch(spec: CommandSpec, options: LaunchOptions): Promise<ManagedProcess> {
     const pending = this.start(spec, options);
@@ -170,7 +175,7 @@ export class NativeProcessLauncher implements ProcessLauncher {
             executable: spec.file,
             args: spec.args,
             cwd: options.cwd,
-            env: this.options.environment.merge(options.env, spec.env),
+            env: this.options.childEnvironment.prepare(this.options.environment.merge(options.env, spec.env)),
             ...(spec.windowsVerbatimArguments === undefined
               ? {}
               : { windowsVerbatimArguments: spec.windowsVerbatimArguments }),
@@ -181,7 +186,11 @@ export class NativeProcessLauncher implements ProcessLauncher {
       } catch (error) {
         // A newly created Job belongs only to this launch, even if validation
         // rejected it before the low-level launcher accepted ownership.
-        job.close();
+        try {
+          job.close();
+        } catch {
+          /* preserve startup error; low-level launch already owns kill-on-close */
+        }
         throw error;
       }
       const process = new NativeManagedProcess(child, io, options.stdin, () => this.processes.delete(process));

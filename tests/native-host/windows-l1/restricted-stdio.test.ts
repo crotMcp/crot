@@ -1,6 +1,10 @@
 /** Portable ownership/allowlist tests. Not native ABI or sandbox proof. */
 import { expect, it, vi } from "vitest";
-import { bindNulProcessCreation } from "../../../src/native-host/windows-l1/restricted-stdio.js";
+import { createNativeByteStdio, type BytePipeApi } from "../../../src/native-host/windows-l1/byte-stdio.js";
+import {
+  bindPipeProcessCreation,
+  bindNulProcessCreation,
+} from "../../../src/native-host/windows-l1/restricted-stdio.js";
 import type { TokenFfi } from "../../../src/native-host/windows-l1/restricted-token.js";
 
 function fixture(fail?: string) {
@@ -40,6 +44,7 @@ function fixture(fail?: string) {
   };
   const create = bindNulProcessCreation(ffi, { kernel32: "test-kernel", advapi32: "test-advapi" });
   return {
+    ffi,
     calls,
     launch: () => create(1n, "C:\\owned.exe", Buffer.alloc(8), 0x08000404, Buffer.alloc(8), "C:\\work", {}),
   };
@@ -77,3 +82,81 @@ it.each(["open", "inherit", "initialize", "allowlist", "create", "close"])(
     else expect(f.calls.get("DeleteProcThreadAttributeList")).not.toHaveBeenCalled();
   },
 );
+
+async function byteFixture(fail?: string) {
+  const f = fixture(fail);
+  let n = 0;
+  const api: BytePipeApi = {
+    create: async () => {
+      const child = BigInt(++n * 2);
+      return {
+        parent: child + 100n,
+        child,
+        read: () => {
+          throw new Error("unexpected read");
+        },
+        write: () => {
+          throw new Error("unexpected write");
+        },
+        closeParent: vi.fn(),
+        closeChild: vi.fn(),
+      };
+    },
+  };
+  const io = await createNativeByteStdio(api, "S-1-5-21-1-2-3-1000");
+  const create = bindPipeProcessCreation(f.ffi, { kernel32: "test-kernel", advapi32: "test-advapi" });
+  return {
+    ...f,
+    io,
+    launch: () => create(1n, "C:\\owned.exe", Buffer.alloc(8), 0x08000404, Buffer.alloc(8), "C:\\work", {}, io),
+  };
+}
+it("inherits exactly three branded child handles; clears inheritance without yielding", async () => {
+  const f = await byteFixture();
+  try {
+    f.launch();
+    const update = f.calls.get("UpdateProcThreadAttribute")!.mock.calls[0]!;
+    expect(update[2]).toBe(0x20002);
+    const list = update[3] as Buffer;
+    expect(list.length).toBe(24);
+    expect([0, 8, 16].map((offset) => list.readBigUInt64LE(offset))).toEqual([2n, 4n, 6n]);
+    expect(f.calls.get("SetHandleInformation")!.mock.calls).toEqual([
+      [2n, 1, 1],
+      [4n, 1, 1],
+      [6n, 1, 1],
+      [2n, 1, 0],
+      [4n, 1, 0],
+      [6n, 1, 0],
+    ]);
+    const startup = f.calls.get("CreateProcessAsUserW")!.mock.calls[0]![9];
+    expect(startup).toMatchObject({
+      startup: { cb: 112, dwFlags: 0x100, hStdInput: 2n, hStdOutput: 4n, hStdError: 6n },
+    });
+  } finally {
+    await f.io.close();
+  }
+});
+it.each(["inherit", "initialize", "allowlist", "create"])("pipe handle allowlist fails closed on %s", async (stage) => {
+  const f = await byteFixture(stage);
+  try {
+    expect(f.launch).toThrow();
+    if (stage !== "create") expect(f.calls.get("CreateProcessAsUserW")).not.toHaveBeenCalled();
+    else
+      expect(f.calls.get("SetHandleInformation")!.mock.calls.slice(-3)).toEqual([
+        [2n, 1, 0],
+        [4n, 1, 0],
+        [6n, 1, 0],
+      ]);
+  } finally {
+    await f.io.close();
+  }
+});
+it("rejects forged external handles before touching native startup attributes", () => {
+  const f = fixture();
+  const create = bindPipeProcessCreation(f.ffi, { kernel32: "test-kernel", advapi32: "test-advapi" });
+  expect(() =>
+    create(1n, "C:\\owned.exe", Buffer.alloc(8), 0x08000404, Buffer.alloc(8), "C:\\work", {}, {} as never),
+  ).toThrow("unowned");
+  expect(f.calls.get("InitializeProcThreadAttributeList")).not.toHaveBeenCalled();
+  expect(f.calls.get("CreateProcessAsUserW")).not.toHaveBeenCalled();
+});

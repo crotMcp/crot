@@ -10,8 +10,10 @@ package PR updates this file.
 New implementation component: owned OVERLAPPED byte stdio and restricted-token
 ProcessLauncher, wired to the existing Core interfaces for qualification (not
 registered as CommandConfinement). Binary/EOF/backpressure/argv/exit/Job ownership
-and native Core/shell/cancellation gates added; native CI is pending. Portable
+and native Core/shell/cancellation gates passed at `3b91370` (11/11 CI). Portable
 ABI tests explicitly check deferred pointers and cancellation-before-release.
+Bounded environment is now applied in resolution/launch; unique write-filter
+component and mandatory outside-Low/ready-descendant gates await native CI.
 No filesystem/identity architecture selection or L1 availability is claimed.
 
 Production Windows PowerShell shell preparation now imports the fixed system

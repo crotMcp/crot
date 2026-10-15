@@ -125,7 +125,7 @@ export class ProcessService {
       const launcher = this.launcherFor(context);
       await assertDirectory(cwd);
       const env = this.env(args.env);
-      const spec = await this.deps.platform.launcher.resolveCommand(args.command, args.args, {
+      const spec = await launcher.resolveCommand(args.command, args.args, {
         cwd: cwd.absolute,
         env,
       });
@@ -191,7 +191,7 @@ export class ProcessService {
       const spec =
         args.script !== undefined
           ? this.deps.platform.shells.command(args.script, shell)
-          : await this.deps.platform.launcher.resolveCommand(args.command!, args.args, { cwd: cwd.absolute, env });
+          : await launcher.resolveCommand(args.command!, args.args, { cwd: cwd.absolute, env });
       const proc = await launcher.launch(spec, { cwd: cwd.absolute, env, stdin: false });
       if (this.closing) {
         // Shutdown began while the process was starting.
@@ -424,6 +424,7 @@ export class ProcessService {
     let status;
     try {
       status = await proc.exited;
+      if (proc.failure) throw proc.failure;
       // Descendants may keep stdio open; wait briefly, then end the owned tree.
       await Promise.race([Promise.all([ended(proc.stdout), ended(proc.stderr)]), delay(STDIO_CLOSE_GRACE_MS)]);
     } finally {
@@ -535,7 +536,11 @@ async function assertDirectory(cwd: ResolvedPath): Promise<void> {
 
 function ended(stream: NodeJS.ReadableStream): Promise<void> {
   return new Promise((resolve) => {
-    if ((stream as { readableEnded?: boolean }).readableEnded) return resolve();
+    if (
+      (stream as { readableEnded?: boolean; destroyed?: boolean }).readableEnded ||
+      (stream as { destroyed?: boolean }).destroyed
+    )
+      return resolve();
     stream.once("end", () => resolve());
     stream.once("close", () => resolve());
   });

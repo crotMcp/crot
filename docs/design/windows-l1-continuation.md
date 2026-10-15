@@ -5,7 +5,7 @@ confinement still reports `not_implemented`; PR #27 stays open and Draft. No
 backend, write-through filesystem, global write boundary or architecture
 selection is claimed by the 11 green checks below.
 
-## Native process component — qualification in progress
+## Native process component — qualified at `3b91370`
 
 Continued from verified `6fbfc2d634819f576a7d807ab7389800a37a7d80`
 (11 completed successful checks). The new `byte-stdio.ts` implements owned
@@ -39,15 +39,55 @@ buffer writes, NULL count pointers, 64-bit layouts and cancellation-before-free.
 Real Windows gates cover binary megabyte stdio, argv/cwd/environment/exit 23,
 Core stdin/timeout/permission denial, production cmd/WinPS shell preparation,
 .cmd escaping, a ready detached grandchild after parent exit and cancellation
-with pending reads/backpressured writes. CI qualification is pending; Linux skips
+with pending reads/backpressured writes. All eight native cases passed on both
+Node 20 and Node 22 at `3b9137021e794fc86832b2eb2ec5acce6ea080ee`:
+[Node 20](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38662556892/job/116186984193),
+[Node 22](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38662556892/job/116186984253).
+All 11 CI checks completed success, including Linux L1 and Chromium. Full local
+check: 1537 core passed / 152 skipped, 147 extension passed. The full native
+summary arrays and check snapshot are retained with SHA-256 manifest. Linux skips
 are not native proof. Existing strict WinPS and all original RPC gates remain.
 
 This is an implementation component, not another filesystem RPC adapter and not
 a complete backend. It is intentionally **not registered as CommandConfinement**.
 The MIC-only native fixture is not a global write boundary. Same-backing writes,
-bounded confinement environment, actual CROT state/control/Docker protection,
+actual CROT state/control/Docker protection,
 crash/recovery and supported-machine matrix remain mandatory unclosed criteria.
 No user workspace SD is modified and production availability remains false.
+
+## Bounded environment and unique write-filter implementation — native pending
+
+`launch-environment.ts` supplies literal fixed system paths, explicit runtime
+bins, one deterministic PATH, PATHEXT, private profile/temp/cache paths, and a
+private WinPS analysis cache. It never reads process.env. Core still applies its
+existing AD-18 source allowlist; user literal values pass except reserved path
+controls, which use the trusted layout. PSModulePath and direct DOCKER_* settings
+are removed. This omission is **not** Docker endpoint isolation. Provisioning and
+checking the private roots remain the confinement owner's responsibility; merely
+naming a directory is not an access grant or security proof.
+
+Both command resolution and native launch apply this policy. Core now asks the
+**selected** launcher to resolve exec/start commands after the existing guard;
+previously it always used the base launcher. Linux's confinement resolver already
+delegates unchanged, so its policy is not changed. A native cmd traversal gate
+requires bare `node` lookup, pinned runtime PATH, private temp, fixed SystemRoot,
+caller literal preservation and absent direct Docker env despite hostile path
+overrides. Portable seven-case policy tests and Core error-audit regressions pass.
+
+`command-token.ts` creates fresh unique-SID WRITE_RESTRICTED Low tokens without
+Everyone/Builtin Users/Restricted Code/logon SID additions. It never falls back
+to MIC-only on setup failure. New mandatory native gates require owner-only
+project reads, private writes, unrelated Low write denial and ready normal/hidden
+Node descendants. They grant Modify only to the disposable new CROT-owned root,
+never an existing user workspace. These gates are pending, **not accepted** from
+token API descriptions. In particular the old rejected SID-filtered descendant
+failures remain retained and are not weakened or replaced by MIC-only success.
+
+Additional native gates test an unrelated trusted inheritable canary handle
+(actual trusted ReadFile control, child attempt without canary output) and 25
+failed launches with native process-handle-count checks. All old strict WinPS,
+original RPC and stage-6A assertions remain in force. No Windows backend is
+registered and no filesystem/view/driver decision has been made.
 
 ## Previous qualification and retained rerun failure
 

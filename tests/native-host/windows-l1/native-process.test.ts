@@ -1,4 +1,5 @@
 /** Real kernel byte transport + existing Core service. NOT full L1 acceptance. */
+import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -10,6 +11,7 @@ import { loadJobObjectApi } from "../../../src/native-host/windows-job.js";
 import { loadProbeIntegrity } from "../../../src/native-host/windows-l1/probe-integrity.js";
 import { loadRestrictedTokens, type RestrictedToken } from "../../../src/native-host/windows-l1/restricted-token.js";
 import { loadBytePipeApi, quarantinedStdioOperations } from "../../../src/native-host/windows-l1/byte-stdio.js";
+import { WindowsLaunchEnvironment } from "../../../src/native-host/windows-l1/launch-environment.js";
 import { NativeProcessLauncher } from "../../../src/native-host/windows-l1/native-process.js";
 import type { ManagedProcess } from "../../../src/core/platform/types.js";
 import type { CrotCore } from "../../../src/core/crot-core.js";
@@ -49,7 +51,14 @@ describe.runIf(isWindows)("Windows owned native byte ProcessLauncher (not confin
     token.prepareProbeObjects(ownerSid);
     (await loadProbeIntegrity())(cwd, "low-write");
     token.lowerProbeIntegrity();
+    const childEnvironment = new WindowsLaunchEnvironment({
+      systemRoot: process.env.SystemRoot ?? "C:\\Windows",
+      privateRoot: path.join(cwd, "private-runtime"),
+      runtimeBins: [path.dirname(process.execPath)],
+    });
+    for (const dir of Object.values(childEnvironment.directories)) await mkdir(dir, { recursive: true });
     launcher = new NativeProcessLauncher({
+      childEnvironment,
       token,
       ownerSid,
       pipes: await loadBytePipeApi(),
@@ -164,6 +173,35 @@ describe.runIf(isWindows)("Windows owned native byte ProcessLauncher (not confin
       expect(result.timedOut).toBe(false);
     },
   );
+  it("keeps the bounded runtime PATH and private temp through real cmd traversal", async () => {
+    const script = `node -e "console.log(JSON.stringify({path:process.env.PATH,temp:process.env.TEMP,root:process.env.SystemRoot,custom:process.env.CROT_TEST_LITERAL,docker:process.env.DOCKER_HOST}))"`;
+    const result = await core.processes.shell(ctx, {
+      shell: "cmd",
+      cwd,
+      script,
+      env: {
+        PATH: "Z:\\unapproved",
+        TEMP: dirs.outside,
+        SystemRoot: "Z:\\fake",
+        CROT_TEST_LITERAL: "known-literal",
+        DOCKER_HOST: "npipe:////./pipe/docker_engine",
+      },
+    });
+    expect(result.exitCode).toBe(0);
+    const observed = JSON.parse(result.stdout.trim()) as {
+      path: string;
+      temp: string;
+      root: string;
+      custom: string;
+      docker?: string;
+    };
+    expect(observed.path.split(";")[0]).toBe(path.dirname(process.execPath));
+    expect(observed.path).not.toContain("unapproved");
+    expect(observed.temp).toBe(path.join(cwd, "private-runtime", "temp"));
+    expect(observed.root).toBe(process.env.SystemRoot ?? "C:\\Windows");
+    expect(observed.custom).toBe("known-literal");
+    expect(observed.docker).toBeUndefined();
+  });
   it("preserves trusted .cmd wrapper escaping and environment without double quoting", async () => {
     const script = path.join(cwd, "echo space.cmd");
     await writeFile(script, "@echo off\r\necho [%~1]\r\nexit /b 23\r\n");
@@ -188,6 +226,65 @@ describe.runIf(isWindows)("Windows owned native byte ProcessLauncher (not confin
     expect((await child.exited).code).toBe(23);
     await child.terminate("force");
     await waitFor(() => !isAlive(pid), 10000);
+  });
+  it("does not inherit an unrelated trusted readable handle even when its inheritance flag is set", async () => {
+    const require = createRequire(import.meta.url);
+    const ffi = require("koffi");
+    const kernel = ffi.load("kernel32.dll");
+    const open = kernel.func(
+      "void * __stdcall CreateFileW(str16 name, uint32_t access, uint32_t share, void *security, uint32_t creation, uint32_t flags, void *template)",
+    );
+    const inherit = kernel.func("int __stdcall SetHandleInformation(void *handle, uint32_t mask, uint32_t flags)");
+    const read = kernel.func(
+      "int __stdcall ReadFile(void *handle, void *buffer, uint32_t size, void *count, void *overlap)",
+    );
+    const close = kernel.func("int __stdcall CloseHandle(void *handle)");
+    const file = path.join(dirs.outside, "owned-handle-canary.bin");
+    const marker = randomBytes(32);
+    await writeFile(file, marker);
+    (await loadProbeIntegrity())(file, "medium-no-read");
+    const handle = open(file, 0x80000000, 3, null, 3, 0x80, null);
+    expect(handle !== null && ffi.address(handle) !== 0xffffffffffffffffn).toBe(true);
+    try {
+      const buffer = Buffer.alloc(32),
+        count = Buffer.alloc(4);
+      expect(read(handle, buffer, 32, count, null) !== 0 && count.readUInt32LE() === 32 && buffer.equals(marker)).toBe(
+        true,
+      );
+      expect(inherit(handle, 1, 1)).not.toBe(0);
+      const script = `const ffi=require(${JSON.stringify(require.resolve("koffi"))});const k=ffi.load('kernel32.dll');const p=Buffer.alloc(8);p.writeBigUInt64LE(BigInt(process.argv[1]));const h=ffi.decode(p,'void *');const b=Buffer.alloc(32),n=Buffer.alloc(4);const read=k.func('int __stdcall ReadFile(void *handle, void *buffer, uint32_t size, void *count, void *overlap)');const ok=read(h,b,32,n,null);const code=k.func('uint32_t __stdcall GetLastError(void)')();console.log(JSON.stringify({ok,bytes:n.readUInt32LE(),code}));`;
+      const child = await launch(script, false, [String(ffi.address(handle))]);
+      const [status, out] = await drain(child);
+      expect(status.code).toBe(0);
+      const observed = JSON.parse(out.toString()) as { ok: number; bytes: number; code: number };
+      expect(observed.ok === 0 && observed.bytes === 0 && [5, 6].includes(observed.code)).toBe(true);
+      await child.terminate("force");
+    } finally {
+      inherit(handle, 1, 0);
+      expect(close(handle)).not.toBe(0);
+    }
+  });
+  it("repeated failed launches release pipe, event and Job handles", async () => {
+    const ffi = createRequire(import.meta.url)("koffi");
+    const k = ffi.load("kernel32.dll");
+    const current = k.func("void * __stdcall GetCurrentProcess(void)");
+    const countHandles = k.func("int __stdcall GetProcessHandleCount(void *process, void *count)");
+    const count = () => {
+      const result = Buffer.alloc(4);
+      expect(countHandles(current(), result)).not.toBe(0);
+      return result.readUInt32LE();
+    };
+    const before = count();
+    for (let i = 0; i < 25; i++) {
+      await expect(
+        launcher.launch(
+          { file: path.join(cwd, "missing.exe"), args: [], display: "owned failed launch" },
+          { cwd, env, stdin: true },
+        ),
+      ).rejects.toMatchObject({ code: "OPERATION_FAILED" });
+    }
+    expect(count() - before).toBeLessThanOrEqual(2);
+    expect(quarantinedStdioOperations()).toBe(0);
   });
   it("closes pending reads and a backpressured stdin writer during cancellation", async () => {
     const child = await launch("setInterval(()=>{},1000)", true);
