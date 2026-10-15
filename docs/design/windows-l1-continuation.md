@@ -89,6 +89,42 @@ failed launches with native process-handle-count checks. All old strict WinPS,
 original RPC and stage-6A assertions remain in force. No Windows backend is
 registered and no filesystem/view/driver decision has been made.
 
+## `fb86f97`: new native failures retained; stronger token NOT accepted
+
+Source `fb86f9732f7eb855c9ff7698a4b5ba185ff73292` completed 8 success / 3 failure.
+Both Windows jobs failed new mandatory gates, while all original WinPS/RPC and
+stage-6A assertions passed. The bounded PATH/private-temp traversal and unrelated
+host-handle noninheritance gates passed on both Node versions. They do not imply
+that the unique write-filter or whole L1 works.
+
+- Unique-SID WRITE_RESTRICTED Low actor exits **0xc0000142 before JS** in all
+  three direct/normal-descendant/hidden-descendant cases. No ready actor or
+  denied filesystem attempt was reached: **NOT a global write denial proof**.
+  The mandatory positive/negative gates stay red; no common SID is added and no
+  MIC-only fallback is used to pass them. Windows 20/22 evidence preserves every
+  row, not a filtered success selection.
+- The new 25-failed-launch native handle-count assertion observed cold growth
+  of +7 (Node 20) / +15 (Node 22), exceeding the unchanged <=2 bound. This is not
+  declared clean. The next version measures one cold batch and **two** separate
+  steady-state batches of 25, applying the original <=2 bound to each and
+  recording all four counts. This separates one-time runtime initialization
+  from continuing growth; it does not raise the bound or claim a result yet.
+- Linux L1 Ubuntu 24.04 again failed pulling the unchanged Alpine fixture from
+  public ECR with `toomanyrequests: Data limit exceeded`. Other three Linux L1
+  checks, Linux/macOS regression and Chromium passed. This external failure is
+  retained separately; no skip, replacement image or pass conversion.
+
+Current fixes retain child-handle ownership after a failed CloseHandle and block
+reuse of consumed stdio authority; parent cleanup still runs and failed closes
+can be retried. A portable fault regression exercises this exact path.
+For the startup blocker, bounded owned loader tracing is added: DEBUG_ONLY_THIS_PROCESS
+and an after-Job/before-resume trusted diagnostic hook, never forwarded from Core
+or RPC. Only the new child's PEB loader-snap flag is touched, not IFEO, registry
+or the installed executable. Debug strings are reduced to failing loader symbol,
+DLL basename and NTSTATUS; no raw strings/addresses/paths/arguments are published.
+The regular acceptance gates remain untraced and unchanged. Trace output is
+pending and will be used for an implementation fix, not acceptance.
+
 ## Previous qualification and retained rerun failure
 
 **Latest qualified code/test source: `01ed8cece9c867bc7aef9e56b3c7c0b793bf14c7`.**

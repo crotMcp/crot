@@ -13,7 +13,10 @@ registered as CommandConfinement). Binary/EOF/backpressure/argv/exit/Job ownersh
 and native Core/shell/cancellation gates passed at `3b91370` (11/11 CI). Portable
 ABI tests explicitly check deferred pointers and cancellation-before-release.
 Bounded environment is now applied in resolution/launch; unique write-filter
-component and mandatory outside-Low/ready-descendant gates await native CI.
+component failed mandatory outside-Low/ready-descendant gates at `fb86f97`: actor
+exits 0xc0000142 before JS. Bounded env and unrelated host-handle gates passed;
+cold handle growth and one external ECR failure remain retained. Strong token
+startup is being diagnosed without weakening or skipping its acceptance gates.
 No filesystem/identity architecture selection or L1 availability is claimed.
 
 Production Windows PowerShell shell preparation now imports the fixed system

@@ -143,6 +143,22 @@ describe("owned native byte stdio state machine", () => {
     await io.close();
     expect(f.pipes[1]!.operations[0]!.release).toHaveBeenCalled();
   });
+  it("retains failed child closes for retry, without authorizing handle reuse or skipping parent cleanup", async () => {
+    const f = fixture();
+    const io = await createNativeByteStdio(f.api, OWNER);
+    const original = f.pipes[0]!.closeChild;
+    f.pipes[0]!.closeChild = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error("close child failed");
+      })
+      .mockImplementation(original);
+    await expect(io.close()).rejects.toThrow("close child failed");
+    expect(() => ownedStdioHandles(io)).toThrow("unowned child handles");
+    for (const pipe of f.pipes) expect(pipe.closeParent).toHaveBeenCalled();
+    await io.close();
+    expect(f.pipes[0]!.closeChild).toHaveBeenCalledTimes(2);
+  });
   it("bounds read buffering when the consumer applies backpressure", async () => {
     const chunks = Array.from({ length: 100 }, () => Buffer.alloc(32768, 0xa5));
     const f = fixture([[], chunks, []], 32768, 0);

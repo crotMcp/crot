@@ -227,18 +227,20 @@ export interface NativeByteStdio {
 export function isNativeByteStdio(value: unknown): value is NativeByteStdio {
   return typeof value === "object" && value !== null && owned.has(value as NativeByteStdio);
 }
-const owned = new WeakMap<NativeByteStdio, { pipes: BytePipe[]; released: boolean }>();
+const owned = new WeakMap<NativeByteStdio, { pipes: BytePipe[]; released: boolean; consumed: boolean }>();
 /** Internal launcher authority. A fabricated object or external handle list is refused. */
 export function ownedStdioHandles(stdio: NativeByteStdio): readonly NativeHandle[] {
   const state = owned.get(stdio);
-  if (!state || state.released) throw failure("unowned child handles");
+  if (!state || state.consumed) throw failure("unowned child handles");
   return state.pipes.map((pipe) => pipe.child);
 }
 export function releaseStdioChildEnds(stdio: NativeByteStdio): void {
   const state = owned.get(stdio);
   if (!state) throw failure("unowned transport");
   if (state.released) return;
-  state.released = true;
+  // Once release begins the bridge can never authorize another launch, even
+  // when one close fails. Retain ownership so cleanup can retry failed closes.
+  state.consumed = true;
   let error: unknown;
   for (const pipe of state.pipes) {
     try {
@@ -248,6 +250,7 @@ export function releaseStdioChildEnds(stdio: NativeByteStdio): void {
     }
   }
   if (error) throw error;
+  state.released = true;
 }
 export async function createNativeByteStdio(api: BytePipeApi, ownerSid: string): Promise<NativeByteStdio> {
   validateSid(ownerSid);
@@ -313,7 +316,7 @@ export async function createNativeByteStdio(api: BytePipeApi, ownerSid: string):
       if (error) throw error;
     },
   };
-  owned.set(result, { pipes, released: false });
+  owned.set(result, { pipes, released: false, consumed: false });
   return Object.freeze(result);
 }
 
@@ -470,14 +473,14 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
             operation(parent, buffer, (overlap) => write(parent, buffer, buffer.length, null, overlap)),
           closeParent: () => {
             if (!parentClosed) {
-              parentClosed = true;
               release(parent);
+              parentClosed = true;
             }
           },
           closeChild: () => {
             if (!childClosed) {
-              childClosed = true;
               release(child);
+              childClosed = true;
             }
           },
         };

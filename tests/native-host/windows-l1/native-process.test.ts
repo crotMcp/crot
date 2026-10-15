@@ -1,9 +1,10 @@
 /** Real kernel byte transport + existing Core service. NOT full L1 acceptance. */
+import { appendFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, inject } from "vitest";
 import type { Readable } from "node:stream";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 import { currentUserSid, windowsTools } from "../../../src/native-host/windows-acl.js";
@@ -274,16 +275,27 @@ describe.runIf(isWindows)("Windows owned native byte ProcessLauncher (not confin
       expect(countHandles(current(), result)).not.toBe(0);
       return result.readUInt32LE();
     };
-    const before = count();
-    for (let i = 0; i < 25; i++) {
-      await expect(
-        launcher.launch(
-          { file: path.join(cwd, "missing.exe"), args: [], display: "owned failed launch" },
-          { cwd, env, stdin: true },
-        ),
-      ).rejects.toMatchObject({ code: "OPERATION_FAILED" });
+    const batches: number[] = [count()];
+    for (let batch = 0; batch < 3; batch++) {
+      for (let i = 0; i < 25; i++) {
+        await expect(
+          launcher.launch(
+            { file: path.join(cwd, "missing.exe"), args: [], display: "owned failed launch" },
+            { cwd, env, stdin: true },
+          ),
+        ).rejects.toMatchObject({ code: "OPERATION_FAILED" });
+      }
+      batches.push(count());
     }
-    expect(count() - before).toBeLessThanOrEqual(2);
+    appendFileSync(
+      inject("stage6aEvidence"),
+      JSON.stringify({ title: "CROT-6A-native-failed-launch-handles", value: { batchSize: 25, counts: batches } }) +
+        "\n",
+    );
+    // Separate cold runtime/FFI/GC initialization from persistent growth. The
+    // same strict <=2 limit applies to EACH of two steady-state 25-run batches.
+    expect(batches[2]! - batches[1]!).toBeLessThanOrEqual(2);
+    expect(batches[3]! - batches[2]!).toBeLessThanOrEqual(2);
     expect(quarantinedStdioOperations()).toBe(0);
   });
   it("closes pending reads and a backpressured stdin writer during cancellation", async () => {

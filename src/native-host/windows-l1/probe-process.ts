@@ -20,6 +20,8 @@ export interface ProbeSpec {
   readonly env: Readonly<Record<string, string>>;
   /** Explicitly owned standard streams; never inherit arbitrary host handles. */
   readonly stdio?: "nul" | NativeByteStdio;
+  /** Owned research diagnostics only; never forwarded from Core/CommandSpec. */
+  readonly diagnostics?: { readonly debugOnlyThisProcess: true; readonly beforeResume: (pid: number) => void };
 }
 export interface ProbeProcess {
   readonly pid: number;
@@ -152,12 +154,18 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
       ].join(" ");
       if (command.length >= 32767) throw invalid("command length");
       const env = probeEnvironment(spec.env);
+      if (
+        spec.diagnostics &&
+        (spec.diagnostics.debugOnlyThisProcess !== true || typeof spec.diagnostics.beforeResume !== "function")
+      )
+        throw invalid("owned diagnostics");
+      const flags = FLAGS | (spec.diagnostics ? 0x2 : 0);
       if (ownedStdio) {
         bindPipeProcessCreation(ffi, libraries)(
           token,
           executable,
           Buffer.from(`${command}\0`, "utf16le"),
-          FLAGS,
+          flags,
           env,
           cwd,
           info,
@@ -168,7 +176,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
           token,
           executable,
           Buffer.from(`${command}\0`, "utf16le"),
-          FLAGS,
+          flags,
           env,
           cwd,
           info,
@@ -182,7 +190,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
             null,
             null,
             0,
-            FLAGS,
+            flags,
             env,
             cwd,
             { cb: 104 },
@@ -204,6 +212,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
       const contained = job.accounting();
       if (!contained || contained.active < 1 || contained.total < 1) throw failure("Job accounting");
       if (ownedStdio) releaseStdioChildEnds(ownedStdio);
+      spec.diagnostics?.beforeResume(pid);
       if (resume(info.hThread) !== 1) throw failure("ResumeThread");
       if (!success(release(info.hThread))) throw failure("thread CloseHandle");
       info.hThread = undefined;

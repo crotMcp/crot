@@ -1,7 +1,10 @@
 /** Mandatory native unique-SID component gate, not full filesystem acceptance. */
+import { appendFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { startOwnedLoaderTrace, type OwnedLoaderTrace } from "./diagnostics/owned-loader.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, inject } from "vitest";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 import { currentUserSid, runTool, windowsTools } from "../../../src/native-host/windows-acl.js";
 import { loadJobObjectApi } from "../../../src/native-host/windows-job.js";
@@ -119,6 +122,44 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
     expect(await readFile(path.join(privateRoot, "allowed.txt"), "utf8")).toBe("allowed");
     expect(await readFile(path.join(outside, "target.txt"), "utf8")).toBe("unchanged");
   };
+  it("traces the exact owned unique-token loader before JS (diagnosis is not a denial proof)", async () => {
+    const ffi = createRequire(import.meta.url)("koffi");
+    let trace: OwnedLoaderTrace | undefined;
+    const jobs = await loadJobObjectApi();
+    const environment = new WindowsLaunchEnvironment({
+      systemRoot: process.env.SystemRoot ?? "C:\\Windows",
+      privateRoot,
+      runtimeBins: [path.dirname(process.execPath)],
+    });
+    const child = token.launchProbe(
+      {
+        executable: process.execPath,
+        args: ["-e", "process.exit(0)"],
+        cwd: dirs.workspace,
+        env: environment.prepare({}),
+        stdio: "nul",
+        diagnostics: {
+          debugOnlyThisProcess: true,
+          beforeResume: (pid) => {
+            trace = startOwnedLoaderTrace(ffi, pid);
+          },
+        },
+      },
+      jobs.createKillOnCloseJob(),
+    );
+    try {
+      const observation = await trace!.collect();
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({ title: "CROT-6A-unique-token-loader", value: observation }) + "\n",
+      );
+      expect(observation.exited).toBe(true);
+      expect(observation.exitCode).toBe(0);
+    } finally {
+      trace?.close();
+      child.close();
+    }
+  }, 25000);
   it("runs ordinary Node APIs with owner-project reads, private writes and unrelated Low denial", async () => {
     await verify(await run(body()));
   });
