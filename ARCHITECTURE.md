@@ -5264,3 +5264,48 @@ For an absent parent SACL, verify absence with GetSecurityDescriptorSacl before
 using the Windows implicit Medium/NW policy; do not serialize an empty selection
 or treat a failed encoding as absence. Target descriptor comparisons always
 include DACL+SACL. Native requalification is required; no weaker fallback.
+
+### AD-27. Native same-backing workspace projection component (WP-23c; not L1 acceptance)
+
+**Decision before code.** Implement an actual Windows filesystem projection,
+not more RPC filesystem verbs. The implementation slice uses the signed Dokan
+2.3.1 driver and its dynamically linked LGPL-3.0 user-mode DLL, plus a CROT-owned
+native host helper. WinFsp's FLOSS/commercial licensing is not silently imposed
+on this UNLICENSED repository. No driver is installed by the production service;
+installation/version/architecture/signature are explicit provisioning prerequisites.
+Native CI qualification may provision the pinned signed installer on its disposable
+Windows runner. No test-signing, security disabling, ambient ACL changes or
+unsigned driver fallback. ARM64 remains required, independently unqualified.
+
+The helper receives only trusted host configuration once over owned stdin: a
+local original root, a NEW CROT-owned mount, owner/restricting SID, the exact
+owned Job's query name and fixed protected relative roots. No arbitrary filesystem
+RPC, client-chosen host path, external handle or execution verb exists. Read,
+write and metadata callbacks are rooted in held no-reparse native directory
+handles; original content is read/written directly, never copied/synchronized.
+Existing user-file SDs are never installed, relabeled or weakened. Projected
+security exists only on the new volume and new CROT-owned mount objects.
+
+A unique restricting SID is not authentication: another same-user process can
+construct a restricted token with a chosen SID. Each create must verify the
+kernel requestor token, exact owner/Low/unique restriction and a held process's
+membership in this exact kill-on-close Job. Compare requestor/process token IDs;
+PID reuse or a fabricated SID alone grants nothing. A query-only Job reference
+held by the helper is released on shutdown/host-stdin EOF; actor teardown and
+helper/volume teardown are one owned run lifetime. Never broaden the existing
+actor empty-Job, stdio handle-list or resume gates. No view on unavailable driver,
+failed binding/mount/self-test/cleanup; no weaker retry or available=true.
+
+The first slice deliberately rejects streams, reparse points, hard-linked files,
+security changes, existing-destination replacement and ambiguous object names.
+Backing-file opens are exclusive until close, and parent handles prohibit delete
+sharing. These conservative restrictions are NOT the required complete Windows
+sharing/atomic-replace/concurrent-alias contract. They must not be papered over
+as full ordinary-tool compatibility. The WRITE_RESTRICTED Low actor is retained:
+projection does not by itself solve NUL/device/startup or all IPC/network gates.
+
+**Status:** implementation/qualification in progress. Native Node/cmd/WinPS,
+host-immediate original content, unchanged SDs, Job/alias/negative/lifetime proof
+remain mandatory. This component is not an accepted OD-6/OD-9 selection or a
+production CommandConfinement registration. WP-23c and all unfulfilled criteria
+remain OPEN; no permission/full-control semantics are changed.

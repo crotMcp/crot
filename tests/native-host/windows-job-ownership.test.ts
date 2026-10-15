@@ -1,6 +1,6 @@
 /** Portable fault injection, not Windows kernel evidence. */
 import { describe, expect, it, vi } from "vitest";
-import { bindJobObjectApi } from "../../src/native-host/windows-job.js";
+import { bindJobObjectApi, bindViewJobObjectApi, ownedViewJobName } from "../../src/native-host/windows-job.js";
 function fixture() {
   const live = new Set<unknown>(),
     faults = new Set<unknown>();
@@ -12,6 +12,8 @@ function fixture() {
   };
   const calls = {
     CreateJobObjectW: vi.fn(allocate),
+    GetLastError: vi.fn(() => 0),
+    SetLastError: vi.fn(() => undefined),
     SetInformationJobObject: vi.fn(() => 1),
     QueryInformationJobObject: vi.fn((_h, _c, out) => {
       Object.assign(out, { ActiveProcesses: 0, TotalProcesses: 0 });
@@ -102,6 +104,39 @@ describe("Job handle ownership on native close failure", () => {
     const next = rebound.createKillOnCloseJob();
     expect([...f.live]).toEqual([2n]);
     next.close();
+    expect(f.live.size).toBe(0);
+  });
+});
+
+describe("owned projection Job identity", () => {
+  it("creates a fresh host-generated name without changing empty accounting or kill-on-close", () => {
+    const f = fixture(),
+      api = bindViewJobObjectApi(f.ffi),
+      job = api.createKillOnCloseJob();
+    const name = ownedViewJobName(job);
+    expect(name).toMatch(/^Local\\crot-view-job-[0-9a-f]{48}$/);
+    expect(f.calls.CreateJobObjectW).toHaveBeenCalledWith(null, name);
+    expect(job.accounting()).toEqual({ active: 0, total: 0 });
+    const unnamed = f.api.createKillOnCloseJob();
+    expect(() => ownedViewJobName(unnamed)).toThrow("projection Job");
+    unnamed.close();
+    job.close();
+    expect(() => ownedViewJobName(job)).toThrow("projection Job");
+  });
+  it("never configures or terminates an existing name collision, and retries failed close before allocation", () => {
+    const f = fixture(),
+      api = bindViewJobObjectApi(f.ffi);
+    f.calls.GetLastError.mockReturnValue(183);
+    f.faults.add(1n);
+    expect(() => api.createKillOnCloseJob()).toThrow("collision");
+    expect(f.calls.SetInformationJobObject).not.toHaveBeenCalled();
+    expect(f.calls.TerminateJobObject).not.toHaveBeenCalled();
+    expect(() => api.createKillOnCloseJob()).toThrow("close incomplete");
+    expect(f.calls.CreateJobObjectW).toHaveBeenCalledOnce();
+    f.faults.clear();
+    f.calls.GetLastError.mockReturnValue(0);
+    const job = api.createKillOnCloseJob();
+    job.close();
     expect(f.live.size).toBe(0);
   });
 });

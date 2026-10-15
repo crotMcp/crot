@@ -6,6 +6,7 @@
  * dies) and without BREAKAWAY_OK, so descendants cannot leave it. Only the
  * minimum set of kernel32 functions is bound; no other native code is loaded.
  */
+import { randomBytes } from "node:crypto";
 import { CrotError } from "../core/errors.js";
 import { validatePid } from "./validation.js";
 
@@ -179,7 +180,7 @@ class KernelJob implements JobObject {
 // API rebindings/self-test failures, retry that exact owner before allocating,
 // and never grow an unbounded series of leaked failed creations.
 const failedCreations = new WeakMap<Kernel32, Set<JobObject>>();
-function createJob(k32: Kernel32): JobObject {
+function createJob(k32: Kernel32, allocate: () => unknown = () => k32.CreateJobObjectW(null, null)): JobObject {
   let pending = failedCreations.get(k32);
   if (!pending) {
     pending = new Set();
@@ -195,7 +196,7 @@ function createJob(k32: Kernel32): JobObject {
     }
   }
   if (cleanupError) throw cleanupError;
-  const handle = k32.CreateJobObjectW(null, null);
+  const handle = allocate();
   if (isNullHandle(handle)) throw new CrotError("OPERATION_FAILED", "CreateJobObjectW failed.");
   const job = new KernelJob(k32, handle);
   try {
@@ -252,6 +253,51 @@ function bind(ffi: FfiModule): Kernel32 {
 export function bindJobObjectApi(ffi: FfiModule): JobObjectApi {
   const k32 = bind(ffi);
   return { createKillOnCloseJob: () => createJob(k32) };
+}
+
+/** AD-27 internal owner name; a name/SID alone never authenticates filesystem I/O. */
+const viewJobNames = new WeakMap<JobObject, string>();
+const failedNameCloses = new WeakMap<object, Set<unknown>>();
+export function ownedViewJobName(job: JobObject): string {
+  const name = viewJobNames.get(job);
+  if (!name || job.closed) throw new CrotError("INVALID_INPUT", "Not an open owned projection Job.");
+  return name;
+}
+/** Trusted projection setup only. Existing unnamed Job behavior/gates are unchanged. */
+export function bindViewJobObjectApi(ffi: FfiModule): JobObjectApi {
+  const k32 = bind(ffi),
+    lib = ffi.load("kernel32.dll");
+  const create = lib.func("void * __stdcall CreateJobObjectW(void *attributes, str16 name)");
+  const last = lib.func("uint32_t __stdcall GetLastError(void)");
+  const setLast = lib.func("void __stdcall SetLastError(uint32_t error)");
+  let pending = failedNameCloses.get(ffi);
+  if (!pending) {
+    pending = new Set();
+    failedNameCloses.set(ffi, pending);
+  }
+  return {
+    createKillOnCloseJob: () => {
+      for (const handle of pending) {
+        if (!succeeded(k32.CloseHandle(handle)))
+          throw new CrotError("OPERATION_FAILED", "Projection Job close incomplete.");
+        pending.delete(handle);
+      }
+      const name = `Local\\crot-view-job-${randomBytes(24).toString("hex")}`;
+      const job = createJob(k32, () => {
+        setLast(0);
+        const handle = create(null, name);
+        const collision = Number(last()) === 183;
+        if (!isNullHandle(handle) && collision) {
+          // Never configure/terminate an existing foreign object on name collision.
+          if (!succeeded(k32.CloseHandle(handle))) pending.add(handle);
+          throw new CrotError("OPERATION_FAILED", "Projection Job name collision.");
+        }
+        return handle;
+      });
+      viewJobNames.set(job, name);
+      return job;
+    },
+  };
 }
 
 /**

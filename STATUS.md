@@ -7,6 +7,18 @@ package PR updates this file.
 
 ## WP-23c current continuation — not accepted
 
+AD-27 adds an **unqualified native same-backing component**, not an available
+L1 backend: pinned signed Dokan fixture, C++ handle-relative filesystem helper,
+exact requestor token/actor Job checks, one-shot named Job transfer through the
+existing NativeProcessLauncher, and owned unmount/failure cleanup. Original
+workspace SDs are not changed and bytes are not copied back. Portable protocol/
+ownership tests pass; native build/mount/actor evidence must be obtained before
+claiming this component works on Windows. Mandatory same-backing CI gate checks
+live original bytes, Unicode rename/delete/enumeration, protected/hard-link/outside
+refusals and original owner/DACL equality. Sharing/atomic replacement/aliases,
+NUL/startup/shells, full state/Docker, matrix and production registration remain
+OPEN. Earlier CI/results below refer to their exact prior source commits.
+
 Latest native source `9ced362379876ecf14b3b74eba7c03d8dc5b1b0c`:
 **8 successful checks /2 Windows failures /1 independent Ubuntu24 ECR rate-limit
 failure**. Three Linux L1 jobs, Linux/macOS Node20/22 and Chromium pass. Prior
