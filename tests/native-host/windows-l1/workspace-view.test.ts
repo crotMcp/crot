@@ -177,7 +177,7 @@ describe("workspace view ownership", () => {
     },
   );
   it("reports bounded profile evidence only for an explicitly trusted diagnostic run", async () => {
-    const f = fixture("", "CROT_VIEW_ERROR:control-zero-open:a5b00000\n");
+    const f = fixture("", "CROT_VIEW_ERROR:control-zero-open:b1000000\n");
     const resolve = vi.spyOn(f.options.helperLauncher, "resolveCommand");
     await expect(createOwnedWorkspaceView({ ...f.options, diagnoseControlProfiles: true })).rejects.toMatchObject({
       details: {
@@ -189,7 +189,7 @@ describe("workspace view ownership", () => {
     expect(f.closed).toBe(true);
   });
   it("preserves a bounded owner NTSTATUS as a failed prerequisite, never actor denial", async () => {
-    const f = fixture("", "CROT_VIEW_ERROR:control-zero-open:a5d00002:c000000d\n");
+    const f = fixture("", "CROT_VIEW_ERROR:control-zero-open:b5000002:c000000d\n");
     await expect(createOwnedWorkspaceView({ ...f.options, diagnoseControlProfiles: true })).rejects.toMatchObject({
       details: {
         controlProfiles: { completed: false, stage: "owner-nt-metadata", lastNativePrerequisiteStatus: "c000000d" },
@@ -198,14 +198,14 @@ describe("workspace view ownership", () => {
     expect(f.closed).toBe(true);
   });
   it("does not expose unsolicited profile diagnostics or treat them as readiness", async () => {
-    const f = fixture("", "CROT_VIEW_ERROR:control-zero-open:a5b00000\n");
+    const f = fixture("", "CROT_VIEW_ERROR:control-zero-open:b1000000\n");
     await expect(createOwnedWorkspaceView(f.options)).rejects.toMatchObject({
       details: { stage: "helper startup control-zero-open" },
     });
     expect(f.closed).toBe(true);
   });
   it("keeps a diagnostic setup or cleanup failure behind the mandatory control gate", async () => {
-    for (const frame of ["a5d00000", "a5c00000", "00000000"]) {
+    for (const frame of ["b5000000", "b4000000", "00000000"]) {
       const f = fixture("", `CROT_VIEW_ERROR:control-zero-open:${frame}\n`);
       await expect(createOwnedWorkspaceView({ ...f.options, diagnoseControlProfiles: true })).rejects.toThrow(
         "helper startup control-zero-open",

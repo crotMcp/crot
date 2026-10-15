@@ -5,6 +5,8 @@
 #include <cwchar>
 #include <string>
 #include <vector>
+#include <sddl.h>
+#include "control-profile-token.h"
 namespace {
 using NtCreate = NTSTATUS(NTAPI*)(PHANDLE,ACCESS_MASK,POBJECT_ATTRIBUTES,PIO_STATUS_BLOCK,
     PLARGE_INTEGER,ULONG,ULONG,ULONG,ULONG,PVOID,ULONG);
@@ -19,14 +21,14 @@ unsigned classify(HANDLE h,DWORD error) {
   if (error==ERROR_FILE_NOT_FOUND || error==ERROR_PATH_NOT_FOUND) return 2;
   return 3;
 }
-unsigned nativeOpen(NtCreate create,const std::wstring& device,ACCESS_MASK access) {
+unsigned nativeOpen(NtCreate create,const std::wstring& device,ACCESS_MASK access,bool metadata=true) {
   UNICODE_STRING name{}; name.Buffer=const_cast<PWSTR>(device.c_str());
   name.Length=static_cast<USHORT>(device.size()*2); name.MaximumLength=name.Length;
   OBJECT_ATTRIBUTES a{}; a.Length=sizeof(a); a.ObjectName=&name; a.Attributes=0x40;
   IO_STATUS_BLOCK io{}; HANDLE h=INVALID_HANDLE_VALUE;
-  // Win32 zero DesiredAccess implicitly permits a metadata handle. Test the
-  // equivalent native handle, not an unsupported literal zero-access create.
-  const NTSTATUS s=create(&h,access|FILE_READ_ATTRIBUTES|SYNCHRONIZE,&a,&io,nullptr,0,7,1,0x40,nullptr,0);
+  // Metadata mode mirrors Win32 minimum access; literal mode independently
+  // requests zero with the same non-directory option. Never merge outcomes.
+  const NTSTATUS s=create(&h,access|(metadata?(FILE_READ_ATTRIBUTES|SYNCHRONIZE):0),&a,&io,nullptr,0,7,1,0x40,nullptr,0);
   if (s>=0 && h && h!=INVALID_HANDLE_VALUE) return CloseHandle(h)?1u:3u;
   if (h && h!=INVALID_HANDLE_VALUE && !CloseHandle(h)) return 3;
   if (s==static_cast<NTSTATUS>(0xc0000022)) return 0;
@@ -41,15 +43,11 @@ int wmain(int argc,wchar_t** argv) {
   if (device.size()!=52 || device.compare(0,15,L"\\Device\\Volume{") || device.back()!=L'}' ||
       device.find_first_not_of(L"0123456789abcdefABCDEF-",15)<device.size()-1) return 2;
   HANDLE token=nullptr;
-  if (!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token)) return 3;
+  if (!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY|TOKEN_DUPLICATE,&token)) return 3;
   std::vector<unsigned char> app,caps,il;
-  using QueryToken=NTSTATUS(NTAPI*)(HANDLE,TOKEN_INFORMATION_CLASS,PVOID,ULONG,PULONG);
-  static_assert(sizeof(ULONG)==4,"LPAC query ULONG ABI");
-  auto query=reinterpret_cast<QueryToken>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtQueryInformationToken"));
-  ULONG lpac=0,returned=0;
+  ULONG lpac=0; DWORD error=0;
   bool okay=info(token,TokenIsAppContainer,app) && info(token,TokenCapabilities,caps) &&
-      info(token,TokenIntegrityLevel,il) && query &&
-      query(token,static_cast<TOKEN_INFORMATION_CLASS>(46),&lpac,sizeof(lpac),&returned)>=0 && returned==sizeof(lpac);
+      info(token,TokenIntegrityLevel,il) && crot_control::effectiveLpac(token,lpac,error);
   if (okay) {
     auto sid=reinterpret_cast<TOKEN_MANDATORY_LABEL*>(il.data())->Label.Sid;
     okay=!!*reinterpret_cast<DWORD*>(app.data()) &&
@@ -67,6 +65,7 @@ int wmain(int argc,wchar_t** argv) {
     const DWORD e=GetLastError(); bits|=classify(h,e)<<(i*2);
     bits|=nativeOpen(create,device,i?GENERIC_READ:0)<<((i+2)*2);
   }
+  bits|=nativeOpen(create,device,0,false)<<9; // actual zero desired access, NON_DIRECTORY
   HANDLE nul=CreateFileW(L"NUL",GENERIC_READ|GENERIC_WRITE,7,nullptr,OPEN_EXISTING,0,nullptr);
   if (nul!=INVALID_HANDLE_VALUE) { if (!CloseHandle(nul)) return 6; bits|=0x100; }
   return static_cast<int>(0x43520000u|bits);

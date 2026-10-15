@@ -26,6 +26,7 @@ static_assert(sizeof(NTSTATUS)==4 && static_cast<NTSTATUS>(-1)<0,"NTSTATUS ABI")
 #include <string>
 #include <thread>
 #include <vector>
+#include "control-profile-token.h"
 
 namespace {
 struct Error { NTSTATUS status; const char* stage; };

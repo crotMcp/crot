@@ -5429,3 +5429,31 @@ No NtCreateLowBoxToken/undocumented creation, capability grant or security
 policy downgrade is introduced. Reference: Microsoft WDK ZwQueryInformationToken
 (user-mode name NtQueryInformationToken), public SDK TOKEN_INFORMATION_CLASS;
 ULONG width is4 bytes. This corrects a query ABI, not confinement acceptance.
+
+**AD-28 least-access probe coverage (before code):** metadata access denial is
+not proof that an ANY_ACCESS endpoint cannot be opened. Extend the diagnostic
+child to separately attempt absolute NtCreateFile with literal DesiredAccess0
+and FILE_NON_DIRECTORY_FILE0x40, alongside the existing metadata/read opens.
+Report the owner's same literal-zero result separately; unsupported/absent
+owner results are not positive controls or denial evidence. Expand the fixed
+packet (v2) to carry all five open classifications and NUL without merging
+outcomes or losing startup/cleanup stages. Keep the original WRITE_RESTRICTED
+Low pre-READY gate and no-IOCTL rule unchanged. All results remain diagnostic,
+not a production-availability predicate or proof of untested aliases/data grants.
+
+**AD-28 effective LPAC verification (before code):** `4804e32` proves that the
+fixed-size native query also fails with STATUS_INVALID_INFO_CLASS0xc0000003
+on both hosted Windows runtimes. The SDK enum alone is not an implemented
+query contract on those hosts. Do not infer LPAC from a requested attribute or
+silently default to ordinary AppContainer. Replace the unusable prerequisite
+with an explicit effective-access predicate using public DuplicateTokenEx and
+AccessCheck, before resume and again in the child. In-memory descriptors only:
+user-only must deny, user+exact package must allow; user+ALL_APPLICATION_PACKAGES
+must allow ordinary AppContainer and deny LPAC, with user+ALL_RESTRICTED_APPLICATION_PACKAGES
+allowing LPAC. All checks must successfully execute; inconclusive/error is failure.
+This verifies the documented access-check distinction, not the unsupported token
+flag query. No descriptor is applied to a real object, and no shared SID is added
+to any token or granted on any filesystem/device object. Private duplicated
+impersonation tokens are closed; failures remain prerequisites, never denials.
+Reference: Microsoft TOKEN_INFORMATION_CLASS LPAC semantics, AccessCheck and
+DuplicateTokenEx. Original raw-device gate and all eight criteria remain mandatory.
