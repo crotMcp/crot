@@ -49,7 +49,19 @@ function bind(ffi: SecurityFfi) {
         throw Error("Read-only workspace descriptor encoding failed.");
       const canonical = ffi.decode.string16(output.value, length.value! - 1);
       const labels = [...canonical.matchAll(/\(ML;[^;]*;([^;]*);;;([^;)]+)\)/g)];
+      const hash = (s: string) => createHash("sha256").update(s).digest("hex");
+      const sections: Record<string, string> = Object.fromEntries(
+        canonical
+          .split(/(?=[OGDS]:)/)
+          .filter(Boolean)
+          .map((s): [string, string] => [s.charAt(0), s]),
+      );
+      const dacl = sections.D ?? "";
       return {
+        // Section hashes/counts expose no raw descriptor or principal SID.
+        sections: Object.fromEntries(Object.entries(sections).map(([k, v]) => [k, hash(v)])),
+        daclFlags: dacl.slice(2).split("(")[0],
+        daclAceHashes: (dacl.match(/\([^()]*\)/g) ?? []).map(hash),
         fingerprint: createHash("sha256").update(canonical).digest("hex"),
         // No label means the documented implicit Medium/NW policy, not an
         // encoding/query error or an inferred missing access-control value.

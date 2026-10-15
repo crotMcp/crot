@@ -13,6 +13,7 @@
 #include <algorithm>
 struct Handle { HANDLE h=nullptr; ~Handle(){if(h && h!=INVALID_HANDLE_VALUE)CloseHandle(h);} };
 const char* phase="setup";
+const char* launchStep="none";
 DWORD failureCode=0;
 std::wstring ownedTemp,ownedCache;
 void need(bool okay){if(!okay)throw std::runtime_error("native prerequisite");}
@@ -34,7 +35,8 @@ struct Grant {
  ~Grant(){remove();}
 };
 std::vector<unsigned char> information(HANDLE token,TOKEN_INFORMATION_CLASS kind){DWORD n=0;GetTokenInformation(token,kind,nullptr,0,&n);need(n>=4&&n<=65536);std::vector<unsigned char>b(n);need(!!GetTokenInformation(token,kind,b.data(),n,&n));return b;}
-DWORD launch(const std::wstring& exe,const std::vector<std::wstring>& args,const std::wstring& cwd,PSID package,bool& verified){
+DWORD launch(const std::wstring& exe,const std::vector<std::wstring>& args,const std::wstring& cwd,PSID package,bool& verified,DWORD& observedExit){
+ launchStep="create-job";
  Handle job;job.h=CreateJobObjectW(nullptr,nullptr);need(job.h!=nullptr);
  JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};limits.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
  need(!!SetInformationJobObject(job.h,JobObjectExtendedLimitInformation,&limits,sizeof(limits)));
@@ -51,9 +53,11 @@ DWORD launch(const std::wstring& exe,const std::vector<std::wstring>& args,const
  std::sort(envs.begin(),envs.end(),[](const auto& a,const auto& b){return _wcsicmp(a.c_str(),b.c_str())<0;});
  std::vector<wchar_t> env;for(const auto& e:envs){env.insert(env.end(),e.begin(),e.end());env.push_back(0);}env.push_back(0);
  std::wstring command=quote(exe);for(const auto& arg:args)command+=L" "+quote(arg);
+ launchStep="create-process";
  okay=!!CreateProcessW(exe.c_str(),command.data(),nullptr,nullptr,FALSE,CREATE_SUSPENDED|CREATE_NO_WINDOW|CREATE_UNICODE_ENVIRONMENT|EXTENDED_STARTUPINFO_PRESENT,env.data(),cwd.c_str(),&si.StartupInfo,&pi);
  DeleteProcThreadAttributeList(list);need(okay);Handle process,thread,token;process.h=pi.hProcess;thread.h=pi.hThread;
  try {
+  launchStep="verify-token-job";
   BOOL member=FALSE;need(!!IsProcessInJob(process.h,job.h,&member)&&member);
   need(!!OpenProcessToken(process.h,TOKEN_QUERY,&token.h));
   auto ac=information(token.h,TokenIsAppContainer),ps=information(token.h,TokenAppContainerSid),cs=information(token.h,TokenCapabilities),il=information(token.h,TokenIntegrityLevel);
@@ -61,10 +65,15 @@ DWORD launch(const std::wstring& exe,const std::vector<std::wstring>& args,const
   auto sid=reinterpret_cast<TOKEN_APPCONTAINER_INFORMATION*>(ps.data())->TokenAppContainer;
   need(*reinterpret_cast<DWORD*>(ac.data())!=0&&sid&&IsValidSid(sid)&&EqualSid(sid,package));
   need(reinterpret_cast<TOKEN_GROUPS*>(cs.data())->GroupCount==0&&IsValidSid(label)&&*GetSidSubAuthorityCount(label)==1&&*GetSidSubAuthority(label,0)==4096);
-  verified=true;need(ResumeThread(thread.h)==1);
-  need(WaitForSingleObject(process.h,30000)==WAIT_OBJECT_0);DWORD code=0;need(!!GetExitCodeProcess(process.h,&code));
-  JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};need(!!QueryInformationJobObject(job.h,JobObjectBasicAccountingInformation,&accounting,sizeof(accounting),nullptr));
-  need(accounting.ActiveProcesses==0);return code;
+  verified=true;launchStep="resume";need(ResumeThread(thread.h)==1);
+  launchStep="wait-process";need(WaitForSingleObject(process.h,30000)==WAIT_OBJECT_0);
+  launchStep="exit-code";need(!!GetExitCodeProcess(process.h,&observedExit));
+  // The process handle can signal before Job accounting has settled. Keep the
+  // Job alive, deny breakaway, and wait a bounded interval before ACL teardown.
+  launchStep="drain-job";ULONGLONG deadline=GetTickCount64()+5000;
+  for(;;){JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};need(!!QueryInformationJobObject(job.h,JobObjectBasicAccountingInformation,&accounting,sizeof(accounting),nullptr));
+   if(accounting.ActiveProcesses==0)break;need(GetTickCount64()<deadline);Sleep(10);}
+  launchStep="complete";return observedExit;
  } catch(...){TerminateJobObject(job.h,1);WaitForSingleObject(process.h,5000);throw;}
 }
 bool put(const std::wstring& p,const char* text){Handle h;h.h=CreateFileW(p.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,0,nullptr);if(h.h==INVALID_HANDLE_VALUE)return false;DWORD n=0;return !!WriteFile(h.h,text,static_cast<DWORD>(strlen(text)),&n,nullptr)&&n==strlen(text);}
@@ -84,17 +93,17 @@ int wmain(int argc,wchar_t** argv){
   need(put(root+L"\\link-source.txt","host-owned")&&put(outside+L"\\target.txt","unchanged"));
   need(!!CreateHardLinkW((outside+L"\\alias.txt").c_str(),(root+L"\\link-source.txt").c_str(),nullptr));
   phase="grants";workspace.add();tmp.add();tools.add();secret.add(true);
-  phase="native";nativeCode=launch(child,{root,temp,cache,outside,protectedFile},root,package,verified);
+  phase="native";nativeCode=launch(child,{root,temp,cache,outside,protectedFile},root,package,verified,nativeCode);
   const std::wstring js=L"const f=require('fs');let r={ready:true};try{f.writeFileSync('node-created.txt','live');f.renameSync('node-created.txt','node-renamed.txt');r.read=f.readFileSync('node-renamed.txt','utf8')==='live';f.unlinkSync('node-renamed.txt');const h=f.openSync('\\\\\\\\.\\\\NUL','r+');f.closeSync(h);r.nul=true}catch(e){r.error=e.code;process.exitCode=1}f.writeFileSync('node-result.json',JSON.stringify(r));";
-  phase="node";nodeCode=launch(nodeCopy,{L"-e",js},root,package,verified);
+  phase="node";nodeCode=launch(nodeCopy,{L"-e",js},root,package,verified,nodeCode);
   wchar_t system[32768]{};need(GetSystemDirectoryW(system,32768)>0);std::wstring sys=system;
-  phase="cmd";cmdCode=launch(sys+L"\\cmd.exe",{L"/d",L"/c",L"echo cmd-ready>cmd-result.txt & echo nul>NUL"},root,package,verified);
+  phase="cmd";cmdCode=launch(sys+L"\\cmd.exe",{L"/d",L"/c",L"echo cmd-ready>cmd-result.txt & echo nul>NUL"},root,package,verified,cmdCode);
   const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\"; 'ps-ready' > ps-result.txt; 'nul' > NUL";
-  phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified);
+  phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified,psCode);
   phase="cleanup";cleanup=secret.remove();cleanup=tools.remove()&&cleanup;cleanup=tmp.remove()&&cleanup;cleanup=workspace.remove()&&cleanup;need(cleanup);
  }catch(...){failureCode=GetLastError();cleanup=false;}
  if(owns){bool removed=false;for(unsigned i=0;i<20&&!removed;i++){removed=DeleteAppContainerProfile(name.c_str())==S_OK;if(!removed)Sleep(50);}cleanup=cleanup&&removed;}
  if(package)FreeSid(package);
- std::cout<<"{\"phase\":\""<<phase<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";
+ std::cout<<"{\"phase\":\""<<phase<<"\",\"launchStep\":\""<<launchStep<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";
  return cleanup?0:1;
 }

@@ -53,7 +53,12 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
         inject("stage6aEvidence"),
         JSON.stringify({
           title: "CROT-6A-native-appcontainer",
-          value: { ...v, originalDescriptorsRestored: restored, nodeResult },
+          value: {
+            ...v,
+            originalDescriptorsRestored: restored,
+            descriptorChanges: before.map((b, i) => ({ before: b, after: after[i] })),
+            nodeResult,
+          },
         }) + "\n",
       );
       expect(exit, "код контроллера").toBe(0);
