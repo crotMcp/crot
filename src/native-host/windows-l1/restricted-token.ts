@@ -140,6 +140,36 @@ export function bindRestrictedTokens(
     const code = typeof error === "number" && Number.isInteger(error) ? error : "unknown";
     return new CrotError("OPERATION_FAILED", `Windows token spike: ${api} failed (code ${code}).`);
   };
+  type Allocation = { value?: unknown };
+  // A failed native release is still owned. Keep exact pointers/handles, never
+  // reopen by identity; block further allocation until cleanup can be retried.
+  const pendingCleanup = new Map<Allocation, "handle" | "memory">();
+  const release = (out: Allocation, kind: "handle" | "memory") => {
+    if (nullHandle(out.value)) {
+      pendingCleanup.delete(out);
+      return;
+    }
+    try {
+      if (kind === "handle" ? !success(closeHandle(out.value)) : !nullHandle(localFree(out.value)))
+        throw failure(kind === "handle" ? "CloseHandle" : "LocalFree");
+      out.value = undefined;
+      pendingCleanup.delete(out);
+    } catch (error) {
+      pendingCleanup.set(out, kind);
+      throw error;
+    }
+  };
+  const retryCleanup = () => {
+    let error: unknown;
+    for (const [out, kind] of pendingCleanup) {
+      try {
+        release(out, kind);
+      } catch (cause) {
+        error ??= cause;
+      }
+    }
+    if (error) throw error;
+  };
   const api: RestrictedTokenApi = {
     create: (restrictingSid, commonProbeSid = false, probeLogonSid, restrictionMode = "all-access") => {
       if (!["all-access", "write-only", "mic-only"].includes(restrictionMode))
@@ -147,6 +177,7 @@ export function bindRestrictedTokens(
       if (restrictionMode === "mic-only" && (commonProbeSid || probeLogonSid !== undefined))
         throw new CrotError("INVALID_INPUT", "Windows token spike: MIC-only probe cannot request extra SID filtering.");
       validateSid(restrictingSid);
+      retryCleanup();
       const source: { value?: unknown } = {};
       const sid: { value?: unknown } = {};
       const common: { value?: unknown }[] = [];
@@ -155,6 +186,7 @@ export function bindRestrictedTokens(
         throw new CrotError("INVALID_INPUT", "Windows token spike: invalid probe logon SID.");
       const primary: { value?: unknown } = {};
       const impersonation: { value?: unknown } = {};
+      let setupError: unknown;
       try {
         if (
           !success(
@@ -227,16 +259,31 @@ export function bindRestrictedTokens(
         )
           throw failure("DuplicateTokenEx");
       } catch (error) {
-        if (!nullHandle(impersonation.value)) closeHandle(impersonation.value);
-        if (!nullHandle(primary.value)) closeHandle(primary.value);
-        throw error;
-      } finally {
-        if (!nullHandle(logon.value)) localFree(logon.value);
-        for (const out of common) if (!nullHandle(out.value)) localFree(out.value);
-        if (!nullHandle(sid.value)) localFree(sid.value);
-        if (!nullHandle(source.value)) closeHandle(source.value);
+        setupError = error;
       }
-      let closed = false;
+      for (const [out, kind] of [
+        [logon, "memory"],
+        ...common.map((out) => [out, "memory"] as const),
+        [sid, "memory"],
+        [source, "handle"],
+      ] as readonly (readonly [Allocation, "handle" | "memory"])[]) {
+        try {
+          release(out, kind);
+        } catch (error) {
+          setupError ??= error;
+        }
+      }
+      if (setupError) {
+        for (const out of [impersonation, primary]) {
+          try {
+            release(out, "handle");
+          } catch {
+            /* exact owner retained in pendingCleanup */
+          }
+        }
+        throw setupError;
+      }
+      let closing = false;
       const check = (sd: unknown, access: number): boolean => {
         const length = { value: PRIVILEGE_BYTES };
         const granted: { value?: number } = {};
@@ -269,11 +316,12 @@ export function bindRestrictedTokens(
       };
       return {
         get closed() {
-          return closed;
+          return closing && nullHandle(primary.value) && nullHandle(impersonation.value);
         },
         restrictingSid,
         prepareProbeObjects: (ownerSid) => {
-          if (closed) throw new CrotError("OPERATION_FAILED", "Windows token spike: token is closed.");
+          if (closing) throw new CrotError("OPERATION_FAILED", "Windows token spike: token is closed.");
+          retryCleanup();
           validateSid(ownerSid);
           // A normal group such as Builtin Users would grant other users access
           // to new child objects. Probes must use a separately generated SID.
@@ -301,11 +349,12 @@ export function bindRestrictedTokens(
             // This updates only that newly created token object's DACL.
             if (!success(setObjectDacl(primary.value, 4, sd.value))) throw failure("probe token object DACL");
           } finally {
-            if (!nullHandle(sd.value)) localFree(sd.value);
+            release(sd, "memory");
           }
         },
         lowerProbeIntegrity: () => {
-          if (closed) throw new CrotError("OPERATION_FAILED", "Windows token spike: token is closed.");
+          if (closing) throw new CrotError("OPERATION_FAILED", "Windows token spike: token is closed.");
+          retryCleanup();
           const low: { value?: unknown } = {};
           try {
             if (!success(convertSid("S-1-16-4096", low)) || nullHandle(low.value)) throw failure("low integrity SID");
@@ -316,11 +365,12 @@ export function bindRestrictedTokens(
             ffi.encode(buffer, SID_ATTRIBUTES, { Sid: low.value, Attributes: 0x20 });
             if (!success(setLabel(primary.value, 25, buffer, buffer.length))) throw failure("low integrity label");
           } finally {
-            if (!nullHandle(low.value)) localFree(low.value);
+            release(low, "memory");
           }
         },
         fileDaclAccess: (file) => {
-          if (closed) throw new CrotError("OPERATION_FAILED", "Windows token spike: token is closed.");
+          if (closing) throw new CrotError("OPERATION_FAILED", "Windows token spike: token is closed.");
+          retryCleanup();
           validateWindowsPath(file);
           const sd: { value?: unknown } = {};
           try {
@@ -328,23 +378,38 @@ export function bindRestrictedTokens(
             if (result !== 0 || nullHandle(sd.value)) throw failure("GetNamedSecurityInfoW", result);
             return { readData: check(sd.value, 0x1), writeData: check(sd.value, 0x2) };
           } finally {
-            if (!nullHandle(sd.value)) localFree(sd.value);
+            release(sd, "memory");
           }
         },
         launchProbe: (spec, job) => {
-          if (closed) {
+          if (closing) {
             const empty = job.accounting();
             if (!job.closed && empty?.active === 0 && empty.total === 0) job.close();
             throw new CrotError("OPERATION_FAILED", "Windows token spike: token is closed.");
           }
+          try {
+            retryCleanup();
+          } catch (error) {
+            // No process was created; this caller transferred only a fresh Job.
+            const empty = job.accounting();
+            if (!job.closed && empty?.active === 0 && empty.total === 0) job.close();
+            throw error;
+          }
           return launchProbe(primary.value, spec, job);
         },
         close: () => {
-          if (closed) return;
-          closed = true;
-          const first = closeHandle(impersonation.value);
-          const second = closeHandle(primary.value);
-          if (!success(first) || !success(second)) throw failure("CloseHandle");
+          // Disable every use before the first native close; a partially closed
+          // token is not usable and is not falsely reported fully released.
+          closing = true;
+          let error: unknown;
+          for (const out of [impersonation, primary]) {
+            try {
+              release(out, "handle");
+            } catch (cause) {
+              error ??= cause;
+            }
+          }
+          if (error) throw error;
         },
       };
     },

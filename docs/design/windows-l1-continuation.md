@@ -547,3 +547,59 @@ availability registration or WP-23c completion is asserted.
 Unreturned children whose forced termination itself fails are retained by the
 host tracker, exposed as `incompleteProcessCleanup`, and retried synchronously
 on close/recovery; new allocations are blocked while cleanup keeps failing.
+
+
+## Job lifetime pin 86d8a53 and token/helper ownership follow-up
+
+Implementation commit `86d8a53d9515b4c45930b74ae56c47682327a041` repairs Job
+configuration/self-test/shutdown ownership and unreturned-child cleanup. Full
+local check: 1589 Core passed /166 skipped;147 extension passed. Native CI again
+has **9 successful checks /2 Windows failures**, with all four Linux L1 jobs and
+Linux/macOS/Chromium green. Native Windows Node20:
+<https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38672849973/job/116219728482>;
+Node22: <https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38672849973/job/116219728655>.
+Existing Job tree-kill, original PowerShell/RPC and process component gates
+remain in that run. Unique-token startup/NUL/descendant/shell gates are still
+red, so neither this run nor the local green check accepts Windows L1.
+
+The next implementation fixes another real ownership bug: restricted-token
+close previously marked the token closed BEFORE either native CloseHandle and
+could lose a handle permanently. Close now immediately disables token use,
+attempts both owned handles even after a failure, retains only unreleased exact
+handles, and reports `closed` only when both are released. Retry never recloses
+an already released pointer. Failed creation/source-token/SID/descriptor cleanup
+also stays reachable in the cached native binding and prevents further
+allocation until recovery; a failed setup never returns a usable token.
+
+The desktop helper now recovers exact failed-setup owners before allocating a
+new name/token/process. Previously it retained those owners but could only
+refuse every future creation forever. Async/sync shutdown are idempotent after
+successful disposal, avoid writing close twice to ended stdin, and release the
+bounded one-shot readiness parser instead of retaining/growing its transcript.
+No actor authority, token SID filter, filesystem/desktop ACL or permission
+policy is expanded by these cleanup fixes.
+
+The fixed CDB diagnostic now uses documented `-pb` (no injected initial break-in
+thread on a suspended target) and `-pd` (debugger exit does not kill target),
+never `-pr`. The native launcher's exact suspend-count assertion is unchanged.
+It disables debugger shell/handle inheritance and records bounded evidence even
+if native resume fails. A debugger-affected exit remains diagnosis, not a denial
+or ordinary-tool success. Reference: Microsoft CDB Command-Line Options,
+<https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/cdb-command-line-options>.
+
+Focused local evidence: **87 passed** across restricted-token compiled ABI
+stand-in (55), helper lifetime/protocol (9), owned CDB ordering (3), sanitizer
+(5), user-object ABI (9), command-token policy (4) and native process cleanup (2).
+The compiled fixture's fault codes21–26 prove primary/impersonation close,
+partial setup/source/SID retention, no allocation growth on persistent failure,
+exact recovery and use-after-partial-close refusal. These are fault-injection
+and ABI results, explicitly NOT actual Windows kernel-denial evidence.
+
+Acceptance remains: criterion1 OPEN (no transparent same-backing filesystem);
+2 PARTIAL (real process component plus new cleanup fixes, but strong-token
+ordinary descendants/recovery not qualified);3 PARTIAL (Node22 direct Low-sibling
+and WRITE_DAC denial only);4 OPEN (actual service secret/device/config/audit/
+control/Docker boundary not qualified);5 OPEN (both current Windows jobs red,
+ARM64/Win11/standard-user matrix missing);6 native non-Windows regression green
+at86d8a53;7 OPEN (no production CommandConfinement backend);8 OPEN (known critical
+compatibility blockers). No WP-23c ready/review-ready claim or available=true.

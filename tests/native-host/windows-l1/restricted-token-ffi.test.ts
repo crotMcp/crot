@@ -37,6 +37,8 @@ let markAssigned: () => void;
 let creates: () => number;
 let resumes: () => number;
 let kills: () => number;
+let resetClose: () => void;
+let closeCount: (kind: number) => number;
 const spec: ProbeSpec = {
   executable: "C:\\fixture\\node.exe",
   args: ["-e", "process.exit(0)"],
@@ -88,6 +90,8 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     creates = ffi.load(lib).func("int CreateCount(void)") as typeof creates;
     resumes = ffi.load(lib).func("int ResumeCount(void)") as typeof resumes;
     kills = ffi.load(lib).func("int KillCount(void)") as typeof kills;
+    resetClose = ffi.load(lib).func("void ResetCloseCounters(void)") as typeof resetClose;
+    closeCount = ffi.load(lib).func("int CloseCount(int kind)") as typeof closeCount;
   });
   afterAll(async () => {
     await rm(dir, { recursive: true, force: true });
@@ -108,6 +112,55 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     token.close();
     expect(token.closed).toBe(true);
     expect(() => token.fileDaclAccess("C:\\fixture\\R")).toThrow(/closed/);
+    expect(live()).toBe(0);
+  });
+  it.each([21, 22, 23])("retains partial token close failure %i and never reuses/recloses released handles", (n) => {
+    fault(0);
+    const token = api.create(sid);
+    resetClose();
+    fault(n);
+    expect(() => token.close()).toThrow(/CloseHandle/);
+    expect(token.closed).toBe(false);
+    expect(live()).toBe(n === 23 ? 2 : 1);
+    expect(closeCount(3)).toBe(1);
+    expect(closeCount(4)).toBe(1);
+    expect(() => token.fileDaclAccess("C:\\fixture\\RW")).toThrow(/closed/);
+    expect(() => token.lowerProbeIntegrity()).toThrow(/closed/);
+    expect(() => token.prepareProbeObjects("S-1-5-21-1-2-3-4")).toThrow(/closed/);
+    const freshJob = job();
+    expect(() => token.launchProbe(spec, freshJob)).toThrow(/closed/);
+    expect(freshJob.closed).toBe(true);
+    fault(0);
+    token.close();
+    token.close();
+    expect(token.closed).toBe(true);
+    expect(live()).toBe(0);
+    expect(closeCount(3)).toBe(n === 22 ? 1 : 2);
+    expect(closeCount(4)).toBe(n === 21 ? 1 : 2);
+  });
+  it.each([24, 25, 26])("retains failed setup cleanup %i and blocks new allocation until exact recovery", (n) => {
+    fault(n);
+    expect(() => api.create(sid)).toThrow(/failed/);
+    expect(live()).toBe(1);
+    expect(() => api.create(sid)).toThrow(/failed/);
+    expect(live()).toBe(1);
+    fault(0);
+    const recovered = api.create(sid);
+    expect(live()).toBe(2);
+    recovered.close();
+    expect(live()).toBe(0);
+  });
+  it("recovers a failed returned-token close before allocating a new token, without leaving a false closed state", () => {
+    fault(0);
+    const old = api.create(sid);
+    fault(23);
+    expect(() => old.close()).toThrow();
+    fault(0);
+    const next = api.create(sid);
+    expect(old.closed).toBe(true);
+    old.close();
+    expect(live()).toBe(2);
+    next.close();
     expect(live()).toBe(0);
   });
   it.each([1, 2, 3, 4, 5])("cleans native allocations on setup failure %i", (n) => {

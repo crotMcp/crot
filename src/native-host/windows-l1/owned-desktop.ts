@@ -11,7 +11,10 @@ import { loadJobObjectApi } from "../windows-job.js";
 import { WindowsLaunchEnvironment } from "./launch-environment.js";
 import { NativeProcessLauncher } from "./native-process.js";
 // Failed cleanup owners stay reachable; no fresh helper is launched by retry.
-const failedHelperOwners = new Set<object>();
+interface HelperCleanupOwner {
+  retry(): void;
+}
+const failedHelperOwners = new Set<HelperCleanupOwner>();
 export interface OwnedDesktop {
   readonly desktop: string;
   readonly restrictingSid: string;
@@ -28,6 +31,15 @@ export async function createOwnedDesktop(options: {
   readonly privateRoot: string;
   readonly environment: EnvironmentPolicy;
 }): Promise<OwnedDesktop> {
+  // Failed setup has no returned desktop instance. Retry its exact retained
+  // owners here BEFORE generating names, tokens, pipes, Jobs or processes.
+  for (const owner of failedHelperOwners) {
+    try {
+      owner.retry();
+    } catch {
+      // Attempt every retained owner; never allocate through incomplete cleanup.
+    }
+  }
   if (failedHelperOwners.size) throw new CrotError("OPERATION_FAILED", "Owned desktop helper has incomplete cleanup.");
   validateSid(options.ownerSid);
   validateSid(options.restrictingSid);
@@ -37,16 +49,27 @@ export async function createOwnedDesktop(options: {
   const helperSid = `S-1-5-21-${n.readUInt32LE(0)}-${n.readUInt32LE(4)}-${n.readUInt32LE(8)}-${n.readUInt32LE(12)}`;
   const helperToken = (await loadRestrictedTokens()).create(helperSid, false, undefined, "mic-only");
   let helper: NativeProcessLauncher | undefined;
-  const owner = {
-    helperToken,
-    get helper() {
-      return helper;
+  let disposed = false;
+  const owner: HelperCleanupOwner = {
+    retry: () => {
+      if (disposed) return;
+      try {
+        helper?.closeSync();
+        helperToken.close();
+        disposed = true;
+        failedHelperOwners.delete(owner);
+      } catch (error) {
+        failedHelperOwners.add(owner);
+        throw error;
+      }
     },
   };
   const dispose = async () => {
+    if (disposed) return;
     try {
       await helper?.close();
       helperToken.close();
+      disposed = true;
       failedHelperOwners.delete(owner);
     } catch (error) {
       failedHelperOwners.add(owner);
@@ -104,18 +127,26 @@ export async function createOwnedDesktop(options: {
     if (!proc.stdin) throw failed();
     await new Promise<void>((resolve, reject) => {
       let text = "";
-      const timer = setTimeout(() => reject(failed()), 10000);
+      let bytes = 0;
+      let settled = false;
+      const timer = setTimeout(() => finish(failed()), 10000);
       const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
+        proc.stdout.removeListener("data", onData);
+        // Do not retain/grow a readiness transcript over the helper lifetime.
+        proc.stdout.resume();
         if (error) reject(error);
         else resolve();
       };
-      proc.stdout.on("data", (chunk: Buffer) => {
-        text += chunk.toString("utf8");
-        if (text.length > 1024) {
+      const onData = (chunk: Buffer) => {
+        bytes += chunk.length;
+        if (bytes > 1024) {
           finish(failed());
           return;
         }
+        text += chunk.toString("utf8");
         if (!text.endsWith("\n")) return;
         try {
           const value = JSON.parse(text);
@@ -136,7 +167,8 @@ export async function createOwnedDesktop(options: {
         } catch {
           finish(failed());
         }
-      });
+      };
+      proc.stdout.on("data", onData);
       proc.stdout.on("error", () => finish(failed()));
       proc.stderr.on("error", () => finish(failed()));
       proc.stderr.resume();
@@ -152,17 +184,18 @@ export async function createOwnedDesktop(options: {
       desktop: expected,
       restrictingSid: options.restrictingSid,
       get closed() {
-        return closed || proc.hasExited;
+        return closed || disposed || proc.hasExited;
       },
       exited: proc.exited,
       close: () => {
+        if (disposed) return Promise.resolve();
         if (closing) return closing;
         closed = true;
         closing = (async () => {
           let timer: NodeJS.Timeout | undefined;
           try {
             proc.stdin!.on("error", () => undefined);
-            proc.stdin!.end("close\n");
+            if (!proc.stdin!.writableEnded && !proc.stdin!.destroyed) proc.stdin!.end("close\n");
             const status = await Promise.race([
               proc.exited,
               new Promise<never>((_resolve, reject) => {
@@ -184,14 +217,7 @@ export async function createOwnedDesktop(options: {
       },
       closeSync: () => {
         closed = true;
-        try {
-          helper.closeSync();
-          helperToken.close();
-          failedHelperOwners.delete(owner);
-        } catch (error) {
-          failedHelperOwners.add(owner);
-          throw error;
-        }
+        owner.retry();
         proc.stdout.destroy();
         proc.stderr.destroy();
       },

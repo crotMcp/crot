@@ -11,8 +11,20 @@ void SetFault(int value) { fault = value; }
 int LiveAllocations(void) { return live; }
 void *GetCurrentProcess(void) { return (void *)(intptr_t)-1; }
 uint32_t GetLastError(void) { return 5; }
-int CloseHandle(void *h) { if (!h) return 0; free(h); live--; return 1; }
-void *LocalFree(void *p) { CloseHandle(p); return 0; }
+static int close_counts[10] = {0};
+void ResetCloseCounters(void) { for (int i = 0; i < 10; i++) close_counts[i] = 0; }
+int CloseCount(int kind) { return kind >= 0 && kind < 10 ? close_counts[kind] : -1; }
+int CloseHandle(void *h) {
+  if (!h) return 0;
+  int kind = *(int *)h;
+  if (kind >= 0 && kind < 10) close_counts[kind]++;
+  if ((fault == 21 && kind == 3) || (fault == 22 && kind == 4) ||
+      (fault == 23 && (kind == 3 || kind == 4)) ||
+      (fault == 24 && kind == 3) || (fault == 25 && kind == 1) ||
+      (fault == 26 && kind == 2)) return 0;
+  free(h); live--; return 1;
+}
+void *LocalFree(void *p) { return CloseHandle(p) ? 0 : p; }
 int OpenProcessToken(void *p, uint32_t access, HANDLE_OUT *out) {
   if (fault == 1 || access != 262283 || p != (void *)(intptr_t)-1) return 0;
   out->value = alloc(1); return 1;
@@ -30,7 +42,7 @@ int CreateRestrictedToken(void *src, uint32_t flags, uint32_t n1, void *p1, uint
 }
 int IsTokenRestricted(void *token) { return fault == 4 ? 0 : (*(int *)token == 3 && last_restrict_count > 0); }
 int DuplicateTokenEx(void *token, uint32_t access, void *attr, int level, int type, HANDLE_OUT *out) {
-  if (fault == 5 || *(int *)token != 3 || access != 12 || attr || level != 2 || type != 2) return 0;
+  if (fault == 5 || fault == 24 || *(int *)token != 3 || access != 12 || attr || level != 2 || type != 2) return 0;
   out->value = alloc(4); return 1;
 }
 uint32_t GetNamedSecurityInfoW(uint16_t *file, int type, uint32_t info, void *o, void *g, void *d, void *s, HANDLE_OUT *out) {

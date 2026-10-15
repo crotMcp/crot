@@ -45,7 +45,10 @@ export function ownedAccessStack(options: {
       debuggerProcess = options.token.launchProbe(
         {
           executable: options.debuggerPath,
-          args: ["-G", "-p", String(pid), "-c", commands],
+          // -pb avoids injecting a break-in thread before primary-thread resume;
+          // -pd prevents debugger EOF/failure from terminating the target. Never
+          // use -pr (it would consume the launcher's owned suspend count).
+          args: ["-G", "-pb", "-pd", "-noshell", "-noinh", "-nosqm", "-p", String(pid), "-c", commands],
           cwd: options.cwd,
           env: {
             SystemRoot: options.systemRoot,
@@ -81,7 +84,16 @@ export function ownedAccessStack(options: {
         /* unavailable is explicit */
       }
       if (text.length > 1024 * 1024) throw new Error("Owned debugger diagnostic budget exceeded.");
+      let debuggerExitCode: number | null = null;
+      let exitObservationFailed = false;
+      try {
+        debuggerExitCode = debuggerProcess?.exitCode() ?? null;
+      } catch {
+        exitObservationFailed = true;
+      }
       return {
+        debuggerExitCode,
+        exitObservationFailed,
         ready: /^CROT_OWNED_DEBUG_READY\r?$/m.test(text),
         ...accessStackTokens(text),
       };

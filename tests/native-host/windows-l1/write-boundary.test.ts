@@ -328,29 +328,35 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       const deadline = Date.now() + 15000;
       while (child.exitCode() === null && Date.now() < deadline)
         await new Promise((resolve) => setTimeout(resolve, 10));
-      appendFileSync(
-        inject("stage6aEvidence"),
-        JSON.stringify({
-          title: "CROT-6A-unique-owned-access-stack",
-          value: {
-            status: debuggerAvailable ? "COLLECTED" : "UNAVAILABLE",
-            ...debuggerTrace.collect(),
-            exitCode: child.exitCode(),
-          },
-        }) + "\n",
-      );
       expect(child.exitCode()).toBe(0);
     } finally {
       try {
-        child?.close();
+        // Retain the bounded diagnostic even if native launch/resume fails.
+        // A returned child/ready debugger is not a JavaScript attempt witness.
+        appendFileSync(
+          inject("stage6aEvidence"),
+          JSON.stringify({
+            title: "CROT-6A-unique-owned-access-stack",
+            value: {
+              status: debuggerAvailable ? "COLLECTED" : "UNAVAILABLE",
+              ...debuggerTrace.collect(),
+              targetReturned: child !== undefined,
+              exitCode: child?.exitCode() ?? null,
+            },
+          }) + "\n",
+        );
       } finally {
         try {
-          debuggerTrace.close();
+          child?.close();
         } finally {
           try {
-            helperToken.close();
+            debuggerTrace.close();
           } finally {
-            await rm(debugRoot, { recursive: true, force: true });
+            try {
+              helperToken.close();
+            } finally {
+              await rm(debugRoot, { recursive: true, force: true });
+            }
           }
         }
       }
