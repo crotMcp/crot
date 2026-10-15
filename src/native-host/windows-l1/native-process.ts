@@ -156,11 +156,12 @@ export class NativeProcessLauncher implements ProcessLauncher {
     if (options.desktop) {
       if (options.desktop.closed || options.desktop.restrictingSid !== options.token.restrictingSid)
         throw new CrotError("INVALID_INPUT", "Native process desktop does not match the owned token.");
-      void options.desktop.exited.then(() => {
+      const lostDesktop = () => {
         if (this.closed) return;
         this.blocked ??= new CrotError("OPERATION_FAILED", "Native process desktop helper exited.");
         for (const process of this.processes) void process.terminate("force").catch(() => undefined);
-      });
+      };
+      void options.desktop.exited.then(lostDesktop, lostDesktop);
     }
   }
   resolveCommand(command: string, args: readonly string[], options: ResolveCommandOptions): Promise<CommandSpec> {

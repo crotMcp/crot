@@ -5161,3 +5161,12 @@ view/driver selection is not made by this decision.
 **Implementation status.** In progress, native qualification pending. Existing
 ExecutionGuard/PermissionEngine, exposure, full-control/local semantics,
 Linux/macOS confinement and WP-25/26/27 are unchanged.
+
+AD-24 helper containment clarification: the fixed helper itself uses the owned
+native suspended launch/explicit handle allowlist and verified fresh Job path,
+not the general host launcher's post-start assignment/fallback. Its duplicate
+source token uses the existing mic-only construction without Low lowering;
+only the fixed helper module is executed at source integrity, never actor code.
+The actor still uses the unique write-only Low token. No missing helper Job or
+helper setup failure retries through an uncontained host process. Cleanup
+failures retain owners for retry rather than falsely claiming release.

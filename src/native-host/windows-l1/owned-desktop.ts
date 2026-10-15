@@ -2,9 +2,16 @@
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { CrotError } from "../../core/errors.js";
-import type { ExitStatus, ProcessLauncher } from "../../core/platform/types.js";
+import type { EnvironmentPolicy, ExitStatus, ProcessLauncher } from "../../core/platform/types.js";
 import { validateSid } from "../validation.js";
 import { validateOwnedDesktopName } from "./user-objects.js";
+import { loadRestrictedTokens } from "./restricted-token.js";
+import { loadBytePipeApi } from "./byte-stdio.js";
+import { loadJobObjectApi } from "../windows-job.js";
+import { WindowsLaunchEnvironment } from "./launch-environment.js";
+import { NativeProcessLauncher } from "./native-process.js";
+// Failed cleanup owners stay reachable; no fresh helper is launched by retry.
+const failedHelperOwners = new Set<object>();
 export interface OwnedDesktop {
   readonly desktop: string;
   readonly restrictingSid: string;
@@ -18,31 +25,72 @@ export async function createOwnedDesktop(options: {
   readonly ownerSid: string;
   readonly restrictingSid: string;
   readonly systemRoot: string;
+  readonly privateRoot: string;
+  readonly environment: EnvironmentPolicy;
 }): Promise<OwnedDesktop> {
   validateSid(options.ownerSid);
   validateSid(options.restrictingSid);
-  if (options.launcher.processControl.treeTermination !== "job-object")
-    throw new CrotError("OPERATION_FAILED", "Owned desktop helper requires a host-owned Job.");
   const name = `crot-${randomBytes(24).toString("hex")}`;
   const expected = validateOwnedDesktopName(`${name}\\actor`);
-  const proc = await options.launcher.launch(
-    {
-      file: process.execPath,
-      args: [
-        fileURLToPath(new URL("./desktop-helper.js", import.meta.url)),
-        "--crot-owned-desktop",
-        name,
-        options.ownerSid,
-        options.restrictingSid,
-      ],
-      display: "CROT owned desktop helper",
-    },
-    {
-      cwd: options.systemRoot,
-      env: { SystemRoot: options.systemRoot },
-      stdin: true,
-    },
-  );
+  const n = randomBytes(16);
+  const helperSid = `S-1-5-21-${n.readUInt32LE(0)}-${n.readUInt32LE(4)}-${n.readUInt32LE(8)}-${n.readUInt32LE(12)}`;
+  const helperToken = (await loadRestrictedTokens()).create(helperSid, false, undefined, "mic-only");
+  let helper: NativeProcessLauncher | undefined;
+  const dispose = async () => {
+    try {
+      await helper?.close();
+      helperToken.close();
+    } catch (error) {
+      failedHelperOwners.add({ helper, helperToken });
+      throw error;
+    }
+  };
+  try {
+    helperToken.prepareProbeObjects(options.ownerSid);
+    // The fixed trusted helper retains source integrity. It never runs actor
+    // code. Unlike the general host launcher, this path has NO uncontained
+    // assignment fallback: suspended native creation verifies its Job first.
+    helper = new NativeProcessLauncher({
+      token: helperToken,
+      ownerSid: options.ownerSid,
+      pipes: await loadBytePipeApi(),
+      jobs: await loadJobObjectApi(),
+      environment: options.environment,
+      resolver: options.launcher,
+      childEnvironment: new WindowsLaunchEnvironment({
+        systemRoot: options.systemRoot,
+        privateRoot: options.privateRoot,
+        runtimeBins: [],
+      }),
+    });
+  } catch (error) {
+    await dispose().catch(() => undefined);
+    throw error;
+  }
+  let proc;
+  try {
+    proc = await helper.launch(
+      {
+        file: process.execPath,
+        args: [
+          fileURLToPath(new URL("./desktop-helper.js", import.meta.url)),
+          "--crot-owned-desktop",
+          name,
+          options.ownerSid,
+          options.restrictingSid,
+        ],
+        display: "CROT owned desktop helper",
+      },
+      {
+        cwd: options.systemRoot,
+        env: { SystemRoot: options.systemRoot },
+        stdin: true,
+      },
+    );
+  } catch (error) {
+    await dispose().catch(() => undefined);
+    throw error;
+  }
   const failed = () => new CrotError("OPERATION_FAILED", "Owned desktop helper is unavailable.");
   try {
     if (!proc.stdin) throw failed();
@@ -113,22 +161,31 @@ export async function createOwnedDesktop(options: {
             if (status.code !== 0 || proc.failure) throw failed();
           } finally {
             if (timer) clearTimeout(timer);
-            await proc.terminate("force");
+            await dispose();
             proc.stdout.destroy();
             proc.stderr.destroy();
           }
-        })();
+        })().catch((error: unknown) => {
+          closing = undefined;
+          throw error;
+        });
         return closing;
       },
       closeSync: () => {
         closed = true;
-        proc.terminateSync();
+        try {
+          helper.closeSync();
+          helperToken.close();
+        } catch (error) {
+          failedHelperOwners.add({ helper, helperToken });
+          throw error;
+        }
         proc.stdout.destroy();
         proc.stderr.destroy();
       },
     });
   } catch (error) {
-    await proc.terminate("force").catch(() => undefined);
+    await dispose().catch(() => undefined);
     proc.stdout.destroy();
     proc.stderr.destroy();
     throw error;

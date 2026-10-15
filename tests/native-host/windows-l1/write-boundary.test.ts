@@ -7,6 +7,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OwnedDesktop } from "../../../src/native-host/windows-l1/owned-desktop.js";
 import { afterEach, beforeEach, describe, expect, it, inject } from "vitest";
+import type { CommandSpec } from "../../../src/core/platform/types.js";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 import { currentUserSid, runTool, windowsTools } from "../../../src/native-host/windows-acl.js";
 import { loadJobObjectApi } from "../../../src/native-host/windows-job.js";
@@ -72,6 +73,8 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
     )) as typeof import("../../../src/native-host/windows-l1/owned-desktop.js");
     desktop = await createOwnedDesktop({
       launcher: host.platform.launcher,
+      environment: host.platform.environment,
+      privateRoot,
       ownerSid,
       restrictingSid: token.restrictingSid,
       systemRoot: process.env.SystemRoot ?? "C:\\Windows",
@@ -105,11 +108,8 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
   });
   const body = () =>
     `const fs=require('fs');const attempt=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};const r={ready:true,project:attempt(()=>fs.readFileSync(${JSON.stringify(project)})),privateWrite:attempt(()=>fs.writeFileSync(${JSON.stringify(path.join(privateRoot, "allowed.txt"))},'allowed')),outsideCreate:attempt(()=>fs.writeFileSync(${JSON.stringify(path.join(outside, "forbidden.txt"))},'forbidden')),outsideWrite:attempt(()=>fs.writeFileSync(${JSON.stringify(path.join(outside, "target.txt"))},'forbidden'))};process.stdout.write(JSON.stringify(r));`;
-  async function run(script: string) {
-    const child = await launcher.launch(
-      { file: process.execPath, args: ["-e", script], display: "unique write boundary gate" },
-      { cwd: dirs.workspace, env: {}, stdin: false },
-    );
+  async function runCommand(spec: CommandSpec, expectedCode = 0) {
+    const child = await launcher.launch(spec, { cwd: dirs.workspace, env: {}, stdin: false });
     let output = "",
       errors = "";
     child.stdout.on("data", (chunk: Buffer) => {
@@ -131,13 +131,20 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
         });
       await Promise.all([ended(child.stdout), ended(child.stderr)]);
       expect(child.failure).toBeUndefined();
-      expect({ code: status.code, stderrEmpty: errors.length === 0 }).toEqual({ code: 0, stderrEmpty: true });
-      return JSON.parse(output) as Record<string, unknown>;
+      expect({ code: status.code, stderrEmpty: errors.length === 0 }).toEqual({
+        code: expectedCode,
+        stderrEmpty: true,
+      });
+      return output;
     } finally {
       clearTimeout(timeout);
       await child.terminate("force");
     }
   }
+  const run = async (script: string) =>
+    JSON.parse(
+      await runCommand({ file: process.execPath, args: ["-e", script], display: "unique write boundary gate" }),
+    ) as Record<string, unknown>;
   const verify = async (observed: Record<string, unknown>) => {
     expect(observed.ready).toBe(true);
     expect(observed.project).toBe("ALLOWED");
@@ -194,5 +201,31 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       const script = `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(body())}],{windowsHide:${windowsHide},stdio:['pipe','pipe','pipe']});c.stdin.end();c.stdout.pipe(process.stdout);c.stderr.pipe(process.stderr);c.on('error',e=>{console.log(JSON.stringify({spawnError:e.code}));process.exitCode=99});c.on('exit',code=>{process.exitCode=code});`;
       await verify(await run(script));
     },
+  );
+  it.each([false, true])("runs a genuinely ready ignored-stdio descendant (windowsHide=%s)", async (windowsHide) => {
+    const result = path.join(privateRoot, "ignored-ready.json");
+    const ignored = body().replace(
+      "process.stdout.write(JSON.stringify(r))",
+      `fs.writeFileSync(${JSON.stringify(result)},JSON.stringify(r))`,
+    );
+    const script = `const fs=require('fs');const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(ignored)}],{windowsHide:${windowsHide},stdio:'ignore'});c.on('error',()=>{process.exitCode=98});c.on('exit',code=>{if(code!==0){console.log(JSON.stringify({startupExit:code}));process.exitCode=97;return}process.stdout.write(fs.readFileSync(${JSON.stringify(result)}));});`;
+    await verify(await run(script));
+  });
+  it.each(["cmd", "powershell"] as const)(
+    "runs production %s ordinary private CRUD/redirection without startup substitution",
+    async (shell) => {
+      const first = path.join(privateRoot, "shell space ж.txt"),
+        renamed = path.join(privateRoot, "renamed ж.txt");
+      const ps = (p: string) => "'" + p.replaceAll("'", "''") + "'";
+      const script =
+        shell === "cmd"
+          ? `echo unique-shell-ready>"${first}" & type "${first}" & ren "${first}" "${path.basename(renamed)}" & del "${renamed}" & exit /b 23`
+          : `$ErrorActionPreference='Stop';'unique-shell-ready' > ${ps(first)};Get-Content -LiteralPath ${ps(first)};[IO.File]::Move(${ps(first)},${ps(renamed)});[IO.File]::Delete(${ps(renamed)});exit 23`;
+      const output = await runCommand(host.platform.shells.command(script, shell), 23);
+      expect(output).toContain("unique-shell-ready");
+      await expect(readFile(first)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(renamed)).rejects.toMatchObject({ code: "ENOENT" });
+    },
+    20000,
   );
 });

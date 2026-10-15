@@ -160,3 +160,36 @@ it("rejects forged external handles before touching native startup attributes", 
   expect(f.calls.get("InitializeProcThreadAttributeList")).not.toHaveBeenCalled();
   expect(f.calls.get("CreateProcessAsUserW")).not.toHaveBeenCalled();
 });
+
+it("retains the trusted UTF-16 desktop buffer through both native extended startup paths", async () => {
+  const desktop = Buffer.from(`crot-${"b".repeat(48)}\\actor\0`, "utf16le");
+  const f = fixture();
+  bindNulProcessCreation(f.ffi, { kernel32: "test-kernel", advapi32: "test-advapi" })(
+    1n,
+    "C:\\owned.exe",
+    Buffer.alloc(8),
+    0x08000404,
+    Buffer.alloc(8),
+    "C:\\work",
+    {},
+    desktop,
+  );
+  expect(f.calls.get("CreateProcessAsUserW")!.mock.calls[0]![9]).toMatchObject({ startup: { lpDesktop: desktop } });
+  const b = await byteFixture();
+  try {
+    bindPipeProcessCreation(b.ffi, { kernel32: "test-kernel", advapi32: "test-advapi" })(
+      1n,
+      "C:\\owned.exe",
+      Buffer.alloc(8),
+      0x08000404,
+      Buffer.alloc(8),
+      "C:\\work",
+      {},
+      b.io,
+      desktop,
+    );
+    expect(b.calls.get("CreateProcessAsUserW")!.mock.calls[0]![9]).toMatchObject({ startup: { lpDesktop: desktop } });
+  } finally {
+    await b.io.close();
+  }
+});

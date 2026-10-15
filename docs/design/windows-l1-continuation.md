@@ -361,3 +361,23 @@ matrix or production CommandConfinement backend is claimed. Backend availability
 stays none/not_implemented and the PR remains Draft. The earlier full-acceptance
 table describes the last qualified baseline; the active Windows gates above are
 currently red, not green regression acceptance.
+
+The helper path is further hardened after `ca50059`: it uses the SAME owned
+native suspended launch and explicit three-handle allowlist, with a verified
+fresh Job before ResumeThread. It does not rely on the generic host launcher's
+post-spawn assignment/fallback. A duplicated source-integrity mic-only token
+runs only the fixed helper; arbitrary actor code is never run at that integrity.
+The command actor remains unique-SID write-only restricted and Low. This
+clarifies implementation of AD-24, not an availability/security-policy fallback.
+
+Mandatory native gates now also require ready ignored-stdio descendants with
+both windowsHide settings, and ordinary cmd/WinPS private CRUD/redirection via
+the unchanged production shell provider. These test a necessary private-runtime
+slice, NOT transparent Medium workspace writes. Previous direct and normal/hidden
+pipe-descendant gates remain. The old 0xc0000142 results remain visible until a
+new native run proves otherwise.
+
+Local `npm run check` on `ca50059213104a467eb58a590a47faa8dd33481c` passed:
+1570 Core tests, 159 skips; 147 extension tests; lint/format/types/builds passed.
+The Linux/Node24 sandbox skips are not Windows native evidence. New helper-path
+changes require their own full and native checks.
