@@ -4,7 +4,7 @@ param([switch]$Apply)
 $ErrorActionPreference = 'Stop'
 Import-Module -Name "$PSHOME\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1" -ErrorAction Stop
 if ($Apply -and -not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-  throw 'Для -Apply требуется явно запущенный администратором PowerShell.'
+  throw '-Apply requires an explicitly administrator-started PowerShell.'
 }
 Add-Type -TypeDefinition @'
 using System;
@@ -21,7 +21,7 @@ public static class CrotNullPreparation {
   [DllImport("kernel32.dll",SetLastError=true)] static extern bool CloseHandle(IntPtr h);
   static byte[] Read(IntPtr h) {
     uint n; GetKernelObjectSecurity(h,7,null,0,out n);
-    if(n==0 || n>1048576) throw new InvalidOperationException("Размер дескриптора NUL");
+    if(n==0 || n>1048576) throw new InvalidOperationException("Invalid NUL descriptor size");
     byte[] b=new byte[n]; if(!GetKernelObjectSecurity(h,7,b,n,out n)) throw new System.ComponentModel.Win32Exception(); return b;
   }
   public static bool Run(bool apply) {
@@ -32,10 +32,10 @@ public static class CrotNullPreparation {
       name=Marshal.AllocHGlobal(Marshal.SizeOf(typeof(US))); Marshal.StructureToPtr(u,name,false);
       OA a=new OA {Length=Marshal.SizeOf(typeof(OA)),ObjectName=name,Attributes=64}; IO io;
       int status=NtOpenFile(out h,0x20000u|(apply?0x40000u:0),ref a,out io,7,0x40);
-      if(status<0) throw new InvalidOperationException("Открытие NUL: "+unchecked((uint)status).ToString("x8"));
+      if(status<0) throw new InvalidOperationException("NUL open failed: "+unchecked((uint)status).ToString("x8"));
       var before=new RawSecurityDescriptor(Read(h),0); var sid=new SecurityIdentifier("S-1-15-2-1");
       const int mask=unchecked((int)0xc0000000); int granted=0;
-      if(before.DiscretionaryAcl==null) throw new InvalidOperationException("Пустая DACL NUL не принимается");
+      if(before.DiscretionaryAcl==null) throw new InvalidOperationException("A null NUL DACL is not accepted");
       foreach(GenericAce ace in before.DiscretionaryAcl) { var q=ace as CommonAce; if(q!=null && q.AceQualifier==AceQualifier.AccessAllowed && q.SecurityIdentifier.Equals(sid) && q.AceFlags==AceFlags.None) granted|=q.AccessMask; }
       if((granted&mask)==mask) return true;
       if(!apply) return false;
@@ -48,7 +48,7 @@ public static class CrotNullPreparation {
       var after=new RawSecurityDescriptor(Read(h),0);
       byte[] actual=new byte[after.DiscretionaryAcl.BinaryLength],expected=new byte[before.DiscretionaryAcl.BinaryLength];
       after.DiscretionaryAcl.GetBinaryForm(actual,0);before.DiscretionaryAcl.GetBinaryForm(expected,0);
-      if(!after.Owner.Equals(before.Owner) || !after.Group.Equals(before.Group) || !Convert.ToBase64String(actual).Equals(Convert.ToBase64String(expected))) throw new InvalidOperationException("Проверка DACL NUL");
+      if(!after.Owner.Equals(before.Owner) || !after.Group.Equals(before.Group) || !Convert.ToBase64String(actual).Equals(Convert.ToBase64String(expected))) throw new InvalidOperationException("NUL DACL readback mismatch");
       return true;
     } finally {
       if(h!=IntPtr.Zero && h!=new IntPtr(-1) && !CloseHandle(h)) throw new System.ComponentModel.Win32Exception();
@@ -58,5 +58,5 @@ public static class CrotNullPreparation {
 }
 '@
 $ready = [CrotNullPreparation]::Run([bool]$Apply)
-if (-not $ready) { throw 'Подготовка NUL отсутствует. Явно выполните scripts/l1-install-win.ps1 -Apply от администратора.' }
+if (-not $ready) { throw 'NUL policy is missing. Explicitly run scripts/l1-install-win.ps1 -Apply as administrator.' }
 Write-Output '{"nulPolicyReady":true,"scope":"null-device-only"}'

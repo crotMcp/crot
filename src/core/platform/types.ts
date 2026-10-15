@@ -67,7 +67,9 @@ export interface PrivateFileProtection {
   /** Create a directory for private files; new directories are owner-only where supported. */
   ensureDirectory(dir: string): Promise<void>;
   /**
-   * Restrict an existing file to the CROT user. Provided where protection is
+   * Restrict an existing file (or an explicitly owned private-state directory)
+   * to the CROT user. Never use this to rewrite an arbitrary workspace parent.
+   * Provided where protection is
    * not expressed by a creation mode (Windows ACLs). Callers create the file
    * empty, call protectFile, and only then write secrets into it.
    */

@@ -23,7 +23,8 @@ describe.skipIf(!cc)("exact CROT private state native ABI", () => {
     handles: () => number,
     memory: () => number,
     invalid: () => number,
-    sets: () => number;
+    sets: () => number,
+    lastDescriptor: () => string;
   const owner = "S-1-5-21-1-2-3-1000",
     file = "C:\\fixture\\state\\credential.txt";
   beforeAll(async () => {
@@ -45,6 +46,7 @@ describe.skipIf(!cc)("exact CROT private state native ABI", () => {
     memory = n.func("int StateMemory(void)");
     invalid = n.func("int StateInvalid(void)");
     sets = n.func("int StateSets(void)");
+    lastDescriptor = n.func("str16 StateLastDescriptor(void)");
     api = bindWindowsPrivateState(ffi, { kernel32: lib, advapi32: lib, ntdll: lib });
     expect(bindWindowsPrivateState(ffi, { kernel32: lib, advapi32: lib, ntdll: lib })).toBe(api);
   });
@@ -62,6 +64,9 @@ describe.skipIf(!cc)("exact CROT private state native ABI", () => {
   it("installs explicit deny for the exact AppContainer SID without an Everyone/Users deny", () => {
     fault(0);
     expect(api(file, owner, false, true, ["S-1-15-2-1-2-3-4-5-6-7"])).toBe(true);
+    expect(lastDescriptor()).toBe(`D:P(D;;FA;;;S-1-15-2-1-2-3-4-5-6-7)(A;;FA;;;${owner})S:(ML;;NWNR;;;ME)`);
+    expect(api(file, owner, true, true, ["S-1-15-2-1-2-3-4-5-6-7"])).toBe(true);
+    expect(lastDescriptor()).toContain("D:P(D;OICI;FA;;;S-1-15-2-1-2-3-4-5-6-7)(A;OICI;FA;;;");
     expect(handles()).toBe(0);
     expect(memory()).toBe(0);
     for (const sid of [owner, "S-1-1-0", "S-1-15-2-1", "S-1-5-12"]) {

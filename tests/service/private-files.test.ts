@@ -9,42 +9,45 @@ import { writePrivateFileAtomic } from "../../src/service/secrets/backends.js";
 import { writeStateFile } from "../../src/service/private-state.js";
 import { dpapiDirectory } from "../../src/service/secrets/dpapi.js";
 describe("actual service private-file provider", () => {
-  it("stops legacy Windows bootstrap before reading or initializing secrets when protection fails", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "crot-legacy-stop-"));
-    try {
-      const file = secretFile(dir, "service-token");
-      const previous = "invalid-existing-secret-must-not-be-read";
-      await writeFile(file, previous);
-      const protectedFiles: string[] = [];
-      const privateFiles = {
-        ...createServicePrivateFiles(false),
-        protectFile: async (target: string) => {
-          protectedFiles.push(target);
-          throw new Error("fixture native protection refused");
-        },
-      };
-      await expect(
-        CrotService.start({
-          command: {
-            kind: "serve",
-            config: { workspace: { root: dir }, secrets: { store: "file" }, audit: { sink: "none" } },
-            warnings: [],
+  it.each(["root", "secret"] as const)(
+    "stops legacy Windows bootstrap before secret reads when %s protection fails",
+    async (failure) => {
+      const dir = await mkdtemp(path.join(os.tmpdir(), "crot-legacy-stop-"));
+      try {
+        const file = secretFile(dir, "service-token");
+        const previous = "invalid-existing-secret-must-not-be-read";
+        await writeFile(file, previous);
+        const protectedFiles: string[] = [];
+        const privateFiles = {
+          ...createServicePrivateFiles(false),
+          protectFile: async (target: string) => {
+            protectedFiles.push(target);
+            if (target === (failure === "root" ? dir : file)) throw new Error("fixture native protection refused");
           },
-          launch: "managed",
-          stateDir: dir,
-          windows: true,
-          privateFiles,
-          log: () => undefined,
-          requestStop: () => undefined,
-        }),
-      ).rejects.toThrow("fixture native protection refused");
-      expect(protectedFiles).toEqual([file]);
-      expect((await readFile(file, "utf8")) === previous).toBe(true);
-      expect(await readdir(dir)).toEqual(["service-token"]);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
+        };
+        await expect(
+          CrotService.start({
+            command: {
+              kind: "serve",
+              config: { workspace: { root: dir }, secrets: { store: "file" }, audit: { sink: "none" } },
+              warnings: [],
+            },
+            launch: "managed",
+            stateDir: dir,
+            windows: true,
+            privateFiles,
+            log: () => undefined,
+            requestStop: () => undefined,
+          }),
+        ).rejects.toThrow("fixture native protection refused");
+        expect(protectedFiles).toEqual(failure === "root" ? [dir] : [dir, file]);
+        expect((await readFile(file, "utf8")) === previous).toBe(true);
+        expect(await readdir(dir)).toEqual(["service-token"]);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+  );
   it.each([
     ["secret", writePrivateFileAtomic],
     ["device settings", writeStateFile],

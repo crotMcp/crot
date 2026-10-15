@@ -6,6 +6,8 @@ typedef struct {uint16_t length,max;void *buffer;} UNICODE;
 typedef struct {uint32_t length;void *root;UNICODE *name;uint32_t flags;void *sd,*qos;} ATTR;
 typedef struct {int directory;uint16_t sd[2048];} OBJECT;
 static int fault=0,handles=0,memory=0,invalid=0,sets=0;
+static uint16_t lastDescriptor[2048];
+uint16_t *StateLastDescriptor(void){return lastDescriptor;}
 static int n16(uint16_t *s){int n=0;while(s[n])n++;return n;}
 static uint16_t *copy(uint16_t *s){int n=n16(s);uint16_t *p=malloc((n+1)*2);memcpy(p,s,(n+1)*2);memory++;return p;}
 static void ascii(uint16_t *p,const char *s){while(*s)*p++=(uint8_t)*s++;*p=0;}
@@ -29,5 +31,5 @@ void *LocalFree(void *p){if(!p){invalid++;return 0;}if(fault==11)return p;free(p
 int ConvertStringSecurityDescriptorToSecurityDescriptorW(uint16_t *text,uint32_t revision,void **out,void *length){if(!text||revision!=1||length){invalid++;return 0;}*out=copy(text);return fault!=5;}
 int ConvertSecurityDescriptorToStringSecurityDescriptorW(uint16_t *sd,uint32_t revision,uint32_t flags,void **out,uint32_t *length){if(!sd||revision!=1||(flags!=0x0c&&flags!=0x08)){invalid++;return 0;}*out=copy(sd);*length=fault==14?65537:n16(sd)+1;return fault!=8;}
 int GetSecurityDescriptorSacl(void *sd,uint32_t *present,void **acl,uint32_t *defaulted){if(!sd||!present||!acl||!defaulted){invalid++;return 0;}*present=fault==15?0:fault==18?2:1;*acl=fault==15?NULL:sd;*defaulted=0;return fault!=17;}
-int SetKernelObjectSecurity(OBJECT *h,uint32_t flags,uint16_t *sd){sets++;if(!h||flags!=0x80000014||!sd){invalid++;return 0;}if(fault==6)return 0;memcpy(h->sd,sd,(n16(sd)+1)*2);return 1;}
+int SetKernelObjectSecurity(OBJECT *h,uint32_t flags,uint16_t *sd){sets++;if(!h||flags!=0x80000014||!sd){invalid++;return 0;}if(fault==6)return 0;memcpy(h->sd,sd,(n16(sd)+1)*2);memcpy(lastDescriptor,sd,(n16(sd)+1)*2);return 1;}
 uint32_t GetSecurityInfo(OBJECT *h,int kind,uint32_t flags,void *owner,void *group,void *dacl,void *sacl,void **out){if(!h||kind!=1||(flags!=0x14&&flags!=0x10)||owner||group||dacl||sacl){invalid++;return 87;}*out=copy(h->sd);if(fault==9&&flags==0x14)((uint16_t *)*out)[0]='X';if(fault==16&&flags==0x14){uint16_t *p=*out;for(int i=0;i<n16(p)-1;i++)if(p[i]=='M'&&p[i+1]=='E'){p[i]='L';p[i+1]='W';}}return fault==7?5:0;}

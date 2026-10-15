@@ -266,6 +266,7 @@ export async function loadWindowsPrivateState(
   owner: string,
   sandboxSids: readonly string[] = [],
 ): Promise<PrivateFileProtection> {
+  sandboxSids = Object.freeze([...sandboxSids]);
   if (process.platform !== "win32" || !["x64", "arm64"].includes(process.arch)) throw fail("native platform");
   const name: string = "koffi",
     module = await import(name),
@@ -289,7 +290,8 @@ export async function loadWindowsPrivateState(
       }
     },
     protectFile: async (file) => {
-      protect(file, owner, false, true, sandboxSids);
+      const item = await lstat(file);
+      protect(file, owner, item.isDirectory(), true, sandboxSids);
     },
     inspect: async (file) => {
       const item = await lstat(file).catch((e) => {

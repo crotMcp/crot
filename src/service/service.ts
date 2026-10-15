@@ -277,6 +277,9 @@ export class CrotService {
     const { stateDir, privateFiles } = this.options;
     await privateFiles.ensureDirectory(stateDir);
     if (this.windows && privateFiles.protectFile) {
+      // Fixed service-owned state root, not an arbitrary workspace/audit parent.
+      // Protect legacy directories too, before secret-store/bootstrap activity.
+      await privateFiles.protectFile(stateDir);
       const { existingPrivateStateFiles } = await import("./private-files.js");
       for (const file of await existingPrivateStateFiles(stateDir)) await privateFiles.protectFile(file);
     }
