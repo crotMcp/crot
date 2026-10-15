@@ -38,6 +38,16 @@ struct Attributes {
     return !!UpdateProcThreadAttribute(p,0,key,value,size,nullptr,nullptr);
   }
 };
+bool readLpac(HANDLE token,ULONG& value) {
+  using QueryToken=NTSTATUS(NTAPI*)(HANDLE,TOKEN_INFORMATION_CLASS,PVOID,ULONG,PULONG);
+  static_assert(sizeof(ULONG)==4,"LPAC query ULONG ABI");
+  auto query=reinterpret_cast<QueryToken>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtQueryInformationToken"));
+  if (!query) { controlProfileNtStatus=ERROR_PROC_NOT_FOUND; return false; }
+  ULONG returned=0; value=0;
+  const NTSTATUS result=query(token,static_cast<TOKEN_INFORMATION_CLASS>(46),&value,sizeof(value),&returned);
+  if (result<0) { controlProfileNtStatus=static_cast<DWORD>(result); return false; }
+  return returned==sizeof(value);
+}
 bool ownedNativeControl(const std::wstring& device,ACCESS_MASK access) {
   UNICODE_STRING text{}; text.Buffer=const_cast<PWSTR>(device.c_str());
   text.Length=static_cast<USHORT>(device.size()*2); text.MaximumLength=text.Length;
@@ -138,7 +148,7 @@ DWORD oneControlProfile(const std::wstring& device,const std::wstring& source,
     outcome=0x21c; auto ps=readback(TokenAppContainerSid);
     outcome=0x21d; auto capabilities=readback(TokenCapabilities);
     outcome=0x21e; auto il=readback(TokenIntegrityLevel);
-    outcome=0x21f; auto less=readback(static_cast<TOKEN_INFORMATION_CLASS>(46));
+    outcome=0x21f; ULONG less=0; if (!readLpac(token.h,less)) deny();
     auto label=reinterpret_cast<TOKEN_MANDATORY_LABEL*>(il.data())->Label.Sid;
     auto actualSid=reinterpret_cast<TOKEN_APPCONTAINER_INFORMATION*>(ps.data())->TokenAppContainer;
     outcome=0x220; if (!*reinterpret_cast<DWORD*>(ac.data())) deny();
@@ -150,7 +160,7 @@ DWORD oneControlProfile(const std::wstring& device,const std::wstring& source,
     if (integrity!=4096) {
       outcome=integrity==8192?0x225:integrity==12288?0x226:0x227; deny();
     }
-    outcome=0x224; if (!!*reinterpret_cast<DWORD*>(less.data())!=lpac) deny();
+    outcome=0x224; if (!!less!=lpac) deny();
     outcome=0x205;
     if (ResumeThread(thread.h)!=1) deny();
     outcome=0x206;

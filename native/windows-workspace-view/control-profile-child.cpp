@@ -42,15 +42,20 @@ int wmain(int argc,wchar_t** argv) {
       device.find_first_not_of(L"0123456789abcdefABCDEF-",15)<device.size()-1) return 2;
   HANDLE token=nullptr;
   if (!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token)) return 3;
-  std::vector<unsigned char> app,caps,il,lpac;
+  std::vector<unsigned char> app,caps,il;
+  using QueryToken=NTSTATUS(NTAPI*)(HANDLE,TOKEN_INFORMATION_CLASS,PVOID,ULONG,PULONG);
+  static_assert(sizeof(ULONG)==4,"LPAC query ULONG ABI");
+  auto query=reinterpret_cast<QueryToken>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtQueryInformationToken"));
+  ULONG lpac=0,returned=0;
   bool okay=info(token,TokenIsAppContainer,app) && info(token,TokenCapabilities,caps) &&
-      info(token,TokenIntegrityLevel,il) && info(token,static_cast<TOKEN_INFORMATION_CLASS>(46),lpac);
+      info(token,TokenIntegrityLevel,il) && query &&
+      query(token,static_cast<TOKEN_INFORMATION_CLASS>(46),&lpac,sizeof(lpac),&returned)>=0 && returned==sizeof(lpac);
   if (okay) {
     auto sid=reinterpret_cast<TOKEN_MANDATORY_LABEL*>(il.data())->Label.Sid;
     okay=!!*reinterpret_cast<DWORD*>(app.data()) &&
         reinterpret_cast<TOKEN_GROUPS*>(caps.data())->GroupCount==0 && IsValidSid(sid) &&
         *GetSidSubAuthorityCount(sid)==1 && *GetSidSubAuthority(sid,0)==4096 &&
-        !!*reinterpret_cast<DWORD*>(lpac.data())==(argv[2][0]==L'1');
+        !!lpac==(argv[2][0]==L'1');
   }
   if (!CloseHandle(token) || !okay) return 4;
   auto create=reinterpret_cast<NtCreate>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtCreateFile"));

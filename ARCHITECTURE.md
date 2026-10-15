@@ -5415,3 +5415,17 @@ mandatory before any safe mechanism selection; metadata denial alone is not
 full control-plane isolation proof. Reference: Microsoft Learn,
 `/windows/win32/secauthz/implementing-an-appcontainer` and
 `/windows/win32/api/userenv/nf-userenv-createappcontainerprofile`.
+
+**AD-28 LPAC query ABI correction (before code):** `d43f96b` proves the failure
+is the generic null/zero-length GetTokenInformation probe for SDK class46
+(TokenIsLessPrivilegedAppContainer), ERROR_INVALID_PARAMETER87 on both profiles
+and runtimes. Keep the LPAC predicate mandatory. Query its fixed ULONG payload
+using the documented user-mode NtQueryInformationToken read-only API on the
+already owned TOKEN_QUERY handle, require success and exact returned size, and
+verify the same Boolean before resume AND again in the child. Missing export,
+unsupported class, wrong length, mismatch or native error remains a failure;
+never default to regular AppContainer or infer LPAC from requested attributes.
+No NtCreateLowBoxToken/undocumented creation, capability grant or security
+policy downgrade is introduced. Reference: Microsoft WDK ZwQueryInformationToken
+(user-mode name NtQueryInformationToken), public SDK TOKEN_INFORMATION_CLASS;
+ULONG width is4 bytes. This corrects a query ABI, not confinement acceptance.
