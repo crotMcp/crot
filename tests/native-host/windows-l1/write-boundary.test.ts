@@ -39,7 +39,7 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
   let desktop: OwnedDesktop;
   let bnoIsolation: BnoIsolation;
   let native: {
-    bindViewJobObjectApi: typeof import("../../../src/native-host/windows-job.js").bindViewJobObjectApi;
+    loadViewJobObjectApi: typeof import("../../../src/native-host/windows-job.js").loadViewJobObjectApi;
     createOwnedWorkspaceView: typeof import("../../../src/native-host/windows-l1/workspace-view.js").createOwnedWorkspaceView;
     CrotService: typeof import("../../../src/service/service.js").CrotService;
     createServicePrivateFiles: typeof import("../../../src/service/private-files.js").createServicePrivateFiles;
@@ -280,10 +280,11 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       const descriptor = () => [dirs.workspace, project].map((file) => snapshotWorkspaceDescriptor(ffi, file));
       const before = descriptor();
       expect(before.every((s) => s.medium)).toBe(true);
+      event("original-medium-before", { passed: true, objects: before.length });
       view = await native.createOwnedWorkspaceView({
         helper: built.helper,
         helperLauncher,
-        jobs: native.bindViewJobObjectApi(ffi),
+        jobs: await native.loadViewJobObjectApi(),
         root: dirs.workspace,
         privateRoot,
         ownerSid,

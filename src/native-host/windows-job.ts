@@ -348,3 +348,17 @@ export async function loadJobObjectApi(load: FfiLoader = defaultLoader): Promise
     throw new CrotError("OPERATION_FAILED", `Job Objects could not be initialized: ${describe(error)}`);
   }
 }
+
+/** AD-27 same canonical ESM FFI instance as the existing Job/token launch path. */
+export async function loadViewJobObjectApi(load: FfiLoader = defaultLoader): Promise<JobObjectApi> {
+  let loaded: unknown;
+  // Preserve platform/ABI/optional-dependency admission and the normal exact
+  // empty kill-on-close Job self-test. Never mix require(koffi)'s CJS wrapper
+  // with import(koffi)'s ESM wrapper: they share a native type registry.
+  await loadJobObjectApi(async () => {
+    loaded = await load();
+    return loaded;
+  });
+  const ffi = ((loaded as { default?: unknown } | null | undefined)?.default ?? loaded) as FfiModule;
+  return bindViewJobObjectApi(ffi);
+}

@@ -1,6 +1,11 @@
 /** Portable fault injection, not Windows kernel evidence. */
 import { describe, expect, it, vi } from "vitest";
-import { bindJobObjectApi, bindViewJobObjectApi, ownedViewJobName } from "../../src/native-host/windows-job.js";
+import {
+  bindJobObjectApi,
+  bindViewJobObjectApi,
+  ownedViewJobName,
+  loadViewJobObjectApi,
+} from "../../src/native-host/windows-job.js";
 function fixture() {
   const live = new Set<unknown>(),
     faults = new Set<unknown>();
@@ -109,6 +114,23 @@ describe("Job handle ownership on native close failure", () => {
 });
 
 describe("owned projection Job identity", () => {
+  it("uses one canonical module load after normal platform and Job self-test admission", async () => {
+    const f = fixture();
+    const load = vi.fn(async () => ({ default: f.ffi }));
+    if (process.platform !== "win32" || !["x64", "arm64"].includes(process.arch)) {
+      await expect(loadViewJobObjectApi(load)).rejects.toThrow();
+      expect(load).not.toHaveBeenCalled();
+      return;
+    }
+    const api = await loadViewJobObjectApi(load);
+    const job = api.createKillOnCloseJob();
+    expect(ownedViewJobName(job)).toMatch(/^Local\\crot-view-job-[0-9a-f]{48}$/);
+    expect(load).toHaveBeenCalledOnce();
+    expect(job.accounting()).toEqual({ active: 0, total: 0 });
+    job.close();
+    expect(f.live.size).toBe(0);
+  });
+
   it("creates a fresh host-generated name without changing empty accounting or kill-on-close", () => {
     const f = fixture(),
       api = bindViewJobObjectApi(f.ffi),

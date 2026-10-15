@@ -156,8 +156,11 @@ describe("workspace view ownership", () => {
     await Promise.resolve();
     expect(f.terminated).toBe(1);
     expect(() => view.jobs.createKillOnCloseJob()).toThrow();
-    await view.close();
+    await expect(view.close()).rejects.toThrow("helper unmount status");
     expect(f.closed).toBe(true);
+    // The exact exited helper and detached mount are checked again before
+    // dropping the retained failed owner; no fresh helper is allocated.
+    await view.close();
   });
   it("does not accept another readiness protocol and releases failed setup", async () => {
     const f = fixture("CROT_VIEW_READY\nextra\n");

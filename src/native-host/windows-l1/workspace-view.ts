@@ -99,7 +99,8 @@ export async function createOwnedWorkspaceView(options: WorkspaceViewOptions): P
     helper: ManagedProcess | undefined,
     consumed = false,
     disposed = false,
-    helperAlive = false;
+    helperAlive = false,
+    unmountFailureReported = false;
   let created = false;
   const owner: FailedOwner = {
     close: async () => {
@@ -118,12 +119,16 @@ export async function createOwnedWorkspaceView(options: WorkspaceViewOptions): P
           if (helper.stdin && !helper.stdin.destroyed) helper.stdin.end();
           let timer: ReturnType<typeof setTimeout> | undefined;
           try {
-            await Promise.race([
+            const exit = await Promise.race([
               helper.exited,
               new Promise<never>((_, reject) => {
                 timer = setTimeout(() => reject(fail("unmount deadline")), 8000);
               }),
             ]);
+            if (exit.code !== 0 && !unmountFailureReported) {
+              unmountFailureReported = true;
+              failure ??= fail("helper unmount status");
+            }
           } finally {
             if (timer) clearTimeout(timer);
           }

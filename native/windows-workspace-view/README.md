@@ -1,7 +1,7 @@
 # Windows workspace projection component (AD-27)
 
 This is a native same-backing filesystem helper, **not an accepted Windows L1
-backend**. It dynamically links the separately installed signed Dokan 2.3.1 DLL
+backend**. It dynamically links the separately installed Dokan 2.3.1 DLL
 (LGPL-3.0). No driver/header/library implementation is vendored here. The
 production service does not download or install a driver. Build with the matching
 Dokan development headers/import library and the Windows SDK/MSVC, for the target
