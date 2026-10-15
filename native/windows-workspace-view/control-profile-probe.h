@@ -127,16 +127,19 @@ DWORD probeControlProfiles(const std::wstring& device) {
       Handle h(CreateFileW(raw.c_str(),access,7,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,nullptr));
       if (!h.valid() || !ownedNativeControl(device,access)) return 0xa5d00000u;
     }
-    wchar_t exe[32768]{},temp[32768]{};
-    const DWORD n=GetModuleFileNameW(nullptr,exe,32768), t=GetTempPathW(32768,temp);
-    if (!n || n>=32768 || !t || t>=32768) return 0xa5d00000u;
+    wchar_t exe[32768]{};
+    const DWORD n=GetModuleFileNameW(nullptr,exe,32768);
+    if (!n || n>=32768) return 0xa5d00000u;
     std::wstring binary(exe,n); auto separator=binary.find_last_of(L"\\/");
     if (separator==std::wstring::npos || binary.find(L'"')!=std::wstring::npos) return 0xa5d00000u;
     const auto source=binary.substr(0,separator)+L"\\control-profile-child.exe";
     const auto nonce=mountPath.substr(mountPath.find_last_of(L"\\")+1);
     if (nonce.size()!=53 || nonce.compare(0,5,L"view-") || nonce.find_first_not_of(L"0123456789abcdef",5)!=std::wstring::npos)
       return 0xa5d00000u;
-    const auto base=std::wstring(temp,t)+L"crot-control-"+nonce;
+    // The trusted fixture owns this existing parent and retries recursive
+    // cleanup only after the exact helper exits. Its environment TEMP may be
+    // a not-yet-created layout path; never assume GetTempPath creates it.
+    const auto base=binary.substr(0,separator)+L"\\crot-control-"+nonce;
     const DWORD ac=oneControlProfile(device,source,base+L"-ac",L"crot.control."+nonce+L".ac",false);
     if (failed || ac==0x20a) return 0xa5c00000u;
     const DWORD lpac=oneControlProfile(device,source,base+L"-lpac",L"crot.control."+nonce+L".lpac",true);
