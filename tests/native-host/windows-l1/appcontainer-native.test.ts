@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { snapshotWorkspaceDescriptorDetails } from "./diagnostics/workspace-view-security.js";
 import { execFile } from "node:child_process";
 import { appendFileSync } from "node:fs";
-import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -13,7 +13,9 @@ import { buildWorkspaceViewFixture } from "./diagnostics/workspace-view-build.js
 const execute = promisify(execFile);
 describe.runIf(process.platform === "win32")("Windows AppContainer без драйвера — обязательная квалификация", () => {
   it("обычные API, NUL, Node/cmd/WinPS и отрицательные проверки исходных путей", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "crot-appc-"));
+    // Resolve host TMP's RUNNER~1-style alias BEFORE sandboxing. WinPS path
+    // canonicalization must not need directory enumeration of private ancestors.
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "crot-appc-")));
     let build: Awaited<ReturnType<typeof buildWorkspaceViewFixture>> | undefined;
     try {
       const [workspace, temp, cache, outside] = ["workspace", "temp", "cache", "outside"].map((n) =>
