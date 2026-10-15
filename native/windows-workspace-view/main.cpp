@@ -137,7 +137,7 @@ int wmain(int argc,wchar_t** argv){
   wchar_t system[32768]{};need(GetSystemDirectoryW(system,32768)>0);std::wstring sys=system;
   phase="cmd";cmdCode=launch(sys+L"\\cmd.exe",{L"echo cmd-ready>cmd-result.txt & echo nul>NUL"},root,package,verified,cmdCode,true);
   std::wstring psRoot=root;for(size_t at=0;(at=psRoot.find(L"'",at))!=std::wstring::npos;at+=2)psRoot.insert(at,L"'");
-  const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop;Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; 'nul' > NUL";
+  const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop; $initial=Get-Location; [Console]::Out.WriteLine('CROT-PS-INITIAL-FILESYSTEM=' + ($initial.Provider.Name -eq 'FileSystem')); [Console]::Out.WriteLine('CROT-PS-INITIAL-ROOT=' + ($initial.Path -eq '"+psRoot+L"')); Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; 'nul' > NUL";
   phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified,psCode);
   phase="cleanup";cleanup=secret.remove();cleanup=tools.remove()&&cleanup;cleanup=tmp.remove()&&cleanup;cleanup=workspace.remove()&&cleanup;need(cleanup);
  }catch(...){failureCode=GetLastError();cleanup=false;}

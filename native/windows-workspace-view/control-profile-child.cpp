@@ -3,10 +3,36 @@
 #include <windows.h>
 #include <string>
 #include <cstring>
-bool put(const std::wstring& p,const char* text){HANDLE h=CreateFileW(p.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,0,nullptr);if(h==INVALID_HANDLE_VALUE)return false;DWORD n=0;bool okay=!!WriteFile(h,text,static_cast<DWORD>(strlen(text)),&n,nullptr);return !!CloseHandle(h)&&okay;}
+#include <iostream>
+bool put(const std::wstring& p,const char* text){HANDLE h=CreateFileW(p.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,0,nullptr);if(h==INVALID_HANDLE_VALUE)return false;DWORD n=0;bool okay=!!WriteFile(h,text,static_cast<DWORD>(strlen(text)),&n,nullptr)&&n==strlen(text);return !!CloseHandle(h)&&okay;}
+// Read-only host-path diagnosis. Do not enumerate names, read file bytes,
+// change a descriptor, enable privileges, or turn observations into grants.
+// A successful directory open with a write mask is recorded, never exercised.
+void pathDiagnostics(std::wstring directory){
+ std::cout<<"{\"directoryAccess\":[";bool first=true;
+ for(unsigned depth=0;depth<64;depth++){
+  if(!first)std::cout<<",";first=false;
+  SetLastError(ERROR_SUCCESS);DWORD attributes=GetFileAttributesW(directory.c_str());
+  DWORD attributeError=attributes==INVALID_FILE_ATTRIBUTES?GetLastError():ERROR_SUCCESS;
+  std::cout<<"{\"depth\":"<<depth<<",\"attributeError\":"<<attributeError<<",\"opens\":[";
+  const DWORD masks[]={FILE_READ_ATTRIBUTES,FILE_TRAVERSE,FILE_LIST_DIRECTORY,FILE_ADD_FILE,FILE_ADD_SUBDIRECTORY,DELETE,WRITE_DAC,WRITE_OWNER};
+  for(unsigned i=0;i<sizeof(masks)/sizeof(masks[0]);i++){
+   SetLastError(ERROR_SUCCESS);HANDLE h=CreateFileW(directory.c_str(),masks[i],FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+   DWORD error=h==INVALID_HANDLE_VALUE?GetLastError():ERROR_SUCCESS;
+   DWORD closeError=ERROR_SUCCESS;if(h!=INVALID_HANDLE_VALUE&&!CloseHandle(h))closeError=GetLastError();
+   if(i)std::cout<<",";std::cout<<"{\"mask\":"<<masks[i]<<",\"error\":"<<error<<",\"closeError\":"<<closeError<<"}";
+  }
+  std::cout<<"]}";
+  if(directory.size()<=3)break;
+  size_t slash=directory.find_last_of(L'\\');if(slash==std::wstring::npos)break;
+  directory=directory.substr(0,slash<3?3:slash);
+ }
+ std::cout<<"]}"<<std::endl;
+}
 DWORD openedFlags=0;
 bool denied(const std::wstring& p,DWORD mask,DWORD openedBit=0){HANDLE h=CreateFileW(p.c_str(),mask,7,nullptr,OPEN_EXISTING,0,nullptr);DWORD e=GetLastError();if(h!=INVALID_HANDLE_VALUE){openedFlags|=openedBit;CloseHandle(h);return false;}return e==ERROR_ACCESS_DENIED;}
 int wmain(int argc,wchar_t**argv){if(argc!=6)return 2;std::wstring root=argv[1],temp=argv[2],cache=argv[3],outside=argv[4],secret=argv[5];DWORD bits=0;
+ pathDiagnostics(root);
  HANDLE nul=CreateFileW(L"\\\\.\\NUL",GENERIC_READ|GENERIC_WRITE,7,nullptr,OPEN_EXISTING,0,nullptr);if(nul!=INVALID_HANDLE_VALUE){char b=0;DWORD written=0,read=1;bool okay=!!WriteFile(nul,"x",1,&written,nullptr)&&written==1&&!!ReadFile(nul,&b,1,&read,nullptr)&&read==0;bool closed=!!CloseHandle(nul);if(okay&&closed)bits|=1;}
  auto from=root+L"\\native-юникод.txt",to=root+L"\\native-renamed.txt";
  if(put(from,"live")&&MoveFileW(from.c_str(),to.c_str())&&DeleteFileW(to.c_str()))bits|=2;

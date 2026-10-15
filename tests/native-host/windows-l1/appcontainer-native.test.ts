@@ -1,4 +1,5 @@
 /** Mandatory native AD-29 qualification; never interpreted as production availability. */
+import { parseDirectoryAccess, type DirectoryAccess } from "./diagnostics/directory-access.js";
 import { createServicePrivateFiles } from "../../../src/service/private-files.js";
 import { createRequire } from "node:module";
 import { snapshotWorkspaceDescriptorDetails } from "./diagnostics/workspace-view-security.js";
@@ -61,11 +62,18 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
             .map(async (name) => [
               name,
               await readFile(path.join(workspace!, name), "utf8")
-                .then((s) => s.slice(0, 2048))
+                .then((s) => s.slice(0, name === "native-stdout.txt" ? 32768 : 2048))
                 .catch(() => null),
             ]),
         ),
       );
+      let directoryAccess: DirectoryAccess[] | undefined;
+      let directoryAccessError: string | undefined;
+      try {
+        directoryAccess = parseDirectoryAccess(String(actorOutput["native-stdout.txt"]));
+      } catch {
+        directoryAccessError = "Missing or invalid fixed native directory-access evidence";
+      }
       appendFileSync(
         inject("stage6aEvidence"),
         JSON.stringify({
@@ -76,6 +84,8 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
             protectedReadOpened: !!(v.nativeCode & 512),
             protectedWriteOpened: !!(v.nativeCode & 1024),
             actorOutput,
+            directoryAccess,
+            directoryAccessError,
             originalDescriptorsRestored: restored,
             descriptorChanges: before.map((b, i) => ({ before: b, after: after[i] })),
             nodeResult,
@@ -84,6 +94,16 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       );
       expect(exit, "код контроллера").toBe(0);
       expect(v.cleanup).toBe(true);
+      expect(directoryAccessError).toBeUndefined();
+      expect(directoryAccess).toBeDefined();
+      for (const row of directoryAccess ?? []) {
+        for (const open of row.opens) {
+          expect.soft(open.closeError, `directory depth=${row.depth} mask=${open.mask} close`).toBe(0);
+          if (row.depth > 0 && [2, 4, 65536, 262144, 524288].includes(open.mask)) {
+            expect.soft(open.error, `outside ancestor depth=${row.depth} mask=${open.mask}`).toBe(5);
+          }
+        }
+      }
       expect(restored, "восстановление исходных дескрипторов").toBe(true);
       expect(v.verified).toBe(true);
       expect(v.nativeCode >>> 16).toBe(0x4352);
