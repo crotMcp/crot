@@ -103,7 +103,7 @@ if ((Get-Item -LiteralPath $driver).VersionInfo.FileVersion -notmatch '^2\\.3\\.
       // token or private-state fixture is supplied to the helper.
       const e = error as { stdout?: string; stderr?: string };
       throw new Error(
-        `Workspace helper build/provision failed: ${(e.stdout ?? "").slice(-12000)} ${(e.stderr ?? "").slice(-4000)}`,
+        `Workspace helper build/provision failed: ${(e.stdout ?? "").slice(0, 12000)} ${(e.stderr ?? "").slice(-4000)}`,
       );
     });
     return { helper: path.join(dir, "workspace-view.exe"), cleanup };

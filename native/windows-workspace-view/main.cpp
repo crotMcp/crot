@@ -1,6 +1,11 @@
 // AD-27: scoped same-backing filesystem component. NOT production L1 acceptance.
 // Uses installed Dokan headers/DLL; no third-party implementation is embedded.
 #define WIN32_LEAN_AND_MEAN
+#define WIN32_NO_STATUS
+#include <windows.h>
+// NTSTATUS without winternl.h: Dokan's public fileinfo.h owns UNICODE_STRING.
+#include <ntsecapi.h>
+#undef WIN32_NO_STATUS
 #include <dokan.h>
 #include <sddl.h>
 

@@ -1,6 +1,7 @@
 /** Mandatory native unique-SID component gate, not full filesystem acceptance. */
 import { appendFileSync, openSync, closeSync, readSync, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { snapshotWorkspaceDescriptor } from "./diagnostics/workspace-view-security.js";
 import { buildWorkspaceViewFixture } from "./diagnostics/workspace-view-build.js";
 import { ownedAccessStack } from "./diagnostics/owned-access-stack.js";
 import { createRequire } from "node:module";
@@ -274,19 +275,11 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       await writeFile(path.join(protectedDir, "secret.txt"), "unchanged protected fixture");
       const linked = path.join(dirs.workspace, "hardlink.txt");
       await link(project, linked);
-      // Capture native SDs, never serialize them into evidence/annotations.
-      const descriptor = async () =>
-        runTool(
-          windowsTools(systemRoot).powershell,
-          [
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "$ErrorActionPreference='Stop';$a=[System.IO.File]::GetAccessControl($env:CROT_VIEW_ORIGINAL,[System.Security.AccessControl.AccessControlSections]::Access -bor [System.Security.AccessControl.AccessControlSections]::Owner);$a.GetSecurityDescriptorSddlForm([System.Security.AccessControl.AccessControlSections]::Access -bor [System.Security.AccessControl.AccessControlSections]::Owner)",
-          ],
-          { ...host.platform.baseEnvironment, CROT_VIEW_ORIGINAL: project },
-        );
-      const before = await descriptor();
+      // Native OWNER/GROUP/DACL/LABEL snapshots of the original root and
+      // existing file; no SID/SD bytes are placed in assertions or evidence.
+      const descriptor = () => [dirs.workspace, project].map((file) => snapshotWorkspaceDescriptor(ffi, file));
+      const before = descriptor();
+      expect(before.every((s) => s.medium)).toBe(true);
       view = await native.createOwnedWorkspaceView({
         helper: built.helper,
         helperLauncher,
@@ -365,7 +358,8 @@ process.stdout.write(JSON.stringify({ready:true,read:fs.readFileSync('native-ren
         expect(await readFile(path.join(dirs.workspace, "native-renamed.txt"), "utf8")).toBe("live-original");
         expect(await readFile(project, "utf8")).toBe("project control");
         expect(await readFile(path.join(protectedDir, "secret.txt"), "utf8")).toBe("unchanged protected fixture");
-        expect(await descriptor()).toBe(before);
+        const after = descriptor();
+        expect(after.every((s, i) => s.medium && s.fingerprint === before[i]!.fingerprint)).toBe(true);
         event("live-backing-and-original-descriptor", { passed: true });
       } finally {
         clearTimeout(timer);
