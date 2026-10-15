@@ -8,15 +8,15 @@ import { pathToFileURL } from "node:url";
 import type { OwnedDesktop } from "../../../src/native-host/windows-l1/owned-desktop.js";
 import { afterEach, beforeEach, describe, expect, it, inject } from "vitest";
 import type { CommandSpec } from "../../../src/core/platform/types.js";
-import { NativeHost } from "../../../src/native-host/native-host.js";
+import type { NativeHost } from "../../../src/native-host/native-host.js";
 import { currentUserSid, runTool, windowsTools } from "../../../src/native-host/windows-acl.js";
-import { loadJobObjectApi } from "../../../src/native-host/windows-job.js";
-import { loadRestrictedTokens, type RestrictedToken } from "../../../src/native-host/windows-l1/restricted-token.js";
+import type { loadJobObjectApi } from "../../../src/native-host/windows-job.js";
+import type { loadRestrictedTokens, RestrictedToken } from "../../../src/native-host/windows-l1/restricted-token.js";
 import { createCommandToken } from "../../../src/native-host/windows-l1/command-token.js";
-import { loadProbeIntegrity } from "../../../src/native-host/windows-l1/probe-integrity.js";
-import { loadBytePipeApi } from "../../../src/native-host/windows-l1/byte-stdio.js";
+import type { loadProbeIntegrity } from "../../../src/native-host/windows-l1/probe-integrity.js";
+import type { loadBytePipeApi } from "../../../src/native-host/windows-l1/byte-stdio.js";
 import { WindowsLaunchEnvironment } from "../../../src/native-host/windows-l1/launch-environment.js";
-import { NativeProcessLauncher } from "../../../src/native-host/windows-l1/native-process.js";
+import type { NativeProcessLauncher } from "../../../src/native-host/windows-l1/native-process.js";
 import { isWindows, makeTempDirs, type TempDirs } from "../../helpers.js";
 const GRANT = `
 $ErrorActionPreference='Stop'
@@ -32,17 +32,45 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
   let dirs: TempDirs, host: NativeHost, token: RestrictedToken, launcher: NativeProcessLauncher;
   let privateRoot: string, outside: string, project: string;
   let desktop: OwnedDesktop;
+  let native: {
+    NativeHost: typeof import("../../../src/native-host/native-host.js").NativeHost;
+    NativeProcessLauncher: typeof import("../../../src/native-host/windows-l1/native-process.js").NativeProcessLauncher;
+    loadRestrictedTokens: typeof loadRestrictedTokens;
+    loadJobObjectApi: typeof loadJobObjectApi;
+    loadProbeIntegrity: typeof loadProbeIntegrity;
+    loadBytePipeApi: typeof loadBytePipeApi;
+    createOwnedDesktop: typeof import("../../../src/native-host/windows-l1/owned-desktop.js").createOwnedDesktop;
+  };
   beforeEach(async () => {
     dirs = await makeTempDirs();
-    host = await NativeHost.start({ startupPath: "inherited", jobObjects: true });
+    // All native ownership brands and Koffi type registries must come from ONE
+    // built module graph. Mixing TS and built copies would register native
+    // types twice and, worse, break exact byte-stdio ownership authority.
+    const built = async (file: string) =>
+      import(pathToFileURL(path.resolve(path.dirname(inject("crotMcpBin")), "..", file)).href);
+    native = Object.assign(
+      {},
+      ...(await Promise.all(
+        [
+          "native-host/native-host.js",
+          "native-host/windows-job.js",
+          "native-host/windows-l1/restricted-token.js",
+          "native-host/windows-l1/probe-integrity.js",
+          "native-host/windows-l1/byte-stdio.js",
+          "native-host/windows-l1/native-process.js",
+          "native-host/windows-l1/owned-desktop.js",
+        ].map(built),
+      )),
+    );
+    host = await native.NativeHost.start({ startupPath: "inherited", jobObjects: true });
     const tools = windowsTools(process.env.SystemRoot ?? "C:\\Windows");
     const ownerSid = await currentUserSid(tools);
-    token = createCommandToken(await loadRestrictedTokens(), ownerSid);
+    token = createCommandToken(await native.loadRestrictedTokens(), ownerSid);
     privateRoot = path.join(dirs.outside, "new-crot-owned");
     outside = path.join(dirs.outside, "unapproved-low");
     await mkdir(privateRoot);
     await mkdir(outside);
-    const label = await loadProbeIntegrity();
+    const label = await native.loadProbeIntegrity();
     label(privateRoot, "low-write");
     label(outside, "low-write");
     // Only a newly created CROT-owned fixture receives the unique SID grant.
@@ -67,11 +95,7 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       runtimeBins: [path.dirname(process.execPath)],
     });
     for (const dir of Object.values(childEnvironment.directories)) await mkdir(dir, { recursive: true });
-    const compiled = path.resolve(path.dirname(inject("crotMcpBin")), "../native-host/windows-l1/owned-desktop.js");
-    const { createOwnedDesktop } = (await import(
-      pathToFileURL(compiled).href
-    )) as typeof import("../../../src/native-host/windows-l1/owned-desktop.js");
-    desktop = await createOwnedDesktop({
+    desktop = await native.createOwnedDesktop({
       launcher: host.platform.launcher,
       environment: host.platform.environment,
       privateRoot,
@@ -79,12 +103,12 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       restrictingSid: token.restrictingSid,
       systemRoot: process.env.SystemRoot ?? "C:\\Windows",
     });
-    launcher = new NativeProcessLauncher({
+    launcher = new native.NativeProcessLauncher({
       desktop,
       token,
       ownerSid,
-      pipes: await loadBytePipeApi(),
-      jobs: await loadJobObjectApi(),
+      pipes: await native.loadBytePipeApi(),
+      jobs: await native.loadJobObjectApi(),
       environment: host.platform.environment,
       resolver: host.platform.launcher,
       childEnvironment,
@@ -130,6 +154,32 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
           stream.once("close", resolve);
         });
       await Promise.all([ended(child.stdout), ended(child.stderr)]);
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({
+          title: "CROT-6A-unique-process-result",
+          value: {
+            kind: spec.display === "unique write boundary gate" ? "node" : "shell",
+            code: status.code,
+            stderrEmpty: errors.length === 0,
+            stdoutBytes: Buffer.byteLength(output),
+            structured: (() => {
+              try {
+                const r = JSON.parse(output);
+                return {
+                  ready: r.ready,
+                  spawnError: r.spawnError,
+                  childCode: r.childCode,
+                  childReady: r.childReady,
+                  signal: r.signal,
+                };
+              } catch {
+                return undefined;
+              }
+            })(),
+          },
+        }) + "\n",
+      );
       expect(child.failure).toBeUndefined();
       expect({ code: status.code, stderrEmpty: errors.length === 0 }).toEqual({
         code: expectedCode,
@@ -156,7 +206,7 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
   it("traces the exact owned unique-token loader before JS (diagnosis is not a denial proof)", async () => {
     const ffi = createRequire(import.meta.url)("koffi");
     let trace: OwnedLoaderTrace | undefined;
-    const jobs = await loadJobObjectApi();
+    const jobs = await native.loadJobObjectApi();
     const environment = new WindowsLaunchEnvironment({
       systemRoot: process.env.SystemRoot ?? "C:\\Windows",
       privateRoot,
@@ -165,7 +215,10 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
     const child = token.launchProbe(
       {
         executable: process.execPath,
-        args: ["-e", "process.exit(0)"],
+        args: [
+          "-e",
+          `require('fs').writeFileSync(${JSON.stringify(path.join(privateRoot, "loader-js-ready.json"))},'ready');process.exit(0)`,
+        ],
         cwd: dirs.workspace,
         env: environment.prepare({}),
         stdio: "nul",
@@ -183,7 +236,14 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       const observation = await trace!.collect();
       appendFileSync(
         inject("stage6aEvidence"),
-        JSON.stringify({ title: "CROT-6A-unique-token-loader", value: observation }) + "\n",
+        JSON.stringify({
+          title: "CROT-6A-unique-token-loader",
+          value: {
+            ...observation,
+            jsReady:
+              (await readFile(path.join(privateRoot, "loader-js-ready.json"), "utf8").catch(() => "")) === "ready",
+          },
+        }) + "\n",
       );
       expect(observation.exited).toBe(true);
       expect(observation.exitCode).toBe(0);
@@ -198,7 +258,10 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
   it.each([false, true])(
     "retains that boundary in an actually ready Node descendant (windowsHide=%s)",
     async (windowsHide) => {
-      const script = `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(body())}],{windowsHide:${windowsHide},stdio:['pipe','pipe','pipe']});c.stdin.end();c.stdout.pipe(process.stdout);c.stderr.pipe(process.stderr);c.on('error',e=>{console.log(JSON.stringify({spawnError:e.code}));process.exitCode=99});c.on('exit',code=>{process.exitCode=code});`;
+      const witness = path.join(privateRoot, "pipe-child-ready.json");
+      const childBody =
+        `require('fs').writeFileSync(${JSON.stringify(witness)},JSON.stringify({ready:true}));` + body();
+      const script = `const fs=require('fs');const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(childBody)}],{windowsHide:${windowsHide},stdio:['pipe','pipe','pipe']});c.stdin.end();c.stdout.pipe(process.stdout);c.stderr.pipe(process.stderr);c.on('error',e=>{console.log(JSON.stringify({spawnError:e.code}));process.exitCode=99});c.on('exit',(code,signal)=>{if(code!==0)console.log(JSON.stringify({childCode:code,signal,childReady:fs.existsSync(${JSON.stringify(witness)})}));process.exitCode=code??96});`;
       await verify(await run(script));
     },
   );
@@ -228,4 +291,31 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
     },
     20000,
   );
+  it("denies owner WRITE_DAC bypass after an identical trusted native ACL update succeeds", async () => {
+    const koffiPath = createRequire(import.meta.url).resolve("koffi");
+    const target = path.join(outside, "target.txt");
+    const script = `const k=require(${JSON.stringify(koffiPath)});k.struct('CROT_GATE_ACL_HANDLE',{value:'void *'});const a=k.load('advapi32.dll'),b=k.load('kernel32.dll');const get=a.func('uint32_t __stdcall GetNamedSecurityInfoW(str16 name,int kind,uint32_t info,void *owner,void *group,_Out_ CROT_GATE_ACL_HANDLE *dacl,void *sacl,_Out_ CROT_GATE_ACL_HANDLE *sd)');const set=a.func('uint32_t __stdcall SetNamedSecurityInfoW(str16 name,int kind,uint32_t info,void *owner,void *group,void *dacl,void *sacl)');const free=b.func('void * __stdcall LocalFree(void *memory)');const acl={},sd={};const readCode=get(${JSON.stringify(target)},1,4,null,null,acl,null,sd);let code=null;try{if(readCode===0&&acl.value)code=set(${JSON.stringify(target)},1,4,null,null,acl.value,null)}finally{if(sd.value)free(sd.value)}console.log(JSON.stringify({ready:true,readCode,attempted:code!==null,code}));`;
+    const trusted = await host.platform.launcher.launch(
+      { file: process.execPath, args: ["-e", script], display: "trusted identical ACL control" },
+      { cwd: dirs.workspace, env: { SystemRoot: process.env.SystemRoot ?? "C:\\Windows" }, stdin: false },
+    );
+    let out = "";
+    trusted.stdout.on("data", (b: Buffer) => {
+      out += b.toString();
+    });
+    trusted.stderr.resume();
+    try {
+      expect((await trusted.exited).code).toBe(0);
+      await new Promise<void>((resolve) => {
+        if (trusted.stdout.readableEnded || trusted.stdout.destroyed) resolve();
+        else trusted.stdout.once("end", resolve);
+      });
+      expect(JSON.parse(out)).toEqual({ ready: true, readCode: 0, attempted: true, code: 0 });
+    } finally {
+      await trusted.terminate("force");
+    }
+    const observed = await run(script);
+    expect(observed).toEqual({ ready: true, readCode: 0, attempted: true, code: 5 });
+    expect(await readFile(target, "utf8")).toBe("unchanged");
+  });
 });

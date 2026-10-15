@@ -381,3 +381,27 @@ Local `npm run check` on `ca50059213104a467eb58a590a47faa8dd33481c` passed:
 1570 Core tests, 159 skips; 147 extension tests; lint/format/types/builds passed.
 The Linux/Node24 sandbox skips are not Windows native evidence. New helper-path
 changes require their own full and native checks.
+
+### Native follow-up pins: partial success and setup defect, not acceptance
+
+`ca50059213104a467eb58a590a47faa8dd33481c`: 9 CI checks passed; both Windows
+jobs failed. Node 22 direct unique-token Node readiness + owner-project read +
+private write + unrelated Low create/write denial passed. Node 20 untraced direct
+startup still failed 0xc0000142. Both pipe-descendant gates failed (Node 22 exit
+1), and both owned debugger diagnostics timed out without a proven exit. This is
+not an all-runtime boundary proof. Old WinPS/RPC/native-byte gates still passed.
+
+`427caedcd165652f51abb57de3c1cf5e21dafcf2`: native setup exposed a duplicate
+Koffi type declaration, `CROT_L1_TOKEN_HANDLE`, caused by mixing source and
+compiled native component graphs in one integration fixture. Both Windows jobs
+failed before the new token/desktop gates executed. This is NOT a denial or
+product acceptance. The correction runs the entire fixture through ONE freshly
+built production graph, preserving native stdio ownership brands as well as
+native type registry identity. All required gates remain mandatory.
+
+Local full check on `427caed` passed (1571 Core / 163 skips; 147 extension);
+those Linux platform skips did not detect the native setup defect. Full decoded
+CI events/checks for both failed pins are retained under the evidence directory.
+Additional native gates attempt owner WRITE_DAC (reapply the same DACL, with a
+working trusted native control) and record a child JS-readiness witness before
+attempts. Debugger runs also record whether JS was actually reached before exit.

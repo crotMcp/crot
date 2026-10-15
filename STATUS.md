@@ -12,12 +12,18 @@ ProcessLauncher, wired to the existing Core interfaces for qualification (not
 registered as CommandConfinement). Binary/EOF/backpressure/argv/exit/Job ownership
 and native Core/shell/cancellation gates passed at `3b91370` (11/11 CI). Portable
 ABI tests explicitly check deferred pointers and cancellation-before-release.
-Bounded environment is now applied in resolution/launch; unique write-filter
-component failed mandatory outside-Low/ready-descendant gates at `fb86f97`: actor
-exits 0xc0000142 before JS. Bounded env and unrelated host-handle gates passed;
-cold handle growth and one external ECR failure remain retained. Strong token
-startup is being diagnosed without weakening or skipping its acceptance gates.
-No filesystem/identity architecture selection or L1 availability is claimed.
+Bounded environment is now applied in resolution/launch. AD-24's owned
+noninteractive desktop/helper is implemented with suspended native Job assignment
+before ResumeThread, not an uncontained helper fallback. At `ca50059`, Node 22's
+direct unique-token ready/private-write/unrelated-Low-denial gate passed, but
+Node 20 startup and both descendant/debugger gates still failed. At `427caed`,
+both Windows jobs instead exposed a source/built Koffi registry setup collision;
+the current correction uses one freshly built production module graph. New
+cmd/WinPS and ignored-stdio/WRITE_DAC gates are mandatory, not skipped. Full
+local check at `427caed`: 1571 Core / 163 skips and 147 extension passed; native
+qualification remains RED. Original failures and exact traces are retained;
+steady failed-launch handle plateaus at `8e6a01d` passed on both runtimes.
+No filesystem mechanism selection or L1 availability is claimed.
 
 Production Windows PowerShell shell preparation now imports the fixed system
 Utility manifest from `$PSHOME` before ordinary user scripts. Production fix `43f7392`, qualified with the aligned legacy gate at `01ed8ce`,
