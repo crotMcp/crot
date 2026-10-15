@@ -1,0 +1,68 @@
+{
+  "sourceHead": "427116262a5c0045e1ab5d05b21bda4500274f94",
+  "qualification": "Disposable native qualification, not actual full CrotService CROT-6A. Outside hardlink proof is successful GENERIC_WRITE open/close only, no data write. No protected secret bytes read.",
+  "nodes": {
+    "20": {
+      "phase": "cleanup",
+      "launchStep": "complete",
+      "verified": true,
+      "nativeCode": 1129447807,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 1,
+      "cleanup": true,
+      "outsideHardlinkOpened": true,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "originalDescriptorsRestored": false,
+      "nodeResult": {
+        "ready": true,
+        "read": true,
+        "nul": true
+      },
+      "nativeDeniedOrSuccessBits": {
+        "nulIO": true,
+        "workspaceCRUD": true,
+        "privateTemp": true,
+        "privateCache": true,
+        "outsideWriteDenied": true,
+        "protectedReadDenied": true,
+        "protectedWriteDenied": true,
+        "outsideHardlinkWriteDenied": false
+      },
+      "exactDescriptorRestoredByObject": [false, true],
+      "powershellStderr": "Set-Location : Access is denied\r\nAt line:1 char:257\r\n+ ... Action Stop;Set-Location -LiteralPath 'C:\\Users\\runneradmin\\AppData\\L ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : NotSpecified: (:) [Set-Location], UnauthorizedAccessException\r\n    + FullyQualifiedErrorId : System.UnauthorizedAccessException,Microsoft.PowerShell.Commands.SetLocationCommand\r\n \r\n"
+    },
+    "22": {
+      "phase": "cleanup",
+      "launchStep": "complete",
+      "verified": true,
+      "nativeCode": 1129447807,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 1,
+      "cleanup": true,
+      "outsideHardlinkOpened": true,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "originalDescriptorsRestored": false,
+      "nodeResult": {
+        "ready": true,
+        "read": true,
+        "nul": true
+      },
+      "nativeDeniedOrSuccessBits": {
+        "nulIO": true,
+        "workspaceCRUD": true,
+        "privateTemp": true,
+        "privateCache": true,
+        "outsideWriteDenied": true,
+        "protectedReadDenied": true,
+        "protectedWriteDenied": true,
+        "outsideHardlinkWriteDenied": false
+      },
+      "exactDescriptorRestoredByObject": [false, true],
+      "powershellStderr": "Set-Location : Access is denied\r\nAt line:1 char:257\r\n+ ... Action Stop;Set-Location -LiteralPath 'C:\\Users\\runneradmin\\AppData\\L ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : NotSpecified: (:) [Set-Location], UnauthorizedAccessException\r\n    + FullyQualifiedErrorId : System.UnauthorizedAccessException,Microsoft.PowerShell.Commands.SetLocationCommand\r\n \r\n"
+    }
+  }
+}

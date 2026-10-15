@@ -1,0 +1,11 @@
+{
+  "sourceHead": "e67cb0ee70c091dd03dfdb695412d46d963fd2da",
+  "command": "npm run check",
+  "exitCode": 0,
+  "platform": "Linux x64",
+  "node": "24.14.1",
+  "result": "1737 Core passed /168 skipped;147 extension passed",
+  "log": "e67cb0e-local-check.log",
+  "sha256": "f3b758a03e03484bccb2e429e1775d8c3c4379ae4d4b941579a452b71d7fbf4e",
+  "qualification": "Portable regression evidence only, not Windows isolation."
+}

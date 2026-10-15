@@ -1,0 +1,13 @@
+{
+  "references": [
+    {
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/accctrl/ne-accctrl-access_mode",
+      "verifiedFact": "REVOKE_ACCESS removes ACCESS_ALLOWED_ACE and SYSTEM_AUDIT_ACE, not ACCESS_DENIED_ACE.",
+      "implementation": "e67cb0ee70c091dd03dfdb695412d46d963fd2da"
+    },
+    {
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/bindlink/nf-bindlink-createbindlink",
+      "verifiedFact": "CreateBindLink requires administrator and created links exist system-wide. This is not claimed to isolate one sandbox, and was not applied to the host."
+    }
+  ]
+}

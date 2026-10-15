@@ -1,0 +1,11 @@
+{
+  "sourceHead": "7596791d0abd124085ad100d4276aa19bbabc75c",
+  "command": "npm run check",
+  "exitCode": 0,
+  "platform": "Linux x64",
+  "node": "24.14.1",
+  "result": "1737 Core passed /168 skipped;147 extension passed",
+  "log": "7596791-local-check.log",
+  "sha256": "b46499935f8157fe2d46acf5a8845e055ea490121e12932c14c17e84bd7b8185",
+  "qualification": "Portable evidence only, not Windows isolation."
+}

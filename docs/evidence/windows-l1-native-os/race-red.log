@@ -1,0 +1,61 @@
+
+ RUN  v3.2.7 /data/crot-mcp
+
+ ❯ tests/service/endpoints.test.ts (5 tests | 1 failed | 4 skipped) 20ms
+   ↓ service locks and endpoint ownership (WP-20) > concurrent acquisitions of a free lock: exactly one wins
+   ↓ service locks and endpoint ownership (WP-20) > concurrent breakers of a stale lock: exactly one wins, and a live lock is never broken
+   ↓ service locks and endpoint ownership (WP-20) > a refreshed lock stays held beyond its stale age
+   × service locks and endpoint ownership (WP-20) > a fresh listener cannot bypass a held POSIX stale-recovery lock 18ms
+     → expected { Object (_events, _eventsCount, ...) } to be 'in_use' // Object.is equality
+   ↓ service locks and endpoint ownership (WP-20) > concurrent listeners on one endpoint: exactly one owner, also when taking over a stale socket
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/service/endpoints.test.ts > service locks and endpoint ownership (WP-20) > a fresh listener cannot bypass a held POSIX stale-recovery lock
+AssertionError: expected { Object (_events, _eventsCount, ...) } to be 'in_use' // Object.is equality
+
+[32m- Expected:[39m 
+"in_use"
+
+[31m+ Received:[39m 
+Server {
+  "_connectionKey": "-1:/tmp/crot-ep-WFmHxP/service.sock:-1",
+  "_connections": 0,
+  "_events": {
+    "connection": [Function anonymous],
+  },
+  "_eventsCount": 1,
+  "_handle": null,
+  "_listeningId": 3,
+  "_maxListeners": undefined,
+  "_pipeName": "/tmp/crot-ep-WFmHxP/service.sock",
+  "_unref": false,
+  "_usingWorkers": false,
+  "_workers": [],
+  "allowHalfOpen": false,
+  "highWaterMark": 65536,
+  "keepAlive": false,
+  "keepAliveInitialDelay": 0,
+  "noDelay": false,
+  "pauseOnConnect": false,
+  Symbol(shapeMode): false,
+  Symbol(kCapture): false,
+  Symbol(async_id_symbol): 309,
+}
+
+ ❯ tests/service/endpoints.test.ts:65:25
+     63|         await new Promise<void>((resolve) => contender.close(() => res…
+     64|       }
+     65|       expect(contender).toBe("in_use");
+       |                         ^
+     66|       expect(await stat(endpoint.path).catch(() => undefined)).toBeUnd…
+     67|     } finally {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 4 skipped (5)
+   Start at  21:53:32
+   Duration  7.11s (transform 566ms, setup 0ms, collect 901ms, tests 20ms, environment 0ms, prepare 68ms)
+

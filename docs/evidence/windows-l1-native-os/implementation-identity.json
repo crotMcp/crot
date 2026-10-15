@@ -1,0 +1,14 @@
+{
+  "sourceHead": "427116262a5c0045e1ab5d05b21bda4500274f94",
+  "objects": {
+    "src": "f8b63e49af5e1b8ffd687825b051fd1ae53e912b",
+    "tests": "e3438a95e7d3b009a80a0e582fc25dddde122b24",
+    "native": "e375bcef7851aea992be980e30bb16907ffee24b",
+    "scripts": "d511aaa9d652150941f8d0c9b33145fab1c86b87",
+    ".github": "a0d5da6ef255e71f1ed11140bec7a3090fb36c18",
+    "extension": "6acfdaad37ecba2dbb219ea509db59dfc097d54e",
+    "package.json": "e7870d872d5433a9778344eb6c1e9715df553df7",
+    "package-lock.json": "841e0e5fd48563ea6ed163d007f9743c6a0cae9b",
+    "vitest.config.ts": "6ccf0ae69d8120e8cd5b7b6ef6dc8e4b880a0d3e"
+  }
+}
