@@ -1,14 +1,20 @@
 /** Actual service bootstrap, separate from the generic compatibility provider. */
 import { createPrivateFileProtection } from "../core/platform/private-files.js";
 import type { PrivateFileProtection } from "../core/platform/types.js";
-export function createServicePrivateFiles(windows: boolean): PrivateFileProtection {
+export function createServicePrivateFiles(
+  windows: boolean,
+  sandboxSids: readonly string[] = [],
+): PrivateFileProtection {
   if (!windows) return createPrivateFileProtection(false);
   let loading: Promise<PrivateFileProtection> | undefined;
   const provider = () =>
     (loading ??= (async () => {
       const { currentUserSid, windowsTools } = await import("../native-host/windows-acl.js");
       const { loadWindowsPrivateState } = await import("../native-host/windows-state.js");
-      return loadWindowsPrivateState(await currentUserSid(windowsTools(process.env.SystemRoot ?? "C:\\Windows")));
+      return loadWindowsPrivateState(
+        await currentUserSid(windowsTools(process.env.SystemRoot ?? "C:\\Windows")),
+        sandboxSids,
+      );
     })());
   return {
     mechanism: "windows-acl",

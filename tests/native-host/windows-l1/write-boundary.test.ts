@@ -1,12 +1,10 @@
 /** Mandatory native unique-SID component gate, not full filesystem acceptance. */
 import { appendFileSync, openSync, closeSync, readSync, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { snapshotWorkspaceDescriptor } from "./diagnostics/workspace-view-security.js";
-import { buildWorkspaceViewFixture } from "./diagnostics/workspace-view-build.js";
 import { ownedAccessStack } from "./diagnostics/owned-access-stack.js";
 import { createRequire } from "node:module";
 import { startOwnedLoaderTrace, type OwnedLoaderTrace } from "./diagnostics/owned-loader.js";
-import { access, mkdir, readFile, rm, writeFile, link } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { BnoIsolation } from "../../../src/native-host/windows-l1/bno-isolation.js";
@@ -40,7 +38,6 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
   let bnoIsolation: BnoIsolation;
   let native: {
     loadViewJobObjectApi: typeof import("../../../src/native-host/windows-job.js").loadViewJobObjectApi;
-    createOwnedWorkspaceView: typeof import("../../../src/native-host/windows-l1/workspace-view.js").createOwnedWorkspaceView;
     CrotService: typeof import("../../../src/service/service.js").CrotService;
     createServicePrivateFiles: typeof import("../../../src/service/private-files.js").createServicePrivateFiles;
     ControlClient: typeof import("../../../src/service/control-client.js").ControlClient;
@@ -99,7 +96,6 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
           "service/secrets/backends.js",
           "service/endpoints.js",
           "native-host/windows-l1/bno-isolation.js",
-          "native-host/windows-l1/workspace-view.js",
           "native-host/native-host.js",
           "native-host/windows-job.js",
           "native-host/windows-l1/restricted-token.js",
@@ -280,179 +276,6 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
     expect(await readFile(path.join(privateRoot, "allowed.txt"), "utf8")).toBe("allowed");
     expect(await readFile(path.join(outside, "target.txt"), "utf8")).toBe("unchanged");
   };
-  it("projects actual Medium backing through ordinary Node fs without relabeling or copy-back", async () => {
-    const built = await buildWorkspaceViewFixture();
-    const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
-    const ownerSid = await currentUserSid(windowsTools(systemRoot));
-    const helperSid = `S-1-5-21-${randomBytes(4).readUInt32LE()}-${randomBytes(4).readUInt32LE()}-${randomBytes(4).readUInt32LE()}-1001`;
-    const helperToken = (await native.loadRestrictedTokens()).create(helperSid, false, undefined, "mic-only");
-    let helperLauncher: NativeProcessLauncher | undefined;
-    let actor: NativeProcessLauncher | undefined;
-    let view: Awaited<ReturnType<typeof native.createOwnedWorkspaceView>> | undefined;
-    const event = (phase: string, value: unknown) =>
-      appendFileSync(
-        inject("stage6aEvidence"),
-        JSON.stringify({ title: "CROT-6A-workspace-view", value: { phase, value } }) + "\n",
-      );
-    try {
-      event("signed-component-build", { passed: true, arch: process.arch, version: "2.3.1.1000" });
-      helperToken.prepareProbeObjects(ownerSid);
-      helperLauncher = new native.NativeProcessLauncher({
-        token: helperToken,
-        ownerSid,
-        pipes: await native.loadBytePipeApi(),
-        jobs: await native.loadJobObjectApi(),
-        environment: host.platform.environment,
-        resolver: host.platform.launcher,
-        childEnvironment: new WindowsLaunchEnvironment({
-          systemRoot,
-          privateRoot: path.dirname(built.helper),
-          runtimeBins: [],
-        }),
-      });
-      const ffi = createRequire(import.meta.url)("koffi");
-      const protectedDir = path.join(dirs.workspace, "view-ЗаЩиТа");
-      await mkdir(protectedDir);
-      await writeFile(path.join(protectedDir, "secret.txt"), "unchanged protected fixture");
-      const linked = path.join(dirs.workspace, "hardlink.txt");
-      await link(project, linked);
-      // Native OWNER/GROUP/DACL/LABEL snapshots of the original root and
-      // existing file; no SID/SD bytes are placed in assertions or evidence.
-      const descriptor = () => [dirs.workspace, project].map((file) => snapshotWorkspaceDescriptor(ffi, file));
-      const before = descriptor();
-      expect(before.every((s) => s.medium)).toBe(true);
-      event("original-medium-before", { passed: true, objects: before.length });
-      view = await native
-        .createOwnedWorkspaceView({
-          helper: built.helper,
-          diagnoseControlProfiles: true,
-          helperLauncher,
-          jobs: await native.loadViewJobObjectApi(),
-          root: dirs.workspace,
-          privateRoot,
-          ownerSid,
-          restrictingSid: token.restrictingSid,
-          protectedRelativeRoots: ["\\view-ЗаЩиТа"],
-          environment: { SystemRoot: systemRoot },
-        })
-        .catch((error: unknown) => {
-          if (error && typeof error === "object" && "details" in error) {
-            const details = error.details as { controlProfiles?: unknown } | undefined;
-            if (details?.controlProfiles) event("control-profile-probes", details.controlProfiles);
-          }
-          throw error; // diagnostic output NEVER bypasses the mandatory gate
-        });
-      event("mounted", { passed: true });
-      // Existing NativeProcessLauncher keeps its suspended-create, exact Job,
-      // unique-token, byte-stdio, owned desktop and BNO verification unchanged.
-      actor = new native.NativeProcessLauncher({
-        token,
-        ownerSid,
-        pipes: await native.loadBytePipeApi(),
-        jobs: view.jobs,
-        environment: host.platform.environment,
-        resolver: host.platform.launcher,
-        desktop,
-        bnoIsolation,
-        childEnvironment: new WindowsLaunchEnvironment({
-          systemRoot,
-          privateRoot,
-          runtimeBins: [path.dirname(process.execPath)],
-        }),
-      });
-      const script = `const fs=require('fs');const a=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};
-let phase='create';try{
-const name='native-юникод.txt';fs.writeFileSync(name,'live-original');phase='rename';fs.renameSync(name,'native-renamed.txt');
-phase='delete-create';fs.writeFileSync('delete-me.txt','delete');phase='delete';fs.unlinkSync('delete-me.txt');
-phase='read';const read=fs.readFileSync('native-renamed.txt','utf8')==='live-original';phase='enumerate';const enumerated=fs.readdirSync('.').includes('native-renamed.txt');
-phase='negative';process.stdout.write(JSON.stringify({ready:true,read,enumerated,protected:a(()=>fs.readFileSync('VIEW-защита/secret.txt')),hardlink:a(()=>fs.writeFileSync('hardlink.txt','forbidden')),outside:a(()=>fs.writeFileSync(${JSON.stringify(path.join(outside, "view-escape.txt"))},'forbidden'))}));
-}catch(e){const code=typeof e.code==='string'&&/^E[A-Z0-9_]{1,30}$/.test(e.code)?e.code:'unexpected';process.stdout.write(JSON.stringify({ready:true,failurePhase:phase,errorCode:code}));process.exitCode=1;}`;
-      const proc = await actor.launch(
-        { file: process.execPath, args: ["-e", script], display: "same-backing filesystem gate" },
-        { cwd: view.mount, env: {}, stdin: false },
-      );
-      let stdout = "",
-        stderrBytes = 0;
-      proc.stdout.on("data", (b: Buffer) => {
-        if (stdout.length + b.length < 4096) stdout += b.toString();
-      });
-      proc.stderr.on("data", (b: Buffer) => {
-        stderrBytes += b.length;
-      });
-      const timer = setTimeout(() => {
-        void proc.terminate("force");
-      }, 15000);
-      try {
-        const result = await proc.exited;
-        // Native byte streams can finish after process signalling.
-        await Promise.all(
-          [proc.stdout, proc.stderr].map(
-            (stream) =>
-              new Promise<void>((resolve) => {
-                if (stream.readableEnded || stream.destroyed) return resolve();
-                stream.once("end", resolve);
-                stream.once("close", resolve);
-              }),
-          ),
-        );
-        // Only bounded, fixed diagnostics; never publish stderr, paths or identity.
-        let failurePhase: string | undefined, errorCode: string | undefined;
-        try {
-          const diagnostic = JSON.parse(stdout);
-          if (
-            ["create", "rename", "delete-create", "delete", "read", "enumerate", "negative"].includes(
-              diagnostic.failurePhase,
-            )
-          )
-            failurePhase = diagnostic.failurePhase;
-          if (typeof diagnostic.errorCode === "string" && /^(E[A-Z0-9_]{1,30}|unexpected)$/.test(diagnostic.errorCode))
-            errorCode = diagnostic.errorCode;
-        } catch {
-          /* A pre-JS failure is not a filesystem denial. */
-        }
-        event("actor-result", {
-          code: result.code,
-          failurePhase,
-          errorCode,
-          stderrEmpty: stderrBytes === 0,
-          stdoutBytes: Buffer.byteLength(stdout),
-        });
-        expect(proc.failure).toBeUndefined();
-        expect(result.code).toBe(0);
-        expect(stderrBytes).toBe(0);
-        const observed = JSON.parse(stdout);
-        expect(observed.ready).toBe(true);
-        expect(observed.read).toBe(true);
-        expect(observed.enumerated).toBe(true);
-        for (const key of ["protected", "hardlink", "outside"]) expect(["EACCES", "EPERM"]).toContain(observed[key]);
-        // Read the original before unmount: this cannot pass by copy-back.
-        expect(await readFile(path.join(dirs.workspace, "native-renamed.txt"), "utf8")).toBe("live-original");
-        expect(await readFile(project, "utf8")).toBe("project control");
-        expect(await readFile(path.join(protectedDir, "secret.txt"), "utf8")).toBe("unchanged protected fixture");
-        const after = descriptor();
-        expect(after.every((s, i) => s.medium && s.fingerprint === before[i]!.fingerprint)).toBe(true);
-        event("live-backing-and-original-descriptor", { passed: true });
-      } finally {
-        clearTimeout(timer);
-        await proc.terminate("force");
-      }
-    } finally {
-      try {
-        await actor?.close();
-      } finally {
-        try {
-          await view?.close();
-        } finally {
-          try {
-            await helperLauncher?.close();
-          } finally {
-            helperToken.close();
-            await built.cleanup();
-          }
-        }
-      }
-    }
-  }, 300_000);
   it("protects actual service secrets/settings/audit with working owner controls and ready-actor attempts", async () => {
     // Real CrotService and real SecretStore, not lookalike canary paths. This
     // fixture is not Docker, arbitrary external config or self-approval coverage.

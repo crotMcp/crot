@@ -59,6 +59,17 @@ describe.skipIf(!cc)("exact CROT private state native ABI", () => {
       expect(invalid()).toBe(0);
     },
   );
+  it("installs explicit deny for the exact AppContainer SID without an Everyone/Users deny", () => {
+    fault(0);
+    expect(api(file, owner, false, true, ["S-1-15-2-1-2-3-4-5-6-7"])).toBe(true);
+    expect(handles()).toBe(0);
+    expect(memory()).toBe(0);
+    for (const sid of [owner, "S-1-1-0", "S-1-15-2-1", "S-1-5-12"]) {
+      const before = sets();
+      expect(() => api(file, owner, false, true, [sid])).toThrow();
+      expect(sets()).toBe(before);
+    }
+  });
   it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 16, 17, 18])(
     "fails closed for state ABI failure %i and releases all partial owners",
     (n) => {

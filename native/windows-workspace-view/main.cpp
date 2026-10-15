@@ -1,528 +1,100 @@
-// AD-27: scoped same-backing filesystem component. NOT production L1 acceptance.
-// Uses installed Dokan headers/DLL; no third-party implementation is embedded.
+// AD-29. OS-only AppContainer qualification controller, NOT a production backend.
 #define WIN32_LEAN_AND_MEAN
-#define WIN32_NO_STATUS
 #include <windows.h>
-#undef WIN32_NO_STATUS
-// Exact Windows NTSTATUS ABI (LONG). Both current ntsecapi.h and winternl.h
-// also declare UNICODE_STRING, conflicting with Dokan's public fileinfo.h.
-// Declare only the missing status alias, not a competing SDK structure.
-using NTSTATUS = LONG;
-static_assert(sizeof(NTSTATUS)==4 && static_cast<NTSTATUS>(-1)<0,"NTSTATUS ABI");
-#include <dokan.h>
-#include <sddl.h>
 #include <userenv.h>
-
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <cstddef>
-#include <cstdio>
-#include <cstring>
-#include <cwctype>
-#include <cwchar>
-#include <memory>
-#include <mutex>
+#include <aclapi.h>
+#include <sddl.h>
+#include <objbase.h>
 #include <string>
-#include <thread>
 #include <vector>
-#include "control-profile-token.h"
-
-namespace {
-struct Error { NTSTATUS status; const char* stage; };
-[[noreturn]] void deny(NTSTATUS s = STATUS_ACCESS_DENIED, const char* stage = nullptr) { throw Error{s,stage}; }
-NTSTATUS winerror() { return DokanNtStatusFromWin32(GetLastError()); }
-std::atomic<bool> failed{false};
-HANDLE stopEvent = nullptr;
-void fault() { failed = true; if (stopEvent) SetEvent(stopEvent); }
-// A failed release is still owned. A fixed registry avoids allocating in a
-// destructor; no further filesystem allocation is allowed after fault().
-std::mutex releaseLock;
-std::array<HANDLE,1024> retained{};
-void release(HANDLE h) noexcept {
-  if (!h || h==INVALID_HANDLE_VALUE || CloseHandle(h)) return;
-  fault();
-  std::lock_guard<std::mutex> lock(releaseLock);
-  for (auto& slot:retained) if (!slot) { slot=h; return; }
-  // Exhaustion cannot silently discard ownership or continue serving requests.
-  ExitProcess(3);
-}
-bool retryReleases() {
-  bool okay=true;
-  std::lock_guard<std::mutex> lock(releaseLock);
-  for (auto& slot:retained) if (slot) {
-    if (CloseHandle(slot)) slot=nullptr; else okay=false;
-  }
-  return okay;
-}
-struct Handle {
-  HANDLE h = INVALID_HANDLE_VALUE;
-  Handle() = default;
-  explicit Handle(HANDLE v):h(v) {}
-  Handle(const Handle&) = delete;
-  Handle& operator=(const Handle&) = delete;
-  Handle(Handle&& o) noexcept:h(o.h) { o.h = INVALID_HANDLE_VALUE; }
-  Handle& operator=(Handle&& o) noexcept {
-    if (this != &o) { release(h); h=o.h; o.h=INVALID_HANDLE_VALUE; }
-    return *this;
-  }
-  ~Handle() { release(h); }
-  bool valid() const { return h && h != INVALID_HANDLE_VALUE; }
+#include <iostream>
+#include <stdexcept>
+#include <cstring>
+#include <algorithm>
+struct Handle { HANDLE h=nullptr; ~Handle(){if(h && h!=INVALID_HANDLE_VALUE)CloseHandle(h);} };
+const char* phase="setup";
+DWORD failureCode=0;
+std::wstring ownedTemp,ownedCache;
+void need(bool okay){if(!okay)throw std::runtime_error("native prerequisite");}
+std::wstring quote(const std::wstring& s){std::wstring r=L"\"";unsigned n=0;for(auto c:s){if(c==L'\\'){n++;continue;}if(c==L'"')r.append(n*2+1,L'\\');else r.append(n,L'\\');n=0;r+=c;}r.append(n*2,L'\\');return r+L"\"";}
+struct Grant {
+ std::wstring path;PSID sid;bool installed=false;
+ Grant(std::wstring p,PSID s):path(p),sid(s){}
+ void change(ACCESS_MODE mode,DWORD rights,DWORD inheritance){
+  PACL old=nullptr,next=nullptr;PSECURITY_DESCRIPTOR sd=nullptr;
+  need(GetNamedSecurityInfoW(path.c_str(),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,&old,nullptr,&sd)==ERROR_SUCCESS);
+  EXPLICIT_ACCESSW a{};a.grfAccessPermissions=rights;a.grfAccessMode=mode;a.grfInheritance=inheritance;
+  a.Trustee.TrusteeForm=TRUSTEE_IS_SID;a.Trustee.TrusteeType=TRUSTEE_IS_UNKNOWN;a.Trustee.ptstrName=static_cast<LPWSTR>(sid);
+  DWORD result=SetEntriesInAclW(1,&a,old,&next);
+  if(result==ERROR_SUCCESS)result=SetNamedSecurityInfoW(const_cast<LPWSTR>(path.c_str()),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,next,nullptr);
+  if(next)LocalFree(next);if(sd)LocalFree(sd);need(result==ERROR_SUCCESS);
+ }
+ void add(bool deny=false){change(deny?DENY_ACCESS:GRANT_ACCESS,deny?FILE_ALL_ACCESS:0x1301bf,deny?0:SUB_CONTAINERS_AND_OBJECTS_INHERIT);installed=true;}
+ bool remove(){if(!installed)return true;try{change(REVOKE_ACCESS,0,NO_INHERITANCE);installed=false;return true;}catch(...){return false;}}
+ ~Grant(){remove();}
 };
-struct NativeAttributes { ULONG Length; HANDLE RootDirectory; PUNICODE_STRING ObjectName; ULONG Attributes; PVOID SecurityDescriptor; PVOID SecurityQualityOfService; };
-struct NativeStatus { union { NTSTATUS Status; PVOID Pointer; }; ULONG_PTR Information; };
-static_assert(sizeof(NativeAttributes)==48 && sizeof(NativeStatus)==16 && sizeof(void*)==8,"64-bit ABI required");
-using NtCreate = NTSTATUS(NTAPI*)(PHANDLE,ACCESS_MASK,NativeAttributes*,NativeStatus*,
-    PLARGE_INTEGER,ULONG,ULONG,ULONG,ULONG,PVOID,ULONG);
-NtCreate ntCreate = nullptr;
-std::wstring rootPath, mountPath, jobName;
-std::vector<std::wstring> deniedRoots;
-std::vector<Handle> rootPins;
-HANDLE root = INVALID_HANDLE_VALUE;
-Handle job;
-PSECURITY_DESCRIPTOR projected = nullptr;
-PSID ownerSid = nullptr, uniqueSid = nullptr;
-std::mutex mutations;
-
-std::wstring fold(std::wstring s) {
-  for (auto& c:s) c = static_cast<wchar_t>(towupper(c));
-  return s;
-}
-bool sameName(const std::wstring& a,const std::wstring& b) {
-  if (a.size()>32000 || b.size()>32000) deny();
-  const int compared=CompareStringOrdinal(a.c_str(),static_cast<int>(a.size()),b.c_str(),static_cast<int>(b.size()),TRUE);
-  if (!compared) deny(winerror());
-  return compared==CSTR_EQUAL;
-}
-std::vector<std::wstring> parts(const std::wstring& name, bool absolute = false) {
-  if (name.empty() || name.size() > 32000 || name.front() != L'\\') deny();
-  std::vector<std::wstring> out;
-  size_t p = 1;
-  if (name == L"\\") return out;
-  while (p < name.size()) {
-    auto end = name.find(L'\\',p);
-    auto s = name.substr(p,end == std::wstring::npos ? end : end-p);
-    if (s.empty() || s.size()>255 || s==L"." || s==L".." || s.back()==L'.' || s.back()==L' ') deny();
-    for (wchar_t c:s) if (c<32 || wcschr(L"/:*?\"<>|",c) || (!absolute && c==L'~')) deny();
-    auto upper = fold(s.substr(0,s.find(L'.')));
-    if (upper==L"CON" || upper==L"PRN" || upper==L"AUX" || upper==L"NUL" ||
-        upper==L"CONIN$" || upper==L"CONOUT$" || upper==L"CLOCK$" ||
-        (upper.size()==4 && (upper.substr(0,3)==L"COM" || upper.substr(0,3)==L"LPT") &&
-          (upper[3]>=L'0' && upper[3]<=L'9'))) deny();
-    out.push_back(s);
-    if (out.size()>128) deny();
-    if (end==std::wstring::npos) break;
-    p=end+1;
-  }
-  if (!absolute) {
-    for (const auto& d:deniedRoots)
-      if (sameName(name,d) || (name.size()>d.size() && name[d.size()]==L'\\' && sameName(name.substr(0,d.size()),d))) deny();
-  }
-  return out;
-}
-BY_HANDLE_FILE_INFORMATION inspect(HANDLE h, bool directory) {
-  BY_HANDLE_FILE_INFORMATION b{};
-  if (!GetFileInformationByHandle(h,&b)) deny(winerror());
-  if ((b.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT) ||
-      !!(b.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)!=directory || (!directory && b.nNumberOfLinks!=1)) deny();
-  return b;
-}
-Handle openRelative(HANDLE parent,const std::wstring& leaf,ACCESS_MASK access,ULONG disposition,
-    ULONG options,ULONG share,ULONG* action=nullptr) {
-  if (failed) deny();
-  UNICODE_STRING text{};
-  text.Buffer=const_cast<PWSTR>(leaf.c_str());
-  text.Length=static_cast<USHORT>(leaf.size()*2); text.MaximumLength=text.Length;
-  NativeAttributes a{}; a.Length=sizeof(a); a.RootDirectory=parent; a.ObjectName=&text;
-  a.Attributes=0x1040; // CASE_INSENSITIVE | DONT_REPARSE, never OPENIF on objects
-  NativeStatus io{}; Handle h;
-  auto s=ntCreate(&h.h,access|SYNCHRONIZE|FILE_READ_ATTRIBUTES,&a,&io,nullptr,FILE_ATTRIBUTE_NORMAL,
-      share,disposition,options|0x200020,nullptr,0); // OPEN_REPARSE_POINT | SYNCHRONOUS_IO_NONALERT
-  if (s<0 || !h.valid()) deny(s<0?s:STATUS_INVALID_HANDLE);
-  if (action) *action=static_cast<ULONG>(io.Information);
-  return h;
-}
-struct Bound {
-  std::vector<Handle> pins;
-  HANDLE parent = INVALID_HANDLE_VALUE;
-  std::wstring leaf;
-};
-Bound bindParent(const std::vector<std::wstring>& p) {
-  Bound b; b.parent=root;
-  for (size_t i=0;i+1<p.size();++i) {
-    auto h=openRelative(b.parent,p[i],FILE_TRAVERSE|FILE_LIST_DIRECTORY,FILE_OPEN,
-        FILE_DIRECTORY_FILE,FILE_SHARE_READ|FILE_SHARE_WRITE);
-    inspect(h.h,true); b.parent=h.h; b.pins.push_back(std::move(h));
-  }
-  if (!p.empty()) b.leaf=p.back();
-  return b;
-}
-std::vector<unsigned char> tokenInfo(HANDLE token,TOKEN_INFORMATION_CLASS type) {
-  DWORD n=0; GetTokenInformation(token,type,nullptr,0,&n);
-  if (n<4 || n>65536) deny();
-  std::vector<unsigned char> b(n);
-  if (!GetTokenInformation(token,type,b.data(),n,&n)) deny();
-  return b;
-}
-#include "control-profile-probe.h"
-void authorize(PDOKAN_FILE_INFO fi) {
-  if (failed || !fi->ProcessId) deny();
-  Handle request(DokanOpenRequestorToken(fi));
-  Handle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION|SYNCHRONIZE,FALSE,fi->ProcessId));
-  if (!request.valid() || !process.valid() || WaitForSingleObject(process.h,0)!=WAIT_TIMEOUT) deny();
-  Handle primary;
-  if (!OpenProcessToken(process.h,TOKEN_QUERY,&primary.h)) deny();
-  auto a=tokenInfo(request.h,TokenStatistics), b=tokenInfo(primary.h,TokenStatistics);
-  if (memcmp(&reinterpret_cast<TOKEN_STATISTICS*>(a.data())->TokenId,
-             &reinterpret_cast<TOKEN_STATISTICS*>(b.data())->TokenId,sizeof(LUID))) deny();
-  BOOL member=FALSE;
-  if (!IsProcessInJob(process.h,job.h,&member) || !member || !IsTokenRestricted(request.h)) deny();
-  auto u=tokenInfo(request.h,TokenUser), g=tokenInfo(request.h,TokenRestrictedSids), il=tokenInfo(request.h,TokenIntegrityLevel);
-  auto groups=reinterpret_cast<TOKEN_GROUPS*>(g.data());
+std::vector<unsigned char> information(HANDLE token,TOKEN_INFORMATION_CLASS kind){DWORD n=0;GetTokenInformation(token,kind,nullptr,0,&n);need(n>=4&&n<=65536);std::vector<unsigned char>b(n);need(!!GetTokenInformation(token,kind,b.data(),n,&n));return b;}
+DWORD launch(const std::wstring& exe,const std::vector<std::wstring>& args,const std::wstring& cwd,PSID package,bool& verified){
+ Handle job;job.h=CreateJobObjectW(nullptr,nullptr);need(job.h!=nullptr);
+ JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};limits.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+ need(!!SetInformationJobObject(job.h,JobObjectExtendedLimitInformation,&limits,sizeof(limits)));
+ SIZE_T size=0;InitializeProcThreadAttributeList(nullptr,2,0,&size);need(size>0&&size<65536);
+ std::vector<unsigned char> storage(size);auto list=reinterpret_cast<PPROC_THREAD_ATTRIBUTE_LIST>(storage.data());
+ need(!!InitializeProcThreadAttributeList(list,2,0,&size));
+ SECURITY_CAPABILITIES caps{};caps.AppContainerSid=package;
+ bool okay=!!UpdateProcThreadAttribute(list,0,PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,&caps,sizeof(caps),nullptr,nullptr)&&
+   !!UpdateProcThreadAttribute(list,0,PROC_THREAD_ATTRIBUTE_JOB_LIST,&job.h,sizeof(job.h),nullptr,nullptr);
+ if(!okay){DeleteProcThreadAttributeList(list);need(false);}
+ STARTUPINFOEXW si{};si.StartupInfo.cb=sizeof(si);si.lpAttributeList=list;PROCESS_INFORMATION pi{};
+ wchar_t win[32768]{};need(GetWindowsDirectoryW(win,32768)>0);
+ std::vector<std::wstring> envs={L"SystemRoot="+std::wstring(win),L"WINDIR="+std::wstring(win),L"ComSpec="+std::wstring(win)+L"\\System32\\cmd.exe",L"PATH="+std::wstring(win)+L"\\System32;"+std::wstring(win),L"TEMP="+ownedTemp,L"TMP="+ownedTemp,L"USERPROFILE="+ownedTemp,L"LOCALAPPDATA="+ownedCache,L"APPDATA="+ownedCache};
+ std::sort(envs.begin(),envs.end(),[](const auto& a,const auto& b){return _wcsicmp(a.c_str(),b.c_str())<0;});
+ std::vector<wchar_t> env;for(const auto& e:envs){env.insert(env.end(),e.begin(),e.end());env.push_back(0);}env.push_back(0);
+ std::wstring command=quote(exe);for(const auto& arg:args)command+=L" "+quote(arg);
+ okay=!!CreateProcessW(exe.c_str(),command.data(),nullptr,nullptr,FALSE,CREATE_SUSPENDED|CREATE_NO_WINDOW|CREATE_UNICODE_ENVIRONMENT|EXTENDED_STARTUPINFO_PRESENT,env.data(),cwd.c_str(),&si.StartupInfo,&pi);
+ DeleteProcThreadAttributeList(list);need(okay);Handle process,thread,token;process.h=pi.hProcess;thread.h=pi.hThread;
+ try {
+  BOOL member=FALSE;need(!!IsProcessInJob(process.h,job.h,&member)&&member);
+  need(!!OpenProcessToken(process.h,TOKEN_QUERY,&token.h));
+  auto ac=information(token.h,TokenIsAppContainer),ps=information(token.h,TokenAppContainerSid),cs=information(token.h,TokenCapabilities),il=information(token.h,TokenIntegrityLevel);
   auto label=reinterpret_cast<TOKEN_MANDATORY_LABEL*>(il.data())->Label.Sid;
-  if (!EqualSid(reinterpret_cast<TOKEN_USER*>(u.data())->User.Sid,ownerSid) ||
-      groups->GroupCount!=1 || !EqualSid(groups->Groups[0].Sid,uniqueSid) ||
-      !IsValidSid(label) || *GetSidSubAuthorityCount(label)!=1 || *GetSidSubAuthority(label,0)!=4096) deny();
+  auto sid=reinterpret_cast<TOKEN_APPCONTAINER_INFORMATION*>(ps.data())->TokenAppContainer;
+  need(*reinterpret_cast<DWORD*>(ac.data())!=0&&sid&&IsValidSid(sid)&&EqualSid(sid,package));
+  need(reinterpret_cast<TOKEN_GROUPS*>(cs.data())->GroupCount==0&&IsValidSid(label)&&*GetSidSubAuthorityCount(label)==1&&*GetSidSubAuthority(label,0)==4096);
+  verified=true;need(ResumeThread(thread.h)==1);
+  need(WaitForSingleObject(process.h,30000)==WAIT_OBJECT_0);DWORD code=0;need(!!GetExitCodeProcess(process.h,&code));
+  JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};need(!!QueryInformationJobObject(job.h,JobObjectBasicAccountingInformation,&accounting,sizeof(accounting),nullptr));
+  need(accounting.ActiveProcesses==0);return code;
+ } catch(...){TerminateJobObject(job.h,1);WaitForSingleObject(process.h,5000);throw;}
 }
-struct File {
-  Handle handle;
-  std::vector<Handle> pins;
-  std::mutex lock;
-  bool directory=false, root=false;
-  ACCESS_MASK granted=0;
-};
-File& context(PDOKAN_FILE_INFO fi) {
-  if (failed || !fi->Context) deny(STATUS_INVALID_HANDLE);
-  return *reinterpret_cast<File*>(fi->Context);
-}
-template<class Fn> NTSTATUS status(Fn fn) noexcept {
-  try { fn(); return STATUS_SUCCESS; }
-  catch (const Error& e) { return e.status; }
-  catch (...) { fault(); return STATUS_INTERNAL_ERROR; }
-}
-NTSTATUS DOKAN_CALLBACK create(LPCWSTR name,PDOKAN_IO_SECURITY_CONTEXT,ACCESS_MASK access,
-    ULONG attributes,ULONG,ULONG disposition,ULONG options,PDOKAN_FILE_INFO fi) {
-  bool openedExisting=false;
-  auto outcome=status([&] {
-    authorize(fi);
-    GENERIC_MAPPING mapping{FILE_GENERIC_READ,FILE_GENERIC_WRITE,FILE_GENERIC_EXECUTE,FILE_ALL_ACCESS};
-    MapGenericMask(&access,&mapping);
-    auto p=parts(name);
-    if (fi->Context || access&(WRITE_DAC|WRITE_OWNER|ACCESS_SYSTEM_SECURITY) ||
-        attributes&FILE_ATTRIBUTE_REPARSE_POINT || options&FILE_OPEN_BY_FILE_ID || disposition==FILE_SUPERSEDE) deny();
-    std::lock_guard<std::mutex> mutation(mutations);
-    auto f=std::make_unique<File>();
-    f->directory=!!(options&FILE_DIRECTORY_FILE); f->root=p.empty(); f->granted=access;
-    if (f->root) {
-      if (disposition!=FILE_OPEN || access&(FILE_WRITE_DATA|FILE_APPEND_DATA|DELETE|FILE_WRITE_ATTRIBUTES)) deny();
-      f->directory=true;
-      if (!DuplicateHandle(GetCurrentProcess(),root,GetCurrentProcess(),&f->handle.h,0,FALSE,DUPLICATE_SAME_ACCESS)) deny(winerror());
-    } else {
-      auto bound=bindParent(p);
-      ULONG action=0;
-      const ULONG safeDisposition=(disposition==FILE_OVERWRITE_IF)?FILE_OPEN_IF:
-          (disposition==FILE_OVERWRITE)?FILE_OPEN:disposition;
-      if (safeDisposition!=FILE_OPEN && safeDisposition!=FILE_CREATE && safeDisposition!=FILE_OPEN_IF) deny();
-      ULONG safeOptions=options&(FILE_DIRECTORY_FILE|FILE_NON_DIRECTORY_FILE);
-      // No overwrite/delete before reparse/type/link checks. Exclusive backing
-      // file handles conservatively reject sharing; this is not full acceptance.
-      auto h=openRelative(bound.parent,bound.leaf,access,safeDisposition,safeOptions,0,&action);
-      BY_HANDLE_FILE_INFORMATION detected{};
-      if (!GetFileInformationByHandle(h.h,&detected)) deny(winerror());
-      f->directory=!!(detected.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY);
-      if ((fi->IsDirectory || (options&FILE_DIRECTORY_FILE)) && !f->directory) deny(STATUS_NOT_A_DIRECTORY);
-      inspect(h.h,f->directory);
-      openedExisting=action==1 && (disposition==FILE_OPEN_IF || disposition==FILE_OVERWRITE_IF);
-      if (disposition==FILE_OVERWRITE || disposition==FILE_OVERWRITE_IF) {
-        if (f->directory || !(access&FILE_WRITE_DATA)) deny();
-        FILE_END_OF_FILE_INFO end{};
-        if (!SetFileInformationByHandle(h.h,FileEndOfFileInfo,&end,sizeof(end))) deny(winerror());
-      }
-      f->handle=std::move(h); f->pins=std::move(bound.pins);
-    }
-    inspect(f->handle.h,f->directory);
-    fi->IsDirectory=f->directory; fi->Context=reinterpret_cast<ULONG64>(f.release());
-  });
-  return outcome==STATUS_SUCCESS && openedExisting ? STATUS_OBJECT_NAME_COLLISION : outcome;
-}
-void DOKAN_CALLBACK cleanup(LPCWSTR,PDOKAN_FILE_INFO fi) {
-  if (!fi->Context || !fi->DeletePending) return;
-  auto s=status([&] { auto& f=context(fi); std::lock_guard<std::mutex> lock(f.lock);
-    if (f.root || !(f.granted&DELETE)) deny();
-    FILE_DISPOSITION_INFO d{TRUE};
-    if (!SetFileInformationByHandle(f.handle.h,FileDispositionInfo,&d,sizeof(d))) deny(winerror());
-  });
-  if (s<0) fault(); // cleanup cannot report a failed delete as success
-}
-void DOKAN_CALLBACK closeFile(LPCWSTR,PDOKAN_FILE_INFO fi) {
-  auto p=reinterpret_cast<File*>(fi->Context); fi->Context=0; delete p;
-}
-NTSTATUS DOKAN_CALLBACK readFile(LPCWSTR,LPVOID buffer,DWORD size,LPDWORD done,LONGLONG offset,PDOKAN_FILE_INFO fi) {
-  *done=0; return status([&] { auto& f=context(fi); std::lock_guard<std::mutex> lock(f.lock);
-    if (offset<0 || f.directory || !(f.granted&FILE_READ_DATA)) deny();
-    LARGE_INTEGER pos; pos.QuadPart=offset;
-    if (!SetFilePointerEx(f.handle.h,pos,nullptr,FILE_BEGIN) || !ReadFile(f.handle.h,buffer,size,done,nullptr)) deny(winerror());
-  });
-}
-NTSTATUS DOKAN_CALLBACK writeFile(LPCWSTR,LPCVOID buffer,DWORD size,LPDWORD done,LONGLONG offset,PDOKAN_FILE_INFO fi) {
-  *done=0; return status([&] { auto& f=context(fi); std::lock_guard<std::mutex> lock(f.lock);
-    if (f.directory || !(f.granted&(FILE_WRITE_DATA|FILE_APPEND_DATA))) deny();
-    LARGE_INTEGER pos; pos.QuadPart=offset;
-    if (fi->WriteToEndOfFile || offset==-1) {
-      if (!GetFileSizeEx(f.handle.h,&pos)) deny(winerror());
-    }
-    if (pos.QuadPart<0) deny();
-    if (fi->PagingIo) {
-      LARGE_INTEGER end{}; if (!GetFileSizeEx(f.handle.h,&end)) deny(winerror());
-      if (pos.QuadPart>=end.QuadPart) return;
-      size=static_cast<DWORD>((std::min)(static_cast<LONGLONG>(size),end.QuadPart-pos.QuadPart));
-    }
-    if (!SetFilePointerEx(f.handle.h,pos,nullptr,FILE_BEGIN) || !WriteFile(f.handle.h,buffer,size,done,nullptr)) deny(winerror());
-  });
-}
-NTSTATUS DOKAN_CALLBACK information(LPCWSTR,LPBY_HANDLE_FILE_INFORMATION out,PDOKAN_FILE_INFO fi) {
-  return status([&] { auto& f=context(fi); *out=inspect(f.handle.h,f.directory); });
-}
-NTSTATUS DOKAN_CALLBACK flush(LPCWSTR,PDOKAN_FILE_INFO fi) {
-  return status([&] { auto& f=context(fi); if (!FlushFileBuffers(f.handle.h)) deny(winerror()); });
-}
-NTSTATUS DOKAN_CALLBACK deleteFile(LPCWSTR,PDOKAN_FILE_INFO fi) {
-  return status([&] { auto& f=context(fi); if (f.root || !(f.granted&DELETE)) deny();
-    std::lock_guard<std::mutex> lock(f.lock);
-    FILE_DISPOSITION_INFO d{}; d.DeleteFile=fi->DeletePending ? TRUE : FALSE;
-    if (!SetFileInformationByHandle(f.handle.h,FileDispositionInfo,&d,sizeof(d))) deny(winerror());
-  });
-}
-NTSTATUS DOKAN_CALLBACK renameFile(LPCWSTR,LPCWSTR target,BOOL,PDOKAN_FILE_INFO fi) {
-  return status([&] { auto& f=context(fi);
-    if (f.root || !(f.granted&DELETE)) deny();
-    std::lock_guard<std::mutex> mutation(mutations); std::lock_guard<std::mutex> lock(f.lock);
-    auto p=parts(target); if (p.empty()) deny(); auto b=bindParent(p);
-    const size_t bytes=b.leaf.size()*sizeof(wchar_t);
-    std::vector<unsigned char> data(offsetof(FILE_RENAME_INFO,FileName)+bytes);
-    auto r=reinterpret_cast<FILE_RENAME_INFO*>(data.data());
-    r->ReplaceIfExists=FALSE; r->RootDirectory=b.parent; r->FileNameLength=static_cast<DWORD>(bytes);
-    memcpy(r->FileName,b.leaf.data(),bytes);
-    if (!SetFileInformationByHandle(f.handle.h,FileRenameInfo,r,static_cast<DWORD>(data.size()))) deny(winerror());
-    for (auto& pin:b.pins) f.pins.push_back(std::move(pin));
-  });
-}
-NTSTATUS DOKAN_CALLBACK setEnd(LPCWSTR,LONGLONG size,PDOKAN_FILE_INFO fi) {
-  return status([&] { auto& f=context(fi); std::lock_guard<std::mutex> lock(f.lock);
-    if (size<0 || f.directory || !(f.granted&FILE_WRITE_DATA)) deny();
-    FILE_END_OF_FILE_INFO e{}; e.EndOfFile.QuadPart=size;
-    if (!SetFileInformationByHandle(f.handle.h,FileEndOfFileInfo,&e,sizeof(e))) deny(winerror());
-  });
-}
-NTSTATUS DOKAN_CALLBACK security(LPCWSTR,PSECURITY_INFORMATION,PSECURITY_DESCRIPTOR out,ULONG size,PULONG needed,PDOKAN_FILE_INFO) {
-  *needed=GetSecurityDescriptorLength(projected);
-  if (size<*needed) return STATUS_BUFFER_OVERFLOW;
-  memcpy(out,projected,*needed); return STATUS_SUCCESS;
-}
-NTSTATUS DOKAN_CALLBACK setSecurity(LPCWSTR,PSECURITY_INFORMATION,PSECURITY_DESCRIPTOR,ULONG,PDOKAN_FILE_INFO) {
-  return STATUS_ACCESS_DENIED;
-}
-NTSTATUS DOKAN_CALLBACK volume(LPWSTR label,DWORD ln,LPDWORD serial,LPDWORD max,LPDWORD flags,LPWSTR fs,DWORD fn,PDOKAN_FILE_INFO) {
-  if (ln<5 || fn<5) return STATUS_BUFFER_TOO_SMALL;
-  wcscpy_s(label,ln,L"CROT"); wcscpy_s(fs,fn,L"NTFS"); *serial=0x43524f54; *max=255;
-  *flags=FILE_CASE_PRESERVED_NAMES|FILE_UNICODE_ON_DISK|FILE_PERSISTENT_ACLS;
-  return STATUS_SUCCESS;
-}
-NTSTATUS DOKAN_CALLBACK findFiles(LPCWSTR name,PFillFindData fill,PDOKAN_FILE_INFO fi) {
-  return status([&] { auto& f=context(fi); std::lock_guard<std::mutex> lock(f.lock);
-    if (!f.directory || !(f.granted&FILE_LIST_DIRECTORY)) deny();
-    std::vector<ULONGLONG> storage(2048); bool restart=true;
-    for (;;) {
-      if (!GetFileInformationByHandleEx(f.handle.h,restart?FileIdBothDirectoryRestartInfo:FileIdBothDirectoryInfo,
-          storage.data(),static_cast<DWORD>(storage.size()*8))) {
-        if (GetLastError()==ERROR_NO_MORE_FILES) break;
-        deny(winerror());
-      }
-      restart=false; auto entry=reinterpret_cast<FILE_ID_BOTH_DIR_INFO*>(storage.data());
-      size_t used=0;
-      for (;;) {
-        if (used+offsetof(FILE_ID_BOTH_DIR_INFO,FileName)>storage.size()*8 || entry->FileNameLength>510 ||
-            used+offsetof(FILE_ID_BOTH_DIR_INFO,FileName)+entry->FileNameLength>storage.size()*8 || entry->FileNameLength%2) deny();
-        std::wstring leaf(entry->FileName,entry->FileNameLength/2);
-        bool allowed=!(entry->FileAttributes&FILE_ATTRIBUTE_REPARSE_POINT);
-        try { parts(std::wstring(name)+(std::wstring(name)==L"\\"?L"":L"\\")+leaf); }
-        catch(const Error&) { allowed=false; }
-        if (allowed) {
-          WIN32_FIND_DATAW data{}; data.dwFileAttributes=entry->FileAttributes;
-          data.ftCreationTime.dwLowDateTime=entry->CreationTime.LowPart; data.ftCreationTime.dwHighDateTime=entry->CreationTime.HighPart;
-          data.ftLastAccessTime.dwLowDateTime=entry->LastAccessTime.LowPart; data.ftLastAccessTime.dwHighDateTime=entry->LastAccessTime.HighPart;
-          data.ftLastWriteTime.dwLowDateTime=entry->LastWriteTime.LowPart; data.ftLastWriteTime.dwHighDateTime=entry->LastWriteTime.HighPart;
-          data.nFileSizeLow=entry->EndOfFile.LowPart; data.nFileSizeHigh=entry->EndOfFile.HighPart;
-          wmemcpy(data.cFileName,leaf.c_str(),leaf.size());
-          if (fill(&data,fi)) return;
-        }
-        if (!entry->NextEntryOffset) break;
-        if (entry->NextEntryOffset<offsetof(FILE_ID_BOTH_DIR_INFO,FileName) || used+entry->NextEntryOffset>=storage.size()*8) deny();
-        used+=entry->NextEntryOffset; entry=reinterpret_cast<FILE_ID_BOTH_DIR_INFO*>(reinterpret_cast<unsigned char*>(storage.data())+used);
-      }
-    }
-  });
-}
-NTSTATUS DOKAN_CALLBACK space(PULONGLONG available,PULONGLONG total,PULONGLONG free,PDOKAN_FILE_INFO) {
-  ULARGE_INTEGER a{},t{},f{};
-  if (!GetDiskFreeSpaceExW(rootPath.c_str(),&a,&t,&f)) return winerror();
-  *available=a.QuadPart; *total=t.QuadPart; *free=f.QuadPart; return STATUS_SUCCESS;
-}
-size_t frameRemaining=256*1024;
-bool exactRead(void* p,DWORD size) {
-  if (size>frameRemaining) return false;
-  frameRemaining-=size;
-  auto b=static_cast<unsigned char*>(p);
-  while (size) { DWORD n=0; if (!ReadFile(GetStdHandle(STD_INPUT_HANDLE),b,size,&n,nullptr) || !n) return false; b+=n; size-=n; }
-  return true;
-}
-std::wstring field() {
-  DWORD n=0; if (!exactRead(&n,4) || n>32000) deny();
-  std::wstring s(n,L'\0');
-  if (!exactRead(s.data(),n*2) || s.find(L'\0')!=std::wstring::npos) deny();
-  return s;
-}
-// Raw control IOCTLs bypass file callbacks. Probe only our exact new endpoint,
-// and only harmless opens; never request tokens or consume/mutate driver events.
-void requireIsolatedControl() {
-  ULONG count=0;
-  struct MountList {
-    PDOKAN_MOUNT_POINT_INFO p;
-    ~MountList() { if (p) DokanReleaseMountPointList(p); }
-  } list{DokanGetMountPointList(FALSE,&count)};
-  if (!list.p || count>1024) deny(STATUS_ACCESS_DENIED,"control-probe");
-  std::wstring device;
-  for (ULONG i=0;i<count;i++) {
-    auto& item=list.p[i];
-    const size_t ml=wcsnlen_s(item.MountPoint,MAX_PATH), dl=wcsnlen_s(item.DeviceName,64);
-    if (ml==MAX_PATH || dl==64) deny(STATUS_ACCESS_DENIED,"control-probe");
-    std::wstring mount(item.MountPoint,ml), candidate(item.DeviceName,dl);
-    if (mount.compare(0,12,L"\\DosDevices\\")==0) mount=mount.substr(12);
-    if (mount.compare(0,4,L"\\??\\")==0) mount=mount.substr(4);
-    if (!sameName(mount,mountPath)) continue;
-    if (!device.empty() || candidate.compare(0,15,L"\\Device\\Volume{")!=0 || candidate.back()!=L'}')
-      deny(STATUS_ACCESS_DENIED,"control-probe");
-    device=candidate;
-  }
-  if (device.empty()) deny(STATUS_ACCESS_DENIED,"control-probe");
-  const std::wstring raw=L"\\\\?\\GLOBALROOT"+device;
-  if (diagnoseControlProfiles) controlProfileDiagnostic=probeControlProfiles(device);
-  Handle source, restricted, impersonation;
-  if (!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY|TOKEN_DUPLICATE|TOKEN_ADJUST_DEFAULT|TOKEN_IMPERSONATE,&source.h))
-    deny(STATUS_ACCESS_DENIED,"control-probe");
-  SID_AND_ATTRIBUTES restriction{uniqueSid,0};
-  if (!CreateRestrictedToken(source.h,DISABLE_MAX_PRIVILEGE|WRITE_RESTRICTED,0,nullptr,0,nullptr,1,&restriction,&restricted.h))
-    deny(STATUS_ACCESS_DENIED,"control-probe");
-  SID low{}; SID_IDENTIFIER_AUTHORITY authority=SECURITY_MANDATORY_LABEL_AUTHORITY;
-  if (!InitializeSid(&low,&authority,1)) deny(STATUS_ACCESS_DENIED,"control-probe");
-  *GetSidSubAuthority(&low,0)=SECURITY_MANDATORY_LOW_RID;
-  TOKEN_MANDATORY_LABEL label{{&low,SE_GROUP_INTEGRITY}};
-  if (!SetTokenInformation(restricted.h,TokenIntegrityLevel,&label,sizeof(label)+GetLengthSid(&low)) ||
-      !DuplicateTokenEx(restricted.h,TOKEN_QUERY|TOKEN_IMPERSONATE,nullptr,SecurityImpersonation,TokenImpersonation,&impersonation.h))
-    deny(STATUS_ACCESS_DENIED,"control-probe");
-  auto groups=tokenInfo(impersonation.h,TokenRestrictedSids), il=tokenInfo(impersonation.h,TokenIntegrityLevel);
-  auto g=reinterpret_cast<TOKEN_GROUPS*>(groups.data());
-  if (!IsTokenRestricted(impersonation.h) || g->GroupCount!=1 || !EqualSid(g->Groups[0].Sid,uniqueSid) ||
-      !EqualSid(reinterpret_cast<TOKEN_MANDATORY_LABEL*>(il.data())->Label.Sid,&low))
-    deny(STATUS_ACCESS_DENIED,"control-probe");
-  if (!ImpersonateLoggedOnUser(impersonation.h)) deny(STATUS_ACCESS_DENIED,"control-probe");
-  // No allocation, exception or early return while impersonating. Capture only
-  // booleans/native status; restore before destroying host-owned resources.
-  HANDLE zero=CreateFileW(raw.c_str(),0,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,nullptr);
-  const DWORD ze=GetLastError();
-  HANDLE read=CreateFileW(raw.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,nullptr);
-  const DWORD re=GetLastError();
-  if (!RevertToSelf()) ExitProcess(3);
-  Handle ownedZero(zero), ownedRead(read);
-  if (ownedZero.valid()) deny(STATUS_ACCESS_DENIED,"control-zero-open");
-  if (ownedRead.valid()) deny(STATUS_ACCESS_DENIED,"control-read-open");
-  if (ze!=ERROR_ACCESS_DENIED || re!=ERROR_ACCESS_DENIED) deny(STATUS_ACCESS_DENIED,"control-probe");
-}
-void pinRoot() {
-  if (rootPath.size()<3 || !iswalpha(rootPath[0]) || rootPath.substr(1,2)!=L":\\") deny();
-  auto p=parts(rootPath.substr(2),true);
-  rootPins.emplace_back(CreateFileW(rootPath.substr(0,3).c_str(),FILE_TRAVERSE|FILE_READ_ATTRIBUTES|READ_CONTROL|SYNCHRONIZE,
-      FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr));
-  if (!rootPins.back().valid()) deny(winerror()); inspect(rootPins.back().h,true);
-  root=rootPins.back().h;
-  for (const auto& leaf:p) {
-    auto h=openRelative(root,leaf,FILE_TRAVERSE|FILE_LIST_DIRECTORY,FILE_OPEN,FILE_DIRECTORY_FILE,FILE_SHARE_READ|FILE_SHARE_WRITE);
-    inspect(h.h,true); root=h.h; rootPins.push_back(std::move(h));
-  }
-}
-void joinInput(std::thread& input) {
-  if (!input.joinable()) return;
-  // Cancellation can race a not-yet-issued synchronous read. Retry on the
-  // exact owned thread until it exits; never strand shutdown in join().
-  for (unsigned i=0;i<400;i++) {
-    const DWORD state=WaitForSingleObject(input.native_handle(),5);
-    if (state==WAIT_OBJECT_0) { input.join(); return; }
-    if (state!=WAIT_TIMEOUT) break;
-    CancelSynchronousIo(input.native_handle());
-  }
-  ExitProcess(3); // OS releases this failed helper; no graceful-release claim.
-}
-} // namespace
-int wmain(int argc,wchar_t** argv) {
-  int result=1; DOKAN_HANDLE instance=nullptr;
-  std::thread input; bool initialized=false;
-  try {
-    if (argc!=1 && (argc!=2 || wcscmp(argv[1],L"--diagnose-control-profiles"))) deny();
-    diagnoseControlProfiles=argc==2;
-    SetDllDirectoryW(L"");
-    ntCreate=reinterpret_cast<NtCreate>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtCreateFile"));
-    if (!ntCreate) deny();
-    DWORD magic=0; if (!exactRead(&magic,4) || magic!=0x43525631) deny();
-    rootPath=field(); mountPath=field(); auto owner=field(), unique=field(); jobName=field();
-    DWORD count=0; if (!exactRead(&count,4) || count>1024) deny();
-    for (DWORD i=0;i<count;i++) { auto d=field(); parts(d,true); deniedRoots.push_back(d); }
-    if (jobName.find(L"Local\\crot-view-job-")!=0 || jobName.size()!=68 ||
-        !ConvertStringSidToSidW(owner.c_str(),&ownerSid) || !ConvertStringSidToSidW(unique.c_str(),&uniqueSid) || EqualSid(ownerSid,uniqueSid)) deny();
-    job.h=OpenJobObjectW(JOB_OBJECT_QUERY,FALSE,jobName.c_str()); if (!job.valid()) deny(winerror());
-    pinRoot();
-    auto sddl=L"O:"+owner+L"D:P(A;;FA;;;"+owner+L")(A;;FA;;;SY)(A;;FA;;;"+unique+L")S:(ML;;NW;;;LW)";
-    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(),1,&projected,nullptr)) deny(winerror());
-    DOKAN_OPTIONS options{}; options.Version=DOKAN_VERSION; options.Options=DOKAN_OPTION_CURRENT_SESSION;
-    options.MountPoint=mountPath.c_str(); options.Timeout=15000; options.AllocationUnitSize=4096; options.SectorSize=512;
-    options.VolumeSecurityDescriptorLength=GetSecurityDescriptorLength(projected);
-    if (options.VolumeSecurityDescriptorLength>sizeof(options.VolumeSecurityDescriptor)) deny();
-    memcpy(options.VolumeSecurityDescriptor,projected,options.VolumeSecurityDescriptorLength);
-    DOKAN_OPERATIONS operations{};
-    operations.ZwCreateFile=create; operations.Cleanup=cleanup; operations.CloseFile=closeFile;
-    operations.ReadFile=readFile; operations.WriteFile=writeFile; operations.FlushFileBuffers=flush;
-    operations.FindFiles=findFiles; operations.GetFileInformation=information; operations.DeleteFile=deleteFile; operations.DeleteDirectory=deleteFile;
-    operations.MoveFile=renameFile; operations.SetEndOfFile=setEnd; operations.GetFileSecurity=security;
-    operations.SetFileSecurity=setSecurity; operations.GetVolumeInformation=volume; operations.GetDiskFreeSpace=space;
-    stopEvent=CreateEventW(nullptr,TRUE,FALSE,nullptr); if (!stopEvent) deny();
-    DokanInit(); initialized=true;
-    const int mounted=DokanCreateFileSystem(&options,&operations,&instance);
-    if (mounted!=DOKAN_SUCCESS) deny(static_cast<NTSTATUS>(mounted));
-    requireIsolatedControl();
-    // Config stdin is not an operation endpoint. Any byte, EOF, broken pipe or
-    // callback fatal stops this exact owned mount. No mutation is replayed.
-    input=std::thread([] { unsigned char b=0; DWORD n=0; ReadFile(GetStdHandle(STD_INPUT_HANDLE),&b,1,&n,nullptr); SetEvent(stopEvent); });
-    if (failed) deny();
-    const char marker[]="CROT_VIEW_READY\n"; DWORD written=0;
-    if (!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),marker,sizeof(marker)-1,&written,nullptr) || written!=sizeof(marker)-1) deny();
-    WaitForSingleObject(stopEvent,INFINITE); DokanCloseHandle(instance); instance=nullptr;
-    joinInput(input);
-    result=failed?2:0;
-  } catch (const Error& e) {
-    if (e.stage && controlProfileDiagnostic && controlProfileNtStatus) std::fprintf(stderr,"CROT_VIEW_ERROR:%s:%08lx:%08lx\n",e.stage,static_cast<unsigned long>(controlProfileDiagnostic),static_cast<unsigned long>(controlProfileNtStatus));
-    else if (e.stage && controlProfileDiagnostic) std::fprintf(stderr,"CROT_VIEW_ERROR:%s:%08lx\n",e.stage,static_cast<unsigned long>(controlProfileDiagnostic));
-    else if (e.stage) std::fprintf(stderr,"CROT_VIEW_ERROR:%s\n",e.stage);
-    else std::fprintf(stderr,"CROT_VIEW_ERROR:%08lx\n",static_cast<unsigned long>(e.status));
-  }
-    catch (...) { std::fputs("CROT_VIEW_ERROR:internal\n",stderr); }
-  if (instance) DokanCloseHandle(instance);
-  joinInput(input);
-  if (initialized) DokanShutdown();
-  rootPins.clear(); root=INVALID_HANDLE_VALUE; release(job.h); job.h=INVALID_HANDLE_VALUE;
-  if (!retryReleases() || !retryControlProfileCleanup() || failed) result=3;
-  if (projected && LocalFree(projected)) result=3;
-  if (ownerSid && LocalFree(ownerSid)) result=3;
-  if (uniqueSid && LocalFree(uniqueSid)) result=3;
-  if (stopEvent && !CloseHandle(stopEvent)) result=3;
-  stopEvent=nullptr;
-  return result;
+bool put(const std::wstring& p,const char* text){Handle h;h.h=CreateFileW(p.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,0,nullptr);if(h.h==INVALID_HANDLE_VALUE)return false;DWORD n=0;return !!WriteFile(h.h,text,static_cast<DWORD>(strlen(text)),&n,nullptr)&&n==strlen(text);}
+int wmain(int argc,wchar_t** argv){
+ if(argc!=7)return 2;
+ std::wstring root=argv[1],temp=argv[2],cache=argv[3],outside=argv[4],protectedFile=argv[5],node=argv[6];
+ for(int i=1;i<argc;i++){std::wstring p=argv[i];if(p.size()<4||p[1]!=L':'||p[2]!=L'\\'||p.find(L'"')!=p.npos)return 2;}
+ ownedTemp=temp;ownedCache=cache;
+ GUID guid{};need(SUCCEEDED(CoCreateGuid(&guid)));wchar_t id[64]{};StringFromGUID2(guid,id,64);std::wstring name=L"crot.l1.";for(auto c:std::wstring(id))if(c!=L'{'&&c!=L'}')name+=c;
+ PSID package=nullptr;bool owns=false,cleanup=true;DWORD nativeCode=0,nodeCode=0,cmdCode=0,psCode=0;bool verified=false;
+ try {
+  phase="profile";need(CreateAppContainerProfile(name.c_str(),L"CROT qualification",L"Owned disposable profile",nullptr,0,&package)==S_OK);owns=true;
+  Grant workspace(root,package),tmp(temp,package),tools(cache,package),secret(protectedFile,package);
+  wchar_t self[32768]{};need(GetModuleFileNameW(nullptr,self,32768)>0);std::wstring source=self;source=source.substr(0,source.find_last_of(L'\\')+1)+L"control-profile-child.exe";
+  std::wstring child=cache+L"\\fixed-child.exe",nodeCopy=cache+L"\\node.exe";
+  need(!!CopyFileW(source.c_str(),child.c_str(),TRUE)&&!!CopyFileW(node.c_str(),nodeCopy.c_str(),TRUE));
+  need(put(root+L"\\link-source.txt","host-owned")&&put(outside+L"\\target.txt","unchanged"));
+  need(!!CreateHardLinkW((outside+L"\\alias.txt").c_str(),(root+L"\\link-source.txt").c_str(),nullptr));
+  phase="grants";workspace.add();tmp.add();tools.add();secret.add(true);
+  phase="native";nativeCode=launch(child,{root,temp,cache,outside,protectedFile},root,package,verified);
+  const std::wstring js=L"const f=require('fs');let r={ready:true};try{f.writeFileSync('node-created.txt','live');f.renameSync('node-created.txt','node-renamed.txt');r.read=f.readFileSync('node-renamed.txt','utf8')==='live';f.unlinkSync('node-renamed.txt');const h=f.openSync('\\\\\\\\.\\\\NUL','r+');f.closeSync(h);r.nul=true}catch(e){r.error=e.code;process.exitCode=1}f.writeFileSync('node-result.json',JSON.stringify(r));";
+  phase="node";nodeCode=launch(nodeCopy,{L"-e",js},root,package,verified);
+  wchar_t system[32768]{};need(GetSystemDirectoryW(system,32768)>0);std::wstring sys=system;
+  phase="cmd";cmdCode=launch(sys+L"\\cmd.exe",{L"/d",L"/c",L"echo cmd-ready>cmd-result.txt & echo nul>NUL"},root,package,verified);
+  const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\"; 'ps-ready' > ps-result.txt; 'nul' > NUL";
+  phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified);
+  phase="cleanup";cleanup=secret.remove();cleanup=tools.remove()&&cleanup;cleanup=tmp.remove()&&cleanup;cleanup=workspace.remove()&&cleanup;need(cleanup);
+ }catch(...){failureCode=GetLastError();cleanup=false;}
+ if(owns){bool removed=false;for(unsigned i=0;i<20&&!removed;i++){removed=DeleteAppContainerProfile(name.c_str())==S_OK;if(!removed)Sleep(50);}cleanup=cleanup&&removed;}
+ if(package)FreeSid(package);
+ std::cout<<"{\"phase\":\""<<phase<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";
+ return cleanup?0:1;
 }

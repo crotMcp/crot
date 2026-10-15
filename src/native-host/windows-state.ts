@@ -84,8 +84,19 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
       }
     if (error) throw error;
   };
-  return (target: string, owner: string, directory: boolean, mutate: boolean): boolean => {
+  return (
+    target: string,
+    owner: string,
+    directory: boolean,
+    mutate: boolean,
+    sandboxSids: readonly string[] = [],
+  ): boolean => {
     validateSid(owner);
+    if (sandboxSids.length > 64 || new Set(sandboxSids).size !== sandboxSids.length) throw fail("sandbox SID set");
+    for (const sid of sandboxSids) {
+      validateSid(sid);
+      if (!/^S-1-15-2-(?:[0-9]+-){6}[0-9]+$/.test(sid)) throw fail("AppContainer SID");
+    }
     validateWindowsPath(target);
     retry();
     if (!/^[A-Za-z]:\\/.test(target) || /[\u0000-\u001f/*?"<>|]/.test(target) || target.slice(2).includes(":"))
@@ -206,7 +217,14 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
       const expected = allocation("memory"),
         inherit = directory ? "OICI" : "";
       if (
-        !ok(sd(`D:P(A;${inherit};FA;;;${owner})S:(ML;${inherit};NWNR;;;ME)`, 1, expected, null)) ||
+        !ok(
+          sd(
+            `D:P${sandboxSids.map((sid) => `(D;${inherit};FA;;;${sid})`).join("")}(A;${inherit};FA;;;${owner})S:(ML;${inherit};NWNR;;;ME)`,
+            1,
+            expected,
+            null,
+          ),
+        ) ||
         !valid(expected.value)
       )
         throw fail("private descriptor");
@@ -244,7 +262,10 @@ export function bindWindowsPrivateState(ffi: StateFfi, libraries: TokenLibraries
   }
   return api;
 }
-export async function loadWindowsPrivateState(owner: string): Promise<PrivateFileProtection> {
+export async function loadWindowsPrivateState(
+  owner: string,
+  sandboxSids: readonly string[] = [],
+): Promise<PrivateFileProtection> {
   if (process.platform !== "win32" || !["x64", "arm64"].includes(process.arch)) throw fail("native platform");
   const name: string = "koffi",
     module = await import(name),
@@ -259,16 +280,16 @@ export async function loadWindowsPrivateState(owner: string): Promise<PrivateFil
       if (created !== undefined) {
         const first = fromWin32NamespacedPath(created);
         if (!isSameOrAncestorWindowsPath(first, target)) throw fail("created directory scope");
-        protect(first, owner, true, true);
+        protect(first, owner, true, true, sandboxSids);
         let createdPath = first;
         for (const part of target.slice(first.length).replace(/^\\/, "").split("\\").filter(Boolean)) {
           createdPath += "\\" + part;
-          protect(createdPath, owner, true, true);
+          protect(createdPath, owner, true, true, sandboxSids);
         }
       }
     },
     protectFile: async (file) => {
-      protect(file, owner, false, true);
+      protect(file, owner, false, true, sandboxSids);
     },
     inspect: async (file) => {
       const item = await lstat(file).catch((e) => {
@@ -281,7 +302,7 @@ export async function loadWindowsPrivateState(owner: string): Promise<PrivateFil
           ownerOnly: true,
           detail: "will be created owner-only, Medium no-read-up before content",
         };
-      const checked = protect(file, owner, item.isDirectory(), false);
+      const checked = protect(file, owner, item.isDirectory(), false, sandboxSids);
       return {
         mechanism: "windows-acl",
         ownerOnly: checked,
