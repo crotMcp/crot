@@ -5,6 +5,33 @@ confinement still reports `not_implemented`; PR #27 stays open and Draft. No
 backend, write-through filesystem, global write boundary or architecture
 selection is claimed by the 11 green checks below.
 
+## Current acceptance checkpoint — native source `281b559`, NOT accepted
+
+Source `281b5590892a4c689aa19906ff6cdcfb47bbdb55` has nine completed
+successful checks and two failed Windows checks. All four real Linux L1 jobs,
+Linux/macOS Node20/22 and Chromium pass. Local full check:1614 Core passed,
+166 skipped;147 extension passed. Native jobs:
+[Node20](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38674838820/job/116225973416),
+[Node22](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38674838820/job/116225973421).
+Exact checks, full event arrays and annotations are in the SHA-256 manifest.
+
+| Criterion | Status / implementation commit | Concrete evidence / remaining failure |
+| --- | --- | --- |
+| 1. Ordinary same-Medium-backing workspace | NOT MET; `43f7392` shell fix retained, `281b559` owned objects | Node22 private fixture runs, not original Medium backing. No transparent filesystem exists; ordinary NUL reopen is EPERM. |
+| 2. Process/environment/lifecycle | PARTIAL; `3b91370`, `86d8a53`, `bde77eb`, `281b559` | Historical native byte/exit/Core/tree gates pass at `3b91370`; cleanup ABI fault injection added since. Strong-token Node20/descendants/shells remain failed. Byte setup/event release repairs in this change require fresh native CI. |
+| 3. Global write boundary | NOT MET; `fcb4748`, `281b559` | Ready Node22 private actor denies unrelated Low writes and WRITE_DAC, with trusted controls. Full aliases/concurrency/descendants plus transparent backing not proven. Node20 pre-JS failure is not a denial. |
+| 4. Actual CROT state/control/Docker | NOT MET; `281b559` is observation pin, not implementation of this boundary | No qualifying actual-service fixture suite or direct endpoint confinement; environment omission is not protection. |
+| 5. Independent native supported matrix | NOT MET; `281b559` | Both x64 Windows jobs fail. Native ARM64, Windows11 and standard-user qualification remain absent. Workflow creation returned403; existing x64 CI is usable. |
+| 6. Regressions | PASS at `281b559`, pending fresh source | Nine non-Windows jobs including all4 Linux L1 pass; full local1614+147. Earlier `bde77eb` ECR failure is distinct and not hidden. Windows failures remain visible. |
+| 7. Production integration | PARTIAL components, NOT MET; `3b91370`, `281b559` | Existing Core ProcessLauncher consumes native transport, same PermissionEngine. CommandConfinement remains none/not_implemented and remote launch fail-closed; no accepted production backend. |
+| 8. No known critical blocker | NOT MET; `281b559` | Startup/NUL/descendants/shells, filesystem/state/network/backend/matrix remain blockers. No relaxed gates, broad grants, unsafe fallback or readiness invention. |
+
+The diagnostic boolean witness reaches native attachment but the unchanged
+ResumeThread ==1 check still fails. The previous message's GetLastError0 did
+not reveal the returned suspend count. This change records that exact count
+without extra resume attempts, tolerating debugger suspensions, or downgrading
+the gate. No resolved USER32/loader root cause is claimed.
+
 ## Native process component — qualified at `3b91370`
 
 Continued from verified `6fbfc2d634819f576a7d807ab7389800a37a7d80`
@@ -303,7 +330,7 @@ Local full `npm run check` on `43f7392` passed: **1526 core / 144 skipped**,
 native Windows substitute. All four actual Linux L1 CI jobs, Linux/macOS
 Node 20/22, extension checks and real Chromium CI passed on that source pin.
 
-## Full acceptance status — remains OPEN
+## Historical shared-shell acceptance snapshot — superseded by current status
 
 | Required criterion | Result of this continuation | Blocking work still required |
 | --- | --- | --- |
@@ -653,3 +680,50 @@ malformed BOOL are rejected before ResumeThread; process/Job handles are
 released. These prove contracts/ownership, not Windows isolation. All eight
 acceptance criteria retain their prior OPEN/PARTIAL statuses until actual
 native proofs and the missing filesystem/state/network/backend work qualify.
+
+## Byte teardown retry implementation follow-up
+
+The full local check for source `281b5590892a4c689aa19906ff6cdcfb47bbdb55`
+passed:1614 Core /166 skipped and147 extension. Native evidence is recorded
+separately after completion; no Windows acceptance is inferred from local skips.
+
+Further actual cleanup defects found in the byte transport are corrected:
+a rejected Endpoint.close promise no longer poisons every later close after
+successful synchronous/native recovery; a completed request is retained until
+its event release succeeds instead of being forgotten before CloseHandle; the
+native request marks released only AFTER the event handle really closes. Failed
+completed-event releases stay reachable by their exact operation object and
+block new native allocations until recovery. Shared released state prevents a
+later owner retry from double-closing a recycled handle value. Pending kernel
+requests still require acknowledged cancellation; the incomplete-I/O quarantine,
+byte semantics, three-handle authority and no-reuse gate are unchanged.
+
+Focused evidence:74 portable/C-ABI tests pass (59 token ABI,10 byte state
+machine,3 byte native ABI,2 native process ownership). New cases inject failed
+parent/event releases, prove no allocation growth during persistent event-close
+failure, exercise async close after synchronous recovery, and preserve a
+completed request until cleanup succeeds. These are ownership/ABI contracts,
+not an assertion that every exceptional native setup path or the complete
+strong-token lifecycle is already qualified. Criterion2 remains PARTIAL.
+
+
+## Partial pipe setup ownership follow-up
+
+The first byte release repair passed a complete local check:1618 Core /166
+skipped and147 extension. Subsequent fault injection found unreturned partial
+setup owners: both pipe ends and a descriptor could be lost if cleanup itself
+failed. Both transport-level and native-binding setup now retain exact retry
+closures, attempt every owned resource, and block new allocation until recovery.
+A descriptor must really release before setup returns success. Persistent
+CloseHandle/LocalFree failures cause no new native allocation; a recovery closes
+each remaining resource exactly once. Pending-I/O quarantine is unchanged and
+also checked by direct low-level creators. No quarantine is treated as cleanup.
+
+New compiled C ABI cases inject simultaneous failed parent/child/descriptor
+cleanup and a separate descriptor free failure after successful connection;
+portable tests inject a third-pipe setup failure with two retained child owners.
+These are ownership/ABI evidence, NOT Windows isolation acceptance. Ambiguous
+FFI-exception I/O start paths still need further audit; this does not claim
+exhaustive exceptional-path qualification or completion of criterion2/8.
+
+Final local full check of this byte setup/count-diagnostic change: **1624 Core passed /166 skipped;147 extension passed**, including lint/format/types/builds. Focused portable/C-ABI suite:94 passed (62 token ABI,11 byte state,5 byte ABI,16 environment/argument). Runtime Linux x64 Node24.14.1; local Windows skips are not native proof. Native CI for this new source is pending.

@@ -80,6 +80,8 @@ int CreateProcessAsUserW(void *token, uint16_t *app, uint16_t *cmd, void *pa, vo
 uint32_t ResumeThread(void *thread) {
   resumes++;
   if (fault == 11 || *(int *)thread != 6 || !assigned) return 0xffffffff;
+  if (fault == 30) return 0;
+  if (fault == 31) return 2;
   phase = 1; return 1;
 }
 int TerminateProcess(void *process, uint32_t code) { kills++; if (fault == 19 || fault == 20) return 0; phase = 2; return *(int *)process == 5 && code == 1; }

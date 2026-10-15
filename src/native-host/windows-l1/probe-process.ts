@@ -258,7 +258,17 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
           observing = false;
         }
       }
-      if (resume(info.hThread) !== 1) throw failure("ResumeThread");
+      const previousSuspendCount = resume(info.hThread);
+      if (previousSuspendCount !== 1) {
+        // GetLastError is defined only for the failure sentinel. For 0 or >1,
+        // record the actual count, not an unrelated/stale last-error value.
+        const nativeCode = previousSuspendCount === 0xffffffff ? Number(lastError()) : undefined;
+        throw new CrotError(
+          "OPERATION_FAILED",
+          `Windows process probe: ResumeThread failed (previous suspend count ${String(previousSuspendCount)}${nativeCode === undefined ? "" : `, code ${nativeCode}`}).`,
+          { stage: "ResumeThread", previousSuspendCount, ...(nativeCode === undefined ? {} : { nativeCode }) },
+        );
+      }
       if (!success(release(info.hThread))) throw failure("thread CloseHandle");
       info.hThread = undefined;
       let closed = false;

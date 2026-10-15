@@ -42,6 +42,42 @@ const delay = () => new Promise<void>((resolve) => setTimeout(resolve, 2));
 // the kernel may still write them. Quarantine is fatal for this transport, not
 // a successful cleanup or a reason to continue launching on the same backend.
 const quarantined = new Set<PipeOperation>();
+// Completed requests can still own an event if CloseHandle fails. Their exact
+// operation object retains that event and its released flag, avoiding handle
+// reuse/ABA when another creator retries cleanup before allocating anything.
+const failedCompletedReleases = new Set<PipeOperation>();
+// Failed setup never returns an owner to the caller. Retain its exact,
+// idempotent release actions and refuse more allocation until all recover.
+const failedSetupReleases = new Set<() => void>();
+function releaseSetup(action: () => void): void {
+  const retry = () => {
+    action();
+    failedSetupReleases.delete(retry);
+  };
+  try {
+    retry();
+  } catch {
+    failedSetupReleases.add(retry);
+  }
+}
+function retryStdioReleases(): void {
+  let error: unknown;
+  for (const operation of failedCompletedReleases) {
+    try {
+      operation.release();
+    } catch (cause) {
+      error ??= cause;
+    }
+  }
+  for (const release of failedSetupReleases) {
+    try {
+      release();
+    } catch (cause) {
+      error ??= cause;
+    }
+  }
+  if (error) throw error;
+}
 export function quarantinedStdioOperations(): number {
   return quarantined.size;
 }
@@ -103,10 +139,13 @@ class Endpoint {
       // Retain the endpoint and operation; never free an outstanding OVERLAPPED.
       failed ??= { cause: failure("incomplete transfer ownership") };
     } else {
-      this.pending = undefined;
       try {
         operation.release();
+        this.pending = undefined;
       } catch (cause) {
+        // Completion is not successful resource release. Keep this exact
+        // request reachable for close/retry and forbid another transfer.
+        this.closed = true;
         failed ??= { cause };
       }
     }
@@ -114,12 +153,18 @@ class Endpoint {
     return value;
   }
   close(): Promise<void> {
+    if (this.parentClosed) return Promise.resolve();
     if (this.closing) return this.closing;
     this.closed = true;
     this.closing = (async () => {
-      this.pending?.cancel();
+      if (this.pending && !this.pending.completed) this.pending.cancel();
       const deadline = Date.now() + 5000;
       while (this.pending) {
+        if (this.pending.completed) {
+          this.pending.release();
+          this.pending = undefined;
+          break;
+        }
         if (Date.now() >= deadline) {
           quarantined.add(this.pending);
           throw failure("cancel completion deadline");
@@ -127,7 +172,10 @@ class Endpoint {
         await delay();
       }
       this.releaseParent();
-    })();
+    })().catch((error: unknown) => {
+      this.closing = undefined;
+      throw error;
+    });
     return this.closing;
   }
   closeSync(): void {
@@ -254,6 +302,7 @@ export function releaseStdioChildEnds(stdio: NativeByteStdio): void {
 }
 export async function createNativeByteStdio(api: BytePipeApi, ownerSid: string): Promise<NativeByteStdio> {
   validateSid(ownerSid);
+  retryStdioReleases();
   if (quarantined.size) throw failure("previous incomplete cancellation");
   const pipes: BytePipe[] = [];
   try {
@@ -261,11 +310,7 @@ export async function createNativeByteStdio(api: BytePipeApi, ownerSid: string):
   } catch (error) {
     for (const pipe of pipes) {
       for (const release of [() => pipe.closeChild(), () => pipe.closeParent()]) {
-        try {
-          release();
-        } catch {
-          /* preserve setup error, attempt both ends */
-        }
+        releaseSetup(release);
       }
     }
     throw error;
@@ -383,7 +428,7 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
     }
     let lastStatus: ReturnType<PipeOperation["poll"]> | undefined;
     let terminalError: Error | undefined;
-    return {
+    const ownedOperation: PipeOperation = {
       get completed() {
         return terminal;
       },
@@ -423,25 +468,53 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
       release: () => {
         if (released) return;
         if (!terminal) throw failure("release of pending native memory");
-        released = true;
-        release(doneEvent);
+        try {
+          release(doneEvent);
+          released = true;
+          failedCompletedReleases.delete(ownedOperation);
+        } catch (error) {
+          failedCompletedReleases.add(ownedOperation);
+          throw error;
+        }
       },
     };
+    return ownedOperation;
   };
   return {
     create: async (direction, ownerSid) => {
       validateSid(ownerSid);
+      retryStdioReleases();
+      if (quarantined.size) throw failure("previous incomplete cancellation");
       const descriptor: { value?: NativeHandle } = {};
       let parent: NativeHandle, child: NativeHandle;
       let connection: PipeOperation | undefined;
       let parentClosed = false,
         childClosed = false;
+      const closeParent = () => {
+        if (!parentClosed && valid(parent)) {
+          release(parent);
+          parentClosed = true;
+        }
+      };
+      const closeChild = () => {
+        if (!childClosed && valid(child)) {
+          release(child);
+          childClosed = true;
+        }
+      };
+      const releaseDescriptor = () => {
+        if (valid(descriptor.value)) {
+          if (valid(free(descriptor.value))) throw failure("pipe descriptor LocalFree", errorCode());
+          descriptor.value = undefined;
+        }
+      };
       const name = `\\\\.\\pipe\\crot-byte-${randomBytes(24).toString("hex")}`;
       try {
         // Parent-only IPC: Medium NR/NW; only handles already opened by this
         // trusted process will be transferred to the Low child. No network pipe.
         if (!ok(sd(`D:P(A;;GA;;;${ownerSid})(A;;GA;;;SY)S:(ML;;NWNR;;;ME)`, 1, descriptor, null)))
           throw failure("pipe descriptor", errorCode());
+        if (!valid(descriptor.value)) throw failure("pipe descriptor output");
         parent = server(name, (direction === "input" ? 2 : 1) | 0x40000000 | 0x80000, 8, 1, 65536, 65536, 0, {
           length: 24,
           descriptor: descriptor.value,
@@ -465,24 +538,17 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
         }
         connection.release();
         connection = undefined;
+        // Complete descriptor release before returning the pipe. If it fails,
+        // setup still owns both ends and the catch below retains all failures.
+        releaseDescriptor();
         return {
           parent,
           child,
           read: (buffer) => operation(parent, buffer, (overlap) => read(parent, buffer, buffer.length, null, overlap)),
           write: (buffer) =>
             operation(parent, buffer, (overlap) => write(parent, buffer, buffer.length, null, overlap)),
-          closeParent: () => {
-            if (!parentClosed) {
-              release(parent);
-              parentClosed = true;
-            }
-          },
-          closeChild: () => {
-            if (!childClosed) {
-              release(child);
-              childClosed = true;
-            }
-          },
+          closeParent,
+          closeChild,
         };
       } catch (error) {
         let incomplete = false;
@@ -513,21 +579,10 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
         }
         // A pending kernel request still owns its OVERLAPPED and parent handle.
         // Closing the child is safe; never free or close the quarantined parent.
-        try {
-          release(child);
-        } catch {
-          /* preserve setup failure */
-        }
-        if (!incomplete) {
-          try {
-            release(parent);
-          } catch {
-            /* preserve setup failure */
-          }
-        }
+        releaseSetup(closeChild);
+        if (!incomplete) releaseSetup(closeParent);
+        releaseSetup(releaseDescriptor);
         throw error;
-      } finally {
-        if (valid(descriptor.value)) free(descriptor.value);
       }
     },
   };

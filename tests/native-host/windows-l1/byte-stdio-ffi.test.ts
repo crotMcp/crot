@@ -21,6 +21,8 @@ if (process.platform !== "win32")
   }
 describe.skipIf(!compiler)("owned byte transport compiled native ABI", () => {
   let dir: string, api: BytePipeApi, live: () => number, invalid: () => number;
+  let failEventClose: (fails: number) => void;
+  let failSetup: (fails: number) => void, failDescriptor: (fails: number) => void;
   beforeAll(async () => {
     dir = await mkdtemp(path.join(os.tmpdir(), "crot-byte-ffi-"));
     const lib = path.join(dir, "byte.so");
@@ -37,6 +39,9 @@ describe.skipIf(!compiler)("owned byte transport compiled native ABI", () => {
     api = bindBytePipeApi(ffi, { kernel32: lib, advapi32: lib });
     live = ffi.load(lib).func("int LiveByteHandles(void)") as typeof live;
     invalid = ffi.load(lib).func("int InvalidByteAbi(void)") as typeof invalid;
+    failEventClose = ffi.load(lib).func("void FailLastEventClose(int fails)") as typeof failEventClose;
+    failSetup = ffi.load(lib).func("void FailByteSetup(int fails)") as typeof failSetup;
+    failDescriptor = ffi.load(lib).func("void FailByteDescriptorFree(int fails)") as typeof failDescriptor;
   });
   afterAll(async () => {
     await rm(dir, { recursive: true, force: true });
@@ -73,4 +78,48 @@ describe.skipIf(!compiler)("owned byte transport compiled native ABI", () => {
     expect(live()).toBe(0);
     expect(invalid()).toBe(0);
   });
+  it("retains a failed completed-event close, blocks further allocation and retries without double close", async () => {
+    const pair = await api.create("output", owner);
+    const op = pair.read(Buffer.alloc(16));
+    expect(op.poll()).toEqual({ state: "complete", bytes: 16 });
+    failEventClose(1);
+    expect(() => op.release()).toThrow("CloseHandle");
+    expect(live()).toBe(3);
+    await expect(api.create("output", owner)).rejects.toThrow("CloseHandle");
+    expect(live()).toBe(3);
+    failEventClose(0);
+    const next = await api.create("output", owner);
+    // Binding recovery released only the previous request's exact event.
+    op.release();
+    op.release();
+    pair.closeChild();
+    pair.closeParent();
+    next.closeChild();
+    next.closeParent();
+    expect(live()).toBe(0);
+    expect(invalid()).toBe(0);
+  });
+  it.each(["partial pipe", "descriptor"] as const)(
+    "retains all failed %s setup resources and blocks growth until cleanup recovers",
+    async (stage) => {
+      const fail = stage === "partial pipe" ? failSetup : failDescriptor;
+      fail(1);
+      await expect(api.create("output", owner)).rejects.toThrow(
+        stage === "partial pipe" ? "child initial noninheritance" : "pipe descriptor LocalFree",
+      );
+      const retained = stage === "partial pipe" ? 3 : 1;
+      expect(live()).toBe(retained);
+      for (let i = 0; i < 3; i++) {
+        await expect(api.create("output", owner)).rejects.toThrow();
+        expect(live()).toBe(retained);
+      }
+      fail(0);
+      const next = await api.create("output", owner);
+      expect(live()).toBe(2);
+      next.closeChild();
+      next.closeParent();
+      expect(live()).toBe(0);
+      expect(invalid()).toBe(0);
+    },
+  );
 });

@@ -82,6 +82,33 @@ async function collect(stream: Readable) {
   return Buffer.concat(chunks);
 }
 describe("owned native byte stdio state machine", () => {
+  it("retains unreturned partial transport owners and blocks all new creates until both ends release", async () => {
+    const f = fixture(),
+      create = f.api.create;
+    let blocked = true,
+      count = 0;
+    f.api.create = vi.fn(async (direction, owner) => {
+      if (++count === 3) throw new Error("third pipe setup failed");
+      const pipe = await create(direction, owner);
+      const release = pipe.closeChild;
+      pipe.closeChild = vi.fn(() => {
+        if (blocked) throw new Error("retained setup child");
+        release();
+      });
+      return pipe;
+    });
+    await expect(createNativeByteStdio(f.api, OWNER)).rejects.toThrow("third pipe setup failed");
+    for (const pipe of f.pipes) expect(pipe.closeParent).toHaveBeenCalledOnce();
+    const next = fixture();
+    const nextCreate = (next.api.create = vi.fn(next.api.create));
+    await expect(createNativeByteStdio(next.api, OWNER)).rejects.toThrow("retained setup child");
+    expect(nextCreate).not.toHaveBeenCalled();
+    blocked = false;
+    const io = await createNativeByteStdio(next.api, OWNER);
+    // Previously successful ends are not retried during global recovery.
+    for (const pipe of f.pipes) expect(pipe.closeParent).toHaveBeenCalledOnce();
+    await io.close();
+  });
   it("keeps stdin/stdout/stderr as independent bytes with concurrent drain and no Unicode decoding", async () => {
     const binary = Buffer.from([0, 255, 128, 13, 10]);
     const f = fixture([[], [Buffer.from("😀"), binary], [Buffer.from("ошибка"), binary]], 3);
@@ -158,6 +185,60 @@ describe("owned native byte stdio state machine", () => {
     for (const pipe of f.pipes) expect(pipe.closeParent).toHaveBeenCalled();
     await io.close();
     expect(f.pipes[0]!.closeChild).toHaveBeenCalledTimes(2);
+  });
+  it("retries failed parent closure instead of permanently returning a rejected close promise", async () => {
+    const f = fixture(),
+      io = await createNativeByteStdio(f.api, OWNER);
+    const close = f.pipes[0]!.closeParent;
+    let fails = true;
+    f.pipes[0]!.closeParent = vi.fn(() => {
+      if (fails) throw new Error("parent close failed");
+      close();
+    });
+    await expect(io.close()).rejects.toThrow("parent close failed");
+    fails = false;
+    await io.close();
+    await io.close();
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it("retains a completed request whose release fails, blocks transfers and retries it during cleanup", async () => {
+    const f = fixture([[], [Buffer.from("data")], []], 32768, 0);
+    const io = await createNativeByteStdio(f.api, OWNER);
+    const read = f.pipes[1]!.read;
+    let fails = true;
+    f.pipes[1]!.read = vi.fn((buffer: Buffer) => {
+      const op = read(buffer),
+        release = op.release;
+      op.release = vi.fn(() => {
+        if (fails) throw new Error("operation release failed");
+        release();
+      });
+      return op;
+    });
+    const error = once(io.stdout, "error");
+    io.stdout.resume();
+    await error;
+    await expect(io.close()).rejects.toThrow("operation release failed");
+    expect(f.pipes[1]!.read).toHaveBeenCalledOnce();
+    expect(f.pipes[1]!.closeParent).not.toHaveBeenCalled();
+    fails = false;
+    await io.close();
+    expect(f.pipes[1]!.closeParent).toHaveBeenCalledOnce();
+  });
+  it("permits async close after synchronous recovery of a failed parent release", async () => {
+    const f = fixture(),
+      io = await createNativeByteStdio(f.api, OWNER);
+    const close = f.pipes[0]!.closeParent;
+    let fails = true;
+    f.pipes[0]!.closeParent = vi.fn(() => {
+      if (fails) throw new Error("parent close failed");
+      close();
+    });
+    await expect(io.close()).rejects.toThrow("parent close failed");
+    fails = false;
+    io.closeSync();
+    await io.close();
+    expect(close).toHaveBeenCalledOnce();
   });
   it("bounds read buffering when the consumer applies backpressure", async () => {
     const chunks = Array.from({ length: 100 }, () => Buffer.alloc(32768, 0xa5));

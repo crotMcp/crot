@@ -303,6 +303,32 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     }
     expect(live()).toBe(0);
   });
+  it.each([
+    [30, 0],
+    [31, 2],
+    [11, 0xffffffff],
+  ])("reports native ResumeThread count (%i -> %i) without relaxing exact single suspension", (n, count) => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid),
+      j = job();
+    try {
+      fault(n);
+      expect(() => token.launchProbe(spec, j)).toThrow(
+        expect.objectContaining({
+          details: expect.objectContaining({ stage: "ResumeThread", previousSuspendCount: count }),
+        }),
+      );
+      expect(resumes()).toBe(1);
+      expect(kills()).toBe(1);
+      expect(j.closed).toBe(true);
+      expect(live()).toBe(2);
+    } finally {
+      fault(0);
+      token.close();
+    }
+    expect(live()).toBe(0);
+  });
   it.each([19, 20])("requires a signalled process after a racing termination failure (%i)", (n) => {
     fault(0);
     resetProcess();

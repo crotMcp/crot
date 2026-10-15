@@ -7,21 +7,23 @@ package PR updates this file.
 
 ## WP-23c current continuation — not accepted
 
-Latest published cleanup source `bde77eb`: full local check 1608 Core passed
-/166 skipped and147 extension passed. Native run: **8 successful checks /3
-failures** — two Windows qualification failures and Ubuntu22 x64 L1 ECR quota
-failure (`toomanyrequests: Data limit exceeded`). Other three real Linux L1,
-Linux/macOS Node and Chromium jobs pass. Prior `86d8a53` has all9 non-Windows
-checks green plus the two Windows failures; neither is Windows L1 acceptance.
+Latest completed native source `281b559`: **9 successful checks /2 Windows
+failures**. All four Linux L1 jobs, Linux/macOS Node20/22 and real Chromium pass.
+Full local check for that source:1614 Core /166 skipped and147 extension.
 Node22 direct unique-token private CRUD/unrelated-Low write and WRITE_DAC denial
 pass; ordinary NUL reopen fails EPERM after a trusted working control. Node20
-exits0xc0000142 before JS; descendants/cmd/WinPS remain red. The fixed -pb CDB
-attach exposed a readiness deadlock, not a new security-denial proof.
+exits0xc0000142 before JS; descendants/cmd/WinPS remain red. Owned debugger
+attachment still fails the exact ResumeThread gate on both runtimes; previous
+logs did not capture the numeric suspend count. No security denial is inferred
+from missing readiness, and no suspend-count assertion is weakened.
 
-Current follow-up fixes that diagnostic with a callback-lifetime boolean witness
-over the exact held owned handle; exact single-suspension ResumeThread remains.
-It also verifies the fresh station before desktop creation, and retains failed
-temporary descriptor frees in the token owner. Native requalification pending.
+Current byte cleanup follow-up retains failed event/parent closes, partial
+transport setup handles and descriptors until native release succeeds; persistent
+failure blocks further allocation. Fault-injection covers recovery and no-growth
+without double release. ResumeThread errors now record the actual native count,
+with GetLastError only for the failure sentinel. Native requalification for
+these changes is pending; latest completed native evidence is pinned above.
+Full local check of this change:1624 Core /166 skipped and147 extension passed.
 
 Implemented components include native byte stdio/ProcessLauncher through the
 existing Core (`3b91370`, historical 11/11 CI), bounded launch environment,
@@ -32,7 +34,7 @@ interactive desktop, global NUL/device ACL, original workspace SD or runtime
 qualification gate is widened. Original PowerShell fix `43f7392` and aligned RPC
 regression `01ed8ce` remain intact; their strict 15-second gates are retained.
 
-Published86d8a53/bde77eb repair Job/token ownership after failed
+Published86d8a53/bde77eb/281b559 repair Job/token ownership after failed
 configuration/CloseHandle, asynchronous exit cleanup and a host-close/launch
 race, with portable fault-injection tests. It is not a transparent filesystem
 or an accepted Windows L1 mechanism. Transparent same-backing Medium workspace
