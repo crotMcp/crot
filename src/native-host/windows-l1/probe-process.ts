@@ -1,7 +1,7 @@
 /**
- * WP-23c research launch path. Uses a restricted primary token and an empty
- * kill-on-close Job before ResumeThread. Not a production ProcessLauncher:
- * no stdio bridge, IPC/MIC/network policy or L1 availability declaration.
+ * Owned low-level restricted launch used by the native ProcessLauncher.
+ * Verifies an empty kill-on-close Job before ResumeThread and accepts only
+ * owned stdio. This primitive alone declares no L1 or filesystem availability.
  */
 import { CrotError } from "../../core/errors.js";
 import type { JobObject } from "../windows-job.js";
@@ -23,6 +23,8 @@ export interface ProbeSpec {
   readonly stdio?: "nul" | NativeByteStdio;
   /** AD-24 trusted, newly owned noninteractive station/desktop, never caller input. */
   readonly desktop?: string;
+  /** AD-24 new hidden console, only inside the owned noninteractive desktop. */
+  readonly console?: "owned-hidden";
   /** Owned research diagnostics only; never forwarded from Core/CommandSpec. */
   readonly diagnostics?: { readonly debugOnlyThisProcess: true; readonly beforeResume: (pid: number) => void };
 }
@@ -40,7 +42,7 @@ export interface ProbeProcess {
 const STARTUP = "CROT_L1_STARTUPINFO";
 const INFORMATION = "CROT_L1_PROCESS_INFORMATION";
 const DWORD = "CROT_L1_PROCESS_DWORD";
-const FLAGS = 0x4 | 0x400 | 0x08000000; // SUSPENDED | UNICODE_ENVIRONMENT | NO_WINDOW
+const FLAGS = 0x4 | 0x400; // SUSPENDED | UNICODE_ENVIRONMENT; console is selected explicitly below
 const WAIT_OBJECT = 0;
 const WAIT_TIMEOUT = 258;
 const nullHandle = (h: unknown) => h === null || h === undefined || h === 0 || h === 0n;
@@ -174,7 +176,9 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
         (spec.diagnostics.debugOnlyThisProcess !== true || typeof spec.diagnostics.beforeResume !== "function")
       )
         throw invalid("owned diagnostics");
-      const flags = FLAGS | (spec.diagnostics ? 0x2 : 0);
+      if (spec.console !== undefined && (spec.console !== "owned-hidden" || !desktop)) throw invalid("owned console");
+      const consoleFlags = spec.console === "owned-hidden" ? 0x10 : 0x08000000;
+      const flags = FLAGS | consoleFlags | (spec.diagnostics ? 0x2 : 0);
       if (ownedStdio) {
         bindPipeProcessCreation(ffi, libraries)(
           token,
@@ -210,7 +214,11 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
             flags,
             env,
             cwd,
-            { cb: 104, ...(desktop ? { lpDesktop: desktop } : {}) },
+            {
+              cb: 104,
+              ...(desktop ? { lpDesktop: desktop } : {}),
+              ...(spec.console ? { dwFlags: 1, wShowWindow: 0 } : {}),
+            },
             info,
           ),
         )

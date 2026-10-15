@@ -28,6 +28,7 @@ export async function createOwnedDesktop(options: {
   readonly privateRoot: string;
   readonly environment: EnvironmentPolicy;
 }): Promise<OwnedDesktop> {
+  if (failedHelperOwners.size) throw new CrotError("OPERATION_FAILED", "Owned desktop helper has incomplete cleanup.");
   validateSid(options.ownerSid);
   validateSid(options.restrictingSid);
   const name = `crot-${randomBytes(24).toString("hex")}`;
@@ -36,12 +37,19 @@ export async function createOwnedDesktop(options: {
   const helperSid = `S-1-5-21-${n.readUInt32LE(0)}-${n.readUInt32LE(4)}-${n.readUInt32LE(8)}-${n.readUInt32LE(12)}`;
   const helperToken = (await loadRestrictedTokens()).create(helperSid, false, undefined, "mic-only");
   let helper: NativeProcessLauncher | undefined;
+  const owner = {
+    helperToken,
+    get helper() {
+      return helper;
+    },
+  };
   const dispose = async () => {
     try {
       await helper?.close();
       helperToken.close();
+      failedHelperOwners.delete(owner);
     } catch (error) {
-      failedHelperOwners.add({ helper, helperToken });
+      failedHelperOwners.add(owner);
       throw error;
     }
   };
@@ -176,8 +184,9 @@ export async function createOwnedDesktop(options: {
         try {
           helper.closeSync();
           helperToken.close();
+          failedHelperOwners.delete(owner);
         } catch (error) {
-          failedHelperOwners.add({ helper, helperToken });
+          failedHelperOwners.add(owner);
           throw error;
         }
         proc.stdout.destroy();

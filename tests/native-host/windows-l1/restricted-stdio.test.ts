@@ -193,3 +193,28 @@ it("retains the trusted UTF-16 desktop buffer through both native extended start
     await b.io.close();
   }
 });
+
+it("sets hidden-console startup flags while preserving exact stdio and desktop", async () => {
+  const f = await byteFixture();
+  const desktop = Buffer.from(`crot-${"d".repeat(48)}\\actor\0`, "utf16le");
+  try {
+    bindPipeProcessCreation(f.ffi, { kernel32: "test-kernel", advapi32: "test-advapi" })(
+      1n,
+      "C:\\owned.exe",
+      Buffer.alloc(8),
+      0x414,
+      Buffer.alloc(8),
+      "C:\\work",
+      {},
+      f.io,
+      desktop,
+    );
+    const args = f.calls.get("CreateProcessAsUserW")!.mock.calls[0]!;
+    expect(args[6]).toBe(0x80414);
+    expect(args[9]).toMatchObject({
+      startup: { dwFlags: 0x101, wShowWindow: 0, lpDesktop: desktop, hStdInput: 2n, hStdOutput: 4n, hStdError: 6n },
+    });
+  } finally {
+    await f.io.close();
+  }
+});

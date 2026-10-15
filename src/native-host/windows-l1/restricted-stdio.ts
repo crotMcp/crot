@@ -105,7 +105,8 @@ export function bindNulProcessCreation(ffi: TokenFfi, libraries: TokenLibraries)
       const startup = {
         startup: {
           cb: 112,
-          dwFlags: 0x100,
+          dwFlags: 0x100 | ((flags & 0x10) !== 0 ? 1 : 0),
+          ...((flags & 0x10) !== 0 ? { wShowWindow: 0 } : {}),
           hStdInput: handle,
           hStdOutput: handle,
           hStdError: handle,
@@ -113,7 +114,7 @@ export function bindNulProcessCreation(ffi: TokenFfi, libraries: TokenLibraries)
         },
         attributes,
       };
-      // SUSPENDED and NO_WINDOW remain set by the caller. No unrestricted
+      // SUSPENDED and the validated console mode remain set by the caller. No unrestricted
       // fallback exists if extended startup/handle allowlisting is unsupported.
       if (!ok(create(token, executable, command, null, null, 1, flags | 0x80000, environment, cwd, startup, info)))
         throw failure("CreateProcessAsUserW");
@@ -193,7 +194,8 @@ export function bindPipeProcessCreation(ffi: TokenFfi, libraries: TokenLibraries
       const startup = {
         startup: {
           cb: 112,
-          dwFlags: 0x100,
+          dwFlags: 0x100 | ((flags & 0x10) !== 0 ? 1 : 0),
+          ...((flags & 0x10) !== 0 ? { wShowWindow: 0 } : {}),
           hStdInput: child[0],
           hStdOutput: child[1],
           hStdError: child[2],

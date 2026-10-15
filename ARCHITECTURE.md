@@ -5170,3 +5170,16 @@ only the fixed helper module is executed at source integrity, never actor code.
 The actor still uses the unique write-only Low token. No missing helper Job or
 helper setup failure retries through an uncontained host process. Cleanup
 failures retain owners for retry rather than falsely claiming release.
+
+AD-24 owned-console clarification (decision before implementation): the fixed
+production cmd UTF-8 provider requires a console for chcp, while the native
+NO_WINDOW path has none. Actor processes on the already verified NEW private,
+noninteractive desktop may therefore receive a NEW hidden console at restricted
+creation, before ResumeThread and after verified Job assignment. The explicit
+three-handle stdio allowlist remains; no host console attach, host desktop ACL
+change, visible/input-desktop switch or weaker token retry is permitted. Console
+objects use the actor token's private default descriptor; no console handles
+from CROT are passed. Without an owned desktop this mode is rejected. Read-back
+of kernel owner/DACL/Low label precedes readiness. Ordinary console/shell and
+normal/hidden/ignored-stdio descendants still require native proof, not an
+assumption that console allocation fixes other loader failures.

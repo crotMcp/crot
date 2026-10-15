@@ -14,7 +14,7 @@ import type {
   ResolveCommandOptions,
   TerminationMode,
 } from "../../core/platform/types.js";
-import type { JobObjectApi } from "../windows-job.js";
+import type { JobObject, JobObjectApi } from "../windows-job.js";
 import { createNativeByteStdio, type BytePipeApi, type NativeByteStdio } from "./byte-stdio.js";
 import type { ProbeProcess } from "./probe-process.js";
 import type { OwnedDesktop } from "./owned-desktop.js";
@@ -152,6 +152,11 @@ export class NativeProcessLauncher implements ProcessLauncher {
   private blocked?: Error;
   private readonly processes = new Set<NativeManagedProcess>();
   private readonly starting = new Set<Promise<ManagedProcess>>();
+  private readonly failedStarts = new Set<{
+    child: ProbeProcess | undefined;
+    io: NativeByteStdio;
+    job: JobObject | undefined;
+  }>();
   constructor(private readonly options: NativeProcessOptions) {
     if (options.desktop) {
       if (options.desktop.closed || options.desktop.restrictingSid !== options.token.restrictingSid)
@@ -184,10 +189,11 @@ export class NativeProcessLauncher implements ProcessLauncher {
     if (this.blocked) throw this.blocked;
     const io = await createNativeByteStdio(this.options.pipes, this.options.ownerSid);
     let child: ProbeProcess | undefined;
+    let job: JobObject | undefined;
     try {
       if (this.closed) throw new CrotError("OPERATION_FAILED", "Native process launcher is closed.");
       if (this.blocked) throw this.blocked;
-      const job = this.options.jobs.createKillOnCloseJob();
+      job = this.options.jobs.createKillOnCloseJob();
       try {
         child = this.options.token.launchProbe(
           {
@@ -199,7 +205,9 @@ export class NativeProcessLauncher implements ProcessLauncher {
               ? {}
               : { windowsVerbatimArguments: spec.windowsVerbatimArguments }),
             stdio: io,
-            ...(this.options.desktop ? { desktop: this.options.desktop.desktop } : {}),
+            ...(this.options.desktop
+              ? { desktop: this.options.desktop.desktop, console: "owned-hidden" as const }
+              : {}),
           },
           job,
         );
@@ -225,21 +233,56 @@ export class NativeProcessLauncher implements ProcessLauncher {
       this.processes.add(process);
       return process;
     } catch (error) {
+      const owner = { child, io, job };
       try {
-        child?.close();
-      } catch {
-        /* preserve launch error */
+        await this.releaseFailedStart(owner);
+      } catch (cause) {
+        this.failedStarts.add(owner);
+        this.blocked ??= new CrotError("OPERATION_FAILED", "Native process startup cleanup failed.", undefined, {
+          cause,
+        });
       }
-      await io.close().catch(() => undefined);
       throw error;
     }
   }
+  private async releaseFailedStart(owner: {
+    child: ProbeProcess | undefined;
+    io: NativeByteStdio;
+    job: JobObject | undefined;
+  }): Promise<void> {
+    let failure: unknown;
+    try {
+      owner.child?.close();
+    } catch (error) {
+      failure ??= error;
+    }
+    try {
+      owner.job?.close();
+    } catch (error) {
+      failure ??= error;
+    }
+    try {
+      await owner.io.close();
+    } catch (error) {
+      failure ??= error;
+    }
+    if (failure) throw failure;
+  }
+
   async close(): Promise<void> {
     this.closed = true;
     await Promise.allSettled([...this.starting]);
     const results = await Promise.allSettled([...this.processes].map((process) => process.terminate("force")));
-    const failure = results.find((result) => result.status === "rejected");
-    if (failure?.status === "rejected") throw failure.reason;
+    let failed: unknown = results.find((result) => result.status === "rejected")?.reason;
+    for (const owner of this.failedStarts) {
+      try {
+        await this.releaseFailedStart(owner);
+        this.failedStarts.delete(owner);
+      } catch (error) {
+        failed ??= error;
+      }
+    }
+    if (failed) throw failed;
     await this.options.desktop?.close();
   }
   closeSync(): void {
@@ -251,6 +294,18 @@ export class NativeProcessLauncher implements ProcessLauncher {
       } catch (failure) {
         error ??= failure;
       }
+    }
+    for (const owner of this.failedStarts) {
+      let failure: unknown;
+      for (const action of [() => owner.child?.close(), () => owner.job?.close(), () => owner.io.closeSync()]) {
+        try {
+          action();
+        } catch (cause) {
+          failure ??= cause;
+        }
+      }
+      if (!failure) this.failedStarts.delete(owner);
+      error ??= failure;
     }
     if (error) throw error;
     this.options.desktop?.closeSync();

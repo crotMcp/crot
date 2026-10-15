@@ -1,13 +1,14 @@
 /** Portable native-contract injection; not Windows kernel qualification. */
 import { describe, expect, it, vi } from "vitest";
 import { bindOwnedUserObjects, validateOwnedDesktopName } from "../../../src/native-host/windows-l1/user-objects.js";
-import type { TokenFfi } from "../../../src/native-host/windows-l1/restricted-token.js";
 const name = `crot-${"a".repeat(48)}`,
   owner = "S-1-5-21-1-2-3-1001",
   unique = "S-1-5-21-4-5-6-1002";
 function fixture(failure?: string) {
   let last = 0;
   const events: string[] = [];
+  const canonical = `O:${owner}D:P(A;;GA;;;${owner})(A;;GA;;;SY)(A;;GA;;;${unique})S:(ML;;NW;;;LW)`;
+  let encoded = canonical;
   const calls = {
     GetLastError: vi.fn(() => last),
     SetLastError: vi.fn((n: number) => {
@@ -18,6 +19,16 @@ function fixture(failure?: string) {
     ConvertStringSecurityDescriptorToSecurityDescriptorW: vi.fn((_s, _r, out) => {
       out.value = 50n;
       return 1;
+    }),
+    ConvertSecurityDescriptorToStringSecurityDescriptorW: vi.fn((_sd, _r, _i, out, length) => {
+      encoded = failure === "bad-label" && Buffer.isBuffer(_sd) ? canonical.replace(";;;LW)", ";;;ME)") : canonical;
+      out.value = 60n;
+      length.value = encoded.length + 1;
+      return 1;
+    }),
+    GetUserObjectSecurity: vi.fn((_h, _i, sd, _length, needed) => {
+      needed.value = 64;
+      return sd === null ? 0 : 1;
     }),
     GetProcessWindowStation: vi.fn(() => 10n),
     GetThreadDesktop: vi.fn(() => 11n),
@@ -48,6 +59,7 @@ function fixture(failure?: string) {
     }),
   };
   const ffi = {
+    decode: { string16: () => encoded },
     struct: () => undefined,
     sizeof: () => 24,
     load: () => ({
@@ -57,7 +69,7 @@ function fixture(failure?: string) {
         return calls[n as keyof typeof calls];
       },
     }),
-  } as unknown as TokenFfi;
+  } as unknown as Parameters<typeof bindOwnedUserObjects>[0];
   return { create: bindOwnedUserObjects(ffi), calls, events };
 }
 describe("Owned noninteractive Win32 desktop contract", () => {
@@ -96,6 +108,12 @@ describe("Owned noninteractive Win32 desktop contract", () => {
       if (failure === "create") expect(f.events.slice(0, 3)).toEqual(["station:20", "station:10", "desktop:11"]);
     },
   );
+  it("rejects a kernel descriptor whose actual label differs, before readiness", () => {
+    const f = fixture("bad-label");
+    expect(() => f.create(name, owner, unique)).toThrow("security descriptor verification");
+    expect(f.calls.CloseDesktop).toHaveBeenCalledWith(21n);
+    expect(f.calls.CloseWindowStation).toHaveBeenCalledWith(20n);
+  });
   it("retains failed owned close for retry without claiming success", () => {
     const f = fixture("close"),
       owned = f.create(name, owner, unique);

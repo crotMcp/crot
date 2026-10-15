@@ -405,3 +405,34 @@ CI events/checks for both failed pins are retained under the evidence directory.
 Additional native gates attempt owner WRITE_DAC (reapply the same DACL, with a
 working trusted native control) and record a child JS-readiness witness before
 attempts. Debugger runs also record whether JS was actually reached before exit.
+
+### `fcb4748` executed gates and the owned-console implementation correction
+
+Both Windows jobs now execute the one-built-graph gates. Node 22 direct
+readiness/private write/outside-Low denial AND native owner WRITE_DAC denial
+passed (trusted same-DACL setter returns 0, actor setter returns 5). Node 20
+still exits 0xc0000142 before JS. All descendants and private shell gates fail;
+cmd exits 23 with the expected output but has stderr; WinPS exits 0xffff0000.
+These failures are retained, not reclassified as security denials. Debugger JS
+witness is false on both runtimes. Nine other CI checks, including all four real
+Linux L1 jobs, succeeded. Local full check passed (1571 Core/164 skips,
+147 extension), not a substitute for the failed native tests.
+
+A concrete launch defect is now corrected for requalification: the native
+primitive previously always used CREATE_NO_WINDOW, but the unchanged production
+cmd UTF-8 provider requires a console for chcp. AD-24 explicitly permits ONLY a
+NEW hidden console on the already owned, noninteractive desktop. There is no
+host console attach, interactive input switch, broad SID grant or weaker token
+retry. The restricted actor remains suspended until its Job is verified;
+explicit three-handle stdio inheritance remains unchanged. This does not assume
+that console allocation resolves the separate Node20/user32 loader failure.
+
+Before readiness, the helper now READS BACK the kernel owner/DACL/mandatory
+label and compares OS-canonical descriptors against the exact owner/SYSTEM/
+unique-SID grants and Low label, accepting only GA or its object-specific mapped
+mask. Supplying an SD to CREATE alone is not accepted as evidence. A mismatch
+fails closed before actor execution. Startup-cleanup failures also retain their
+exact native/stdio/Job owners, block new starts, and retry without disposing the
+helper while an actor cleanup remains incomplete. Two new portable fault tests
+and eight user-object contract tests cover these paths; native proof remains
+mandatory.

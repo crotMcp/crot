@@ -162,6 +162,15 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
             kind: spec.display === "unique write boundary gate" ? "node" : "shell",
             code: status.code,
             stderrEmpty: errors.length === 0,
+            errorCodes: [
+              ...new Set(errors.match(/\b(?:0x[0-9a-f]{8}|EACCES|EPERM|ENOENT|EINVAL|EBADF|EPIPE)\b/gi) ?? []),
+            ].slice(0, 12),
+            errorKinds: [
+              /access is denied|access.*denied|отказано в доступе/i.test(errors) ? "access-denied" : "",
+              /CLR|Common Language Runtime/i.test(errors) ? "clr" : "",
+              /handle.*invalid|invalid.*handle/i.test(errors) ? "invalid-handle" : "",
+              /uv_spawn|uv_pipe|node:internal\/child_process/i.test(errors) ? "node-spawn" : "",
+            ].filter(Boolean),
             stdoutBytes: Buffer.byteLength(output),
             structured: (() => {
               try {
@@ -223,6 +232,7 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
         env: environment.prepare({}),
         stdio: "nul",
         desktop: desktop.desktop,
+        console: "owned-hidden",
         diagnostics: {
           debugOnlyThisProcess: true,
           beforeResume: (pid) => {

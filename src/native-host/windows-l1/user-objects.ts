@@ -7,7 +7,11 @@ export interface OwnedUserObjects {
   close(): void;
 }
 const SECURITY = "CROT_OWNED_USER_SECURITY",
-  HANDLE = "CROT_OWNED_USER_HANDLE";
+  HANDLE = "CROT_OWNED_USER_HANDLE",
+  SIZE = "CROT_OWNED_USER_SIZE";
+interface UserObjectsFfi extends TokenFfi {
+  readonly decode: { string16(pointer: unknown, length: number): string };
+}
 const declared = new WeakSet<object>();
 const ok = (value: unknown) => value === true || (typeof value === "number" && value !== 0);
 const valid = (value: unknown) =>
@@ -22,10 +26,11 @@ export function validateOwnedDesktopName(name: string): string {
     throw new CrotError("INVALID_INPUT", "Invalid owned Win32 desktop name.");
   return name;
 }
-export function bindOwnedUserObjects(ffi: TokenFfi) {
+export function bindOwnedUserObjects(ffi: UserObjectsFfi) {
   if (!declared.has(ffi)) {
     ffi.struct(SECURITY, { length: "uint32_t", descriptor: "void *", inherit: "int32_t" });
     ffi.struct(HANDLE, { value: "void *" });
+    ffi.struct(SIZE, { value: "uint32_t" });
     declared.add(ffi);
   }
   if (ffi.sizeof(SECURITY) !== 24)
@@ -39,6 +44,12 @@ export function bindOwnedUserObjects(ffi: TokenFfi) {
   const threadId = k.func("uint32_t __stdcall GetCurrentThreadId(void)");
   const descriptor = a.func(
     `int __stdcall ConvertStringSecurityDescriptorToSecurityDescriptorW(str16 text, uint32_t revision, _Out_ ${HANDLE} *out, void *size)`,
+  );
+  const stringify = a.func(
+    `int __stdcall ConvertSecurityDescriptorToStringSecurityDescriptorW(void *descriptor, uint32_t revision, uint32_t info, _Out_ ${HANDLE} *text, _Out_ ${SIZE} *length)`,
+  );
+  const querySecurity = u.func(
+    `int __stdcall GetUserObjectSecurity(void *object, void *info, void *descriptor, uint32_t length, _Out_ ${SIZE} *needed)`,
   );
   const getStation = u.func("void * __stdcall GetProcessWindowStation(void)");
   const setStation = u.func("int __stdcall SetProcessWindowStation(void *station)");
@@ -75,6 +86,59 @@ export function bindOwnedUserObjects(ffi: TokenFfi) {
       desktop: unknown,
       associated = false;
     const sd: { value?: unknown } = {};
+    const canonical = (value: unknown): string => {
+      const text: { value?: unknown } = {},
+        length: { value?: number } = {};
+      try {
+        if (
+          !ok(stringify(value, 1, 0x15, text, length)) ||
+          !valid(text.value) ||
+          !Number.isInteger(length.value) ||
+          length.value! < 1 ||
+          length.value! > 65536
+        )
+          throw fail("security descriptor encoding");
+        return ffi.decode.string16(text.value, length.value! - 1).toUpperCase();
+      } finally {
+        if (valid(text.value)) free(text.value);
+      }
+    };
+    const verifySecurity = (object: unknown, rights: number) => {
+      // READ BACK kernel security before readiness. Supplying an SD to CREATE
+      // is not proof that its Low label, owner and exact unique-SID grants stuck.
+      const info = Buffer.alloc(4);
+      info.writeUInt32LE(0x15);
+      const needed: { value?: number } = {};
+      querySecurity(object, info, null, 0, needed);
+      if (!Number.isInteger(needed.value) || needed.value! < 20 || needed.value! > 65536)
+        throw fail("security descriptor size");
+      const actual = Buffer.alloc(needed.value!);
+      if (!ok(querySecurity(object, info, actual, actual.length, needed))) throw fail("security descriptor query");
+      const observed = canonical(actual);
+      // Windows may map GENERIC_ALL to the object's specific all-access mask.
+      // Compare OS-canonical encodings, NOT an incomplete SDDL string parser.
+      for (const mask of ["GA", `0x${rights.toString(16)}`]) {
+        const expected: { value?: unknown } = {};
+        try {
+          if (
+            !ok(
+              descriptor(
+                `O:${ownerSid}D:P(A;;${mask};;;${ownerSid})(A;;${mask};;;SY)(A;;${mask};;;${restrictingSid})S:(ML;;NW;;;LW)`,
+                1,
+                expected,
+                null,
+              ),
+            ) ||
+            !valid(expected.value)
+          )
+            throw fail("expected security descriptor");
+          if (canonical(expected.value) === observed) return;
+        } finally {
+          if (valid(expected.value)) free(expected.value);
+        }
+      }
+      throw fail("security descriptor verification");
+    };
     const restore = () => {
       if (!associated) return;
       if (!ok(setStation(originalStation))) throw fail("original station restore");
@@ -132,6 +196,8 @@ export function bindOwnedUserObjects(ffi: TokenFfi) {
       desktop = createDesktop("actor", null, null, 0, 0xf01ff, security);
       if (!valid(desktop)) throw fail("desktop creation");
       if (Number(last()) === 183) throw fail("desktop collision");
+      verifySecurity(station, 0xf037f);
+      verifySecurity(desktop, 0xf01ff);
       // The helper emits readiness only after restoring its original context.
       // Neither the service/tray thread nor user input desktop is switched.
       restore();
