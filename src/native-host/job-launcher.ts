@@ -30,10 +30,36 @@ export function closedError(): CrotError {
 /** Open Job Objects of one Native Host. */
 export class JobTracker {
   private readonly jobs = new Set<JobObject>();
+  private readonly failedReleases = new Set<JobObject>();
+  private readonly pendingUnassigned = new Set<ManagedProcess>();
   private uncontainedCount = 0;
 
   get size(): number {
     return this.jobs.size;
+  }
+
+  get incompleteProcessCleanup(): number {
+    return this.pendingUnassigned.size;
+  }
+
+  /** Keep a child never handed to Core reachable if its forced cleanup fails. */
+  async stopUnassigned(proc: ManagedProcess): Promise<void> {
+    this.pendingUnassigned.add(proc);
+    await proc.terminate("force");
+    this.pendingUnassigned.delete(proc);
+  }
+
+  private retryUnassigned(): void {
+    let failure: unknown;
+    for (const proc of this.pendingUnassigned) {
+      try {
+        proc.terminateSync();
+        this.pendingUnassigned.delete(proc);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure) throw failure;
   }
 
   /** Launches that could not be assigned to a job (the child had already exited, or assignment was refused). */
@@ -45,8 +71,35 @@ export class JobTracker {
     this.jobs.add(job);
   }
 
-  delete(job: JobObject): void {
-    this.jobs.delete(job);
+  /** Remove ownership only after every handle owned by the Job is released. */
+  release(job: JobObject): void {
+    try {
+      job.close();
+      this.failedReleases.delete(job);
+      this.jobs.delete(job);
+    } catch (error) {
+      this.jobs.add(job);
+      this.failedReleases.add(job);
+      throw error;
+    }
+  }
+
+  /** No new allocation while earlier cleanup remains incomplete. */
+  retryFailedCleanup(): void {
+    let failure: unknown;
+    for (const job of this.failedReleases) {
+      try {
+        this.release(job);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    try {
+      this.retryUnassigned();
+    } catch (error) {
+      failure ??= error;
+    }
+    if (failure) throw failure;
   }
 
   noteUncontained(): void {
@@ -62,12 +115,16 @@ export class JobTracker {
         // Continue with the remaining jobs.
       }
       try {
-        job.close();
+        this.release(job);
       } catch {
-        // Continue with the remaining jobs.
+        // Keep the exact failed owner for a subsequent host-close retry.
       }
     }
-    this.jobs.clear();
+    try {
+      this.retryUnassigned();
+    } catch {
+      // Keep unreturned children for the next close/recovery attempt too.
+    }
   }
 }
 
@@ -96,14 +153,31 @@ export function createJobObjectLauncher(
     resolveCommand: (command, args, options) => inner.resolveCommand(command, args, options),
     launch: async (spec, options) => {
       if (!isOpen()) throw closedError();
-      // Fail closed: no job, no process.
+      tracker.retryFailedCleanup();
+      // Own the Job even while the inner asynchronous launch is in flight.
       const job = api.createKillOnCloseJob();
+      tracker.add(job);
       let proc: ManagedProcess;
       try {
         proc = await inner.launch(spec, options);
       } catch (error) {
-        job.close();
+        try {
+          tracker.release(job);
+        } catch {
+          // Preserve the launch error; the tracker retains failed cleanup.
+        }
         throw error;
+      }
+      const stopUnassigned = async () => {
+        try {
+          await tracker.stopUnassigned(proc);
+        } finally {
+          tracker.release(job);
+        }
+      };
+      if (!isOpen() || job.closed) {
+        await stopUnassigned();
+        throw closedError();
       }
       let assigned = false;
       try {
@@ -112,17 +186,25 @@ export function createJobObjectLauncher(
         assigned = false;
       }
       if (!assigned) {
-        // Core taskkill tree termination still applies to this process.
-        job.close();
+        // Existing general-host fallback only, NOT an L1 launcher. A failed
+        // cleanup must not strand a child that is never returned to Core.
+        try {
+          tracker.release(job);
+        } catch (error) {
+          await tracker.stopUnassigned(proc);
+          throw error;
+        }
         tracker.noteUncontained();
         return proc;
       }
       if (!isOpen()) {
-        job.terminate(1);
-        job.close();
+        try {
+          job.terminate(1);
+        } finally {
+          tracker.release(job);
+        }
         throw closedError();
       }
-      tracker.add(job);
       return new JobManagedProcess(proc, job, tracker);
     },
   };
@@ -138,11 +220,16 @@ class JobManagedProcess implements ManagedProcess {
     // handle kills remaining members (kill-on-close), so an unreadable or
     // implausible count keeps the job open; forced termination and host close
     // still release it.
-    void inner.exited.then(() => {
-      if (job.closed) return;
-      const counters = job.accounting();
-      if (counters !== null && counters.total >= 1 && counters.active === 0) this.release();
-    });
+    void inner.exited
+      .then(() => {
+        if (job.closed) return;
+        const counters = job.accounting();
+        if (counters !== null && counters.total >= 1 && counters.active === 0) this.release();
+      })
+      .catch(() => {
+        // Accounting/close failure is not successful release. The tracker
+        // retains ownership; do not create an unhandled promise rejection.
+      });
   }
 
   get pid(): number | undefined {
@@ -177,12 +264,14 @@ class JobManagedProcess implements ManagedProcess {
   }
 
   private kill(): void {
-    if (!this.job.closed) this.job.terminate(1);
-    this.release();
+    try {
+      if (!this.job.closed) this.job.terminate(1);
+    } finally {
+      this.release();
+    }
   }
 
   private release(): void {
-    this.job.close();
-    this.tracker.delete(this.job);
+    this.tracker.release(this.job);
   }
 }

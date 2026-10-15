@@ -175,16 +175,43 @@ class KernelJob implements JobObject {
   }
 }
 
+// A failed configuration still owns a kernel handle. Keep it reachable across
+// API rebindings/self-test failures, retry that exact owner before allocating,
+// and never grow an unbounded series of leaked failed creations.
+const failedCreations = new WeakMap<Kernel32, Set<JobObject>>();
 function createJob(k32: Kernel32): JobObject {
+  let pending = failedCreations.get(k32);
+  if (!pending) {
+    pending = new Set();
+    failedCreations.set(k32, pending);
+  }
+  let cleanupError: unknown;
+  for (const job of pending) {
+    try {
+      job.close();
+      pending.delete(job);
+    } catch (error) {
+      cleanupError ??= error;
+    }
+  }
+  if (cleanupError) throw cleanupError;
   const handle = k32.CreateJobObjectW(null, null);
   if (isNullHandle(handle)) throw new CrotError("OPERATION_FAILED", "CreateJobObjectW failed.");
-  const info = Buffer.alloc(EXTENDED_LIMIT_INFORMATION_SIZE);
-  info.writeUInt32LE(JOB_LIMIT_FLAGS, LIMIT_FLAGS_OFFSET);
-  if (!succeeded(k32.SetInformationJobObject(handle, JobObjectExtendedLimitInformation, info, info.length))) {
-    k32.CloseHandle(handle);
-    throw new CrotError("OPERATION_FAILED", "SetInformationJobObject (kill-on-close) failed.");
+  const job = new KernelJob(k32, handle);
+  try {
+    const info = Buffer.alloc(EXTENDED_LIMIT_INFORMATION_SIZE);
+    info.writeUInt32LE(JOB_LIMIT_FLAGS, LIMIT_FLAGS_OFFSET);
+    if (!succeeded(k32.SetInformationJobObject(handle, JobObjectExtendedLimitInformation, info, info.length)))
+      throw new CrotError("OPERATION_FAILED", "SetInformationJobObject (kill-on-close) failed.");
+    return job;
+  } catch (error) {
+    try {
+      job.close();
+    } catch {
+      pending.add(job);
+    }
+    throw error;
   }
-  return new KernelJob(k32, handle);
 }
 
 /** Bindings are created once per FFI module (koffi type names are global). */
@@ -253,13 +280,23 @@ export async function loadJobObjectApi(load: FfiLoader = defaultLoader): Promise
   try {
     const api = bindJobObjectApi(ffi);
     const probe = api.createKillOnCloseJob();
+    let selfTestError: unknown;
     try {
       const counters = probe.accounting();
       if (!counters || counters.active !== 0 || counters.total !== 0)
         throw new Error("job accounting could not be read");
-    } finally {
-      probe.close();
+    } catch (error) {
+      selfTestError = error;
     }
+    try {
+      probe.close();
+    } catch (error) {
+      // The API is not returned on self-test failure. Retain its probe in
+      // the binding's recovery set, not in a now-unreachable local variable.
+      failedCreations.get(bind(ffi))!.add(probe);
+      selfTestError ??= error;
+    }
+    if (selfTestError) throw selfTestError;
     return api;
   } catch (error) {
     throw new CrotError("OPERATION_FAILED", `Job Objects could not be initialized: ${describe(error)}`);

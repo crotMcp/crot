@@ -26,7 +26,7 @@ function fixture() {
       return 1;
     }),
   };
-  const api = bindJobObjectApi({
+  const ffi = {
     struct: () => undefined,
     load: () => ({
       func: (signature: string) => {
@@ -35,8 +35,9 @@ function fixture() {
         return calls[name as keyof typeof calls] as (...args: unknown[]) => unknown;
       },
     }),
-  });
-  return { api, live, faults, calls };
+  };
+  const api = bindJobObjectApi(ffi);
+  return { api, ffi, live, faults, calls };
 }
 describe("Job handle ownership on native close failure", () => {
   it("does not report a failed Job close as closed and can retry the exact owned handle", () => {
@@ -73,6 +74,34 @@ describe("Job handle ownership on native close failure", () => {
     expect([...f.live]).toEqual([1n]);
     job.close();
     job.close();
+    expect(f.live.size).toBe(0);
+  });
+  it.each([false, true])("cleans up failed configuration, including native throw=%s", (throws) => {
+    const f = fixture();
+    if (throws)
+      f.calls.SetInformationJobObject.mockImplementationOnce(() => {
+        throw new Error("native configure");
+      });
+    else f.calls.SetInformationJobObject.mockReturnValueOnce(0);
+    expect(() => f.api.createKillOnCloseJob()).toThrow(throws ? "native configure" : "kill-on-close");
+    expect(f.live.size).toBe(0);
+    const next = f.api.createKillOnCloseJob();
+    next.close();
+    expect(f.live.size).toBe(0);
+  });
+  it("retains failed creation across rebindings and refuses further allocations until exact cleanup succeeds", () => {
+    const f = fixture();
+    f.calls.SetInformationJobObject.mockReturnValueOnce(0);
+    f.faults.add(1n);
+    expect(() => f.api.createKillOnCloseJob()).toThrow("kill-on-close");
+    const rebound = bindJobObjectApi(f.ffi);
+    expect(() => rebound.createKillOnCloseJob()).toThrow("Job Object");
+    expect(f.calls.CreateJobObjectW).toHaveBeenCalledOnce();
+    expect([...f.live]).toEqual([1n]);
+    f.faults.clear();
+    const next = rebound.createKillOnCloseJob();
+    expect([...f.live]).toEqual([2n]);
+    next.close();
     expect(f.live.size).toBe(0);
   });
 });

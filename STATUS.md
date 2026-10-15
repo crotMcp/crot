@@ -7,37 +7,34 @@ package PR updates this file.
 
 ## WP-23c current continuation — not accepted
 
-New implementation component: owned OVERLAPPED byte stdio and restricted-token
-ProcessLauncher, wired to the existing Core interfaces for qualification (not
-registered as CommandConfinement). Binary/EOF/backpressure/argv/exit/Job ownership
-and native Core/shell/cancellation gates passed at `3b91370` (11/11 CI). Portable
-ABI tests explicitly check deferred pointers and cancellation-before-release.
-Bounded environment is now applied in resolution/launch. AD-24's owned
-noninteractive desktop/helper is implemented with suspended native Job assignment
-before ResumeThread, not an uncontained helper fallback. At `ca50059`, Node 22's
-direct unique-token ready/private-write/unrelated-Low-denial gate passed, but
-Node 20 startup and both descendant/debugger gates still failed. At `427caed`,
-both Windows jobs instead exposed a source/built Koffi registry setup collision;
-the current correction uses one freshly built production module graph. New
-cmd/WinPS and ignored-stdio/WRITE_DAC gates are mandatory, not skipped. Full
-local check at `427caed`: 1571 Core / 163 skips and 147 extension passed; native
-qualification remains RED. Original failures and exact traces are retained;
-steady failed-launch handle plateaus at `8e6a01d` passed on both runtimes.
-No filesystem mechanism selection or L1 availability is claimed.
+Current pinned native evidence: `f4fdfee` — **9 successful CI jobs, 2 Windows
+failures**. All four real Linux L1 jobs, Linux/macOS Node and Chromium checks
+passed; no infrastructure error in this run. Windows Node22 direct unique-token
+private CRUD/unrelated-Low write denial and owner WRITE_DAC denial pass. Its
+ordinary NUL reopen fails EPERM after a successful trusted working control;
+normal/hidden/ignored descendants still fail. Node20 exits 0xc0000142 before JS.
+cmd emits Access Denied; WinPS exits 0xffff0000. The new CDB diagnostic interferes
+with startup and is not treated as root-cause proof. Full local f4fdfee check:
+1578 Core passed /166 skipped and 147 extension passed.
 
-Production Windows PowerShell shell preparation now imports the fixed system
-Utility manifest from `$PSHOME` before ordinary user scripts. Production fix `43f7392`, qualified with the aligned legacy gate at `01ed8ce`,
-passes the 15-second Low redirection gate through the shared production helper,
-a real Core stdout/stderr/exit regression and all 11 CI checks at `01ed8ce`.
-The separate `ec11e2e` rerun failure is retained; its legacy RPC invocation still
-used raw startup until the shared-helper alignment. Bare raw
-PowerShell discovery remains a reported timeout. Transparent Medium workspace
-writes, global outside-Low write isolation, native byte transport qualification, the
-Windows confinement backend and actual protected-resource qualification are
-still missing. **Not Windows L1 acceptance; availability stays fail-closed;
-PR #27 stays Draft/open. The `2a09e50` documentation rerun passed both Windows jobs but failed Linux
-L1 Ubuntu 24.04 on public ECR's `toomanyrequests: Data limit exceeded`; retained
-as infrastructure evidence and repeated without changing implementation or tests.** See [pinned continuation and criterion status](docs/design/windows-l1-continuation.md).
+Implemented components include native byte stdio/ProcessLauncher through the
+existing Core (`3b91370`, historical 11/11 CI), bounded launch environment,
+unique write-only Low token, and AD-24's NEW noninteractive station/desktop,
+explicit owned label installation plus exact kernel descriptor read-back.
+The fixed helper itself is suspended/Job-contained before resume. No common SID,
+interactive desktop, global NUL/device ACL, original workspace SD or runtime
+qualification gate is widened. Original PowerShell fix `43f7392` and aligned RPC
+regression `01ed8ce` remain intact; their strict 15-second gates are retained.
+
+The current implementation follow-up repairs Job ownership after failed
+configuration/CloseHandle, asynchronous exit cleanup and a host-close/launch
+race, with portable fault-injection tests. It is not a transparent filesystem
+or an accepted Windows L1 mechanism. Transparent same-backing Medium workspace
+writes, complete global write/state/IPC/Docker isolation, production confinement
+registration, native ARM64/Windows11/standard-user qualification and OD-6/OD-9
+remain OPEN. **Availability stays fail-closed; WP-23c is not ready; PR #27 stays
+Draft/open.** Exact commits, failure chronology, source-pinned events and
+criterion status: [continuation evidence](docs/design/windows-l1-continuation.md).
 
 ## Last completed
 

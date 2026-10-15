@@ -493,3 +493,57 @@ access token`) while creating the workflow tree. It made no repository change.
 The original CI workflow and all original mandatory gates remain unchanged;
 the failure is not bypassed through another credential/path. This is fresh
 connection evidence, not an inference from the old handoff's permissions.
+
+
+## Native source f4fdfee — precise NUL failure and diagnostic interference
+
+Source `f4fdfeea8159815a5f602832644d4f249348833f` has 9 successful and
+2 failed checks (both Windows). All four real Linux L1 jobs, both macOS,
+both Linux Node jobs and real Chromium are green. This run has no ECR quota
+failure. Node20: <https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38671398687/job/116215113613>;
+Node22: <https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38671398687/job/116215113577>.
+Full local check: 1578 Core passed /166 skipped and 147 extension passed.
+
+Node22 direct boundary and owner WRITE_DAC denial still pass. The NEW NUL
+working control succeeds in the trusted process; the genuinely ready actor's
+ordinary `fs.openSync("\\\\.\\NUL", "r+")` returns EPERM. This is a real
+compatibility failure, not filesystem isolation evidence. Normal/hidden and
+ignored-stdio descendants remain red; cmd emits Access Denied and WinPS exits
+0xffff0000. Node20 still exits 0xc0000142 before JS. Unique-token loader diagnosis
+records JS-ready=false on both runtimes and times out on Node22.
+
+The fixed CDB diagnostic itself interferes with startup: Node20 collects three
+Access Denied stacks in KERNELBASE WIL feature staging and exits 0xc0000354;
+Node22 fails the unchanged exact ResumeThread-count check after debugger attach.
+These are debugger-affected observations, NOT proof of the undebugged DLL
+failure's root cause. The raw debug log is removed and only sanitized stack
+symbols are retained. No common SID, host desktop or global NUL ACL was widened.
+
+## Job cleanup implementation follow-up — source pin supplied by commit
+
+Fixed actual lifetime defects in the existing native Job implementation and
+host wrapper: failed SetInformationJobObject configuration (including an FFI
+throw) always attempts closure; failed self-test probe closure is retained too; failed closure retains the exact Job owner
+across FFI API rebindings/self-test retries and blocks new allocation until
+cleanup succeeds. No retry by PID or weaker process launch is introduced.
+
+JobTracker owns a Job while the inner launch is in flight, retains failed
+shutdown/launch/exit cleanup, retries it before further allocations, and does
+not clear failed owners as though they were released. NativeHost.closeSync
+retries retained resources even after launches are disabled. Host-close during
+an inner asynchronous launch kills the returned unassigned process rather than
+returning an uncontained fallback after closure. Empty-tree async close failures
+are caught without an unhandled rejection; forced termination still attempts
+kill-on-close if TerminateJobObject throws. The existing general-host assignment
+fallback is preserved, not used by the suspended Windows L1 launcher.
+
+Portable evidence: windows-job-ownership (6 tests), job-launcher-ownership
+(8 tests), Native Host tests (7 passed /2 platform skips). These inject failures
+and prove ownership/order; they do not substitute for native tree-kill gates.
+Criterion 2 improves but remains OPEN, as do criteria 1/3/4/5/7/8; criterion 6's
+native regression evidence is the exact f4fdfee job set above. No Windows L1
+availability registration or WP-23c completion is asserted.
+
+Unreturned children whose forced termination itself fails are retained by the
+host tracker, exposed as `incompleteProcessCleanup`, and retried synchronously
+on close/recovery; new allocations are blocked while cleanup keeps failing.

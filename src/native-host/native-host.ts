@@ -40,6 +40,7 @@ export interface NativeHostStatus {
     /** native-host: Job Objects; core: the Core launcher is used unchanged. */
     readonly provider: "native-host" | "core";
     readonly openJobs: number;
+    readonly incompleteProcessCleanup: number;
     readonly uncontainedLaunches: number;
   };
   readonly privateFiles: {
@@ -166,6 +167,7 @@ export class NativeHost {
         ...this.platform.info.processControl,
         provider: this.jobs ? "native-host" : "core",
         openJobs: this.jobs?.size ?? 0,
+        incompleteProcessCleanup: this.jobs?.incompleteProcessCleanup ?? 0,
         uncontainedLaunches: this.jobs?.uncontained ?? 0,
       },
       privateFiles: { provider: this.nativeAcl ? "native-host" : "core", ...this.platform.info.privateFiles },
@@ -180,8 +182,9 @@ export class NativeHost {
 
   /** Synchronous close for the host process 'exit' event and fatal errors. Idempotent. */
   closeSync(): void {
-    if (!this.lifecycle.open) return;
     this.lifecycle.open = false;
+    // A previous CloseHandle failure must remain retryable even after launches
+    // have been permanently disabled.
     this.jobs?.terminateAll();
   }
 }
