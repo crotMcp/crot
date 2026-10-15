@@ -1,3 +1,7 @@
+> **Исторический документ до a6eb17d.** Текущее решение без стороннего драйвера,
+> фактический контрпример hardlink и восемь критериев: [Windows L1 / AD-29](windows-l1-native-os.md).
+> Прежние результаты ниже сохранены для воспроизводимости, а не как текущий выбор механизма.
+
 # WP-23c continuation — WinPS and native process transport
 
 **Partial implementation, not Windows L1 acceptance.** Production Windows

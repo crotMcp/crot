@@ -1,3 +1,7 @@
+> **Исторический документ до a6eb17d.** Текущее решение без стороннего драйвера,
+> фактический контрпример hardlink и восемь критериев: [Windows L1 / AD-29](windows-l1-native-os.md).
+> Прежние результаты ниже сохранены для воспроизводимости, а не как текущий выбор механизма.
+
 # Windows L1: $0 third-party license-fee qualification
 
 WP-23c remains OPEN. This document narrows the commercial licensing constraint;

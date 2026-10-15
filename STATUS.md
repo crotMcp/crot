@@ -5,7 +5,20 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
-## WP-23c current continuation — not accepted
+## WP-23c — текущая итерация после a6eb17d, не принят
+
+AD-29 (`c5016ed`) выбрал встроенный AppContainer + Job, без стороннего драйвера,
+зафиксировал платформы Windows/macOS и разблокировал зависимость WP-23b.
+`fd4fd47` отдельным коммитом исправил обход POSIX endpoint-lock; red/green тест
+сохранён, macOS Node 20/22 проверены настоящим CI. Это не завершение WP-23b.
+Нативные Node 20/22, NUL и cmd работают на исходном Medium workspace;
+`7596791` выявил write-handle через внешний hardlink. Поэтому достаточность
+OD-6 требует пересмотра, WP-23c не принят, Windows backend остаётся unavailable.
+Все три ОС обязательны для v1. Точные актуальные коммиты/CI и восемь критериев:
+[текущий отчёт](docs/design/windows-l1-native-os.md).
+Полные журналы: `docs/evidence/windows-l1-native-os/`.
+
+## Исторические проверки до a6eb17d — не текущий выбор механизма
 
 **AD-28: $0 third-party license-fee constraint.** Dokan commercial use is allowed
 subject to MIT/LGPL compliance, including a validated replacement/relinking route;
@@ -520,7 +533,11 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 
 ## Next
 
-**Active engineering stage — WP-23c restricted-token spike.** Owner authorized
+**Текущий следующий шаг:** безопасная встроенная Windows граница записи,
+включая внешний hardlink, без ослабления критериев. Платформенная зависимость
+OD-9 для WP-23b решена AD-29; сам WP-23b не реализован.
+
+**История до a6eb17d — WP-23c restricted-token spike.** Owner authorized
 implementation work after the OD-9 proposal; native Windows x64 and ARM64 stay
 in the v1 target. Native restricted-token/DACL primitives and a required
 architecture-specific CI matrix are being added (workflow publication is
@@ -557,7 +574,7 @@ Stage 6A diagnostic report: [`61d0f87a`](https://github.com/mysteriumpersonae/cr
 **WP-24 — Browser v1 (CDP backend): implemented, merged** (PR #22, `d273473`; run-1 fixes in PR #23; run-2 fixes in PR #24;
 see "Last completed"). Real-site manual runs are recorded; acceptance remains
 open for default-load timeout signalling, C1 and final acceptance review. Owner's order after
-WP-24: OD-9 (L1 on macOS and Windows; opens WP-23b/c and the OD-6 spike),
+WP-24: WP-23c (проверка достаточности OD-6 после контрпримера), затем WP-23b (OD-9 решён AD-29),
 OD-8 (download hand-over, before WP-26), then WP-38 preparation starting
 with the open WP-29 items. Critical path: chain B continues WP-32 → WP-33 →
 WP-40; WP-32 waits for WP-24…WP-27 and WP-38.
@@ -569,7 +586,7 @@ WP-40; WP-32 waits for WP-24…WP-27 and WP-38.
 | WP-30 | Device tunnel adapter (AD-22, device side) | Done, merged (PR #20): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32) |
 | WP-25, WP-27 | Browser dialogs / file chooser / background screenshots / tab group; per-tab queue for remote, explicit `tabId`, `openedBy` | unblocked by WP-24 |
 | WP-26 | Browser upload and download (AD-16 points 11–12) | after WP-24 and OD-8; also provides the end-to-end check of the WP-31 upload/download gate (AD-23 point 8) |
-| WP-23b/c | Command confinement L1 on macOS and Windows (Linux done: WP-23a, AD-20) | WP-23c native token/DACL spike in progress following owner authorization; production boundaries still require OD-9/OD-6 decisions; WP-23b not implemented; release-blocking (AD-13); not a prerequisite of WP-31: where L1 is unavailable (macOS, Windows), remote shell and process operations are refused with `CONFINEMENT_UNAVAILABLE` and an explanation (AD-20, [`docs/L1.md`](docs/L1.md)); WP-23b/c stay open as separate packages |
+| WP-23b/c | Command confinement L1 на macOS и Windows (Linux готов: WP-23a, AD-20) | AD-29 решил платформы OD-9 и разблокировал начало WP-23b. WP-23b не реализован. WP-23c не принят: встроенный AppContainer проходит Node20/22/NUL/cmd, но внешний hardlink получает write-handle; достаточность OD-6 повторно открыта. Полная CROT-6A/сеть/Docker/матрица/backend впереди. На недоступных ОС remote shell/process по-прежнему CONFINEMENT_UNAVAILABLE; все три ОС обязательны для v1 |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
 | WP-41, WP-42 | Extensibility invariant tests; workspace image view (post-v1 phase 5; depend on no open contract — WP-42 without downscale, see product-reassessment §8) | can start now with spare capacity; never displace the critical path; WP-43/44/49 wait for OD-16/15/17 ADs |
 | OD-15…OD-20, OD-23 | ADs of the expanded product goal (jobs, components, media, edit description, connectors, credentials; release staging) | documentation work, parallel to WP-31; see roadmap §4.2 |
@@ -598,7 +615,7 @@ and no external service has a CROT integration.
 | Windows named pipes keep Node's default security descriptor (no explicit owner-only DACL) | WP-34 |
 | Unconfined children can use the OS secret store (or the file fallback) as the same user | AD-18 residual risk; Linux workspace mode: closed by WP-23a; `full_control`, macOS, Windows: open (WP-23b/c) |
 | Host-local services that accept the user's authority without a CROT credential (Docker on TCP without TLS, SSH server on this host accepting the user's keys, debugging/notebook endpoints without authentication, container engines without the CROT container profile) are reachable with network `on` | Accepted residual risk of the host-network model (AD-20 point 14, OD-14 decided); reported in `detail` where detectable; disclosure in WP-37 |
-| macOS, Windows and browser parts of the v1 platform matrix | roadmap OD-9 (Linux part decided by AD-20); blocks WP-23b/c and WP-34 |
+| Матрица платформ macOS/Windows и браузеров v1 | ОС решены AD-29, реализация/нативная квалификация обязательны; браузерная часть OD-9 ещё открыта. WP-23b не блокируется отсутствием платформенного решения |
 | L1 components on user machines (installing `crot-bwrap`, `crot-l1-init`, the AppArmor policy and host exec rules; `scripts/l1-install.sh` until then) | WP-34 |
 | AD-18/AD-19 texts still say "until L1 (WP-23)" although Linux is confined since AD-20 | roadmap §2.6 N1 (not amended silently) |
 | `secrets.store: "auto"` keeps the file fallback once chosen; switching needs `"os"` | AD-18 residual risk |

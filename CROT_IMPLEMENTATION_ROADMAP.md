@@ -336,7 +336,7 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | OD-3 | Exact device resource URI form and PRM location (AD-15 open item) | Token audience, client configuration UX, relay routing | WP-29, WP-30, WP-28 tests | **Decided by ARCHITECTURE.md §27 AD-21 points 5 and 6:** `https://<relay-host>/d/<deviceId>/mcp` (resource, MCP endpoint, RFC 8707 `resource`, only accepted `aud`); PRM at `https://<relay-host>/.well-known/oauth-protected-resource/d/<deviceId>/mcp`, served by the relay |
 | OD-4 | **Decided by ARCHITECTURE.md §27 AD-22:** relay–device tunnel wire protocol within the AD-15 shape (framing, multiplexing, flow control, keep-alive, versioning) | A long-lived contract between independently deployed relay and installed devices; version skew after release | WP-29, WP-30, WP-34 (updates) | Start of WP-29 — **AD required** (new boundary) |
 | OD-5 | **Decided by ARCHITECTURE.md §27 AD-22 points 12–13:** §26 Q13: relay/tunnel timeouts for gated requests (approval up to 300 s) and bounded browser waits; behaviour towards clients with shorter timeouts. The device-side margin (a request ends 5 s before the exchange deadline) is recorded in AD-22 by commit `37b3126` (WP-30, PR #20); measured client timeouts are WP-32 | Remote multi-step tasks with approvals must not fail silently | WP-29, WP-30, WP-32 | Before WP-30 is merged — **met** |
-| OD-6 | Windows L1 | Решено AD-29: встроенный AppContainer + Job, управляемые ACE на три дерева, явная подготовка NUL; без сторонних драйверов. Реализация/квалификация WP-23c не завершена | WP-23c, WP-34, Gate 6 | Решение принято; приёмка всех восьми критериев обязательна |
+| OD-6 | Windows L1 | AD-29 выбрал встроенный AppContainer + Job; достаточность решения повторно открыта контрпримером внешнего hardlink на 7596791. Только встроенные механизмы, без стороннего драйвера; NUL подготовка явная | WP-23c, WP-34, Gate 6 | Нельзя считать закрытым без безопасной границы по путям и восьми критериев |
 | OD-7 | How a preset / remote-profile change is applied by the service (reload vs restart) | Policy immutability (AD-5, AD-10) vs usability | WP-22, WP-31 | **Decided by AD-19 point 5 (WP-22):** device state in `service-settings.json`; a new Core with the new policy, only while Core is idle; WP-31 adds the `autonomous-browser` rule set and the remote profile on the same mechanism |
 | OD-8 | Download hand-over mechanism (staging in download directory vs stream over bridge) | File-integrity guarantees of AD-16 p.12 | WP-26 | Start of WP-26 (already assigned by AD-16) |
 | OD-9 | Матрица платформ v1 | Linux AD-20; Windows/macOS AD-29: Windows11 x64/ARM64, Server2022/2025 x64, Node20/22; актуальная macOS и две предыдущие на выпускаемых Apple архитектурах, Seatbelt/Keychain. Server ARM64 не выдумывается; браузерная часть ещё открыта | WP-23a/b/c, WP-34, WP-37 | Платформенная зависимость WP-23b разблокирована; реальная квалификация обязательна |
@@ -412,7 +412,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | yes | with WP-21 | **Done** (AD-19) |
 | WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part and OD-14 decided) | M | yes | with 23b/c | **Done** (AD-20; PR #6, `e1d1f61`) |
 | WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Разблокирован AD-29; реализация Seatbelt/Keychain ещё не начата |
-| WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | NOT ACCEPTED: ca04414 native signed build/Medium-before/mount PASS20/22, actor CRUD FAIL;0eb1519 confirms Low raw control zero-open and refuses READY (no sensitive IOCTL); 43ff402 fixes fixture ownership/composite deadlines; both runtimes reach and fail control-zero-open, all13 fixture setups ready each. Native process11,stage6a10,RPC7 PASS both; real ready Node22 state5 reads/5 writes/control denied. c6a1c45 fixes ECR flake using identical pinned-digest registry fallback (no security-test changes); full local1711+147,all9 non-Windows green/2 Windows red. Safe control/data mechanism, NUL/strong startup/shells/descendants, full filesystem/state/Docker/network/matrix/backend remain OPEN; OD-6/OD-9 OPEN, Draft PR27, no merge |
+| WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Не принят. AD-29, встроенный AppContainer, без Dokan/WinFsp. Node20/22/NUL/cmd работают в нативной фикстуре; внешний hardlink получает write-handle. Требуются строгая граница, восстановление ACE, WinPS, CROT-6A реального сервиса, сеть/Docker/матрица/backend. OD-6 требует пересмотра достаточности; платформа OD-9 решена; PR27 Draft/open. Текущий отчёт: docs/design/windows-l1-native-os.md |
 | WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | **Merged** (PR #22–#25): implemented incl. out-of-process frames and element/frame-origin approval subjects; manual runs 1–5/follow-up recorded; B4/E5/windows and G5/H passed by owner; default-load timeout signalling in `wp-24-load-timeout-and-acceptance`; C1 partial, final acceptance open |
 | WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
 | WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | Not started |
@@ -587,9 +587,16 @@ need Docker and the extension (covered at Core level and by WP-33).
 
 Common card for WP-23a (Linux: bubblewrap + installer-shipped AppArmor
 profile), WP-23b (macOS: Seatbelt, secrets in Keychain), WP-23c (Windows:
-spike first, then restricted / low-IL token + Job Object).
+AppContainer + Job Object по AD-29, с незакрытой квалификацией границы записи).
 
-**Status:** WP-23a **Done** (ARCHITECTURE.md §27 AD-20; PR #6, `e1d1f61`;
+**Актуальный статус после a6eb17d:** WP-23a завершён. Платформенная зависимость
+OD-9 решена AD-29 и не блокирует начало WP-23b (Seatbelt/Keychain); реализация
+WP-23b не начата. WP-23c не принят: контрпример внешнего hardlink повторно
+открывает достаточность механизма OD-6. Производственный Windows backend
+недоступен, remote sandbox отказывает. Все три ОС обязательны для v1.
+Коммиты, восемь критериев и доказательства: [текущий отчёт](docs/design/windows-l1-native-os.md).
+
+**Исторические результаты до a6eb17d, не текущий выбор механизма:** WP-23a **Done** (ARCHITECTURE.md §27 AD-20; PR #6, `e1d1f61`;
 [`docs/L1.md`](docs/L1.md)). WP-23b is not implemented. WP-23c's native restricted-token/DACL spike is
 in progress following owner authorization to proceed with engineering work;
 see [`docs/design/windows-l1-spike.md`](docs/design/windows-l1-spike.md).
@@ -613,7 +620,7 @@ IPC. Real CROT IPC provisioning and complete production L1 remain open. Stage 6 
 production boundary; this research primitive
 neither enables L1 nor completes Windows remote shell/process acceptance.
 
-**Current continuation (partial, not accepted):** production WinPS shell
+**Historical continuation before a6eb17d (partial, not accepted):** production WinPS shell
 preparation at `43f7392` explicitly imports the system Utility manifest from
 `$PSHOME`. Shared-launch ordinary Low redirection completes in its unchanged
 15-second deadline and reaches Medium denial; a real Core regression checks
@@ -1102,8 +1109,8 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
 | Class | WPs |
 | --- | --- |
 | Sequential on critical path | (done: WP-20 → WP-22, WP-28, WP-29, WP-30, WP-31); WP-32 → WP-33 → WP-40 |
-| Parallelizable now | WP-24, WP-35 (prep), WP-37 (drafting), WP-19b; OD-9 macOS/Windows decision (unblocks WP-23b/c) |
-| Parallel after prerequisites | WP-23b ∥ WP-23c (after OD-9); WP-25 ∥ WP-26 ∥ WP-27; WP-34, WP-36, WP-38 with phase 3; WP-37 ∥ WP-39 ∥ WP-33 |
+| Parallelizable now | WP-24, WP-35 (prep), WP-37 (drafting), WP-19b; WP-23b (OD-9 разблокирован AD-29); WP-23c продолжение без сторонних драйверов |
+| Parallel after prerequisites | WP-23b ∥ WP-23c (платформенная зависимость OD-9 решена AD-29; приёмка остаётся обязательной); WP-25 ∥ WP-26 ∥ WP-27; WP-34, WP-36, WP-38 with phase 3; WP-37 ∥ WP-39 ∥ WP-33 |
 | Release blockers | every WP except WP-19b |
 | Optional / non-blocking | WP-19b; §26 Q12 transport matcher; §26 Q14 tab-scope matcher |
 | Post-v1 | §11 of this roadmap |
@@ -1136,8 +1143,8 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
      deregistration / key rotation with the orphaned registration risk
      (AD-22 open question 3, WP-29) and measured client timeouts (WP-32).
    - *Can run in parallel:* WP-24 (unblocked, no open OD; starts chain C);
-     the OD-9 macOS/Windows decision, then WP-23b and the WP-23c spike
-     (OD-6); WP-38 preparation (staging relay and identity environment);
+     WP-23b (OD-9 разблокирован AD-29) и WP-23c — исправление нативной
+     границы записи без стороннего драйвера (OD-6 повторно проверяется); WP-38 preparation (staging relay and identity environment);
      WP-36 preparation; WP-35 preparation, WP-37 drafting, WP-19b.
    - *Still open:* the open WP-29 items — relay client rate/concurrency
      limits, per-source connection/handshake limits, registration rate
@@ -1284,7 +1291,7 @@ Notes of the product reassessment (§2.7), explicit rather than silent:
   never release-blocking for v1 (OD-23).
 
 
-**WP-23c AD-28 continuation:** $0 third-party license fees; Dokan commercial use
+**История до a6eb17d — WP-23c AD-28 continuation:** $0 third-party license fees; Dokan commercial use
 permitted under MIT/LGPL obligations, but stock control boundary remains unsafe.
 75ce0f2 implements effective LPAC and literal-zero native qualification probes;
 source-pinned actual results/8 criteria remain partial/NOT MET, not a backend or acceptance. See `docs/design/windows-l1-zero-license.md`.
