@@ -23,7 +23,7 @@ function profile(bits: number) {
     ready: true as const,
     win32Zero: opens[bits & 3],
     win32Read: opens[(bits >> 2) & 3],
-    ntZero: opens[(bits >> 4) & 3],
+    ntMetadata: opens[(bits >> 4) & 3],
     ntRead: opens[(bits >> 6) & 3],
     nulReadWriteOpened: !!(bits & 0x100),
   };
@@ -36,7 +36,7 @@ export function decodeControlProfileDiagnostic(hex: string) {
     const stage = [
       "owner-controls-or-setup",
       "owner-win32-zero",
-      "owner-nt-zero",
+      "owner-nt-metadata",
       "owner-win32-read",
       "owner-nt-read",
       "module-path",

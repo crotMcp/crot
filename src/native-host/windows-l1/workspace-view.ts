@@ -225,7 +225,7 @@ export async function createOwnedWorkspaceView(options: WorkspaceViewOptions): P
       const stderr = (chunk: Buffer) => {
         if (chunk.length) {
           const match =
-            /^CROT_VIEW_ERROR:([0-9a-f]{8}|internal|control-probe|control-zero-open|control-read-open)(?::([0-9a-f]{8}))?\r?\n$/.exec(
+            /^CROT_VIEW_ERROR:([0-9a-f]{8}|internal|control-probe|control-zero-open|control-read-open)(?::([0-9a-f]{8})(?::([0-9a-f]{8}))?)?\r?\n$/.exec(
               chunk.toString("ascii"),
             );
           const diagnostic =
@@ -234,7 +234,9 @@ export async function createOwnedWorkspaceView(options: WorkspaceViewOptions): P
           finish(
             new CrotError("OPERATION_FAILED", `Workspace view: ${stage} failed.`, {
               stage,
-              ...(diagnostic ? { controlProfiles: diagnostic } : {}),
+              ...(diagnostic
+                ? { controlProfiles: { ...diagnostic, ...(match?.[3] ? { ownerNtStatus: match[3] } : {}) } }
+                : {}),
             }),
           );
         }

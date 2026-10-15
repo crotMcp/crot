@@ -75,8 +75,10 @@ Only those newly created objects receive ACLs; parent/original/global/device SDs
 are never changed. Fixed child code repeats token readback after entry.
 
 Owner positive controls open the exact new raw endpoint with both access masks
-through Win32 GLOBALROOT and absolute NtCreateFile. The child repeats those four
-**harmless open/close operations only**; no IOCTL or event/token operation exists.
+through Win32 GLOBALROOT and absolute NtCreateFile. The absolute-NT minimum uses FILE_READ_ATTRIBUTES | SYNCHRONIZE and a
+non-directory open to match Win32 minimum metadata semantics (not literal zero
+NtCreateFile DesiredAccess, which failed owner controls at `673edb6`). The child
+repeats those four **harmless open/close operations only**; no IOCTL or event/token operation exists.
 The four results distinguish strict native access denied, open success, namespace
 absence, and other failure. A signed fixed exit marker proves child entry; loader
 0xc0000142, create/readback/wait/protocol/cleanup failures never become denial.

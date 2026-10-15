@@ -5377,3 +5377,13 @@ compatibility, whole-system network/write isolation or standard-user/ARM64
 qualification. Any positive result requires those further mandatory native
 gates before mechanism selection. Production remains none/not_implemented,
 remote fail-closed, WP-23c and OD-6/OD-9 OPEN; preserve existing PS/RPC gates.
+
+**AD-28 native positive-control correction:** `673edb6` builds both executables
+but absolute NtCreateFile with literal zero DesiredAccess fails even for the
+owner (`owner-nt-zero`) on both runtimes. That is a failed experiment prerequisite,
+not AppContainer denial. Match Win32 CreateFile's minimum metadata access
+(FILE_READ_ATTRIBUTES | SYNCHRONIZE, non-directory/overlapped open) in the
+absolute-NT probe, explicitly name that result `ntMetadata`, and preserve the
+exact bounded failing NTSTATUS when an owner NT control fails. This minimum
+handle would still carry FILE_ANY_ACCESS controls; no IOCTL is invoked. Keep
+both namespaces' positive controls mandatory and all existing actor gates.

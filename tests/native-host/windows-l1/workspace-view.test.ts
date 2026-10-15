@@ -188,6 +188,13 @@ describe("workspace view ownership", () => {
     expect(resolve.mock.calls[0]?.[1]).toEqual(["--diagnose-control-profiles"]);
     expect(f.closed).toBe(true);
   });
+  it("preserves a bounded owner NTSTATUS as a failed prerequisite, never actor denial", async () => {
+    const f = fixture("", "CROT_VIEW_ERROR:control-zero-open:a5d00002:c000000d\n");
+    await expect(createOwnedWorkspaceView({ ...f.options, diagnoseControlProfiles: true })).rejects.toMatchObject({
+      details: { controlProfiles: { completed: false, stage: "owner-nt-metadata", ownerNtStatus: "c000000d" } },
+    });
+    expect(f.closed).toBe(true);
+  });
   it("does not expose unsolicited profile diagnostics or treat them as readiness", async () => {
     const f = fixture("", "CROT_VIEW_ERROR:control-zero-open:a5b00000\n");
     await expect(createOwnedWorkspaceView(f.options)).rejects.toMatchObject({

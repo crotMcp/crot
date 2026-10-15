@@ -24,7 +24,9 @@ unsigned nativeOpen(NtCreate create,const std::wstring& device,ACCESS_MASK acces
   name.Length=static_cast<USHORT>(device.size()*2); name.MaximumLength=name.Length;
   OBJECT_ATTRIBUTES a{}; a.Length=sizeof(a); a.ObjectName=&name; a.Attributes=0x40;
   IO_STATUS_BLOCK io{}; HANDLE h=INVALID_HANDLE_VALUE;
-  const NTSTATUS s=create(&h,access,&a,&io,nullptr,0,7,1,0,nullptr,0);
+  // Win32 zero DesiredAccess implicitly permits a metadata handle. Test the
+  // equivalent native handle, not an unsupported literal zero-access create.
+  const NTSTATUS s=create(&h,access|FILE_READ_ATTRIBUTES|SYNCHRONIZE,&a,&io,nullptr,0,7,1,0x40,nullptr,0);
   if (s>=0 && h && h!=INVALID_HANDLE_VALUE) return CloseHandle(h)?1u:3u;
   if (h && h!=INVALID_HANDLE_VALUE && !CloseHandle(h)) return 3;
   if (s==static_cast<NTSTATUS>(0xc0000022)) return 0;

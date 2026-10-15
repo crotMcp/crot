@@ -507,7 +507,8 @@ int wmain(int argc,wchar_t** argv) {
     joinInput(input);
     result=failed?2:0;
   } catch (const Error& e) {
-    if (e.stage && controlProfileDiagnostic) std::fprintf(stderr,"CROT_VIEW_ERROR:%s:%08lx\n",e.stage,static_cast<unsigned long>(controlProfileDiagnostic));
+    if (e.stage && controlProfileDiagnostic && controlProfileNtStatus) std::fprintf(stderr,"CROT_VIEW_ERROR:%s:%08lx:%08lx\n",e.stage,static_cast<unsigned long>(controlProfileDiagnostic),static_cast<unsigned long>(controlProfileNtStatus));
+    else if (e.stage && controlProfileDiagnostic) std::fprintf(stderr,"CROT_VIEW_ERROR:%s:%08lx\n",e.stage,static_cast<unsigned long>(controlProfileDiagnostic));
     else if (e.stage) std::fprintf(stderr,"CROT_VIEW_ERROR:%s\n",e.stage);
     else std::fprintf(stderr,"CROT_VIEW_ERROR:%08lx\n",static_cast<unsigned long>(e.status));
   }

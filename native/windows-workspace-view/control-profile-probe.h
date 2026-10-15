@@ -1,6 +1,7 @@
 // AD-28. Included inside the helper's private namespace after tokenInfo().
 // This controller never grants package rights to the raw device or workspace.
 DWORD controlProfileDiagnostic=0;
+DWORD controlProfileNtStatus=0;
 bool diagnoseControlProfiles=false;
 struct Attributes {
   std::vector<unsigned char> storage;
@@ -21,7 +22,9 @@ bool ownedNativeControl(const std::wstring& device,ACCESS_MASK access) {
   text.Length=static_cast<USHORT>(device.size()*2); text.MaximumLength=text.Length;
   NativeAttributes a{}; a.Length=sizeof(a); a.ObjectName=&text; a.Attributes=0x40;
   NativeStatus io{}; Handle h;
-  const auto s=ntCreate(&h.h,access,&a,&io,nullptr,0,7,1,0,nullptr,0);
+  // Match CreateFile minimum metadata/non-directory semantics, without DOS lookup.
+  const auto s=ntCreate(&h.h,access|FILE_READ_ATTRIBUTES|SYNCHRONIZE,&a,&io,nullptr,0,7,1,0x40,nullptr,0);
+  if (s<0 || !h.valid()) controlProfileNtStatus=static_cast<DWORD>(s);
   return s>=0 && h.valid();
 }
 // 0..511: child entry/readback + four 2-bit results and NUL bit.
