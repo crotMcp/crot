@@ -182,3 +182,19 @@ or a reason to weaken global policy. The document is source-pinned in
 mxc-null-source-review.json; no MXC implementation was copied or deployed.
 
 Source: https://github.com/microsoft/mxc/blob/ae9e3c06469fd2958da546b71bd170932e7f8ba2/docs/backends/process-container/host-prep.md
+
+### Latest unchanged-code validation — `20808e8`
+
+All9 non-Windows CI jobs PASS again, including macOS20, all4 Linux L1 and
+Chromium; both Windows jobs remain FAILED. Tested PR merge ancestry and exact
+src/tests/native/scripts/CI/package/extension Git-object identities against
+implementation75ce0f2 are retained in20808e8-validation-summary.json. No assertion,
+timeout, skip or runtime code was changed to obtain this follow-up result.
+The prior75ce0f2 macOS20 concurrent-start failure is retained, not diagnosed as
+fixed. A separate bounded Linux Node24 crash+4-concurrent-start stress check
+passes16/16 rounds; that is NOT independent macOS qualification or root cause.
+
+Windows20/22 repeat the same fixed-child entry, four owner-positive raw denials,
+owner literal-zero denial (inconclusive), and NUL RW failure. This is not a
+production backend, complete filesystem/runtime pass, or WP-23c acceptance.
+Local fullcheck1732/168 skipped +147 remains explicitly pinned to implementation75ce0f2.

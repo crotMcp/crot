@@ -1288,3 +1288,5 @@ Notes of the product reassessment (§2.7), explicit rather than silent:
 permitted under MIT/LGPL obligations, but stock control boundary remains unsafe.
 75ce0f2 implements effective LPAC and literal-zero native qualification probes;
 source-pinned actual results/8 criteria remain partial/NOT MET, not a backend or acceptance. See `docs/design/windows-l1-zero-license.md`.
+
+WP-23c validation20808e8: unchanged implementation75ce0f2; all9 non-Windows CI PASS, both Windows FAIL. NUL compatibility and all8 acceptance criteria remain partial/NOT MET; earlier macOS20 concurrency failure retained, not claimed fixed.

@@ -16,10 +16,16 @@ The unsupported class46 query at4804e32 is retained as failed prerequisite, not
 access denial. Actual results and eight source-pinned criteria:
 `docs/design/windows-l1-continuation.md`; license/security decision:
 `docs/design/windows-l1-zero-license.md`.
-Full local1732/168 skipped +147 PASS; 8/9 non-Windows jobs PASS; 2/2 Windows jobs FAIL.
-MacOS20 concurrent-start failure is retained; not all CI green. Both native profiles enter and deny four owner-positive raw opens, but literal
+Implementation75ce0f2: full local1732/168 skipped +147 PASS; its CI had
+8/9 non-Windows PASS and2/2 Windows FAIL.
+Latest unchanged-code validation20808e8 restores all9 non-Windows CI PASS,
+including macOS20; both Windows remain FAILED. The earlier75ce0f2 macOS20
+concurrent-start failure is retained; root cause is NOT established or fixed.
+See20808e8-validation-summary.json for exact code/assertion identity and native proofs.
+Both native profiles enter and deny four owner-positive raw opens, but literal
 NT0 also denies owner (inconclusive) and NUL RW fails. No data grant or runtime
-compatibility is proven. All criteria stay partial/NOT MET. No production backend, READY bypass or original/global/device ACL
+compatibility is proven. All criteria stay partial/NOT MET. No production backend,
+READY bypass or original/global/device ACL
 weakening; fresh profile normal cleanup is implemented, abrupt recovery unqualified.
 
 AD-27 source `ca04414` actually builds and mounts the same-backing component on
