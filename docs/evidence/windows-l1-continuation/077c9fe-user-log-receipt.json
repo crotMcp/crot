@@ -1,0 +1,140 @@
+{
+  "scope": "User-supplied CI logs; bounded summaries only, not new native qualification",
+  "sourceHead": "077c9fe3003ba2b03b04cdf80eb144e2f50a3328",
+  "testedMerge": "c2d8d8e433b4a431d1a246217a3a5db019b608bd",
+  "archives": [
+    {
+      "filename": "logs_104831151292.zip",
+      "sha256": "6ec68a0c6bf59031469cab9392ce33a224b28988a5ea5d7f39caed1afb2f9565",
+      "bytes": 58946
+    },
+    {
+      "filename": "logs_104831151307 (1).zip",
+      "sha256": "431ae634d2786a6f6fe87de1a7520744fa891b0977835b6880883cdd5ff0e1b2",
+      "bytes": 138939
+    },
+    {
+      "filename": "logs_104831151307.zip",
+      "sha256": "431ae634d2786a6f6fe87de1a7520744fa891b0977835b6880883cdd5ff0e1b2",
+      "bytes": 138939
+    }
+  ],
+  "jobs": [
+    {
+      "logEntry": "0_L1 _ ubuntu-24.04-arm.txt",
+      "checkout": [
+        "c2d8d8e Merge 077c9fe3003ba2b03b04cdf80eb144e2f50a3328 into 289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d"
+      ],
+      "summaries": ["Test Files  10 passed (10)", "Tests  169 passed | 3 skipped (172)"],
+      "failedTestFiles": [],
+      "registryRateLimit": false
+    },
+    {
+      "logEntry": "1_L1 _ ubuntu-22.04.txt",
+      "checkout": [
+        "c2d8d8e Merge 077c9fe3003ba2b03b04cdf80eb144e2f50a3328 into 289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d"
+      ],
+      "summaries": ["Test Files  1 failed | 9 passed (10)", "Tests  142 passed | 30 skipped (172)"],
+      "failedTestFiles": ["tests/native-host/linux-l1/l1-docker-integration.test.ts"],
+      "registryRateLimit": true
+    },
+    {
+      "logEntry": "2_L1 _ ubuntu-24.04.txt",
+      "checkout": [
+        "c2d8d8e Merge 077c9fe3003ba2b03b04cdf80eb144e2f50a3328 into 289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d"
+      ],
+      "summaries": ["Test Files  10 passed (10)", "Tests  172 passed (172)"],
+      "failedTestFiles": [],
+      "registryRateLimit": false
+    },
+    {
+      "logEntry": "3_L1 _ ubuntu-22.04-arm.txt",
+      "checkout": [
+        "c2d8d8e Merge 077c9fe3003ba2b03b04cdf80eb144e2f50a3328 into 289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d"
+      ],
+      "summaries": ["Test Files  10 passed (10)", "Tests  169 passed | 3 skipped (172)"],
+      "failedTestFiles": [],
+      "registryRateLimit": false
+    },
+    {
+      "logEntry": "0_Node 20 _ windows-latest.txt",
+      "checkout": [
+        "c2d8d8e Merge 077c9fe3003ba2b03b04cdf80eb144e2f50a3328 into 289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d"
+      ],
+      "summaries": [
+        "Test Files  1 failed | 122 passed | 8 skipped (131)",
+        "Tests  12 failed | 1586 passed | 252 skipped (1850)"
+      ],
+      "failedTestFiles": ["tests/native-host/windows-l1/write-boundary.test.ts"],
+      "registryRateLimit": false
+    },
+    {
+      "logEntry": "1_Node 22 _ macos-latest.txt",
+      "checkout": [
+        "c2d8d8e Merge 077c9fe3003ba2b03b04cdf80eb144e2f50a3328 into 289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d"
+      ],
+      "summaries": [
+        "Test Files  117 passed | 14 skipped (131)",
+        "Tests  1680 passed | 170 skipped (1850)",
+        "Test Files  10 passed (10)",
+        "Tests  147 passed (147)"
+      ],
+      "failedTestFiles": [],
+      "registryRateLimit": false
+    },
+    {
+      "logEntry": "2_Node 22 _ windows-latest.txt",
+      "checkout": [
+        "c2d8d8e Merge 077c9fe3003ba2b03b04cdf80eb144e2f50a3328 into 289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d"
+      ],
+      "summaries": [
+        "Test Files  1 failed | 122 passed | 8 skipped (131)",
+        "Tests  8 failed | 1592 passed | 250 skipped (1850)"
+      ],
+      "failedTestFiles": ["tests/native-host/windows-l1/write-boundary.test.ts"],
+      "registryRateLimit": false
+    },
+    {
+      "logEntry": "3_Node 20 _ macos-latest.txt",
+      "checkout": [
+        "c2d8d8e Merge 077c9fe3003ba2b03b04cdf80eb144e2f50a3328 into 289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d"
+      ],
+      "summaries": [
+        "Test Files  117 passed | 14 skipped (131)",
+        "Tests  1678 passed | 172 skipped (1850)",
+        "Test Files  10 passed (10)",
+        "Tests  147 passed (147)"
+      ],
+      "failedTestFiles": [],
+      "registryRateLimit": false
+    },
+    {
+      "logEntry": "4_Node 20 _ ubuntu-latest.txt",
+      "checkout": [
+        "c2d8d8e Merge 077c9fe3003ba2b03b04cdf80eb144e2f50a3328 into 289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d"
+      ],
+      "summaries": [
+        "Test Files  117 passed | 14 skipped (131)",
+        "Tests  1685 passed | 165 skipped (1850)",
+        "Test Files  10 passed (10)",
+        "Tests  147 passed (147)"
+      ],
+      "failedTestFiles": [],
+      "registryRateLimit": false
+    },
+    {
+      "logEntry": "5_Node 22 _ ubuntu-latest.txt",
+      "checkout": [
+        "c2d8d8e Merge 077c9fe3003ba2b03b04cdf80eb144e2f50a3328 into 289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d"
+      ],
+      "summaries": [
+        "Test Files  117 passed | 14 skipped (131)",
+        "Tests  1687 passed | 163 skipped (1850)",
+        "Test Files  10 passed (10)",
+        "Tests  147 passed (147)"
+      ],
+      "failedTestFiles": [],
+      "registryRateLimit": false
+    }
+  ]
+}

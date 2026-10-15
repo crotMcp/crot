@@ -5,7 +5,80 @@ confinement still reports `not_implemented`; PR #27 stays open and Draft. No
 backend, write-through filesystem, global write boundary or architecture
 selection is claimed by the 11 green checks below.
 
-## Current native result — `9ced362`, actual state component qualified on Node22 only
+## AD-27 continuation — actual build/mount, raw control blocker confirmed
+
+**WP-23c is NOT accepted. PR27 stays Draft/open; OD-6/OD-9 OPEN.** No
+production CommandConfinement registration, common-SID fallback, copy-back,
+original workspace SD change or global/shared device ACL weakening.
+
+### Source changes and actual native results
+
+| Source commit | Implementation and concrete evidence |
+| --- | --- |
+| `2ee1a90493506112337a5421455768580cb1c945` | Actual C++ same-backing Dokan helper; pinned signed-driver fixture; exact requestor token/actor Job; handle-relative I/O; retained ownership. Native setup FAILS at Security module autoload, before compile. |
+| `4aa7546ce7f9907e0f23a47107dced3e21a8e11b` | Trusted PSHOME Utility/Management/Security imports; .NET archive extraction; Windows ordinal Unicode-case protected roots. Native reaches MSVC, fails missing NTSTATUS. |
+| `9a2765e87f6ef6a5909b82a5a27c258d70af336d` | Read-only original root/file OWNER/GROUP/DACL/LABEL snapshot (query0x17, serialize0x0f), hash comparison/no SID output;4 portable fault tests. Native attempted SDK include fails UNICODE_STRING conflict. Full local1702+147. |
+| `25afa5acc8d3f8cc8eab603286a723302635a5e5` | Exact signed32 LONG NTSTATUS ABI avoids competing SDK structures. Both Windows runtimes compile helper and verify pinned MSI/installed kernel driver signature/version2.3.1.1000. Next prerequisite FAILS duplicate Koffi Job type from mixed ESM/CJS registries. |
+| `ca0441472228d24c9129cef5489cac9ecdd53f2e` | Canonical ESM Job API loader with normal empty-Job self-test; reports nonzero helper unmount as failure and retains owner. Both runtimes PASS build, original-Medium-before snapshot(objects2), and mount. Node20 actor FAILS pre-JS0xc0000142; Node22 FAILS code1/stderr/nonready. NO live-original-after/CRUD success. Full local1703+147. |
+| `0eb15199fa9bcfebe2cb4af8f3cd65530018ea63` | Native same-profile unique WRITE_RESTRICTED Low raw-control self-test before READY; harmless zero/read opens of exact new owned device only; no token/event IOCTL. **Node20 FAILS `helper startup control-zero-open`: zero-access raw open succeeded**, so helper rejects READY/unmounts and actor never launches. Node22 FAILS first-test10s trusted setup hook before executing this new test. Full local1706 Core/168 skipped +147 extension. |
+| `43ff4022c8b6ad5a9f4cfea0d7d7250d617e658b` | Fixes trusted fixture lifetime: compose four existing30s tool limits plus10s desktop handshake rather than default10s total hook; await exact setup Promise before cleanup; record fixed phase durations. Actor deadlines, mandatory assertions, exit/denial predicates and skip policy unchanged. Full local1706+147 PASS. Both Windows runtimes now reach the raw-control test and FAIL `control-zero-open`; all13 fixture setups ready each runtime (maximum3691ms Node20/6118ms Node22). Native process11,diagnostics10,RPC7 each pass both. CI8 green/2 Windows red/1 independent Ubuntu22 ECR rate limit. |
+| `c6a1c4520e9f9e2c4a3fdb779b5838bbaa811440` | Restores non-Windows CI stability: bounded two-registry fallback to the exact same verified official Alpine3.20 multiarch index digest, not a different/mutable image.5 portable failure/identity tests added; real Linux Docker security assertions unchanged. Full local1711 Core/168 skipped +147 extension; all9 non-Windows CI PASS including4 Linux L1. Both Windows view prerequisites FAIL control-zero-open; mic-only process11/diagnostics10/RPC7 each PASS20/22; actual state gate remains PASS ready Node22. |
+
+Each source's `*-checks.json`, Node20/22 lossless `*-events.gzip.json`
+and verified `*-tested-merge.json` live in
+`docs/evidence/windows-l1-continuation/`; SHA256 manifest preserves historical
+receipts unchanged. The evidence README documents verified decoding; no event
+is omitted from the compressed arrays. Local check receipts identify source/log hash/platform.
+A compile/mount/setup failure is never counted as actor denial or filesystem
+success. ca04414's mounted result is historical experimental evidence, not a
+safe mechanism selection.
+
+### Confirmed control-plane blocker, not a data-write workaround
+
+Pinned Dokan2.3.1 `sys/init.c:DokanSetVolumeSecurity` installs only DACL, not
+SACL/LABEL. Supplying Low SDDL does NOT install a Low raw-device label. Raw disk
+create bypasses CROT file callbacks; `sys/fscontrol.c:DokanDiskUserFsRequest`
+dispatches token/event requests with FILE_ANY_ACCESS; `sys/access.c` can open
+pending requestor tokens. Native0eb1519(Node20) and43ff402/c6a1c45(both Node20/22) demonstrate the required
+zero-access raw open is reachable by the exact Low restricted profile. **No sensitive IOCTL
+or token theft was attempted; opening alone is not claimed as a completed exploit.**
+The pre-READY check deliberately fails closed, does not grant data rights or
+solve atomic/concurrent isolation, and is not a production backend. Never lower
+the raw label or ignore this result merely to make ordinary writes pass.
+
+WinFspv2.1 was inspected as a possible separate-control-handle design, not
+selected/installed/linked/bundled. Its GPLv3/FLOSS-only linking exception does
+not justify silently relicensing current UNLICENSED CROT or assuming commercial
+rights. No license/configuration change is made. A suitable signed mechanism and
+native exact-token/Job/control isolation proof remain required.
+
+Received user archives: SHA256 receipts show the two104831151307 files are
+identical. Tested mergec2d8d8e433b4a431d1a246217a3a5db019b608bd has source077c9fe
+and main289f500; only write-boundary.test.ts fails on Windows, not managed-service
+regressions. Ubuntu22 ECR rate limiting is recorded separately.2ee1a90's Ubuntu24
+ECR failure is also retained; 0eb1519 has all9 non-Windows checks green.43ff402 has8 green/2 Windows
+red/1 independently retained Ubuntu22 ECR `toomanyrequests` failure.
+C6a1c45 removes the registry single point of failure without changing image identity
+or security assertions; all9 non-Windows jobs now pass.
+
+### Eight mandatory acceptance criteria
+
+| # / criterion | Source commit and concrete proof | Remaining status |
+| --- | --- | --- |
+| 1 Ordinary APIs on original Medium backing; unchanged SD | `ca04414` events: signed build, original-Medium-before(objects2), mounted on20/22; `9a2765e` snapshot/fault tests. `0eb1519`/`43ff402`/`c6a1c45` refuse unsafe control before actor. | NOT MET: no ready-actor passing same-backing CRUD/after-SD result; full sharing/replace/mmap absent. |
+| 2 Processes/env/stdio/lifecycle | `c6a1c45` test-summary native-process11/11 each runtime, separate mic-only transport component (binary streams, argv/env/cwd, existing Core, real cmd/PS, detached descendant/cleanup). `ca04414` retains failed helper unmount owner. | PARTIAL: strong unique-token Node20 pre-JS and descendants/NUL remain; complete view crash/recovery unqualified. |
+| 3 Global outside/Low/aliases/concurrency/descendants | `4aa7546` Windows ordinal Unicode-case protection; `c6a1c45` ready Node22 global-Low boundary test passes. Raw control zero-open native FAIL is explicitly retained. | NOT MET: raw control separation, full aliases/races/other-Job/descendants and original-backing proof absent. |
+| 4 Actual CROT secrets/key/settings/audit/control/self-approval/Docker | `e0cdb06` provider +`9ced362` descriptor fix; `c6a1c45` Node22 ready actor5 EPERM reads +5 writes, endpoint attempted/unreachable and working owner controls. | PARTIAL: Node20 actor pre-JS fails; Docker/self-approval/external configuration unqualified. |
+| 5 Native20/22/cmd/WinPS; OS/arch/user qualification | `c6a1c45` Windows Server2025 x64 elevated host; mandatory unique-token write-boundary test-summary FAIL on20/22. | NOT MET: NUL/cmd/WinPS/Node20 compatibility; ARM64/Win11/standard-user matrix. |
+| 6 Full regressions / Linux / macOS / extension / CI | `c6a1c45` full local1711/168 skipped +147; all9 non-Windows CI PASS (including4 Linux L1),2 Windows FAIL; bounded identical-digest registry fallback fixes prior ECR failure; native process11,stage6a10,workspaceRPC7 PASS both runtimes. `43f7392`/`01ed8ce` original PS/RPC assertions preserved. | PARTIAL: both Windows jobs still red; no claim all CI green or entire WP complete. |
+| 7 Same Core/ExecutionGuard/PermissionEngine and safe backend | `3b91370` existing Core byte transport; `2ee1a90` one-shot exact Job through existing NativeProcessLauncher, `ca04414` canonical normal Job loader/self-test. | PARTIAL: production Windows none/not_implemented and remote fail-closed retained, not an accepted backend. |
+| 8 No critical blockers, weaker fallback or fake evidence | `0eb1519`/`43ff402`/`c6a1c45` newly reachable raw control rejects READY; pre-JS/setup failures remain failed. No original/global ACL lowering, shared restricting SID, startup substitution or assertion downgrade. | NOT MET: control, compatibility, global/network, matrix and backend blockers remain. |
+
+**Do not announce WP-23c ready.** Required next work is a safe control/data
+mechanism, ordinary runtime/filesystem compatibility and the complete native
+matrix; preserving partial component successes does not close those criteria.
+
+## Historical native result — `9ced362`, actual state component qualified on Node22 only
 
 Implementation commits:
 - `e0cdb0682c6070fd7f36299f81f63f9138828d97`: AD-26 actual service private-state provider,

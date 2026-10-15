@@ -7,19 +7,38 @@ package PR updates this file.
 
 ## WP-23c current continuation — not accepted
 
-AD-27 adds an **unqualified native same-backing component**, not an available
-L1 backend: pinned signed Dokan fixture, C++ handle-relative filesystem helper,
-exact requestor token/actor Job checks, one-shot named Job transfer through the
-existing NativeProcessLauncher, and owned unmount/failure cleanup. Original
-workspace SDs are not changed and bytes are not copied back. Portable protocol/
-ownership tests pass; native build/mount/actor evidence must be obtained before
-claiming this component works on Windows. Mandatory same-backing CI gate checks
-live original bytes, Unicode rename/delete/enumeration, protected/hard-link/outside
-refusals and original owner/DACL equality. Sharing/atomic replacement/aliases,
-NUL/startup/shells, full state/Docker, matrix and production registration remain
-OPEN. Earlier CI/results below refer to their exact prior source commits.
+AD-27 source `ca04414` actually builds and mounts the same-backing component on
+Windows20/22 and verifies original root/file Medium before actor startup. It
+DOES NOT pass filesystem acceptance: Node20 fails pre-JS0xc0000142, Node22 code1.
+Canonical ESM Job binding fixes mixed-registry duplicate types; failed nonzero
+helper unmount remains owned/reported. Original workspace SDs are never changed.
 
-Latest native source `9ced362379876ecf14b3b74eba7c03d8dc5b1b0c`:
+**New critical native result `0eb1519`: Low unique WRITE_RESTRICTED profile opens
+its exact new raw control device with zero access (`control-zero-open`).** The
+new self-test refuses READY, unmounts and never launches actor. No sensitive
+IOCTL was invoked. Pinned driver only installs DACL from volume SDDL, not its
+label, and raw token/event dispatch bypasses filesystem callbacks with ANY_ACCESS.
+Never lower device label to make writes pass; no safe mechanism selection exists.
+Node22 first-test setup also hit the default10s hook before this test executed;
+that is an independent setup failure, not denial evidence.43ff402 fixes composite
+fixture ownership/deadlines without changing actor gates. Both runtimes now
+FAIL control-zero-open after all13 fixture setups reach ready; no unsafe actor
+is launched. Max setup3691ms Node20/6118ms Node22.
+
+Full localc6a1c45 `npm run check`: **1711 Core /168 skipped +147 extension**,
+lint/format/types/builds pass. C6a1c45 restores all9 non-Windows CI green,
+including all4 Linux L1 jobs; both Windows remain red. Trusted Linux fixture
+uses the identical verified immutable Alpine index digest on ECR/Docker Hub,
+with bounded fallback and5 portable tests. Docker security assertions unchanged.
+Existing native process11/11,stage6a10/10,workspaceRPC7/7 pass on both runtimes;
+actual ready Node22 state gate still denies5 reads/5 writes/control endpoint with
+working owner controls. Source-pinned eight-criterion report and SHA256 receipts
+are in `docs/design/windows-l1-continuation.md` and its evidence directory.
+NUL/strong Node20/descendants/shells, safe control/data filesystem, complete
+state/Docker, network/matrix/backend remain OPEN. Production none/not_implemented,
+remote fail-closed, OD-6/OD-9 OPEN, PR27 Draft/open, no merge. No weaker fallback.
+
+Previous native service-state source `9ced362379876ecf14b3b74eba7c03d8dc5b1b0c` (historical result):
 **8 successful checks /2 Windows failures /1 independent Ubuntu24 ECR rate-limit
 failure**. Three Linux L1 jobs, Linux/macOS Node20/22 and Chromium pass. Prior
 e0cdb06 has all9 non-Windows checks green. Full local9ced362 check:

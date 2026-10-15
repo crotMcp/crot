@@ -1,0 +1,16 @@
+{
+  "sourceHead": "2ee1a90493506112337a5421455768580cb1c945",
+  "command": "npm run check",
+  "platform": "linux x64",
+  "node": "24.14.1",
+  "exitCode": 0,
+  "core": {
+    "passed": 1698,
+    "skipped": 168
+  },
+  "extension": {
+    "passed": 147
+  },
+  "logSha256": "df0071f93f4655b66be42a3dc3c8c1f52e4698e1441b0951fea8ba128a6b3d53",
+  "qualification": "Portable regressions only; Windows fixture is not executed on Linux."
+}

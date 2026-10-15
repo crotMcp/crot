@@ -1,0 +1,7 @@
+{
+  "sourceHead": "077c9fe3003ba2b03b04cdf80eb144e2f50a3328",
+  "testedMerge": "c2d8d8e433b4a431d1a246217a3a5db019b608bd",
+  "parents": ["289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d", "077c9fe3003ba2b03b04cdf80eb144e2f50a3328"],
+  "tree": "8512de6d71605adcb39597ef9071a431f9d8f862",
+  "proof": "GitHub commit parent ancestry; test execution results retained separately"
+}

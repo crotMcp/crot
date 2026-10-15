@@ -1,0 +1,7 @@
+{
+  "sourceHead": "c6a1c4520e9f9e2c4a3fdb779b5838bbaa811440",
+  "testedMerge": "276ef4afe6df6c5d9874e99c709b05b0eb643ff1",
+  "parents": ["289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d", "c6a1c4520e9f9e2c4a3fdb779b5838bbaa811440"],
+  "tree": "1dcf5c467673212966a46e976888ded08e7c72ad",
+  "proof": "Verified exact source ancestry.9 non-Windows green,2 Windows red; both mandatory view gates fail control-zero-open; unchanged native process11,stage6a10,RPC7 pass both"
+}
