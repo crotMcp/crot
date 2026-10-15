@@ -1,0 +1,17 @@
+{
+  "implementationCommit": "9ced362379876ecf14b3b74eba7c03d8dc5b1b0c",
+  "command": "npm run check",
+  "platform": "linux",
+  "arch": "x64",
+  "node": "v24.14.1",
+  "core": {
+    "passed": 1683,
+    "skipped": 167
+  },
+  "extension": {
+    "passed": 147
+  },
+  "lint_format_types_builds": "passed",
+  "fullLogSha256": "20bb5a1659c99c269838232dcc42403a508cd682efcb0702c38394d9873f54a0",
+  "qualificationLimit": "Local native Windows skips do not qualify Windows. Real completed Windows fixtures retained separately."
+}

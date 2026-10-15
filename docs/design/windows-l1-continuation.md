@@ -5,7 +5,127 @@ confinement still reports `not_implemented`; PR #27 stays open and Draft. No
 backend, write-through filesystem, global write boundary or architecture
 selection is claimed by the 11 green checks below.
 
-## Current implementation result — `59068ab`, NOT Windows L1 acceptance
+## Current native result — `9ced362`, actual state component qualified on Node22 only
+
+Implementation commits:
+- `e0cdb0682c6070fd7f36299f81f63f9138828d97`: AD-26 actual service private-state provider,
+  fixed-name legacy hardening before secret initialization, same provider in
+  service Core/bridge/audit, shim fail-before-spawn/truncation and actual-service gate.
+- `9ced362379876ecf14b3b74eba7c03d8dc5b1b0c`: corrects actual native descriptor
+  serialization failure and strengthens AD-24 label read-back. Query/install
+  LABEL0x10 is NOT the SDDL serialization selection: serialize the returned
+  SACL0x08 (DACL+SACL0x0c for state, owner+DACL+SACL0x0d for owned objects).
+  Absent parent SACL is checked with GetSecurityDescriptorSacl, never inferred
+  from failed encoding. No new full-SACL query/privilege or ACL weakening.
+  Adds failed legacy bootstrap, empty-temp atomic-write and strict serialization/
+  wrong-label/absence/persistent native cleanup regression tests.
+
+At e0cdb06, native real-service setup failed descriptor encoding before any
+actor attempt; managed-service regressions were also red. That failure is
+retained and NOT called isolation. At9ced362, actual owner service startup,
+authenticated ping, settings update, preserved legacy credential and exact
+kernel private descriptors for5 files pass on **both20 and22**.
+
+On **Node22**, `CROT-6A-actual-state-ready-actor` reports ready=true,
+all5 reads=EPERM, all5 writes=EPERM, actual control endpoint attempted=true,
+result=unreachable. The mandatory test passes, including unchanged host file
+bytes and working authenticated ping afterwards. Files are actual CrotService
+file-backend service/control tokens, actual device-key secret, actual
+service-settings and actual Core audit file. No synthetic substitute secrets,
+credential bytes or endpoint/path capabilities appear in evidence.
+
+On **Node20**, owner controls pass but the actor exits0xc0000142 before JS;
+there is no ready-actor attempt event, and the test remains FAILED. This is
+not denial evidence. Self-approval, Docker and every external user config path
+are still unqualified; criterion4 is NOT closed.
+
+Full local `npm run check` for9ced362: **1683 Core passed /167 skipped,
+147 extension passed**, lint/format/types/builds passed (Linux x64 Node24.14.1).
+Completed CI: **8 successful /2 Windows failures /1 external Ubuntu24 registry
+failure**. Linux/macOS Node20/22, Chromium and3 Linux L1 jobs pass. Ubuntu24 L1
+fails pulling public ECR Alpine (`toomanyrequests: Data limit exceeded`), not
+counted as green. The preceding e0cdb06 has all9 non-Windows checks green.
+Both Windows jobs at9ced362 still fail the unchanged strong-token startup,
+NUL reopen, descendants and shell gates. Native process component11/11,
+stage6a10/10 and workspace RPC component7/7 pass in each Windows job.
+Production PowerShell43f7392 and strict aligned RPC01ed8ce fixes are retained.
+
+All check records, complete native events, failure annotations, tested PR merge
+ancestry and local-log hashes are source-pinned under the evidence manifest.
+[Native20](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38684369415/job/116255761687),
+[Native22](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38684369415/job/116255761650).
+No claim of full green CI, original-backing filesystem or production activation.
+
+| # / acceptance criterion | Commit and concrete proof | Status / missing |
+| --- | --- | --- |
+| 1 Ordinary APIs/redirection on original Medium backing, unchanged workspace SD | `9ced362` Windows events retain ordinary NUL/cmd/WinPS failures; private fixture is not original workspace | NOT MET: no transparent same-backing filesystem |
+| 2 Process/env/stdio/lifecycle | `3b91370` existing Core byte transport; `86d8a53`/`bde77eb`/`0625595` cleanup; `9ced362` native process component11/11 on both runtimes | PARTIAL: strong-token Node20/descendants and full crash/recovery remain |
+| 3 Global writes/Low/aliases/concurrency/descendants | `9ced362` ready Node22 private CRUD and unrelated Low/WRITE_DAC denial pass | NOT MET: full aliases/concurrency/descendants and original backing unproven |
+| 4 Actual state/key/settings/audit/control/self-approval/Docker | `e0cdb06` provider; `9ced362` actual-service gate PASS Node22 (5 EPERM reads +5 EPERM writes +endpoint unreachable with owner controls); Node20 pre-JS FAILED | PARTIAL, NOT MET: Docker/self-approval/external config/native20 missing |
+| 5 Native20/22/cmd/PS; OS/arch/user matrix | `9ced362` Windows20/22 jobs FAILED; actual owner fixture works both but actor20 pre-JS fails | NOT MET: ARM64/Win11/standard-user and ordinary runtime compatibility |
+| 6 Fullcheck/Linux/macOS/extension regressions | `9ced362` full1683+147;8 CI green; Ubuntu24 ECR rate-limit independently retained; `e0cdb06` all9 non-Windows green | PARTIAL: no claim all CI green; Windows strong-token gates red |
+| 7 Existing Core/NativeHost/launcher and safe confinement backend | `3b91370` existing Core integration; `e0cdb06` same trusted provider through service; `9ced362` none/not_implemented/remote fail-closed retained | PARTIAL: no accepted production CommandConfinement backend |
+| 8 No critical blockers, fake proof or weaker fallback | `9ced362` real state gate and explicit failed Node20; strict PS/RPC assertions unchanged; no global/common SID/workspace/device ACL grants | NOT MET: critical runtime/filesystem/network/matrix blockers remain |
+
+**WP-23c NOT accepted; OD-6/OD-9 OPEN; PR27 Draft/open, no merge.** Historical
+sections below are source-pinned evidence, not competing current results.
+
+## Latest native result — `504a02f`, AD-26 follow-up awaiting qualification
+
+The GitHub check head is `504a02ff6af7f65e5ac18722b1eb0a313b4aab31`;
+its actual tested PR merge checkout is `e2d146a66949f0bf3e825ba7c6310756e7ab4a60`.
+The retained tested-merge record confirms504a02f as its second parent. Full local check
+**1647 Core /166 skipped +147 extension**. Native **8 successful checks,
+2 Windows failures, 1 independent ECR registry failure**.
+[Windows20](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38680615574/job/116244071612),
+[Windows22](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38680615574/job/116244071873),
+[Ubuntu22 L1](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38680615509/job/116244070907).
+Complete source-pinned events/annotations/checks are retained in the evidence
+manifest. Ubuntu22 cannot pull public ECR Alpine (`toomanyrequests: Data limit
+exceeded`); the other three Linux L1 jobs pass. This infrastructure failure is
+not a green Linux qualification and not a Windows confinement defect.
+
+AD-25 adds internal branded cryptographic BNO prefix, the exact276-byte process
+attribute alongside the unchanged1/3-handle stdio allowlist, and bounded kernel
+TokenBnoIsolation read-back before the one permitted resume. Both native jobs
+reach the ordinary actor launch path without a BNO attribute/read-back error.
+That component success does **not** solve Node20 pre-JS0xc0000142, Node22 NUL
+EPERM/descendant failures, cmd or WinPS. No object/device/workspace ACL is
+weakened to hide those failures. BNO namespace descriptor/inheritance/lifetime
+qualification is still incomplete.
+
+`e0cdb0682c6070fd7f36299f81f63f9138828d97` implements AD-26 actual Windows service private files,
+not synthetic secret canaries: bootstrap service/shim/secret CLI now selects
+owner-only protected DACL + Medium NWNR before bytes, exact kernel SD read-back,
+handle-relative no-reparse/single-link pinning and retained release ownership.
+Known legacy state filenames are hardened before secret initialization; newly
+created private directories are protected, existing arbitrary directories are
+not relabeled. Service Core audit/bridge/state use the same provider. Shim
+log protection failure prevents truncation/spawn and closes its descriptor.
+
+A mandatory native actual-CrotService gate creates real file-backend service,
+control and device-key secrets, changes real settings through authenticated
+control, verifies real audit/private descriptors, then requires a ready actor's
+file read/write and deliberately unauthenticated actual-endpoint attempts.
+No credential/path bytes are recorded in evidence; pre-JS or failed import is
+not denial. This gate is awaiting native qualification. It does not cover
+self-approval, every external config or Docker; criterion4 stays NOT MET.
+
+| Criterion | Current source / concrete evidence | Status |
+| --- | --- | --- |
+| 1 Ordinary APIs and original Medium backing | `504a02f` Windows20/22 events: startup/NUL/shell failures; no transparent same-backing filesystem | NOT MET |
+| 2 Process/environment/lifecycle | `3b91370` native bytes/Core/exit/timeout/ready-grandchild; cleanup `86d8a53`/`bde77eb`/`0625595`; `504a02f` BNO launch read-back, ordinary descendants still red | PARTIAL |
+| 3 Global outside-write/Low/aliases/concurrency | `504a02f` ready Node22 private actor denies unrelated Low and WRITE_DAC; full aliases/concurrency/descendants unproven | NOT MET |
+| 4 Actual state/control/Docker | AD-26 real-service provider/gate implementation awaiting native commit-pinned evidence; Docker/self-approval/external config suite incomplete | NOT MET |
+| 5 Independent native runtime/OS/arch/user matrix | `504a02f` both Windows jobs fail; ARM64/Win11/standard-user absent | NOT MET |
+| 6 Regressions | `504a02f` local1647+147;8 CI green, Ubuntu22 ECR explicitly failed | PARTIAL / external infra failure |
+| 7 Existing interfaces and safe backend | `3b91370` existing Core launcher; `504a02f` safe none/not_implemented/remote fail-closed; no accepted production confinement backend | PARTIAL |
+| 8 No critical blockers or fake proof | `504a02f` startup/NUL/descendants/shells and filesystem/state/network/matrix blockers remain explicit; PS43f7392/RPC01ed8ce unchanged | NOT MET |
+
+WP-23c remains OPEN, OD-6/OD-9 OPEN, PR27 Draft/open. Earlier checkpoints below
+are historical, not a claim that all current checks are green.
+
+## Earlier implementation result — `59068ab`, NOT Windows L1 acceptance
 
 Implementation source `59068ab1b53a4fae04200c6c7361d2d553c7c3f5`:
 **9 completed successful checks /2 Windows failures**. All four Linux L1 jobs,

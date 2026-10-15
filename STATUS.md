@@ -7,17 +7,34 @@ package PR updates this file.
 
 ## WP-23c current continuation — not accepted
 
-Latest completed native source `59068ab`: **9 successful checks /2 Windows
-failures**. All four Linux L1 jobs, Linux/macOS Node20/22 and real Chromium pass.
-Full local check for that source:1630 Core /166 skipped and147 extension.
-Node22 direct unique-token private CRUD/unrelated-Low write and WRITE_DAC denial
-pass; ordinary NUL reopen fails EPERM after a trusted working control. Node20
-exits0xc0000142 before JS; descendants/cmd/WinPS remain red. The owned debugger attach race is fixed natively at59068ab: both runtimes
-report ready=true and targetReturned=true without additional ResumeThread or a
-relaxed exact-count gate. Node22 diagnostic target exits0; Node20 still exits
-0xc0000142. Sanitized OpenEvent/AccessCheck/CreateMutex denied-call stacks occur
-on both, including successful Node22, so they are NOT sufficient causal proof.
-Loader-snaps diagnostic deadlines remain failed, never counted as denials.
+Latest native source `9ced362379876ecf14b3b74eba7c03d8dc5b1b0c`:
+**8 successful checks /2 Windows failures /1 independent Ubuntu24 ECR rate-limit
+failure**. Three Linux L1 jobs, Linux/macOS Node20/22 and Chromium pass. Prior
+e0cdb06 has all9 non-Windows checks green. Full local9ced362 check:
+**1683 Core /167 skipped +147 extension**, lint/format/types/builds passed.
+
+AD-26 actual service-state provider is implemented ate0cdb06. Native testing
+found descriptor serialization failure plus managed-service regressions;
+9ced362 fixes SACL-vs-LABEL serialization and strengthens AD-24 owned-object
+label read-back. No failed encoding is treated as absent policy. Owner-only
+DACL + Medium NWNR is installed/read-back before secret bytes, with pinned
+no-reparse/single-link validation and retained native cleanup. Fixed legacy
+state files are hardened; arbitrary directories/workspace SDs are unchanged.
+Service Core/bridge/audit use the same provider. Shim protection failure stops
+spawn/truncation. Empty-temp atomic failures preserve old secret/state bytes.
+
+Real CrotService owner startup/control/settings update and5 private descriptor
+checks pass on both runtimes. On **Node22**, the ready actor receives EPERM
+for all5 actual secret/key/settings/audit reads and all5 writes, actual control
+connection is unreachable, host bytes remain unchanged and owner ping works;
+the mandatory test passes. On **Node20**, owner controls work but actor startup
+still exits0xc0000142 before JS; that test FAILS, never counted as denial.
+Criterion4 remains OPEN: Docker/self-approval/external config suite incomplete.
+
+AD-25 BNO launch/read-back remains a component, not a compatibility solution.
+Node20 startup, ordinary NUL, strong-token descendants, cmd and WinPS remain
+red. Native process11/11, stage6a10/10 and workspace RPC7/7 pass in each Windows
+job. No accepted transparent filesystem or production L1 backend exists.
 
 Byte cleanup at0625595 retains failed event/parent closes, partial setup
 handles and descriptors until native release succeeds. Fault injection checks
@@ -44,13 +61,6 @@ registration, native ARM64/Windows11/standard-user qualification and OD-6/OD-9
 remain OPEN. **Availability stays fail-closed; WP-23c is not ready; PR #27 stays
 Draft/open.** Exact commits, failure chronology, source-pinned events and
 criterion status: [continuation evidence](docs/design/windows-l1-continuation.md).
-
-AD-25 implementation follow-up adds a new CROT-owned BNO process attribute and
-bounded kernel child-token read-back to the existing strong-token launcher.
-Unsupported/mismatched isolation fails before resume with no weaker retry;
-stdio authority and strict PS/RPC assertions are unchanged. Native qualification
-is pending, including namespace descriptors/inheritance/lifetime. This is NOT
-transparent filesystem/state/network confinement or production activation.
 
 ## Last completed
 
