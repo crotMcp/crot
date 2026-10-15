@@ -19,21 +19,46 @@ std::wstring ownedTemp,ownedCache;
 void need(bool okay){if(!okay)throw std::runtime_error("native prerequisite");}
 std::wstring quote(const std::wstring& s){std::wstring r=L"\"";unsigned n=0;for(auto c:s){if(c==L'\\'){n++;continue;}if(c==L'"')r.append(n*2+1,L'\\');else r.append(n,L'\\');n=0;r+=c;}r.append(n*2,L'\\');return r+L"\"";}
 struct Grant {
- std::wstring path;PSID sid;bool installed=false;
+ std::wstring path;PSID sid;bool installed=false;std::vector<BYTE> original;
  Grant(std::wstring p,PSID s):path(p),sid(s){}
+ std::vector<BYTE> descriptor(){
+  PSECURITY_DESCRIPTOR sd=nullptr;need(GetNamedSecurityInfoW(path.c_str(),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&sd)==ERROR_SUCCESS);
+  DWORD length=GetSecurityDescriptorLength(sd);std::vector<BYTE> bytes(length);memcpy(bytes.data(),sd,length);LocalFree(sd);return bytes;
+ }
+ PACL acl(std::vector<BYTE>& bytes){PACL a=nullptr;BOOL present=FALSE,defaulted=FALSE;need(!!GetSecurityDescriptorDacl(bytes.data(),&present,&a,&defaulted)&&present&&a);return a;}
  void change(ACCESS_MODE mode,DWORD rights,DWORD inheritance){
-  PACL old=nullptr,next=nullptr;PSECURITY_DESCRIPTOR sd=nullptr;
-  need(GetNamedSecurityInfoW(path.c_str(),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,&old,nullptr,&sd)==ERROR_SUCCESS);
+  auto current=descriptor();PACL old=acl(current),next=nullptr;
   EXPLICIT_ACCESSW a{};a.grfAccessPermissions=rights;a.grfAccessMode=mode;a.grfInheritance=inheritance;
   a.Trustee.TrusteeForm=TRUSTEE_IS_SID;a.Trustee.TrusteeType=TRUSTEE_IS_UNKNOWN;a.Trustee.ptstrName=static_cast<LPWSTR>(sid);
   DWORD result=SetEntriesInAclW(1,&a,old,&next);
   if(result==ERROR_SUCCESS)result=SetNamedSecurityInfoW(const_cast<LPWSTR>(path.c_str()),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,next,nullptr);
-  if(next)LocalFree(next);if(sd)LocalFree(sd);need(result==ERROR_SUCCESS);
+  if(next)LocalFree(next);need(result==ERROR_SUCCESS);
  }
- // A failing setter can have partially applied its ACE. Retain ownership BEFORE
- // mutation so exception cleanup still attempts removal of our fresh exact SID.
- void add(bool deny=false){installed=true;change(deny?DENY_ACCESS:GRANT_ACCESS,deny?FILE_ALL_ACCESS:0x1301bf,deny?0:SUB_CONTAINERS_AND_OBJECTS_INHERIT);}
- bool remove(){if(!installed)return true;try{change(REVOKE_ACCESS,0,NO_INHERITANCE);installed=false;return true;}catch(...){return false;}}
+ // Fresh SID is never adopted; cleanup owns a possibly partial mutation too.
+ void add(bool deny=false){original=descriptor();installed=true;change(deny?DENY_ACCESS:GRANT_ACCESS,deny?FILE_ALL_ACCESS:0x1301bf,deny?0:SUB_CONTAINERS_AND_OBJECTS_INHERIT);}
+ bool remove(){if(!installed)return true;try{
+  auto current=descriptor();PACL old=acl(current);std::vector<BYTE> storage(old->AclSize);auto next=reinterpret_cast<PACL>(storage.data());need(!!InitializeAcl(next,old->AclSize,old->AclRevision));
+  for(DWORD i=0;i<old->AceCount;i++){
+   void* value=nullptr;need(!!GetAce(old,i,&value));auto header=static_cast<ACE_HEADER*>(value);bool own=false;
+   // REVOKE_ACCESS does NOT remove ACCESS_DENIED_ACE. Remove both forms
+   // explicitly, and only for this newly created exact package SID.
+   if(header->AceType==ACCESS_ALLOWED_ACE_TYPE||header->AceType==ACCESS_DENIED_ACE_TYPE){auto entry=static_cast<ACCESS_ALLOWED_ACE*>(value);own=!!EqualSid(&entry->SidStart,sid);}
+   if(!own)need(!!AddAce(next,old->AclRevision,MAXDWORD,value,header->AceSize));
+  }
+  need(SetNamedSecurityInfoW(const_cast<LPWSTR>(path.c_str()),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,next,nullptr)==ERROR_SUCCESS);
+  // SetNamedSecurityInfo propagates our removal, but can convert existing ACEs
+  // to inherited form. This DISPOSABLE fixture has no concurrent ACL writers.
+  // Restore original provenance ONLY after byte-checking every other ACE,
+  // ignoring solely INHERITED_ACE. Never blindly restore changed user rights.
+  auto readback=descriptor();auto actual=acl(readback),before=acl(original);need(actual->AceCount==before->AceCount);
+  for(DWORD i=0;i<actual->AceCount;i++){
+   void *x=nullptr,*y=nullptr;need(!!GetAce(actual,i,&x)&&!!GetAce(before,i,&y));auto hx=static_cast<ACE_HEADER*>(x),hy=static_cast<ACE_HEADER*>(y);
+   need(hx->AceSize==hy->AceSize&&hx->AceType==hy->AceType&&(hx->AceFlags&~INHERITED_ACE)==(hy->AceFlags&~INHERITED_ACE));
+   need(memcmp(static_cast<BYTE*>(x)+sizeof(ACE_HEADER),static_cast<BYTE*>(y)+sizeof(ACE_HEADER),hx->AceSize-sizeof(ACE_HEADER))==0);
+  }
+  need(!!SetFileSecurityW(path.c_str(),DACL_SECURITY_INFORMATION,original.data()));
+  installed=false;return true;
+ }catch(...){return false;}}
  ~Grant(){remove();}
 };
 std::vector<unsigned char> information(HANDLE token,TOKEN_INFORMATION_CLASS kind){DWORD n=0;GetTokenInformation(token,kind,nullptr,0,&n);need(n>=4&&n<=65536);std::vector<unsigned char>b(n);need(!!GetTokenInformation(token,kind,b.data(),n,&n));return b;}
@@ -111,7 +136,8 @@ int wmain(int argc,wchar_t** argv){
   phase="node";nodeCode=launch(nodeCopy,{L"-e",js},root,package,verified,nodeCode);
   wchar_t system[32768]{};need(GetSystemDirectoryW(system,32768)>0);std::wstring sys=system;
   phase="cmd";cmdCode=launch(sys+L"\\cmd.exe",{L"echo cmd-ready>cmd-result.txt & echo nul>NUL"},root,package,verified,cmdCode,true);
-  const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\"; 'ps-ready' > ps-result.txt; 'nul' > NUL";
+  std::wstring psRoot=root;for(size_t at=0;(at=psRoot.find(L"'",at))!=std::wstring::npos;at+=2)psRoot.insert(at,L"'");
+  const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop;Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; 'nul' > NUL";
   phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified,psCode);
   phase="cleanup";cleanup=secret.remove();cleanup=tools.remove()&&cleanup;cleanup=tmp.remove()&&cleanup;cleanup=workspace.remove()&&cleanup;need(cleanup);
  }catch(...){failureCode=GetLastError();cleanup=false;}
