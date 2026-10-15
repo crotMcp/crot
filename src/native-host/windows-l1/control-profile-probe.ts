@@ -32,7 +32,21 @@ export function decodeControlProfileDiagnostic(hex: string) {
   if (!/^[0-9a-f]{8}$/.test(hex)) return undefined;
   const value = Number.parseInt(hex, 16);
   if (value === 0xa5c00000) return { completed: false as const, stage: "cleanup" as const };
-  if (value === 0xa5d00000) return { completed: false as const, stage: "owner-controls-or-setup" as const };
+  if (value >>> 4 === 0xa5d0000) {
+    const stage = [
+      "owner-controls-or-setup",
+      "owner-win32-zero",
+      "owner-nt-zero",
+      "owner-win32-read",
+      "owner-nt-read",
+      "module-path",
+      "source-path",
+      "owned-nonce",
+      "controller-exception",
+    ][value & 15];
+    if (!stage) return undefined;
+    return { completed: false as const, stage };
+  }
   if (value >>> 20 !== 0xa5b) return undefined;
   const appContainer = profile(value & 0x3ff),
     lpac = profile((value >>> 10) & 0x3ff);

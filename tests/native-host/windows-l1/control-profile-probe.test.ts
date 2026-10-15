@@ -35,6 +35,11 @@ describe("AppContainer/LPAC diagnostic protocol (not native evidence)", () => {
     expect(decodeControlProfileDiagnostic("a5d00000")).toEqual({ completed: false, stage: "owner-controls-or-setup" });
     expect(decodeControlProfileDiagnostic("a5c00000")).toEqual({ completed: false, stage: "cleanup" });
   });
+  it("localizes a failed owner control without turning it into a profile result", () => {
+    expect(decodeControlProfileDiagnostic("a5d00004")).toEqual({ completed: false, stage: "owner-nt-read" });
+    expect(decodeControlProfileDiagnostic("a5d00007")).toEqual({ completed: false, stage: "owned-nonce" });
+    expect(decodeControlProfileDiagnostic("a5d0000f")).toBeUndefined();
+  });
   it.each(["a5b0000", "A5B00000", "a5b000000", "a5b00000\n", "00000000", "c0000142", frame(0x200, 0), frame(0x2ff, 0)])(
     "rejects malformed/reserved frame %j",
     (s) => {

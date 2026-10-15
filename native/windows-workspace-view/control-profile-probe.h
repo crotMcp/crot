@@ -125,17 +125,18 @@ DWORD probeControlProfiles(const std::wstring& device) {
     const auto raw=L"\\\\?\\GLOBALROOT"+device;
     for (ACCESS_MASK access:{ACCESS_MASK(0),ACCESS_MASK(GENERIC_READ)}) {
       Handle h(CreateFileW(raw.c_str(),access,7,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED,nullptr));
-      if (!h.valid() || !ownedNativeControl(device,access)) return 0xa5d00000u;
+      if (!h.valid()) return access?0xa5d00003u:0xa5d00001u;
+      if (!ownedNativeControl(device,access)) return access?0xa5d00004u:0xa5d00002u;
     }
     wchar_t exe[32768]{};
     const DWORD n=GetModuleFileNameW(nullptr,exe,32768);
-    if (!n || n>=32768) return 0xa5d00000u;
+    if (!n || n>=32768) return 0xa5d00005u;
     std::wstring binary(exe,n); auto separator=binary.find_last_of(L"\\/");
-    if (separator==std::wstring::npos || binary.find(L'"')!=std::wstring::npos) return 0xa5d00000u;
+    if (separator==std::wstring::npos || binary.find(L'"')!=std::wstring::npos) return 0xa5d00006u;
     const auto source=binary.substr(0,separator)+L"\\control-profile-child.exe";
     const auto nonce=mountPath.substr(mountPath.find_last_of(L"\\")+1);
     if (nonce.size()!=53 || nonce.compare(0,5,L"view-") || nonce.find_first_not_of(L"0123456789abcdef",5)!=std::wstring::npos)
-      return 0xa5d00000u;
+      return 0xa5d00007u;
     // The trusted fixture owns this existing parent and retries recursive
     // cleanup only after the exact helper exits. Its environment TEMP may be
     // a not-yet-created layout path; never assume GetTempPath creates it.
@@ -145,5 +146,5 @@ DWORD probeControlProfiles(const std::wstring& device) {
     const DWORD lpac=oneControlProfile(device,source,base+L"-lpac",L"crot.control."+nonce+L".lpac",true);
     if (failed || lpac==0x20a) return 0xa5c00000u;
     return 0xa5b00000u|ac|(lpac<<10);
-  } catch (...) { return 0xa5d00000u; }
+  } catch (...) { return 0xa5d00008u; }
 }
