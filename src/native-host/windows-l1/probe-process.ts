@@ -3,6 +3,7 @@
  * Verifies an empty kill-on-close Job before ResumeThread and accepts only
  * owned stdio. This primitive alone declares no L1 or filesystem availability.
  */
+import { bnoIsolationAttribute, bindBnoIsolationVerifier, type BnoIsolation } from "./bno-isolation.js";
 import { CrotError } from "../../core/errors.js";
 import type { JobObject } from "../windows-job.js";
 import { validatePid, validateWindowsPath } from "../validation.js";
@@ -23,6 +24,8 @@ export interface ProbeSpec {
   readonly stdio?: "nul" | NativeByteStdio;
   /** AD-24 trusted, newly owned noninteractive station/desktop, never caller input. */
   readonly desktop?: string;
+  /** AD-25 host-generated branded namespace, never untrusted process input. */
+  readonly bnoIsolation?: BnoIsolation;
   /** AD-24 new hidden console, only inside the owned noninteractive desktop. */
   readonly console?: "owned-hidden";
   /** Owned research diagnostics only; never forwarded from Core/CommandSpec. */
@@ -184,6 +187,13 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
       if (spec.console !== undefined && (spec.console !== "owned-hidden" || !desktop)) throw invalid("owned console");
       const consoleFlags = spec.console === "owned-hidden" ? 0x10 : 0x08000000;
       const flags = FLAGS | consoleFlags | (spec.diagnostics?.debugOnlyThisProcess ? 0x2 : 0);
+      const bno = spec.bnoIsolation;
+      const bnoVerifier = bno ? bindBnoIsolationVerifier(ffi, libraries) : undefined;
+      if (bno) {
+        bnoIsolationAttribute(bno);
+        if (!ownedStdio && spec.stdio !== "nul") throw invalid("BNO requires owned extended startup");
+        bnoVerifier!.retry();
+      }
       if (ownedStdio) {
         bindPipeProcessCreation(ffi, libraries)(
           token,
@@ -195,6 +205,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
           info,
           ownedStdio,
           desktop,
+          bno,
         );
       } else if (spec.stdio === "nul") {
         bindNulProcessCreation(ffi, libraries)(
@@ -206,6 +217,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
           cwd,
           info,
           desktop,
+          bno,
         );
       } else if (
         !success(
@@ -242,6 +254,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
       const contained = job.accounting();
       if (!contained || contained.active < 1 || contained.total < 1) throw failure("Job accounting");
       if (ownedStdio) releaseStdioChildEnds(ownedStdio);
+      if (bno) bnoVerifier!.verify(info.hProcess, bno);
       if (spec.diagnostics) {
         let observing = true;
         try {

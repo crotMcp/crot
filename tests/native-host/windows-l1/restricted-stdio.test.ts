@@ -1,4 +1,9 @@
 /** Portable ownership/allowlist tests. Not native ABI or sandbox proof. */
+import {
+  createBnoIsolation,
+  bnoIsolationAttribute,
+  type BnoIsolation,
+} from "../../../src/native-host/windows-l1/bno-isolation.js";
 import { expect, it, vi } from "vitest";
 import { createNativeByteStdio, type BytePipeApi } from "../../../src/native-host/windows-l1/byte-stdio.js";
 import {
@@ -22,7 +27,9 @@ function fixture(fail?: string) {
     }
     return fail === "initialize" ? ((error = 5), 0) : 1;
   });
-  fn("UpdateProcThreadAttribute", () => (fail === "allowlist" ? ((error = 5), 0) : 1));
+  fn("UpdateProcThreadAttribute", (_list, _flags, attribute) =>
+    fail === "allowlist" || (fail === "bno" && attribute === 0x20013) ? ((error = 5), 0) : 1,
+  );
   fn("DeleteProcThreadAttributeList", () => undefined);
   fn("CreateProcessAsUserW", () => (fail === "create" ? ((error = 5), 0) : 1));
   fn("CloseHandle", () => (fail === "close" ? ((error = 6), 0) : 1));
@@ -47,6 +54,8 @@ function fixture(fail?: string) {
     ffi,
     calls,
     launch: () => create(1n, "C:\\owned.exe", Buffer.alloc(8), 0x08000404, Buffer.alloc(8), "C:\\work", {}),
+    launchWithBno: (cap: BnoIsolation) =>
+      create(1n, "C:\\owned.exe", Buffer.alloc(8), 0x08000404, Buffer.alloc(8), "C:\\work", {}, undefined, cap),
   };
 }
 
@@ -109,6 +118,8 @@ async function byteFixture(fail?: string) {
     ...f,
     io,
     launch: () => create(1n, "C:\\owned.exe", Buffer.alloc(8), 0x08000404, Buffer.alloc(8), "C:\\work", {}, io),
+    launchWithBno: (cap: BnoIsolation) =>
+      create(1n, "C:\\owned.exe", Buffer.alloc(8), 0x08000404, Buffer.alloc(8), "C:\\work", {}, io, undefined, cap),
   };
 }
 it("inherits exactly three branded child handles; clears inheritance without yielding", async () => {
@@ -217,4 +228,54 @@ it("sets hidden-console startup flags while preserving exact stdio and desktop",
   } finally {
     await f.io.close();
   }
+});
+
+it("adds an owned BNO attribute without replacing or enlarging the NUL handle allowlist", () => {
+  const f = fixture(),
+    cap = createBnoIsolation();
+  f.launchWithBno(cap);
+  expect(f.calls.get("InitializeProcThreadAttributeList")!.mock.calls.map((x) => x[1])).toEqual([2, 2]);
+  const updates = f.calls.get("UpdateProcThreadAttribute")!.mock.calls;
+  expect(updates.map((x) => x[2])).toEqual([0x20002, 0x20013]);
+  expect(updates[0]![4]).toBe(8);
+  expect(updates[1]![3]).toEqual(bnoIsolationAttribute(cap));
+  expect(updates[1]![4]).toBe(276);
+  expect(f.calls.get("CreateProcessAsUserW")).toHaveBeenCalledOnce();
+});
+it("adds BNO without authorizing a fourth inherited pipe handle", async () => {
+  const f = await byteFixture();
+  try {
+    f.launchWithBno(createBnoIsolation());
+    const updates = f.calls.get("UpdateProcThreadAttribute")!.mock.calls;
+    expect(updates.map((x) => x[2])).toEqual([0x20002, 0x20013]);
+    expect(updates[0]![4]).toBe(24);
+    expect(
+      f.calls
+        .get("SetHandleInformation")!
+        .mock.calls.filter((x) => x[2] === 1)
+        .map((x) => x[0]),
+    ).toEqual([2n, 4n, 6n]);
+  } finally {
+    await f.io.close();
+  }
+});
+it.each(["nul", "pipe"] as const)(
+  "refuses unsupported BNO for %s without a launch or nonisolated retry",
+  async (kind) => {
+    const byte = kind === "pipe" ? await byteFixture("bno") : undefined;
+    const f = byte ?? fixture("bno");
+    try {
+      expect(() => f.launchWithBno(createBnoIsolation())).toThrow("BNO isolation attribute");
+      expect(f.calls.get("CreateProcessAsUserW")).not.toHaveBeenCalled();
+      expect(f.calls.get("DeleteProcThreadAttributeList")).toHaveBeenCalledOnce();
+    } finally {
+      await byte?.io.close();
+    }
+  },
+);
+it("rejects a fabricated BNO prefix capability before opening a handle or creating an attribute list", () => {
+  const f = fixture();
+  expect(() => f.launchWithBno({ kind: "owned-bno-isolation" })).toThrow("unowned capability");
+  expect(f.calls.get("CreateFileW")).not.toHaveBeenCalled();
+  expect(f.calls.get("InitializeProcThreadAttributeList")).not.toHaveBeenCalled();
 });

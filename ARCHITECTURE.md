@@ -5183,3 +5183,36 @@ from CROT are passed. Without an owned desktop this mode is rejected. Read-back
 of kernel owner/DACL/Low label precedes readiness. Ordinary console/shell and
 normal/hidden/ignored-stdio descendants still require native proof, not an
 assumption that console allocation fixes other loader failures.
+
+### AD-25. Owned Base Named Object isolation prefix for the Windows strong-token implementation slice (WP-23c; qualification required)
+
+**Decision before code.** Ordinary runtime initialization needs process-local
+Win32 named objects. The unique WRITE_RESTRICTED Low token must not gain a
+common/logon restricting SID or rights to the ambient BaseNamedObjects namespace.
+Use the native BNO-isolation process attribute with a new cryptographically
+random, CROT-generated prefix, only through the existing suspended/Job-owned
+launcher. The prefix is an internal branded capability, not RPC/CommandSpec
+input, a caller-selected object path or a permission policy. No service token,
+existing object, device or user workspace descriptor is changed.
+
+The extended-startup attribute is additive to the EXACT existing stdio handle
+allowlist. Unsupported attributes or mismatched bounded kernel TokenBnoIsolation
+read-back fail the launch before ResumeThread; no retry without isolation and no
+extra resume. A child token opened for read-back has explicit ownership and
+failed closes block subsequent verification/allocation until cleanup succeeds.
+Existing token restrictions, Low integrity, private desktop and empty Job
+verification/assignment remain mandatory and unchanged.
+
+**Scope/status.** Implement this component and qualify it with the real ordinary
+Node20/22/cmd/WinPS and descendant/global-denial gates; keep the legacy MIC-only
+component tests intact. BNO is not transparent filesystem confinement or network
+isolation. Kernel directory descriptors, inherited namespace behavior, aliases,
+concurrency, resource lifetime and all protected IPC/state boundaries still need
+native qualification before production activation. An API description or a
+matching token prefix is not that acceptance. No kernel namespace ACL is weakened
+as a compatibility fallback. This decision adds no broker/permission system.
+
+**Implementation status:** in progress. Production CommandConfinement remains
+none/not_implemented, remote launch fail-closed, OD-6/OD-9 OPEN, PR27 Draft/open.
+Windows ARM64/Windows11/standard-user qualification and every eight-criterion
+acceptance requirement remain independent and mandatory.

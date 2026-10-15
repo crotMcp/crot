@@ -814,3 +814,36 @@ exhaustive exceptional-path qualification or completion of criterion2/8.
 Final local full check of this byte setup/count-diagnostic change: **1624 Core passed /166 skipped;147 extension passed**, including lint/format/types/builds. Focused portable/C-ABI suite:94 passed (62 token ABI,11 byte state,5 byte ABI,16 environment/argument). Runtime Linux x64 Node24.14.1; local Windows skips are not native proof. Native CI for this new source is pending.
 
 Read-only attach synchronization full local check: **1630 Core passed /166 skipped;147 extension passed**, including lint/format/types/builds. Native Windows requalification remains pending; local platform skips are not acceptance.
+
+## AD-25 BNO runtime implementation follow-up — native qualification pending
+
+The existing strong token cannot create ordinary named runtime objects in an
+ambient namespace just by having a private default DACL. This follow-up adds a
+new, branded CROT-generated BNO prefix through the native extended-startup
+attribute (BOOL + WCHAR[136], class0x20013). It is additive to, never a
+replacement for, the exact one-NUL/three-byte-handle allowlist. No common SID,
+global namespace/device ACL or user workspace descriptor changes.
+
+The actual existing NativeProcessLauncher accepts only this internal capability
+and passes it through the existing suspended, Job-owned launch. The native child
+must still be restricted. Its exact held process handle is used to query the
+actual child token's TokenBnoIsolation: enabled=true and the exact requested
+prefix inside a bounded native output buffer. An unsupported attribute, foreign
+pointer, malformed size/flag, mismatch or unavailable query fails BEFORE resume;
+no nonisolated retry. Read-back token handles have retained retry ownership;
+persistent CloseHandle failure blocks further verification/allocation. Both
+native runtime versions run the same original ordinary/descendant/negative
+assertions with this additional namespace component. Legacy MIC-only and strict
+PowerShell/RPC gates are unchanged.
+
+Focused portable/C-ABI:102 passed (68 token ABI,12 BNO,20 stdio authority,2
+process ownership). Includes bounded output/pointer failure, persistent cleanup
+failure with no growth, fabricated capability refusal, unsupported attribute with
+zero child creations, and exact unchanged inherited handle set. These are ABI/
+ownership tests, NOT a Windows readiness or isolation conclusion. AD-25 records
+the decision before code. Native directory descriptors, child namespace
+inheritance/alias/concurrency/resource lifetime, actual CROT protected state and
+all eight mandatory criteria still need qualification; matching token read-back
+alone does not close those requirements. Production availability remains false.
+
+Full local check for this AD-25 implementation: **1647 Core passed /166 skipped;147 extension passed**, including lint/format/types/builds. Runtime Linux x64 Node24.14.1. Native BNO/runtime qualification is pending; local platform skips are not evidence of Windows isolation.

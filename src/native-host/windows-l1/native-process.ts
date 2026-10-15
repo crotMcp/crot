@@ -3,6 +3,7 @@
  * contract; it is deliberately NOT registered as CommandConfinement. Filesystem,
  * protected-state and IPC boundaries must qualify before any availability claim.
  */
+import { bnoIsolationAttribute, type BnoIsolation } from "./bno-isolation.js";
 import { CrotError } from "../../core/errors.js";
 import type {
   CommandSpec,
@@ -31,6 +32,7 @@ export interface NativeProcessOptions {
   readonly childEnvironment: WindowsLaunchEnvironment;
   /** Ownership transfers to the launcher, which stops actors before teardown. */
   readonly desktop?: OwnedDesktop;
+  readonly bnoIsolation?: BnoIsolation;
   readonly resolver: Pick<ProcessLauncher, "resolveCommand">;
 }
 
@@ -158,6 +160,7 @@ export class NativeProcessLauncher implements ProcessLauncher {
     job: JobObject | undefined;
   }>();
   constructor(private readonly options: NativeProcessOptions) {
+    if (options.bnoIsolation) bnoIsolationAttribute(options.bnoIsolation);
     if (options.desktop) {
       if (options.desktop.closed || options.desktop.restrictingSid !== options.token.restrictingSid)
         throw new CrotError("INVALID_INPUT", "Native process desktop does not match the owned token.");
@@ -205,6 +208,7 @@ export class NativeProcessLauncher implements ProcessLauncher {
               ? {}
               : { windowsVerbatimArguments: spec.windowsVerbatimArguments }),
             stdio: io,
+            ...(this.options.bnoIsolation ? { bnoIsolation: this.options.bnoIsolation } : {}),
             ...(this.options.desktop
               ? { desktop: this.options.desktop.desktop, console: "owned-hidden" as const }
               : {}),

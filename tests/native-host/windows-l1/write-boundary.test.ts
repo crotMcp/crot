@@ -7,6 +7,7 @@ import { startOwnedLoaderTrace, type OwnedLoaderTrace } from "./diagnostics/owne
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import type { BnoIsolation } from "../../../src/native-host/windows-l1/bno-isolation.js";
 import type { OwnedDesktop } from "../../../src/native-host/windows-l1/owned-desktop.js";
 import { afterEach, beforeEach, describe, expect, it, inject } from "vitest";
 import type { CommandSpec } from "../../../src/core/platform/types.js";
@@ -34,7 +35,9 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
   let dirs: TempDirs, host: NativeHost, token: RestrictedToken, launcher: NativeProcessLauncher;
   let privateRoot: string, outside: string, project: string;
   let desktop: OwnedDesktop;
+  let bnoIsolation: BnoIsolation;
   let native: {
+    createBnoIsolation: typeof import("../../../src/native-host/windows-l1/bno-isolation.js").createBnoIsolation;
     NativeHost: typeof import("../../../src/native-host/native-host.js").NativeHost;
     NativeProcessLauncher: typeof import("../../../src/native-host/windows-l1/native-process.js").NativeProcessLauncher;
     loadRestrictedTokens: typeof loadRestrictedTokens;
@@ -54,6 +57,7 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       {},
       ...(await Promise.all(
         [
+          "native-host/windows-l1/bno-isolation.js",
           "native-host/native-host.js",
           "native-host/windows-job.js",
           "native-host/windows-l1/restricted-token.js",
@@ -105,7 +109,9 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       restrictingSid: token.restrictingSid,
       systemRoot: process.env.SystemRoot ?? "C:\\Windows",
     });
+    bnoIsolation = native.createBnoIsolation();
     launcher = new native.NativeProcessLauncher({
+      bnoIsolation,
       desktop,
       token,
       ownerSid,
@@ -234,6 +240,7 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
         env: environment.prepare({}),
         stdio: "nul",
         desktop: desktop.desktop,
+        bnoIsolation,
         console: "owned-hidden",
         diagnostics: {
           debugOnlyThisProcess: true,
@@ -305,6 +312,7 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
           cwd: dirs.workspace,
           env: { SystemRoot: root, TEMP: privateRoot, TMP: privateRoot },
           desktop: desktop.desktop,
+          bnoIsolation,
           console: "owned-hidden",
           stdio: "nul",
           ...(debuggerAvailable

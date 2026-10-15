@@ -45,6 +45,13 @@ remain OPEN. **Availability stays fail-closed; WP-23c is not ready; PR #27 stays
 Draft/open.** Exact commits, failure chronology, source-pinned events and
 criterion status: [continuation evidence](docs/design/windows-l1-continuation.md).
 
+AD-25 implementation follow-up adds a new CROT-owned BNO process attribute and
+bounded kernel child-token read-back to the existing strong-token launcher.
+Unsupported/mismatched isolation fails before resume with no weaker retry;
+stdio authority and strict PS/RPC assertions are unchanged. Native qualification
+is pending, including namespace descriptors/inheritance/lifetime. This is NOT
+transparent filesystem/state/network confinement or production activation.
+
 ## Last completed
 
 **WP-24 — Browser v1: CDP backend, snapshot and refs, trusted input,

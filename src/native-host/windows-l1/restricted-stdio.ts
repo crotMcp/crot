@@ -3,6 +3,7 @@
  * Inherits exactly one harmless device handle, never the service's handles.
  * Does not make the MIC-only launcher a production confinement backend.
  */
+import { bnoIsolationAttribute, type BnoIsolation } from "./bno-isolation.js";
 import { CrotError } from "../../core/errors.js";
 import { ownedStdioHandles, type NativeByteStdio } from "./byte-stdio.js";
 import type { TokenFfi, TokenLibraries } from "./restricted-token.js";
@@ -78,7 +79,9 @@ export function bindNulProcessCreation(ffi: TokenFfi, libraries: TokenLibraries)
     cwd: string,
     info: object,
     desktop?: Buffer,
+    bno?: BnoIsolation,
   ): void => {
+    const isolation = bno ? bnoIsolationAttribute(bno) : undefined;
     let handle: unknown;
     let attributes: Buffer | undefined;
     let initialized = false;
@@ -90,18 +93,20 @@ export function bindNulProcessCreation(ffi: TokenFfi, libraries: TokenLibraries)
       if (invalidHandle(handle)) throw failure("open NUL");
       if (!ok(inherit(handle, 1, 1))) throw failure("mark owned NUL inheritable");
       const size: { value?: number | bigint } = { value: 0 };
-      const first = initialize(null, 1, 0, size);
+      const first = initialize(null, isolation ? 2 : 1, 0, size);
       const code = lastError();
       const bytes = Number(size.value);
       if (ok(first) || code !== 122 || !Number.isSafeInteger(bytes) || bytes < 1 || bytes > 65536)
         throw failure("attribute sizing", code);
       attributes = Buffer.alloc(bytes);
-      if (!ok(initialize(attributes, 1, 0, size))) throw failure("attribute initialization");
+      if (!ok(initialize(attributes, isolation ? 2 : 1, 0, size))) throw failure("attribute initialization");
       initialized = true;
       const handles = Buffer.alloc(8);
       ffi.encode(handles, "void *", handle);
       if (!ok(update(attributes, 0, 0x20002, handles, handles.length, null, null)))
         throw failure("explicit handle allowlist");
+      if (isolation && !ok(update(attributes, 0, 0x20013, isolation, isolation.length, null, null)))
+        throw failure("BNO isolation attribute");
       const startup = {
         startup: {
           cb: 112,
@@ -165,7 +170,9 @@ export function bindPipeProcessCreation(ffi: TokenFfi, libraries: TokenLibraries
     info: object,
     stdio: NativeByteStdio,
     desktop?: Buffer,
+    bno?: BnoIsolation,
   ): void => {
+    const isolation = bno ? bnoIsolationAttribute(bno) : undefined;
     const child = ownedStdioHandles(stdio);
     if (child.length !== 3 || child.some(invalidHandle)) throw failure("owned handle validation", 0);
     const inherited: unknown[] = [];
@@ -174,13 +181,13 @@ export function bindPipeProcessCreation(ffi: TokenFfi, libraries: TokenLibraries
     let failed: { cause: unknown } | undefined;
     try {
       const size: { value?: number | bigint } = { value: 0 };
-      const first = initialize(null, 1, 0, size),
+      const first = initialize(null, isolation ? 2 : 1, 0, size),
         code = last(),
         bytes = Number(size.value);
       if (ok(first) || code !== 122 || !Number.isSafeInteger(bytes) || bytes < 1 || bytes > 65536)
         throw failure("attribute sizing", code);
       attributes = Buffer.alloc(bytes);
-      if (!ok(initialize(attributes, 1, 0, size))) throw failure("attribute initialization");
+      if (!ok(initialize(attributes, isolation ? 2 : 1, 0, size))) throw failure("attribute initialization");
       initialized = true;
       const list = Buffer.alloc(24);
       child.forEach((handle, i) => ffi.encode(list.subarray(i * 8), "void *", handle));
@@ -191,6 +198,8 @@ export function bindPipeProcessCreation(ffi: TokenFfi, libraries: TokenLibraries
         if (!ok(inherit(handle, 1, 1))) throw failure("child inheritance");
         inherited.push(handle);
       }
+      if (isolation && !ok(update(attributes, 0, 0x20013, isolation, isolation.length, null, null)))
+        throw failure("BNO isolation attribute");
       const startup = {
         startup: {
           cb: 112,
