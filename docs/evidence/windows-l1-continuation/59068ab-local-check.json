@@ -1,0 +1,17 @@
+{
+  "implementationCommit": "59068ab1b53a4fae04200c6c7361d2d553c7c3f5",
+  "command": "npm run check",
+  "platform": "linux",
+  "arch": "x64",
+  "node": "v24.14.1",
+  "core": {
+    "passed": 1630,
+    "skipped": 166
+  },
+  "extension": {
+    "passed": 147
+  },
+  "lint_format_types_builds": "passed",
+  "fullLogSha256": "ca75ea4c198b350fe0db38c2a2af9366a87ce4ab796cfec5c7062b57c351cc86",
+  "qualificationLimit": "Local Windows skips are not Windows evidence; native completed jobs/events retained separately."
+}

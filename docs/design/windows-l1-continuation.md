@@ -5,7 +5,58 @@ confinement still reports `not_implemented`; PR #27 stays open and Draft. No
 backend, write-through filesystem, global write boundary or architecture
 selection is claimed by the 11 green checks below.
 
-## Latest native checkpoint `0625595` — still NOT accepted
+## Current implementation result — `59068ab`, NOT Windows L1 acceptance
+
+Implementation source `59068ab1b53a4fae04200c6c7361d2d553c7c3f5`:
+**9 completed successful checks /2 Windows failures**. All four Linux L1 jobs,
+Linux/macOS Node20/22 and Chromium pass. No external registry failure on this
+pin. Full local `npm run check`: **1630 Core passed /166 skipped;147 extension
+passed**, including lint/format/types/builds (Linux x64 Node24.14.1).
+[Native20](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38677566639/job/116234542384),
+[Native22](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38677566639/job/116234542455).
+Both Windows failures remain explicit. All exact checks, complete event arrays,
+annotations and local-check summary are retained with a SHA-256 manifest.
+The documentation-only update containing this result does not change tested code.
+
+`0625595` repairs actual byte teardown/setup leaks: failed completed-event,
+parent/child and descriptor release retain exact owners; no new allocation on
+persistent failure, retries without double close. A failed Endpoint.close can
+recover. Pending kernel I/O still requires completion acknowledgement, and an
+incomplete operation is quarantined, not called released.
+
+`59068ab` fixes external debugger attachment ordering, confirmed natively:
+CDB ready=true and targetReturned=true on both20/22. The launcher waits
+READ-ONLY until the debugger's transient extra suspension leaves, then calls
+ResumeThread exactly once and still requires returned count1. Unsupported or
+malformed queries, count0 and a persistent extra suspension fail before resume.
+No extra resume, weaker retry, changed actor token or new remote authority.
+Node22's diagnostic target exits0. Node20 still exits3221225794/0xc0000142.
+
+Sanitized stacks now expose OpenEvent from combase InitHookOle, AccessCheck
+through BasepIsServiceSidBlocked/USER32 and CreateMutexEx from CRYPT32/WIL.
+**These calls also fail in Node22's successfully exited diagnostic target.**
+They are not by themselves the fatal root cause, a protected-resource attempt,
+or a global boundary proof. Loader-snaps tests still exceed their existing
+bounded diagnostic run and are retained as failures. No deadline is increased.
+
+| # / required criterion | Status, implementation/source commit | Specific evidence / still missing |
+| --- | --- | --- |
+| 1. Ordinary APIs/redirection, original Medium backing, unchanged user SDs | NOT MET; `43f7392`, `281b559`, `59068ab` | Shared PS fix retained. Ready Node22 private fixture is not original Medium backing. NUL reopen EPERM; no transparent same-backing filesystem. No user workspace SD weakening. |
+| 2. Process correctness/environment/lifecycle | PARTIAL; `3b91370`, `86d8a53`, `bde77eb`, `0625595`, `59068ab` | Native bytes/Core/exit23/timeout/ready-grandchild gates at3b91370; concrete Job/token/byte release fault injection since. Fresh native attach ordering works. Strong-token Node20/ordinary descendants/shells and exhaustive crash/recovery/ambiguous-I/O-start paths remain unqualified. |
+| 3. Global outside-write/Low/aliases/descendants | NOT MET; `fcb4748`, `59068ab` | Ready Node22 private actor denies Low sibling and WRITE_DAC with trusted controls. Full aliases/concurrency/descendants + original backing unproven; no pre-JS failure counted as denial. |
+| 4. Actual CROT secrets/key/config/audit/control/Docker | NOT MET; observation pin `59068ab` | No implemented qualifying actual-service suite/endpoint boundary. Environment omission is NOT Docker protection. |
+| 5. Native20/22/cmd/PS and independent OS/arch/user matrix | NOT MET; `59068ab` | Both Windows jobs fail ordinary runtime cases; only x64 elevated Server runner observed. ARM64/Win11/standard user absent; workflow-write403 is a separate infrastructure limit, not acceptance. |
+| 6. Regressions | PASS at `59068ab` | Full local1630+147 and all9 non-Windows checks, including all4 real Linux L1 jobs. Earlier bde77eb ECR failure separately recorded. Both Windows jobs remain red. |
+| 7. Existing production interfaces/safe backend | PARTIAL COMPONENTS, NOT MET; `3b91370`, `59068ab` | Native ProcessLauncher consumed through same Core/ExecutionGuard/PermissionEngine. No accepted CommandConfinement backend; none/not_implemented and remote fail-closed remain. |
+| 8. No known critical blockers or fake proof | NOT MET; `59068ab` | Startup/NUL/descendants/shells, transparent FS, actual-state/network/backend/matrix blockers remain. No required assertion/strict PS/RPC gate relaxed; no broad SID, global device or workspace ACL grants. |
+
+Implementation changes preserve original `43f7392` production PowerShell and
+`01ed8ce` aligned RPC fixes. OD-6/OD-9 stay OPEN. PR27 is Draft/open, not merged,
+not review-ready. No available=true registration. No v1 platform target or
+WP-25/26/27 scope is removed. Earlier sections below are source-pinned history,
+not competing claims about the current source.
+
+## Earlier native checkpoint `0625595` — still NOT accepted
 
 Implementation source `0625595d5b720677f4642ba07fb1915896dad021`:
 **9 completed successful checks /2 Windows failures**. All four real Linux L1
@@ -39,7 +90,7 @@ unsupported query, count0, wrong size, invalid ULONG and persistent-suspension
 cases. They prove no extra resume and no lost child on failure; native CI for
 this source remains pending, and USER32/root cause is NOT claimed solved.
 
-## Current acceptance checkpoint — native source `281b559`, NOT accepted
+## Earlier acceptance checkpoint — native source `281b559`, NOT accepted
 
 Source `281b5590892a4c689aa19906ff6cdcfb47bbdb55` has nine completed
 successful checks and two failed Windows checks. All four real Linux L1 jobs,
