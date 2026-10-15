@@ -33,6 +33,25 @@ raw direct-process compatibility guarantee is inferred from initialized-shell
 success. This correction aligns the product-like test with the production fix,
 not a separate fixture-only module workaround.
 
+## Final documentation rerun: Windows passed, external ECR failure retained
+
+Documentation/evidence HEAD `2a09e5081500e5e92bc217716a261f76ae3c956d`
+completed **10 success / 1 failure**. Both native Windows Node 20/22 jobs passed,
+including the initialized strict redirection and legacy RPC gates. Linux L1
+Ubuntu 24.04 x64 failed while pulling the unchanged Alpine fixture image:
+`public.ecr.aws/docker/library/alpine:3.20` returned
+`toomanyrequests: Data limit exceeded`.
+
+The failure is pinned to
+[job 116170366198](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38657412482/job/116170366198),
+with its complete annotation snapshot retained beside the check/event arrays.
+It is classified as an external registry failure, not silently skipped,
+converted to PASS or called a Windows regression. The other three Linux L1
+jobs passed. The prior full 11/11 at qualified code/test pin `01ed8ce` remains
+valid for that run only. This documentation/evidence update triggers a bounded
+repeat on **unchanged src/tests/workflows/dependency manifests**; its result is
+reported separately in the final PR/archive, not assumed in this document.
+
 ## Restored baseline and implementation commits
 
 The supplied handoff was restored in a fresh Linux checkout. `git fetch origin`

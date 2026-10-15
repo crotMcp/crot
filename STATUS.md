@@ -17,7 +17,9 @@ PowerShell discovery remains a reported timeout. Transparent Medium workspace
 writes, global outside-Low write isolation, native stdio byte bridge, the
 Windows confinement backend and actual protected-resource qualification are
 still missing. **Not Windows L1 acceptance; availability stays fail-closed;
-PR #27 stays Draft/open.** See [pinned continuation and criterion status](docs/design/windows-l1-continuation.md).
+PR #27 stays Draft/open. The `2a09e50` documentation rerun passed both Windows jobs but failed Linux
+L1 Ubuntu 24.04 on public ECR's `toomanyrequests: Data limit exceeded`; retained
+as infrastructure evidence and repeated without changing implementation or tests.** See [pinned continuation and criterion status](docs/design/windows-l1-continuation.md).
 
 ## Last completed
 
