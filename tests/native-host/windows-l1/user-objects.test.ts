@@ -21,12 +21,14 @@ function fixture(failure?: string) {
       return 1;
     }),
     ConvertSecurityDescriptorToStringSecurityDescriptorW: vi.fn((_sd, _r, _i, out, length) => {
+      expect(_i).toBe(0x0d); // OWNER|DACL|SACL, NOT query-only LABEL0x10
       encoded = failure === "bad-label" && Buffer.isBuffer(_sd) ? canonical.replace(";;;LW)", ";;;ME)") : canonical;
       out.value = 60n;
       length.value = encoded.length + 1;
       return 1;
     }),
     GetUserObjectSecurity: vi.fn((_h, _i, sd, _length, needed) => {
+      expect((_i as Buffer).readUInt32LE()).toBe(0x15); // OWNER|DACL|LABEL query, no full-SACL privilege
       needed.value = 64;
       return sd === null ? 0 : 1;
     }),

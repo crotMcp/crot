@@ -59,7 +59,7 @@ describe.skipIf(!cc)("exact CROT private state native ABI", () => {
       expect(invalid()).toBe(0);
     },
   );
-  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14])(
+  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 16, 17, 18])(
     "fails closed for state ABI failure %i and releases all partial owners",
     (n) => {
       fault(n);
@@ -93,6 +93,18 @@ describe.skipIf(!cc)("exact CROT private state native ABI", () => {
     expect(handles()).toBe(0);
     expect(memory()).toBe(0);
     expect(invalid()).toBe(0);
+  });
+  it("accepts verified absent parent SACL only, with target DACL+label comparison still required", () => {
+    fault(15);
+    expect(api(file, owner, false, true)).toBe(true);
+    expect(handles()).toBe(0);
+    expect(memory()).toBe(0);
+    expect(invalid()).toBe(0);
+    fault(16);
+    expect(() => api(file, owner, false, true)).toThrow("kernel descriptor mismatch");
+    fault(0);
+    expect(handles()).toBe(0);
+    expect(memory()).toBe(0);
   });
   it("does not mutate state in inspect mode", () => {
     fault(0);

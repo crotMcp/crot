@@ -56,6 +56,9 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
   const stringify = a.func(
     `int __stdcall ConvertSecurityDescriptorToStringSecurityDescriptorW(void *descriptor,uint32_t revision,uint32_t flags,_Out_ ${H} *text,_Out_ ${N} *length)`,
   );
+  const sacl = a.func(
+    `int __stdcall GetSecurityDescriptorSacl(void *descriptor,_Out_ ${N} *present,_Out_ ${H} *acl,_Out_ ${N} *defaulted)`,
+  );
   const set = a.func("int __stdcall SetKernelObjectSecurity(void *object,uint32_t flags,void *descriptor)");
   const get = a.func(
     `uint32_t __stdcall GetSecurityInfo(void *object,int kind,uint32_t flags,void *owner,void *group,void *dacl,void *sacl,_Out_ ${H} *descriptor)`,
@@ -111,7 +114,16 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
         const security = allocation("memory");
         if (get(handle, 1, 0x10, null, null, null, null, security) !== 0 || !valid(security.value))
           throw fail("parent label query");
-        const label = canonical(security.value, 0x10);
+        const present: { value?: number } = {},
+          acl: { value?: unknown } = {},
+          defaulted: { value?: number } = {};
+        if (!ok(sacl(security.value, present, acl, defaulted)) || ![0, 1].includes(present.value!))
+          throw fail("parent SACL presence");
+        // An absent/null SACL has the NTFS implicit Medium/NW policy. A failed
+        // conversion is never absence. LABEL is the query selector; SACL is
+        // the serialization selector for the returned label-only descriptor.
+        if (present.value === 0 || !valid(acl.value)) return;
+        const label = canonical(security.value, 0x08);
         for (const match of label.matchAll(/\(ML;[^;]*;([^;]*);;;([^;)]+)\)/g)) {
           const rights = match[1]!,
             sid = match[2]!;
@@ -137,7 +149,7 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
         }
       }
     };
-    const canonical = (descriptor: unknown, sections = 0x14) => {
+    const canonical = (descriptor: unknown, sections = 0x0c) => {
       const text = allocation("memory"),
         size: { value?: number } = {};
       if (

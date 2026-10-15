@@ -5251,3 +5251,16 @@ write failure, aliases, resource lifetime and native supported-user/arch matrix
 remain mandatory. This does NOT by itself protect every external config path,
 Docker/network endpoint or create a transparent workspace. OD-6/OD-9 and WP-23c
 acceptance stay OPEN; no production L1 backend registration.
+
+
+**AD-26 native correction after e0cdb06:** the first actual service gate fails at
+parent descriptor encoding and managed-service regressions are explicitly red.
+LABEL_SECURITY_INFORMATION is a *query/install* selector. To serialize the
+returned descriptor's mandatory-label ACE, request SACL_SECURITY_INFORMATION
+in ConvertSecurityDescriptorToStringSecurityDescriptorW (no second SACL query
+and no new privilege). Apply the same correction to AD-24 owned-object label
+comparison; earlier0x15 serialization did not independently qualify the label.
+For an absent parent SACL, verify absence with GetSecurityDescriptorSacl before
+using the Windows implicit Medium/NW policy; do not serialize an empty selection
+or treat a failed encoding as absence. Target descriptor comparisons always
+include DACL+SACL. Native requalification is required; no weaker fallback.

@@ -87,12 +87,14 @@ export function bindOwnedUserObjects(ffi: UserObjectsFfi) {
       desktop: unknown,
       associated = false;
     const sd: { value?: unknown } = {};
+    // Query uses OWNER|DACL|LABEL (0x15), but string conversion must select
+    // SACL (0x08), otherwise mandatory-label ACEs can be omitted silently.
     const canonical = (value: unknown): string => {
       const text: { value?: unknown } = {},
         length: { value?: number } = {};
       try {
         if (
-          !ok(stringify(value, 1, 0x15, text, length)) ||
+          !ok(stringify(value, 1, 0x0d, text, length)) ||
           !valid(text.value) ||
           !Number.isInteger(length.value) ||
           length.value! < 1 ||
