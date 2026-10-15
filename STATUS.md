@@ -7,15 +7,21 @@ package PR updates this file.
 
 ## WP-23c current continuation — not accepted
 
-Current pinned native evidence: `f4fdfee` — **9 successful CI jobs, 2 Windows
-failures**. All four real Linux L1 jobs, Linux/macOS Node and Chromium checks
-passed; no infrastructure error in this run. Windows Node22 direct unique-token
-private CRUD/unrelated-Low write denial and owner WRITE_DAC denial pass. Its
-ordinary NUL reopen fails EPERM after a successful trusted working control;
-normal/hidden/ignored descendants still fail. Node20 exits 0xc0000142 before JS.
-cmd emits Access Denied; WinPS exits 0xffff0000. The new CDB diagnostic interferes
-with startup and is not treated as root-cause proof. Full local f4fdfee check:
-1578 Core passed /166 skipped and 147 extension passed.
+Latest published cleanup source `bde77eb`: full local check 1608 Core passed
+/166 skipped and147 extension passed. Native run: **8 successful checks /3
+failures** — two Windows qualification failures and Ubuntu22 x64 L1 ECR quota
+failure (`toomanyrequests: Data limit exceeded`). Other three real Linux L1,
+Linux/macOS Node and Chromium jobs pass. Prior `86d8a53` has all9 non-Windows
+checks green plus the two Windows failures; neither is Windows L1 acceptance.
+Node22 direct unique-token private CRUD/unrelated-Low write and WRITE_DAC denial
+pass; ordinary NUL reopen fails EPERM after a trusted working control. Node20
+exits0xc0000142 before JS; descendants/cmd/WinPS remain red. The fixed -pb CDB
+attach exposed a readiness deadlock, not a new security-denial proof.
+
+Current follow-up fixes that diagnostic with a callback-lifetime boolean witness
+over the exact held owned handle; exact single-suspension ResumeThread remains.
+It also verifies the fresh station before desktop creation, and retains failed
+temporary descriptor frees in the token owner. Native requalification pending.
 
 Implemented components include native byte stdio/ProcessLauncher through the
 existing Core (`3b91370`, historical 11/11 CI), bounded launch environment,
@@ -26,7 +32,7 @@ interactive desktop, global NUL/device ACL, original workspace SD or runtime
 qualification gate is widened. Original PowerShell fix `43f7392` and aligned RPC
 regression `01ed8ce` remain intact; their strict 15-second gates are retained.
 
-The current implementation follow-up repairs Job ownership after failed
+Published86d8a53/bde77eb repair Job/token ownership after failed
 configuration/CloseHandle, asynchronous exit cleanup and a host-close/launch
 race, with portable fault-injection tests. It is not a transparent filesystem
 or an accepted Windows L1 mechanism. Transparent same-backing Medium workspace

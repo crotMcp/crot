@@ -104,6 +104,18 @@ describe("Owned noninteractive Win32 desktop contract", () => {
       [21n, 0x10, 50n],
     ]);
   });
+  it("installs and verifies the fresh station label before any association or desktop creation", () => {
+    const f = fixture(),
+      owned = f.create(name, owner, unique);
+    const label = f.calls.SetUserObjectSecurity.mock.invocationCallOrder[0]!;
+    const readBack = f.calls.GetUserObjectSecurity.mock.invocationCallOrder[1]!;
+    const associate = f.calls.SetProcessWindowStation.mock.invocationCallOrder[0]!;
+    const create = f.calls.CreateDesktopW.mock.invocationCallOrder[0]!;
+    expect(label).toBeLessThan(readBack);
+    expect(readBack).toBeLessThan(associate);
+    expect(associate).toBeLessThan(create);
+    owned.close();
+  });
   it.each(["collision", "visible", "associate", "create"])(
     "fails closed at %s and never closes borrowed handles",
     (failure) => {
@@ -118,15 +130,18 @@ describe("Owned noninteractive Win32 desktop contract", () => {
   it("rejects a kernel descriptor whose actual label differs, before readiness", () => {
     const f = fixture("bad-label");
     expect(() => f.create(name, owner, unique)).toThrow("security descriptor verification");
-    expect(f.calls.CloseDesktop).toHaveBeenCalledWith(21n);
+    expect(f.calls.CreateDesktopW).not.toHaveBeenCalled();
+    expect(f.calls.CloseDesktop).not.toHaveBeenCalled();
+    expect(f.calls.SetProcessWindowStation).not.toHaveBeenCalled();
     expect(f.calls.CloseWindowStation).toHaveBeenCalledWith(20n);
   });
   it("fails closed if explicit Low-label installation fails and still restores/closes only owned objects", () => {
     const f = fixture("label-set");
     expect(() => f.create(name, owner, unique)).toThrow("station low label install");
-    expect(f.calls.CloseDesktop).toHaveBeenCalledWith(21n);
+    expect(f.calls.CreateDesktopW).not.toHaveBeenCalled();
+    expect(f.calls.CloseDesktop).not.toHaveBeenCalled();
+    expect(f.calls.SetProcessWindowStation).not.toHaveBeenCalled();
     expect(f.calls.CloseWindowStation).toHaveBeenCalledWith(20n);
-    expect(f.events.slice(0, 3)).toEqual(["station:20", "station:10", "desktop:11"]);
   });
   it("retains failed owned close for retry without claiming success", () => {
     const f = fixture("close"),

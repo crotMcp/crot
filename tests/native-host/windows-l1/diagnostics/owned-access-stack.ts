@@ -26,9 +26,10 @@ export function ownedAccessStack(options: {
     throw new Error("Invalid owned diagnostic path.");
   let debuggerProcess: ProbeProcess | undefined;
   let used = false;
+  let stoppedByOwner = false;
   const register = process.arch === "arm64" ? "@w0" : "@ecx";
   return {
-    beforeResume: (pid: number) => {
+    beforeResume: (pid: number, debuggerAttached: () => boolean) => {
       if (used || !Number.isSafeInteger(pid) || pid <= 0) throw new Error("Invalid owned diagnostic identity.");
       used = true;
       // Fixed commands, no data/code/environment from the actor. k, never kp/kv:
@@ -63,18 +64,15 @@ export function ownedAccessStack(options: {
       const deadline = Date.now() + 10000;
       const sleeper = new Int32Array(new SharedArrayBuffer(4));
       while (Date.now() < deadline) {
-        const text = (() => {
-          try {
-            return readFileSync(options.log, "utf16le");
-          } catch {
-            return "";
-          }
-        })();
-        if (/^CROT_OWNED_DEBUG_READY\r?$/m.test(text)) return;
-        if (debuggerProcess.exitCode() !== null) throw new Error("Owned debugger exited before readiness.");
+        // With -pb there is deliberately no break-in thread. CDB's fixed -c
+        // commands need a debug stop AFTER the primary thread is resumed.
+        // Waiting for their log marker here deadlocks a suspended target.
+        // Check only native attachment over the launcher's exact held handle.
+        if (debuggerAttached()) return;
+        if (debuggerProcess.exitCode() !== null) throw new Error("Owned debugger exited before attachment.");
         Atomics.wait(sleeper, 0, 0, 10);
       }
-      throw new Error("Owned debugger readiness deadline exceeded.");
+      throw new Error("Owned debugger attachment deadline exceeded.");
     },
     collect: () => {
       let text = "";
@@ -87,17 +85,23 @@ export function ownedAccessStack(options: {
       let debuggerExitCode: number | null = null;
       let exitObservationFailed = false;
       try {
-        debuggerExitCode = debuggerProcess?.exitCode() ?? null;
+        debuggerExitCode = debuggerProcess?.closed
+          ? debuggerProcess.finalExitCode
+          : (debuggerProcess?.exitCode() ?? null);
       } catch {
         exitObservationFailed = true;
       }
       return {
         debuggerExitCode,
+        stoppedByOwner,
         exitObservationFailed,
         ready: /^CROT_OWNED_DEBUG_READY\r?$/m.test(text),
         ...accessStackTokens(text),
       };
     },
-    close: () => debuggerProcess?.close(),
+    close: () => {
+      stoppedByOwner = true;
+      debuggerProcess?.close();
+    },
   };
 }

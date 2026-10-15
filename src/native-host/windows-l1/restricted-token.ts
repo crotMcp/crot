@@ -284,6 +284,19 @@ export function bindRestrictedTokens(
         throw setupError;
       }
       let closing = false;
+      const temporaries = new Set<Allocation>();
+      const temporary = (): Allocation => {
+        // Recovery through the binding may already have freed an earlier
+        // allocation. Do not grow an empty-holder history across operations.
+        for (const out of temporaries) if (nullHandle(out.value)) temporaries.delete(out);
+        const out: Allocation = {};
+        temporaries.add(out);
+        return out;
+      };
+      const releaseTemporary = (out: Allocation) => {
+        release(out, "memory");
+        temporaries.delete(out);
+      };
       const check = (sd: unknown, access: number): boolean => {
         const length = { value: PRIVILEGE_BYTES };
         const granted: { value?: number } = {};
@@ -316,7 +329,12 @@ export function bindRestrictedTokens(
       };
       return {
         get closed() {
-          return closing && nullHandle(primary.value) && nullHandle(impersonation.value);
+          return (
+            closing &&
+            nullHandle(primary.value) &&
+            nullHandle(impersonation.value) &&
+            [...temporaries].every((out) => nullHandle(out.value))
+          );
         },
         restrictingSid,
         prepareProbeObjects: (ownerSid) => {
@@ -330,7 +348,7 @@ export function bindRestrictedTokens(
               "INVALID_INPUT",
               "Windows token spike: probe requires a separate unique restricting SID.",
             );
-          const sd: { value?: unknown } = {};
+          const sd = temporary();
           try {
             const sddl = `D:(A;;GA;;;${ownerSid})(A;;GA;;;${restrictingSid})(A;;GA;;;SY)`;
             if (!success(fromSddl(sddl, 1, sd, null)) || nullHandle(sd.value))
@@ -349,13 +367,13 @@ export function bindRestrictedTokens(
             // This updates only that newly created token object's DACL.
             if (!success(setObjectDacl(primary.value, 4, sd.value))) throw failure("probe token object DACL");
           } finally {
-            release(sd, "memory");
+            releaseTemporary(sd);
           }
         },
         lowerProbeIntegrity: () => {
           if (closing) throw new CrotError("OPERATION_FAILED", "Windows token spike: token is closed.");
           retryCleanup();
-          const low: { value?: unknown } = {};
+          const low = temporary();
           try {
             if (!success(convertSid("S-1-16-4096", low)) || nullHandle(low.value)) throw failure("low integrity SID");
             // TOKEN_MANDATORY_LABEL is SID_AND_ATTRIBUTES. Reserve enough native
@@ -365,20 +383,20 @@ export function bindRestrictedTokens(
             ffi.encode(buffer, SID_ATTRIBUTES, { Sid: low.value, Attributes: 0x20 });
             if (!success(setLabel(primary.value, 25, buffer, buffer.length))) throw failure("low integrity label");
           } finally {
-            release(low, "memory");
+            releaseTemporary(low);
           }
         },
         fileDaclAccess: (file) => {
           if (closing) throw new CrotError("OPERATION_FAILED", "Windows token spike: token is closed.");
           retryCleanup();
           validateWindowsPath(file);
-          const sd: { value?: unknown } = {};
+          const sd = temporary();
           try {
             const result = descriptor(file, FILE_OBJECT, OWNER_GROUP_DACL, null, null, null, null, sd);
             if (result !== 0 || nullHandle(sd.value)) throw failure("GetNamedSecurityInfoW", result);
             return { readData: check(sd.value, 0x1), writeData: check(sd.value, 0x2) };
           } finally {
-            release(sd, "memory");
+            releaseTemporary(sd);
           }
         },
         launchProbe: (spec, job) => {
@@ -402,6 +420,13 @@ export function bindRestrictedTokens(
           // token is not usable and is not falsely reported fully released.
           closing = true;
           let error: unknown;
+          for (const out of temporaries) {
+            try {
+              releaseTemporary(out);
+            } catch (cause) {
+              error ??= cause;
+            }
+          }
           for (const out of [impersonation, primary]) {
             try {
               release(out, "handle");

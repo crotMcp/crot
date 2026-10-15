@@ -603,3 +603,53 @@ control/Docker boundary not qualified);5 OPEN (both current Windows jobs red,
 ARM64/Win11/standard-user matrix missing);6 native non-Windows regression green
 at86d8a53;7 OPEN (no production CommandConfinement backend);8 OPEN (known critical
 compatibility blockers). No WP-23c ready/review-ready claim or available=true.
+
+
+## Token/helper pin bde77eb — native result and next corrective implementation
+
+Commit `bde77eb16f79206332bacff7c9e5b5b0d6f6432f` passed full local check:
+1608 Core /166 skipped;147 extension. Native checks: **8 success /3 failures**.
+Windows Node20 and Node22 still fail startup/descendant/NUL/shell qualification:
+<https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38673807056/job/116222718447>
+and <https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38673807056/job/116222718349>.
+Ubuntu22 x64 L1 failed only while pulling Alpine from ECR with exact
+`toomanyrequests: Data limit exceeded`; the other three Linux L1 jobs,
+Linux/macOS Node jobs and real Chromium succeeded. The failed job is retained:
+<https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38673807072/job/116222718293>.
+No claim that this entire source pin has green regression CI.
+
+The -pb CDB attempt deadlocked its readiness protocol on both runtimes:
+ready=false/targetReturned=false, no recorded denied call or stack frame.
+Commands that wait for a debug stop cannot be the condition for resuming an
+already suspended primary thread. Both failures remain visible; no deadline or
+exact ResumeThread count is relaxed.
+
+Corrective implementation supplies a transient **boolean-only**
+CheckRemoteDebuggerPresent witness over the already held, newly owned child
+process handle. It is valid only inside beforeResume, cannot reopen a PID or
+expose a handle, and throws if saved/called after the callback. The debugger
+waits for native attachment, then the launcher consumes exactly its original
+single suspension. Fixed debugger commands/readiness are verified afterwards;
+missing readiness is still failure. Debugger owner-forced cleanup is distinguished
+from natural exit, with the native final exit code read after closure instead of
+inventing an observation failure from querying an already closed handle.
+
+The fresh private station is now explicitly labeled and its full kernel
+owner/DACL/Low label is read back **before association and before creating a
+desktop beneath it**. Previously the label was installed only after desktop
+creation. Station-label failure now prevents desktop creation entirely. This
+corrects provisioning order but does not assert that all USER32 initialization
+or internal resource labels are thereby solved; native ordinary-process gates
+remain decisive. No borrowed/interactive object or workspace SD is changed.
+
+Token owners now retain their failed temporary SID/security-descriptor frees
+as well as both token handles. Close attempts all resources, reports not closed
+while owned memory remains, and can retry without double-free. The cached
+binding still prevents allocation growth on persistent native cleanup failure.
+
+Focused portable/C-ABI tests: **98 passed** (59 token ABI,10 user-object,9 helper
+lifetime,4 owned debugger ordering,16 probe-spec). Native witness failure and
+malformed BOOL are rejected before ResumeThread; process/Job handles are
+released. These prove contracts/ownership, not Windows isolation. All eight
+acceptance criteria retain their prior OPEN/PARTIAL statuses until actual
+native proofs and the missing filesystem/state/network/backend work qualify.

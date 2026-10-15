@@ -33,7 +33,7 @@ function fixture(ready = true) {
 describe("fixed owned CDB attach", () => {
   it("avoids a break-in thread/target-kill/resume option and uses only the fresh target and Job", () => {
     const f = fixture();
-    f.trace.beforeResume(123);
+    f.trace.beforeResume(123, () => true);
     expect(f.createJob).toHaveBeenCalledOnce();
     const [spec, job] = f.launch.mock.calls[0] as unknown as [
       { executable: string; args: string[]; stdio: string },
@@ -61,14 +61,25 @@ describe("fixed owned CDB attach", () => {
       exitObservationFailed: false,
       denialSites: 0,
     });
-    expect(() => f.trace.beforeResume(456)).toThrow("identity");
+    expect(() => f.trace.beforeResume(456, () => true)).toThrow("identity");
     expect(f.launch).toHaveBeenCalledOnce();
     f.trace.close();
     expect(f.proc.close).toHaveBeenCalledOnce();
   });
+  it("waits for native attachment, not breakpoint commands that require primary-thread resume", () => {
+    const f = fixture(false);
+    f.proc.exitCode.mockReturnValue(null);
+    const attached = vi.fn(() => true);
+    f.trace.beforeResume(123, attached);
+    expect(attached).toHaveBeenCalledOnce();
+    expect(f.trace.collect().ready).toBe(false);
+    writeFileSync(f.log, "CROT_OWNED_DEBUG_READY\r\n", "utf16le");
+    expect(f.trace.collect().ready).toBe(true);
+    f.trace.close();
+  });
   it("reports debugger failure before readiness without manufacturing ready/denial evidence", () => {
     const f = fixture(false);
-    expect(() => f.trace.beforeResume(123)).toThrow("before readiness");
+    expect(() => f.trace.beforeResume(123, () => false)).toThrow("before attachment");
     expect(f.trace.collect()).toMatchObject({
       ready: false,
       debuggerExitCode: 0,
@@ -80,7 +91,7 @@ describe("fixed owned CDB attach", () => {
   });
   it("does not promote an unreadable debugger exit state to a successful observation", () => {
     const f = fixture();
-    f.trace.beforeResume(123);
+    f.trace.beforeResume(123, () => true);
     f.proc.exitCode.mockImplementation(() => {
       throw new Error("owned observation failure");
     });

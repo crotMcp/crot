@@ -21,7 +21,7 @@ int CloseHandle(void *h) {
   if ((fault == 21 && kind == 3) || (fault == 22 && kind == 4) ||
       (fault == 23 && (kind == 3 || kind == 4)) ||
       (fault == 24 && kind == 3) || (fault == 25 && kind == 1) ||
-      (fault == 26 && kind == 2)) return 0;
+      (fault == 26 && kind == 2) || (fault == 27 && kind == 9)) return 0;
   free(h); live--; return 1;
 }
 void *LocalFree(void *p) { return CloseHandle(p) ? 0 : p; }
@@ -84,6 +84,10 @@ uint32_t ResumeThread(void *thread) {
 }
 int TerminateProcess(void *process, uint32_t code) { kills++; if (fault == 19 || fault == 20) return 0; phase = 2; return *(int *)process == 5 && code == 1; }
 uint32_t WaitForSingleObject(void *handle, uint32_t ms) { (void)handle; if (fault == 19 && ms == 5000) phase = 2; return phase == 2 ? 0 : 258; }
+int CheckRemoteDebuggerPresent(void *process, DWORD_OUT *out) {
+  if (*(int *)process != 5 || fault == 28) return 0;
+  out->value = fault == 29 ? 2 : 1; return 1;
+}
 int GetExitCodeProcess(void *process, DWORD_OUT *out) { if (*(int *)process != 5) return 0; out->value = 1; return 1; }
 
 int ConvertStringSecurityDescriptorToSecurityDescriptorW(uint16_t *text, uint32_t revision, HANDLE_OUT *out, void *len) {

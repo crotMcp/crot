@@ -163,6 +163,21 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     next.close();
     expect(live()).toBe(0);
   });
+  it("retains a failed descriptor release in its token owner through close, then retries without double free", () => {
+    fault(0);
+    const token = api.create("S-1-5-21-101-102-103-104");
+    fault(27);
+    expect(() => token.prepareProbeObjects("S-1-5-21-201-202-203-204")).toThrow(/LocalFree/);
+    expect(live()).toBe(3);
+    expect(() => token.close()).toThrow(/LocalFree/);
+    expect(token.closed).toBe(false);
+    expect(live()).toBe(1);
+    fault(0);
+    token.close();
+    token.close();
+    expect(token.closed).toBe(true);
+    expect(live()).toBe(0);
+  });
   it.each([1, 2, 3, 4, 5])("cleans native allocations on setup failure %i", (n) => {
     fault(n);
     expect(() => api.create(sid)).toThrow(expect.objectContaining({ code: "OPERATION_FAILED" }));
@@ -213,6 +228,60 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     expect(() => process.exitCode()).toThrow(/closed/);
     expect(kills()).toBe(1);
     expect(live()).toBe(2);
+    token.close();
+    expect(live()).toBe(0);
+  });
+  it("offers a boolean debugger witness only over the exact held child and only during beforeResume", () => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid);
+    let witness!: () => boolean;
+    const child = token.launchProbe(
+      {
+        ...spec,
+        diagnostics: {
+          debugOnlyThisProcess: false,
+          beforeResume: (pid, debuggerAttached) => {
+            expect(pid).toBe(42);
+            expect(resumes()).toBe(0);
+            witness = debuggerAttached;
+            expect(witness()).toBe(true);
+          },
+        },
+      },
+      job(),
+    );
+    expect(resumes()).toBe(1);
+    expect(() => witness()).toThrow(/observation lifetime/);
+    child.close();
+    token.close();
+    expect(live()).toBe(0);
+  });
+  it.each([28, 29])("fails owned debugger observation %i before resume and retains no leaked child", (n) => {
+    fault(0);
+    resetProcess();
+    const token = api.create(sid),
+      j = job();
+    fault(n);
+    expect(() =>
+      token.launchProbe(
+        {
+          ...spec,
+          diagnostics: {
+            debugOnlyThisProcess: false,
+            beforeResume: (_pid, debuggerAttached) => {
+              debuggerAttached();
+            },
+          },
+        },
+        j,
+      ),
+    ).toThrow(/owned debugger observation/);
+    expect(resumes()).toBe(0);
+    expect(kills()).toBe(1);
+    expect(j.closed).toBe(true);
+    expect(live()).toBe(2);
+    fault(0);
     token.close();
     expect(live()).toBe(0);
   });

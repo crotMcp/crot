@@ -199,20 +199,21 @@ export function bindOwnedUserObjects(ffi: UserObjectsFfi) {
       const flags = Buffer.alloc(12);
       if (!ok(info(station, 1, flags, flags.length, Buffer.alloc(4))) || (flags.readUInt32LE(8) & 1) !== 0)
         throw fail("noninteractive verification");
+      // Provision and READ BACK the parent station BEFORE associating the
+      // helper or creating a desktop inside it. CREATE does not guarantee its
+      // requested Low label; descendants must not be created under an as-yet
+      // unverified Medium station. Change only the two fresh owned objects.
+      const labelInfo = Buffer.alloc(4);
+      labelInfo.writeUInt32LE(0x10);
+      if (!ok(setSecurity(station, labelInfo, sd.value))) throw fail("station low label install");
+      verifySecurity(station, 0xf037f);
       if (!ok(setStation(station))) throw fail("private station association");
       associated = true;
       setLast(0);
       desktop = createDesktop("actor", null, null, 0, 0xf01ff, security);
       if (!valid(desktop)) throw fail("desktop creation");
       if (Number(last()) === 183) throw fail("desktop collision");
-      // Win32 user-object creation is not taken as a mandatory-label installer.
-      // Set ONLY LABEL_SECURITY_INFORMATION on these two fresh owned objects;
-      // never alter a borrowed/current/interactive object or its DACL/owner.
-      const labelInfo = Buffer.alloc(4);
-      labelInfo.writeUInt32LE(0x10);
-      if (!ok(setSecurity(station, labelInfo, sd.value))) throw fail("station low label install");
       if (!ok(setSecurity(desktop, labelInfo, sd.value))) throw fail("desktop low label install");
-      verifySecurity(station, 0xf037f);
       verifySecurity(desktop, 0xf01ff);
       // The helper emits readiness only after restoring its original context.
       // Neither the service/tray thread nor user input desktop is switched.

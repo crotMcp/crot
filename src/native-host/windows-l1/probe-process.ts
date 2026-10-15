@@ -26,7 +26,10 @@ export interface ProbeSpec {
   /** AD-24 new hidden console, only inside the owned noninteractive desktop. */
   readonly console?: "owned-hidden";
   /** Owned research diagnostics only; never forwarded from Core/CommandSpec. */
-  readonly diagnostics?: { readonly debugOnlyThisProcess: boolean; readonly beforeResume: (pid: number) => void };
+  readonly diagnostics?: {
+    readonly debugOnlyThisProcess: boolean;
+    readonly beforeResume: (pid: number, debuggerAttached: () => boolean) => void;
+  };
 }
 export interface ProbeProcess {
   readonly pid: number;
@@ -110,6 +113,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
   const getExit = k.func(`int __stdcall GetExitCodeProcess(void *process, _Out_ ${DWORD} *code)`);
   const release = k.func("int __stdcall CloseHandle(void *handle)");
   const lastError = k.func("uint32_t __stdcall GetLastError(void)");
+  const checkDebugger = k.func(`int __stdcall CheckRemoteDebuggerPresent(void *process, _Out_ ${DWORD} *present)`);
   const failure = (stage: string) =>
     new CrotError("OPERATION_FAILED", `Windows process probe: ${stage} failed (code ${lastError()}).`);
 
@@ -238,7 +242,22 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
       const contained = job.accounting();
       if (!contained || contained.active < 1 || contained.total < 1) throw failure("Job accounting");
       if (ownedStdio) releaseStdioChildEnds(ownedStdio);
-      spec.diagnostics?.beforeResume(pid);
+      if (spec.diagnostics) {
+        let observing = true;
+        try {
+          // A boolean witness over THIS held native handle, only before resume.
+          // No handle, arbitrary PID opener or reusable authority leaves here.
+          spec.diagnostics.beforeResume(pid, () => {
+            if (!observing || nullHandle(info.hProcess)) throw invalid("owned debugger observation lifetime");
+            const present: { value?: number } = {};
+            if (!success(checkDebugger(info.hProcess, present)) || ![0, 1].includes(present.value!))
+              throw failure("owned debugger observation");
+            return present.value === 1;
+          });
+        } finally {
+          observing = false;
+        }
+      }
       if (resume(info.hThread) !== 1) throw failure("ResumeThread");
       if (!success(release(info.hThread))) throw failure("thread CloseHandle");
       info.hThread = undefined;

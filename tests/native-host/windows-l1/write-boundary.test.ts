@@ -311,9 +311,9 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
             ? {
                 diagnostics: {
                   debugOnlyThisProcess: false,
-                  beforeResume: (pid: number) => {
+                  beforeResume: (pid: number, debuggerAttached: () => boolean) => {
                     try {
-                      debuggerTrace.beforeResume(pid);
+                      debuggerTrace.beforeResume(pid, debuggerAttached);
                     } catch (error) {
                       debuggerTrace.close();
                       throw error;
@@ -328,6 +328,7 @@ describe.runIf(isWindows)("Windows unique write-filter component — real global
       const deadline = Date.now() + 15000;
       while (child.exitCode() === null && Date.now() < deadline)
         await new Promise((resolve) => setTimeout(resolve, 10));
+      if (debuggerAvailable) expect(debuggerTrace.collect().ready).toBe(true);
       expect(child.exitCode()).toBe(0);
     } finally {
       try {
