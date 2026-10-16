@@ -6,6 +6,9 @@ import type { Readable } from "node:stream";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
 import { bindLocalPipeShim, type LocalPipeShim } from "../../../src/native-host/windows-l1/local-shim.js";
 import { buildLocalShimFixture } from "./diagnostics/local-shim-build.js";
+import { openLeaseJournalStore } from "../../../src/native-host/windows-l1/lease-journal.js";
+import { loadWindowsLeaseLock } from "../../../src/native-host/windows-l1/lease-lock.js";
+import { leasePlan } from "./lease-fixture.js";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 import { currentUserSid, runTool, windowsTools } from "../../../src/native-host/windows-acl.js";
 import { loadJobObjectApi } from "../../../src/native-host/windows-job.js";
@@ -182,6 +185,37 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
       inject("stage6aEvidence"),
       JSON.stringify({ title: "CROT-6A-appcontainer-native-launcher-denials", value: result }) + "\n",
     );
+  }, 30000);
+  it("denies read/write of the flushed lease WAL with real AppContainer EPERM", async () => {
+    const directory = path.join(dirs.outside, "private-lease-journal");
+    const store = await openLeaseJournalStore({
+      directory,
+      privateFiles: createServicePrivateFiles(true, [profile.sid]),
+      lock: await loadWindowsLeaseLock(),
+    });
+    try {
+      // Synthetic transaction bytes qualify WAL isolation, NOT ACL recovery.
+      const plan = leasePlan();
+      await store.create(plan);
+      const file = path.join(directory, `lease-${plan.id}.wal`),
+        before = await readFile(file);
+      const p = await launch(
+        `const f=require('fs');const op=fn=>{try{fn();return 'ALLOWED'}catch(e){return e.code}};process.stdout.write(JSON.stringify({ready:true,read:op(()=>f.readFileSync(${JSON.stringify(file)})),write:op(()=>f.writeFileSync(${JSON.stringify(file)},'bad'))}));`,
+      );
+      const [exit, out, err] = await Promise.all([p.exited, bytes(p.stdout), bytes(p.stderr)]);
+      expect(exit.code).toBe(0);
+      expect(err.length).toBe(0);
+      const result = JSON.parse(out.toString());
+      expect(result).toEqual({ ready: true, read: "EPERM", write: "EPERM" });
+      expect(await readFile(file)).toEqual(before);
+      await p.terminate("force");
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({ title: "CROT-6A-lease-WAL-denials", value: { ...result, unchanged: true } }) + "\n",
+      );
+    } finally {
+      await store.close();
+    }
   }, 30000);
   it("ends a detached descendant and retains profile ownership until the complete Job drains", async () => {
     const trace = path.join(dirs.workspace, "descendant-trace.jsonl");

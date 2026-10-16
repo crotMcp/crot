@@ -5,27 +5,30 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
-## WP-23c — AppContainer: переименование исправлено, пакет не принят
+## WP-23c — LOCAL подтверждён; восстановление реализуется, пакет не принят
 
-`0f9a998`/`bd96740`: обычные существовавшие файлы и каталоги workspace проходят
-запись/переименование; восстановление по проверенному исходному NTFS ID без
-подстановки старого пути. На Node20/22 **13/13 SD**, cleanup=true. `5d4791d`
-сохраняет эффективные no-DELETE-share guards корня/предков/защищённых объектов
-и внешних hardlink; пять owner-rename проверок получают Win32=32.
-`1f015ff`: только отвергнутый Low WRITE_RESTRICTED spike переведён в явный opt-in
-по разрешению куратора. AppContainer/WinPS/RPC/native-process/CROT-6A обязательны.
-`394c1e8`/`a36a701`: выбранный компонент NativeProcessLauncher проверяет токен до
-ResumeThread; бинарные 1 МиБ stdin/stdout +256 КиБ stderr, Unicode argv и exit=23
-подтверждены. Настоящий CROT-6A: 5 чтений +5 записей +канал=EPERM, состояние
-неизменно, владелец после проверки аутентифицирован.
-На `a36a701` локальный check=0: 1767 Core +147 extension, 172 skipped;
-CI: 9 успешных/2 Windows неуспешных из-за обязательного теста detached-потомка
-(синхронный spawn не возвращает готовность). Backend CommandConfinement ещё
-не зарегистрирован; сеть/Docker/аварийная очистка/полная матрица открыты.
-Windows sandbox остаётся CONFINEMENT_UNAVAILABLE. macOS `fd4fd47` сохранён;
-WP-23b архитектурно разблокирован, но не реализован; все три ОС обязательны.
-[Восемь критериев](docs/design/windows-l1-curator-appcontainer.md);
-полные новые доказательства: `docs/evidence/windows-l1-internal-rename/`.
+Последний подтверждённый удалённый исходный коммит `de18eca`: CI **11/11**,
+Windows Server 2025 x64, Node20/22: `13/13` SD (cleanup=true), `7/7` CRUD,
+`5/5` защищённых подмен, внешний hardlink без записи, реальный CROT-6A
+`5+5+канал=EPERM`. Два уровня Node → Node → Node и завершение оставшихся
+потомков через Job подтверждены; LOCAL не переписывает каналы CROT/Docker.
+
+Продолжение после `de18eca`: добавлены owner-only append-only WAL с fsync,
+нативная исключительная no-share блокировка Windows, цепочка SHA-256,
+протокол восстановления с preflight всей транзакции и удержанием идентичностей,
+регистрация намерения Job до запуска, отказ при чужих изменениях SD и
+пересечении идентичностей параллельных аренд. Ошибки записи/очистки не
+объявляются успехом; профиль удаляется последним. Проверяются реальное убийство
+процесса-владельца и повторное открытие WAL, а также запрет чтения/записи WAL
+готовым AppContainer. Протокольные тесты с подставным адаптером не являются
+доказательством восстановления ACL ядром.
+
+**Не завершено:** нативный адаптер восстановления ACL/осиротевших профилей и
+его подключение к запуску/остановке сервиса, production CommandConfinement,
+сеть on/off, Docker и полная матрица Windows 11/Server 2022/2025,
+x64/ARM64 (где поддерживается), обычный/повышенный пользователь. Windows
+sandbox остаётся CONFINEMENT_UNAVAILABLE, PR27 Draft/open; WP-23c не закрыт.
+[Восемь критериев](docs/design/windows-l1-curator-appcontainer.md).
 
 ## Исторические проверки до a6eb17d — не текущий выбор механизма
 
