@@ -4,7 +4,7 @@
 const char* aclStep="none";DWORD aclError=0;unsigned ancestorIndex=0;
 void aclResult(DWORD result){if(result!=ERROR_SUCCESS){aclError=result;SetLastError(result);need(false);}}
 struct PinnedAcl {
- Handle object;std::wstring path;PSID sid;std::vector<BYTE> original,expected;bool installed=false;
+ Handle object;std::wstring path;PSID sid;std::vector<BYTE> original,expected;bool installed=false;const char* restoreError="none";
  PinnedAcl(const std::wstring& p,PSID s):path(p),sid(s){
   aclStep="open-pinned";object.h=CreateFileW(p.c_str(),READ_CONTROL|WRITE_DAC|FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
   if(object.h==INVALID_HANDLE_VALUE){aclError=GetLastError();need(false);}BY_HANDLE_FILE_INFORMATION info{};need(!!GetFileInformationByHandle(object.h,&info)&&!(info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT));original=descriptor();
@@ -24,6 +24,12 @@ struct PinnedAcl {
   if(!SetFileSecurityW(path.c_str(),bits,&sd)){aclError=GetLastError();need(false);}
  }
  void set(PACL a){set(a,control(original));}
+ void restore(std::vector<BYTE>& snapshot){
+  aclStep="restore-raw-dacl-control";auto c=control(snapshot);
+  SECURITY_INFORMATION flags=DACL_SECURITY_INFORMATION|((c&SE_DACL_PROTECTED)?PROTECTED_DACL_SECURITY_INFORMATION:UNPROTECTED_DACL_SECURITY_INFORMATION);
+  if(!SetKernelObjectSecurity(object.h,flags,snapshot.data())){aclError=GetLastError();need(false);}
+ }
+ static bool rawEqual(PACL a,PACL b){return a->AclSize==b->AclSize&&memcmp(a,b,a->AclSize)==0;}
  static bool equal(PACL a,PACL b,bool inheritedDifference=false){
   if(a->AceCount!=b->AceCount||a->AclRevision!=b->AclRevision)return false;
   for(DWORD i=0;i<a->AceCount;i++){void *x=nullptr,*y=nullptr;need(!!GetAce(a,i,&x)&&!!GetAce(b,i,&y));auto hx=static_cast<ACE_HEADER*>(x),hy=static_cast<ACE_HEADER*>(y);if(hx->AceSize!=hy->AceSize||hx->AceType!=hy->AceType)return false;BYTE ignore=inheritedDifference?INHERITED_ACE:0;if((hx->AceFlags&~ignore)!=(hy->AceFlags&~ignore)||memcmp(static_cast<BYTE*>(x)+sizeof(ACE_HEADER),static_cast<BYTE*>(y)+sizeof(ACE_HEADER),hx->AceSize-sizeof(ACE_HEADER)))return false;}return true;
@@ -37,18 +43,29 @@ struct PinnedAcl {
   auto readback=descriptor();PACL actual=acl(readback);aclStep="verify-owned-ace";bool found=false;for(DWORD i=0;i<actual->AceCount;i++){void* e=nullptr;need(!!GetAce(actual,i,&e));if(owns(e)){auto h=static_cast<ACE_HEADER*>(e);auto ace=static_cast<ACCESS_ALLOWED_ACE*>(e);if(h->AceType==(deny?ACCESS_DENIED_ACE_TYPE:ACCESS_ALLOWED_ACE_TYPE)&&h->AceFlags==0&&ace->Mask==rights)found=true;}}if(!found){aclError=ERROR_INVALID_DATA;SetLastError(aclError);need(false);}
   auto foreign=withoutOwned(actual);need(equal(reinterpret_cast<PACL>(foreign.data()),acl(original),true));expected=std::move(readback);
  }
+ void protectLinkedReadOnly(DWORD denyMask){
+  auto now=descriptor();auto foreign=withoutOwned(acl(now));auto base=reinterpret_cast<PACL>(foreign.data());need(equal(base,acl(original),true));
+  EXPLICIT_ACCESSW entries[2]{};for(auto& a:entries){a.grfInheritance=NO_INHERITANCE;a.Trustee.TrusteeForm=TRUSTEE_IS_SID;a.Trustee.TrusteeType=TRUSTEE_IS_UNKNOWN;a.Trustee.ptstrName=static_cast<LPWSTR>(sid);}
+  entries[0].grfAccessPermissions=denyMask;entries[0].grfAccessMode=DENY_ACCESS;
+  entries[1].grfAccessPermissions=FILE_GENERIC_READ|FILE_GENERIC_EXECUTE;entries[1].grfAccessMode=GRANT_ACCESS;
+  PACL next=nullptr;aclResult(SetEntriesInAclW(2,entries,base,&next));need(next!=nullptr);installed=true;
+  try{set(next,control(now)|SE_DACL_PROTECTED);}catch(...){LocalFree(next);throw;}LocalFree(next);
+  auto readback=descriptor();PACL actual=acl(readback);bool read=false,deny=false;
+  for(DWORD i=0;i<actual->AceCount;i++){void* e=nullptr;need(!!GetAce(actual,i,&e));if(!owns(e))continue;auto h=static_cast<ACE_HEADER*>(e);auto a=static_cast<ACCESS_ALLOWED_ACE*>(e);need(h->AceFlags==0);if(h->AceType==ACCESS_ALLOWED_ACE_TYPE){need(a->Mask==(FILE_GENERIC_READ|FILE_GENERIC_EXECUTE));read=true;}else{need(a->Mask==denyMask);deny=true;}}
+  need(read&&deny&&(control(readback)&SE_DACL_PROTECTED));auto afterForeign=withoutOwned(actual);need(equal(reinterpret_cast<PACL>(afterForeign.data()),base,true));expected=std::move(readback);
+ }
  // Remove fresh-SID entries from CURRENT ACL, then compare every other entry.
  // Never return an old snapshot over changed user permissions.
  bool remove(){if(!installed)return true;try{
   auto now=descriptor();PACL a=acl(now);std::vector<BYTE>b(a->AclSize);auto next=reinterpret_cast<PACL>(b.data());need(!!InitializeAcl(next,a->AclSize,a->AclRevision));
   for(DWORD i=0;i<a->AceCount;i++){void* e=nullptr;need(!!GetAce(a,i,&e));if(!owns(e))need(!!AddAce(next,a->AclRevision,MAXDWORD,e,static_cast<ACE_HEADER*>(e)->AceSize));}
-  need(!expected.empty());auto foreign=withoutOwned(acl(expected));
-  need(equal(next,reinterpret_cast<PACL>(foreign.data())));
+  restoreError="missing-installed-snapshot";need(!expected.empty());auto foreign=withoutOwned(acl(expected));
+  restoreError="foreign-acl-changed";need(equal(next,reinterpret_cast<PACL>(foreign.data())));
   constexpr WORD controlled=SE_DACL_PRESENT|SE_DACL_DEFAULTED|SE_DACL_PROTECTED|SE_DACL_AUTO_INHERITED|SE_DACL_AUTO_INHERIT_REQ;
-  need((control(now)&controlled)==(control(expected)&controlled));
-  set(acl(original));auto after=descriptor();need(equal(acl(after),acl(original)));
+  restoreError="foreign-control-changed";need((control(now)&controlled)==(control(expected)&controlled));
+  restoreError="native-restore-failed";restore(original);auto after=descriptor();restoreError="restored-acl-mismatch";need(rawEqual(acl(after),acl(original)));
   constexpr WORD bits=SE_DACL_PRESENT|SE_DACL_DEFAULTED|SE_DACL_PROTECTED|SE_DACL_AUTO_INHERITED|SE_DACL_AUTO_INHERIT_REQ;
-  need((control(after)&bits)==(control(original)&bits));installed=false;return true;
+  restoreError="restored-control-mismatch";need((control(after)&bits)==(control(original)&bits));installed=false;restoreError="none";return true;
  }catch(...){return false;}}
  ~PinnedAcl(){remove();}
 };

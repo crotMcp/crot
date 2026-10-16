@@ -22,7 +22,7 @@ void need(bool okay){if(!okay)throw std::runtime_error("native prerequisite");}
 std::wstring quote(const std::wstring& s){std::wstring r=L"\"";unsigned n=0;for(auto c:s){if(c==L'\\'){n++;continue;}if(c==L'"')r.append(n*2+1,L'\\');else r.append(n,L'\\');n=0;r+=c;}r.append(n*2,L'\\');return r+L"\"";}
 struct Grant {
  std::wstring path;PSID sid;bool installed=false;std::vector<BYTE> original;
- Grant(std::wstring p,PSID s):path(p),sid(s){}
+ Grant(std::wstring p,PSID s):path(p),sid(s){original=descriptor();}
  std::vector<BYTE> descriptor(){
   PSECURITY_DESCRIPTOR sd=nullptr;need(GetNamedSecurityInfoW(path.c_str(),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&sd)==ERROR_SUCCESS);
   DWORD length=GetSecurityDescriptorLength(sd);std::vector<BYTE> bytes(length);memcpy(bytes.data(),sd,length);LocalFree(sd);return bytes;
@@ -37,7 +37,7 @@ struct Grant {
   if(next)LocalFree(next);need(result==ERROR_SUCCESS);
  }
  // Fresh SID is never adopted; cleanup owns a possibly partial mutation too.
- void add(bool deny=false){original=descriptor();installed=true;change(deny?DENY_ACCESS:GRANT_ACCESS,deny?FILE_ALL_ACCESS:0x1301bf,deny?0:SUB_CONTAINERS_AND_OBJECTS_INHERIT);}
+ void add(bool deny=false){installed=true;change(deny?DENY_ACCESS:GRANT_ACCESS,deny?FILE_ALL_ACCESS:0x1301bf,deny?0:SUB_CONTAINERS_AND_OBJECTS_INHERIT);}
  bool remove(){if(!installed)return true;try{
   auto current=descriptor();PACL old=acl(current);std::vector<BYTE> storage(old->AclSize);auto next=reinterpret_cast<PACL>(storage.data());need(!!InitializeAcl(next,old->AclSize,old->AclRevision));
   for(DWORD i=0;i<old->AceCount;i++){
@@ -60,8 +60,8 @@ struct Grant {
   }
   // Restore original DACL/control via the non-propagating file API.
   // The exact descriptor assertion below remains mandatory.
-  PinnedAcl pinned(path,sid);pinned.set(before,PinnedAcl::control(original));auto final=pinned.descriptor();
-  need(PinnedAcl::equal(PinnedAcl::acl(final),before));
+  PinnedAcl pinned(path,sid);pinned.restore(original);auto final=pinned.descriptor();
+  need(PinnedAcl::rawEqual(PinnedAcl::acl(final),before));
   constexpr WORD flags=SE_DACL_PROTECTED|SE_DACL_AUTO_INHERITED|SE_DACL_AUTO_INHERIT_REQ|SE_DACL_DEFAULTED;
   need((PinnedAcl::control(final)&flags)==(PinnedAcl::control(original)&flags));
   installed=false;return true;
@@ -128,7 +128,7 @@ int wmain(int argc,wchar_t** argv){
  for(int i=1;i<argc;i++){std::wstring p=argv[i];if(p.size()<4||p[1]!=L':'||p[2]!=L'\\'||p.find(L'"')!=p.npos)return 2;}
  ownedTemp=temp;ownedCache=cache;
  GUID guid{};need(SUCCEEDED(CoCreateGuid(&guid)));wchar_t id[64]{};StringFromGUID2(guid,id,64);std::wstring name=L"crot.l1.";for(auto c:std::wstring(id))if(c!=L'{'&&c!=L'}')name+=c;
- PSID package=nullptr;bool owns=false,cleanup=true;DWORD nativeCode=0,nodeCode=0,cmdCode=0,psCode=0;bool verified=false;
+ PSID package=nullptr;bool owns=false,cleanup=true;unsigned linkedCount=0,deniedLinkedCount=0;std::vector<std::string> restoreReasons;DWORD nativeCode=0,nodeCode=0,cmdCode=0,psCode=0;bool verified=false;
  try {
   phase="profile";need(CreateAppContainerProfile(name.c_str(),L"CROT qualification",L"Owned disposable profile",nullptr,0,&package)==S_OK);owns=true;
   Grant workspace(root,package),tmp(temp,package),tools(cache,package),secret(protectedFile,package);
@@ -137,12 +137,12 @@ int wmain(int argc,wchar_t** argv){
   need(!!CopyFileW(source.c_str(),child.c_str(),TRUE)&&!!CopyFileW(node.c_str(),nodeCopy.c_str(),TRUE));
   need(put(root+L"\\link-source.txt","host-owned")&&put(outside+L"\\target.txt","unchanged"));
   need(!!CreateHardLinkW((outside+L"\\alias.txt").c_str(),(root+L"\\link-source.txt").c_str(),nullptr));
-  phase="snapshot-hardlinks";std::vector<LinkedFile> linked;scanLinks(root,package,linked);
+  phase="snapshot-hardlinks";std::vector<LinkedFile> linked;scanLinks(root,package,linked);linkedCount=static_cast<unsigned>(linked.size());
   phase="ancestor-read";std::vector<std::unique_ptr<PinnedAcl>> reads;for(const auto& p:ancestors(root)){++ancestorIndex;auto lease=std::make_unique<PinnedAcl>(p,package);lease->add(FILE_TRAVERSE|FILE_READ_ATTRIBUTES|FILE_READ_EA|FILE_LIST_DIRECTORY|SYNCHRONIZE);reads.push_back(std::move(lease));}
   phase="grants";workspace.add();tmp.add();tools.add();secret.add(true);
   phase="deny-external-hardlinks";for(auto& f:linked){if(hasExternalName(root,f.lease->path)){// Deny the concrete write/metadata bits. A GENERIC_WRITE request maps to
    // these too; do not deny shared READ_CONTROL/SYNCHRONIZE and break reads.
-   f.lease->add(DELETE|WRITE_DAC|WRITE_OWNER|FILE_WRITE_DATA|FILE_APPEND_DATA|FILE_WRITE_ATTRIBUTES|FILE_WRITE_EA,true);f.denied=true;}}
+   f.lease->protectLinkedReadOnly(DELETE|WRITE_DAC|WRITE_OWNER|FILE_WRITE_DATA|FILE_APPEND_DATA|FILE_WRITE_ATTRIBUTES|FILE_WRITE_EA);f.denied=true;++deniedLinkedCount;}}
 
   phase="native";nativeCode=launch(child,{root,temp,cache,outside,protectedFile},root,package,verified,nativeCode);
   const std::wstring js=L"const f=require('fs');let r={ready:true};try{f.writeFileSync('node-created.txt','live');f.renameSync('node-created.txt','node-renamed.txt');r.read=f.readFileSync('node-renamed.txt','utf8')==='live';f.unlinkSync('node-renamed.txt');const h=f.openSync('\\\\\\\\.\\\\NUL','r+');f.closeSync(h);r.nul=true}catch(e){r.error=e.code;process.exitCode=1}f.writeFileSync('node-result.json',JSON.stringify(r));";
@@ -150,14 +150,14 @@ int wmain(int argc,wchar_t** argv){
   wchar_t system[32768]{};need(GetSystemDirectoryW(system,32768)>0);std::wstring sys=system;
   phase="cmd";cmdCode=launch(sys+L"\\cmd.exe",{L"echo cmd-ready>cmd-result.txt & echo nul>NUL"},root,package,verified,cmdCode,true);
   std::wstring psRoot=root;for(size_t at=0;(at=psRoot.find(L"'",at))!=std::wstring::npos;at+=2)psRoot.insert(at,L"'");
-  const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop; $initial=Get-Location; [Console]::Out.WriteLine('CROT-PS-INITIAL-FILESYSTEM=' + ($initial.Provider.Name -eq 'FileSystem')); [Console]::Out.WriteLine('CROT-PS-INITIAL-ROOT=' + ($initial.Path -eq '"+psRoot+L"')); Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; 'nul' > NUL";
+  const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop; $initial=Get-Location; [Console]::Out.WriteLine('CROT-PS-INITIAL-FILESYSTEM=' + ($initial.Provider.Name -eq 'FileSystem')); [Console]::Out.WriteLine('CROT-PS-INITIAL-ROOT=' + ($initial.Path -eq '"+psRoot+L"')); Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; & $env:ComSpec /d /c 'echo nul>NUL'; if ($LASTEXITCODE -ne 0) { throw 'NUL descendant failed' }";
   phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified,psCode);
   phase="cleanup";cleanup=secret.remove();cleanup=tools.remove()&&cleanup;cleanup=tmp.remove()&&cleanup;cleanup=workspace.remove()&&cleanup;
-  for(auto& f:linked)cleanup=f.lease->remove()&&cleanup;
-  for(auto i=reads.rbegin();i!=reads.rend();++i)cleanup=(*i)->remove()&&cleanup;need(cleanup);
+  for(auto& f:linked){bool okay=f.lease->remove();restoreReasons.push_back(f.lease->restoreError);cleanup=okay&&cleanup;}
+  for(auto i=reads.rbegin();i!=reads.rend();++i){bool okay=(*i)->remove();restoreReasons.push_back((*i)->restoreError);cleanup=okay&&cleanup;}need(cleanup);
  }catch(...){failureCode=GetLastError();cleanup=false;}
  if(owns){bool removed=false;for(unsigned i=0;i<20&&!removed;i++){removed=DeleteAppContainerProfile(name.c_str())==S_OK;if(!removed)Sleep(50);}cleanup=cleanup&&removed;}
  if(package)FreeSid(package);
- std::cout<<"{\"phase\":\""<<phase<<"\",\"aclStep\":\""<<aclStep<<"\",\"aclError\":"<<aclError<<",\"ancestorIndex\":"<<ancestorIndex<<",\"launchStep\":\""<<launchStep<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";
+ std::cout<<"{\"linkedCount\":"<<linkedCount<<",\"deniedLinkedCount\":"<<deniedLinkedCount<<",\"restoreReasons\":[";for(size_t i=0;i<restoreReasons.size();i++){if(i)std::cout<<",";std::cout<<"\""<<restoreReasons[i]<<"\"";}std::cout<<"],\"phase\":\""<<phase<<"\",\"aclStep\":\""<<aclStep<<"\",\"aclError\":"<<aclError<<",\"ancestorIndex\":"<<ancestorIndex<<",\"launchStep\":\""<<launchStep<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";
  return cleanup?0:1;
 }
