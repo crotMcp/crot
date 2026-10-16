@@ -133,6 +133,7 @@ export function bindAppContainerProcessIdentity(
       const packageSid: { value?: unknown } = {};
       let child: ProbeProcess | undefined;
       let pipeMap: PrivatePipeMap | undefined;
+      let abortedBeforeResume = false;
       const launchers = new Set<ReturnType<typeof bindProbeLauncher>>();
       try {
         if (!ok(convert(pin.sid, packageSid)) || missing(packageSid.value) || !ok(valid(packageSid.value)))
@@ -214,6 +215,10 @@ export function bindAppContainerProcessIdentity(
               if (initialized) remove(list);
             }
             if (fault) throw fault;
+          },
+          abortedBeforeResume: () => {
+            pipeMap?.close();
+            abortedBeforeResume = true;
           },
           verify: (process) => {
             const token: { value?: unknown } = {};
@@ -331,6 +336,7 @@ export function bindAppContainerProcessIdentity(
         } catch {
           cleanupFailed = true;
         }
+        if (abortedBeforeResume) launchers.clear();
         if (launchers.size) {
           // bindProbeLauncher retains any failed native cleanup in its closure.
           // Preserve that closure strongly, rather than losing ownership on throw.

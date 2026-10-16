@@ -128,11 +128,14 @@ export function bindPrivatePipeMaps(ffi: TokenFfi, libs: TokenLibraries & { ntdl
         // Shadow the CALLER'S existing per-logon DOS directory. No mutation:
         // inherited drive letters/UNC/host tools keep their existing resolution.
         const base = unicode("\\??");
-        exact(open(shadow, 3, attributes(base, null, null)), "shadow open");
+        exact(open(shadow, 0xb, attributes(base, null, null)), "shadow open");
         if (missing(shadow.value)) throw fail("shadow output");
-        // Unnamed, ephemeral directory: no collision/adoption/global name.
+        // Fresh, ephemeral private directory under this logon DOS directory.
+        // NT rejects assigning an unnamed directory as a process DeviceMap.
+        // Exact STATUS_SUCCESS only: never adopt a collided object.
+        const mapName = unicode(`CrotPipeMap-${randomUUID()}`);
         exact(
-          directory(map, 0xf000f, attributes(undefined, null, security("0x00020003")), shadow.value, 0),
+          directory(map, 0xf000f, attributes(mapName, shadow.value, security("0x00020003")), shadow.value, 0),
           "directory create",
         );
         if (missing(map.value)) throw fail("directory output");

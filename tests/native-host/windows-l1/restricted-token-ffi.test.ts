@@ -653,6 +653,11 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     };
     const io = await createNativeByteStdio(pipeApi, "S-1-5-21-1-2-3-1001");
     const owned = job();
+    const aborted = vi.fn(() => {
+      expect(owned.closed).toBe(true);
+      expect(live()).toBe(0);
+      expect(resumes()).toBe(0);
+    });
     const verify = vi.fn(() => {
       expect(owned.accounting()?.active).toBe(1);
       expect(resumes()).toBe(0);
@@ -671,6 +676,7 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
           expect(create(input.info)).toBe(1);
         },
         verify,
+        abortedBeforeResume: aborted,
       },
     );
     try {
@@ -684,6 +690,7 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
         expect(resumes()).toBe(1);
         child.close();
       }
+      expect(aborted).toHaveBeenCalledTimes(reject ? 1 : 0);
       expect(verify).toHaveBeenCalledOnce();
       expect(creates()).toBe(1);
       expect(live()).toBe(0);

@@ -61,6 +61,8 @@ export interface SuspendedProcessFactory {
   }): void;
   /** Mandatory independent token readback before ResumeThread. */
   verify(process: unknown): void;
+  /** Called only after proven cleanup, with no ResumeThread ever attempted. */
+  abortedBeforeResume?(): void;
 }
 
 const STARTUP = "CROT_L1_STARTUPINFO";
@@ -145,6 +147,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries, fact
   return (token: unknown, spec: ProbeSpec, job: JobObject): ProbeProcess => {
     const info: { hProcess?: unknown; hThread?: unknown; dwProcessId?: number; dwThreadId?: number } = {};
     let launched = false;
+    let resumeAttempted = false;
     let assigned = false;
     let ownsJob = false;
     let ownedStdio: NativeByteStdio | undefined;
@@ -347,6 +350,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries, fact
           }
         }
       }
+      resumeAttempted = true;
       const previousSuspendCount = resume(info.hThread);
       if (previousSuspendCount !== 1) {
         // GetLastError is defined only for the failure sentinel. For 0 or >1,
@@ -428,7 +432,9 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries, fact
       if (ownsJob) attempt(() => job.close());
       attempt(releaseHandles);
       attempt(() => ownedStdio?.closeSync());
-      if (cleanupFailed) failedLaunchCleanup.add({ info, job, ownedStdio });
+      if (!cleanupFailed && !resumeAttempted && factory?.abortedBeforeResume)
+        attempt(() => factory.abortedBeforeResume!());
+      if (cleanupFailed) failedLaunchCleanup.add({ info, job, ownedStdio, factory });
       throw error;
     }
   };

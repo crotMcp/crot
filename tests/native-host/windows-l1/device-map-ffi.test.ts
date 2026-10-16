@@ -46,7 +46,7 @@ describe.skipIf(!cc)("private pipe map real native ABI stand-in", () => {
     await rm(dir, { recursive: true, force: true });
   });
   const create = () => maps.create("S-1-5-21-1-2-3-1001", "S-1-15-2-1-2-3-4-5-6-7");
-  it("creates only an unnamed shadow map and private PIPE alias; assigns only the explicit process", () => {
+  it("creates only a fresh private shadow map and private PIPE alias; assigns only the explicit process", () => {
     const before = applications(),
       p = create();
     expect(live()).toBe(5);
