@@ -21,7 +21,7 @@ void need(bool okay){if(!okay)throw std::runtime_error("native prerequisite");}
 #include "acl-lease.h"
 std::wstring quote(const std::wstring& s){std::wstring r=L"\"";unsigned n=0;for(auto c:s){if(c==L'\\'){n++;continue;}if(c==L'"')r.append(n*2+1,L'\\');else r.append(n,L'\\');n=0;r+=c;}r.append(n*2,L'\\');return r+L"\"";}
 struct Grant {
- std::wstring path;PSID sid;bool installed=false;std::vector<BYTE> original;
+ std::wstring path;PSID sid;bool installed=false;std::vector<BYTE> original,expected;const char* restoreError="none";
  Grant(std::wstring p,PSID s):path(p),sid(s){original=descriptor();}
  std::vector<BYTE> descriptor(){
   PSECURITY_DESCRIPTOR sd=nullptr;need(GetNamedSecurityInfoW(path.c_str(),SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION|LABEL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&sd)==ERROR_SUCCESS);
@@ -37,37 +37,43 @@ struct Grant {
   if(next)LocalFree(next);need(result==ERROR_SUCCESS);
  }
  // Fresh SID is never adopted; cleanup owns a possibly partial mutation too.
- void add(bool deny=false){installed=true;change(deny?DENY_ACCESS:GRANT_ACCESS,deny?FILE_ALL_ACCESS:0x1301bf,deny?0:SUB_CONTAINERS_AND_OBJECTS_INHERIT);}
+ void add(bool deny=false){installed=true;change(deny?DENY_ACCESS:GRANT_ACCESS,deny?FILE_ALL_ACCESS:0x1301bf,deny?0:SUB_CONTAINERS_AND_OBJECTS_INHERIT);expected=descriptor();}
  bool remove(){if(!installed)return true;try{
-  auto current=descriptor();PACL old=acl(current);std::vector<BYTE> storage(old->AclSize);auto next=reinterpret_cast<PACL>(storage.data());need(!!InitializeAcl(next,old->AclSize,old->AclRevision));
-  for(DWORD i=0;i<old->AceCount;i++){
-   void* value=nullptr;need(!!GetAce(old,i,&value));auto header=static_cast<ACE_HEADER*>(value);bool own=false;
-   // REVOKE_ACCESS does NOT remove ACCESS_DENIED_ACE. Remove both forms
-   // explicitly, and only for this newly created exact package SID.
-   if(header->AceType==ACCESS_ALLOWED_ACE_TYPE||header->AceType==ACCESS_DENIED_ACE_TYPE){auto entry=static_cast<ACCESS_ALLOWED_ACE*>(value);own=!!EqualSid(&entry->SidStart,sid);}
-   if(!own)need(!!AddAce(next,old->AclRevision,MAXDWORD,value,header->AceSize));
-  }
-  need(SetNamedSecurityInfoW(const_cast<LPWSTR>(path.c_str()),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,next,nullptr)==ERROR_SUCCESS);
-  // SetNamedSecurityInfo propagates our removal, but can convert existing ACEs
-  // to inherited form. This DISPOSABLE fixture has no concurrent ACL writers.
-  // Restore original provenance ONLY after byte-checking every other ACE,
-  // ignoring solely INHERITED_ACE. Never blindly restore changed user rights.
-  auto readback=descriptor();auto actual=acl(readback),before=acl(original);need(actual->AceCount==before->AceCount);
-  for(DWORD i=0;i<actual->AceCount;i++){
-   void *x=nullptr,*y=nullptr;need(!!GetAce(actual,i,&x)&&!!GetAce(before,i,&y));auto hx=static_cast<ACE_HEADER*>(x),hy=static_cast<ACE_HEADER*>(y);
-   need(hx->AceSize==hy->AceSize&&hx->AceType==hy->AceType&&(hx->AceFlags&~INHERITED_ACE)==(hy->AceFlags&~INHERITED_ACE));
-   need(memcmp(static_cast<BYTE*>(x)+sizeof(ACE_HEADER),static_cast<BYTE*>(y)+sizeof(ACE_HEADER),hx->AceSize-sizeof(ACE_HEADER))==0);
-  }
-  // Restore original DACL/control via the non-propagating file API.
-  // The exact descriptor assertion below remains mandatory.
-  PinnedAcl pinned(path,sid);pinned.restore(original);auto final=pinned.descriptor();
-  need(PinnedAcl::rawEqual(PinnedAcl::acl(final),before));
-  constexpr WORD flags=SE_DACL_PROTECTED|SE_DACL_AUTO_INHERITED|SE_DACL_AUTO_INHERIT_REQ|SE_DACL_DEFAULTED;
-  need((PinnedAcl::control(final)&flags)==(PinnedAcl::control(original)&flags));
-  installed=false;return true;
+  PinnedAcl pinned(path,sid);auto current=pinned.descriptor();auto foreign=pinned.withoutOwned(PinnedAcl::acl(current));
+  restoreError="missing-installed-snapshot";need(!expected.empty());auto installedForeign=pinned.withoutOwned(PinnedAcl::acl(expected));
+  restoreError="foreign-acl-changed";need(PinnedAcl::equal(reinterpret_cast<PACL>(foreign.data()),reinterpret_cast<PACL>(installedForeign.data())));
+  constexpr WORD flags=SE_DACL_PRESENT|SE_DACL_DEFAULTED|SE_DACL_PROTECTED|SE_DACL_AUTO_INHERITED|SE_DACL_AUTO_INHERIT_REQ;
+  restoreError="foreign-control-changed";need((PinnedAcl::control(current)&flags)==(PinnedAcl::control(expected)&flags));
+  // Root-only restoration. In particular, NEVER traverse private temp/cache.
+  restoreError="native-restore-failed";pinned.restore(original);auto final=pinned.descriptor();
+  restoreError="restored-acl-mismatch";need(PinnedAcl::rawEqual(PinnedAcl::acl(final),PinnedAcl::acl(original)));
+  restoreError="restored-control-mismatch";need((PinnedAcl::control(final)&flags)==(PinnedAcl::control(original)&flags));
+  installed=false;restoreError="none";return true;
  }catch(...){return false;}}
  ~Grant(){remove();}
 };
+// Explicit curator scope: workspace ONLY. No invocation on temp/cache.
+// Existing single-link nodes get original snapshots; shared MFT objects use
+// their separate link lease. The protected fixture has its own Grant snapshot.
+void snapshotWorkspaceNodes(const std::wstring& directory,PSID sid,const std::wstring& protectedFile,std::vector<std::unique_ptr<PinnedAcl>>& saved,unsigned depth=0){
+ need(depth<=64);WIN32_FIND_DATAW item{};HANDLE find=FindFirstFileW((directory+L"\\*").c_str(),&item);if(find==INVALID_HANDLE_VALUE){need(GetLastError()==ERROR_FILE_NOT_FOUND);return;}
+ try{do{std::wstring name=item.cFileName;if(name==L"."||name==L"..")continue;need(!(item.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT));auto p=directory+L"\\"+name;
+  if(p==protectedFile)continue;auto lease=std::make_unique<PinnedAcl>(p,sid);BY_HANDLE_FILE_INFORMATION info{};need(!!GetFileInformationByHandle(lease->object.h,&info));
+  if(item.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)snapshotWorkspaceNodes(p,sid,protectedFile,saved,depth+1);
+  else if(info.nNumberOfLinks>1)continue;
+  need(saved.size()<10000);saved.push_back(std::move(lease));
+ }while(FindNextFileW(find,&item));need(GetLastError()==ERROR_NO_MORE_FILES);}catch(...){FindClose(find);throw;}need(!!FindClose(find));
+}
+// After every Job has drained, remove only this fresh SID from current ACLs.
+// No SetNamedSecurityInfo here: no inheritance walk or writes to other ACEs.
+void stripWorkspaceSid(const std::wstring& directory,PSID sid,unsigned depth=0){
+ need(depth<=64);WIN32_FIND_DATAW item{};HANDLE find=FindFirstFileW((directory+L"\\*").c_str(),&item);if(find==INVALID_HANDLE_VALUE){need(GetLastError()==ERROR_FILE_NOT_FOUND);return;}
+ try{do{std::wstring name=item.cFileName;if(name==L"."||name==L"..")continue;need(!(item.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT));auto p=directory+L"\\"+name;
+  if(item.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)stripWorkspaceSid(p,sid,depth+1);
+  PinnedAcl lease(p,sid);auto now=lease.descriptor();auto filtered=lease.withoutOwned(PinnedAcl::acl(now));auto clean=reinterpret_cast<PACL>(filtered.data());
+  if(clean->AceCount!=PinnedAcl::acl(now)->AceCount){lease.set(clean,PinnedAcl::control(now));auto after=lease.descriptor();need(PinnedAcl::equal(PinnedAcl::acl(after),clean));}
+ }while(FindNextFileW(find,&item));need(GetLastError()==ERROR_NO_MORE_FILES);}catch(...){FindClose(find);throw;}need(!!FindClose(find));
+}
 std::vector<unsigned char> information(HANDLE token,TOKEN_INFORMATION_CLASS kind){DWORD n=0;GetTokenInformation(token,kind,nullptr,0,&n);need(n>=4&&n<=65536);std::vector<unsigned char>b(n);need(!!GetTokenInformation(token,kind,b.data(),n,&n));return b;}
 DWORD launch(const std::wstring& exe,const std::vector<std::wstring>& args,const std::wstring& cwd,PSID package,bool& verified,DWORD& observedExit,bool cmdSyntax=false){
  launchStep="create-job";
@@ -149,6 +155,9 @@ int wmain(int argc,wchar_t** argv){
   need(put(root+L"\\internal-source.txt","internal-before"));
   need(!!CreateHardLinkW((root+L"\\internal-alias.txt").c_str(),(root+L"\\internal-source.txt").c_str(),nullptr));
   phase="snapshot-hardlinks";std::vector<LinkedFile> linked;scanLinks(root,package,linked);linkedCount=static_cast<unsigned>(linked.size());
+  // The cross-root link is a host setup action too: keep its PRE-setup snapshot.
+  for(auto& f:linked)if(f.lease->path==root+L"\\link-source.txt")f.lease->original=observations[2].initial;
+  std::vector<std::unique_ptr<PinnedAcl>> existing;snapshotWorkspaceNodes(root,package,protectedFile,existing);
   phase="ancestor-snapshots";std::vector<std::unique_ptr<PinnedAcl>> reads;
   for(const auto& p:ancestors(root))reads.push_back(std::make_unique<PinnedAcl>(p,package));
   phase="ancestor-read";for(auto& lease:reads){++ancestorIndex;lease->add(FILE_TRAVERSE|FILE_READ_ATTRIBUTES|FILE_READ_EA|FILE_LIST_DIRECTORY|SYNCHRONIZE);}
@@ -157,6 +166,8 @@ int wmain(int argc,wchar_t** argv){
    // these too; do not deny shared READ_CONTROL/SYNCHRONIZE and break reads.
    f.lease->protectLinkedReadOnly(DELETE|WRITE_DAC|WRITE_OWNER|FILE_WRITE_DATA|FILE_APPEND_DATA|FILE_WRITE_ATTRIBUTES|FILE_WRITE_EA);f.denied=true;++deniedLinkedCount;}}
 
+  for(auto& lease:existing){lease->expected=lease->descriptor();lease->installed=true;}
+  for(auto& f:linked)if(!f.denied){f.lease->expected=f.lease->descriptor();f.lease->installed=true;}
   phase="native";nativeCode=launch(child,{root,temp,cache,outside,protectedFile},root,package,verified,nativeCode);
   const std::wstring js=L"const f=require('fs');let r={ready:true};try{f.writeFileSync('node-created.txt','live');f.renameSync('node-created.txt','node-renamed.txt');r.read=f.readFileSync('node-renamed.txt','utf8')==='live';f.unlinkSync('node-renamed.txt');const h=f.openSync('\\\\\\\\.\\\\NUL','r+');f.closeSync(h);r.nul=true}catch(e){r.error=e.code;process.exitCode=1}f.writeFileSync('node-result.json',JSON.stringify(r));";
   phase="node";nodeCode=launch(nodeCopy,{L"-e",js},root,package,verified,nodeCode);
@@ -165,11 +176,12 @@ int wmain(int argc,wchar_t** argv){
   std::wstring psRoot=root;for(size_t at=0;(at=psRoot.find(L"'",at))!=std::wstring::npos;at+=2)psRoot.insert(at,L"'");
   const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop; $initial=Get-Location; [Console]::Out.WriteLine('CROT-PS-INITIAL-FILESYSTEM=' + ($initial.Provider.Name -eq 'FileSystem')); [Console]::Out.WriteLine('CROT-PS-INITIAL-ROOT=' + ($initial.Path -eq '"+psRoot+L"')); Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; $info=New-Object System.Diagnostics.ProcessStartInfo; $info.FileName=$env:ComSpec; $info.Arguments='/d /c \"echo nul>NUL && type NUL >NUL && echo nul-child-ready>ps-child-marker.txt\"'; $info.UseShellExecute=$false; $info.CreateNoWindow=$true; $info.WorkingDirectory=(Get-Location).Path; $child=[System.Diagnostics.Process]::Start($info); try { if (!$child.WaitForExit(5000)) { $child.Kill(); throw 'NUL descendant timeout' }; [Console]::Out.WriteLine('CROT-PS-NUL-EXIT=' + $child.ExitCode); if ($child.ExitCode -ne 0) { throw 'NUL descendant failed' }; if ([System.IO.File]::ReadAllText((Join-Path (Get-Location).Path 'ps-child-marker.txt')).Trim() -ne 'nul-child-ready') { throw 'NUL descendant marker failed' } } finally { $child.Dispose() }";
   phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified,psCode);
-  phase="cleanup";
+  phase="cleanup-workspace-only";stripWorkspaceSid(root,package);
   // Object-handle restoration is non-propagating. Restore leaves first;
   // exact independent snapshots remain the acceptance gate.
   for(auto it=reads.rbegin();it!=reads.rend();++it){auto& lease=*it;bool okay=lease->remove();restoreReasons.push_back(lease->restoreError);cleanup=okay&&cleanup;}
-  cleanup=secret.remove()&&cleanup;cleanup=tools.remove()&&cleanup;cleanup=tmp.remove()&&cleanup;cleanup=workspace.remove()&&cleanup;
+  for(auto* grant:{&secret,&workspace,&tmp,&tools}){bool okay=grant->remove();restoreReasons.push_back(grant->restoreError);cleanup=okay&&cleanup;}
+  for(auto& lease:existing){bool okay=lease->remove();restoreReasons.push_back(lease->restoreError);cleanup=okay&&cleanup;}
   for(auto& f:linked){bool okay=f.lease->remove();restoreReasons.push_back(f.lease->restoreError);cleanup=okay&&cleanup;}need(cleanup);
  }catch(...){failureCode=GetLastError();cleanup=false;}
  observe();if(owns){bool removed=false;for(unsigned i=0;i<20&&!removed;i++){removed=DeleteAppContainerProfile(name.c_str())==S_OK;if(!removed)Sleep(50);}cleanup=cleanup&&removed;}
