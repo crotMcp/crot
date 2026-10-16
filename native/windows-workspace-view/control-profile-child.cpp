@@ -8,8 +8,9 @@ bool put(const std::wstring& p,const char* text){HANDLE h=CreateFileW(p.c_str(),
 // Read-only host-path diagnosis. Do not enumerate names, read file bytes,
 // change a descriptor, enable privileges, or turn observations into grants.
 // A successful directory open with a write mask is recorded, never exercised.
+DWORD existingWorkspaceSteps[7]={ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY};
 void pathDiagnostics(std::wstring directory,bool existingCrud){
- std::cout<<"{\"existingWorkspaceCrud\":"<<(existingCrud?"true":"false")<<",\"directoryAccess\":[";bool first=true;
+ std::cout<<"{\"existingWorkspaceCrud\":"<<(existingCrud?"true":"false")<<",\"existingWorkspaceSteps\":[";for(unsigned i=0;i<7;i++){if(i)std::cout<<",";std::cout<<existingWorkspaceSteps[i];}std::cout<<"],\"directoryAccess\":[";bool first=true;
  for(unsigned depth=0;depth<64;depth++){
   if(!first)std::cout<<",";first=false;
   SetLastError(ERROR_SUCCESS);DWORD attributes=GetFileAttributesW(directory.c_str());
@@ -46,9 +47,13 @@ int wmain(int argc,wchar_t**argv){if(argc==2&&std::wstring(argv[1])==L"--smoke-c
  auto dir=root+L"\\existing-directory",renamedDir=root+L"\\existing-renamed";
  auto file=dir+L"\\before.txt",renamedFile=dir+L"\\after.txt";
  HANDLE existing=CreateFileW(file.c_str(),GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);
+ existingWorkspaceSteps[0]=existing==INVALID_HANDLE_VALUE?GetLastError():ERROR_SUCCESS;
  bool existingCrud=false;
- if(existing!=INVALID_HANDLE_VALUE){DWORD n=0;bool written=!!WriteFile(existing,"changed",7,&n,nullptr)&&n==7;bool closed=!!CloseHandle(existing);
-  existingCrud=written&&closed&&!!MoveFileW(file.c_str(),renamedFile.c_str())&&!!MoveFileW(renamedFile.c_str(),file.c_str())&&!!MoveFileW(dir.c_str(),renamedDir.c_str())&&!!MoveFileW(renamedDir.c_str(),dir.c_str());
+ if(existing!=INVALID_HANDLE_VALUE){DWORD n=0;bool written=!!WriteFile(existing,"changed",7,&n,nullptr)&&n==7;existingWorkspaceSteps[1]=written?ERROR_SUCCESS:GetLastError();bool closed=!!CloseHandle(existing);existingWorkspaceSteps[2]=closed?ERROR_SUCCESS:GetLastError();
+  if(written&&closed){
+   const std::wstring from[]={file,renamedFile,dir,renamedDir},to[]={renamedFile,file,renamedDir,dir};
+   existingCrud=true;for(unsigned i=0;i<4;i++){bool moved=!!MoveFileW(from[i].c_str(),to[i].c_str());existingWorkspaceSteps[3+i]=moved?ERROR_SUCCESS:GetLastError();if(!moved){existingCrud=false;break;}}
+  }
  }
  pathDiagnostics(root,existingCrud);
  HANDLE nul=CreateFileW(L"\\\\.\\NUL",GENERIC_READ|GENERIC_WRITE,7,nullptr,OPEN_EXISTING,0,nullptr);if(nul!=INVALID_HANDLE_VALUE){char b=0;DWORD written=0,read=1;bool okay=!!WriteFile(nul,"x",1,&written,nullptr)&&written==1&&!!ReadFile(nul,&b,1,&read,nullptr)&&read==0;bool closed=!!CloseHandle(nul);if(okay&&closed)bits|=1;}
