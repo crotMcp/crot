@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { leaseDescriptor } from "../../../src/native-host/windows-l1/lease-acl.js";
+import { leaseDescriptor, leaseFileIdDescriptor } from "../../../src/native-host/windows-l1/lease-acl.js";
 function sd() {
   const b = Buffer.alloc(52);
   b[0] = 1;
@@ -29,6 +29,33 @@ describe("bounded self-relative lease descriptor parser", () => {
     b.writeUInt32LE(20, 8);
     const p = leaseDescriptor(b);
     expect(p.owner).toEqual(p.group);
+  });
+
+  it("uses the 24-byte Win10 union ABI even for a 64-bit NTFS FileId", () => {
+    const id = leaseFileIdDescriptor("1234567890abcdef");
+    expect(id).toHaveLength(24);
+    expect(id.readUInt32LE(0)).toBe(24);
+    expect(id.readUInt32LE(4)).toBe(0);
+    expect(id.readBigUInt64LE(8)).toBe(0x1234567890abcdefn);
+    expect(id.readBigUInt64LE(16)).toBe(0n);
+    expect(() => leaseFileIdDescriptor("../file")).toThrow();
+  });
+  it.each(["short-SID", "large-SID", "unknown-ACE", "object-flags"])("rejects native-unsafe ACE payload %s", (kind) => {
+    const b = Buffer.concat([sd(), Buffer.alloc(20)]);
+    b.writeUInt16LE(28, 46);
+    b.writeUInt16LE(1, 48);
+    b[52] = 0;
+    b.writeUInt16LE(20, 54);
+    b[60] = 1;
+    b[61] = 1;
+    if (kind === "short-SID") b.writeUInt16LE(8, 54);
+    if (kind === "large-SID") b[61] = 15;
+    if (kind === "unknown-ACE") b[52] = 254;
+    if (kind === "object-flags") {
+      b[52] = 5;
+      b.writeUInt32LE(4, 60);
+    }
+    expect(() => leaseDescriptor(b)).toThrow();
   });
   it.each([
     "short",

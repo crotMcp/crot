@@ -41,6 +41,26 @@ export function leaseDescriptor(bytes: Buffer) {
         if (cursor + 4 > length) throw fail("ACE header");
         const size = bytes.readUInt16LE(offset + cursor + 2);
         if (size < 4 || size % 4 !== 0 || cursor + size > length) throw fail("ACE bounds");
+        const aceOffset = offset + cursor,
+          type = bytes[aceOffset]!;
+        // NT APIs receive only bounded known layouts, never an undersized SID
+        // hidden behind an otherwise valid ACE header. Preserve opaque callback
+        // application data, but validate the SID preceding it.
+        if (type > 21 || type === 4) throw fail("unsupported ACE layout");
+        let sidOffset = 8;
+        if ([5, 6, 7, 8, 11, 12, 15, 16].includes(type)) {
+          if (size < 12) throw fail("object ACE header");
+          const flags = bytes.readUInt32LE(aceOffset + 8);
+          if (flags & ~3) throw fail("object ACE flags");
+          sidOffset = 12 + (flags & 1 ? 16 : 0) + (flags & 2 ? 16 : 0);
+        }
+        if (
+          sidOffset + 8 > size ||
+          bytes[aceOffset + sidOffset] !== 1 ||
+          bytes[aceOffset + sidOffset + 1]! > 15 ||
+          sidOffset + 8 + 4 * bytes[aceOffset + sidOffset + 1]! > size
+        )
+          throw fail("ACE SID bounds");
         cursor += size;
       }
       // ACLs may include reserved unused tail bytes. Preserve them exactly.
@@ -88,6 +108,15 @@ function repack(original: Buffer, dacl: Buffer): Buffer {
   return result;
 }
 
+/** Win10 SDK FILE_ID_DESCRIPTOR: header 8 + max(union FILE_ID_128) 16. */
+export function leaseFileIdDescriptor(fileId: string): Buffer {
+  if (!/^[0-9a-f]{16}$/.test(fileId)) throw fail("file ID shape");
+  const id = Buffer.alloc(24);
+  id.writeUInt32LE(24); // FileIdType = 0.
+  id.writeBigUInt64LE(BigInt(`0x${fileId}`), 8);
+  return id;
+}
+
 export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; advapi32: string }) {
   const H = "CROT_LEASE_ACL_OUTPUT",
     T = "CROT_LEASE_TRUSTEE",
@@ -110,6 +139,9 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
   const info = k.func("int __stdcall GetFileInformationByHandle(void *object,_Out_ uint8_t *info)");
   const finalPath = k.func(
     "uint32_t __stdcall GetFinalPathNameByHandleW(void *object,_Out_ uint8_t *path,uint32_t count,uint32_t flags)",
+  );
+  const volumeInfo = k.func(
+    "int __stdcall GetVolumeInformationByHandleW(void *object,void *name,uint32_t nameSize,void *serial,void *maxComponent,_Out_ uint8_t *flags,_Out_ uint8_t *filesystem,uint32_t filesystemSize)",
   );
   const close = k.func("int __stdcall CloseHandle(void *object)");
   const lastError = k.func("uint32_t __stdcall GetLastError()");
@@ -157,6 +189,14 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
     } catch {
       pendingHandles.add(h);
     }
+  };
+  const admitVolume = (handle: unknown) => {
+    const filesystem = Buffer.alloc(64),
+      flags = Buffer.alloc(4);
+    if (!okay(volumeInfo(handle, null, 0, null, null, flags, filesystem, filesystem.length / 2)))
+      throw nativeFail("filesystem query");
+    if (filesystem.toString("utf16le").split("\0")[0] !== "NTFS" || !(flags.readUInt32LE(0) & 8))
+      throw fail("unsupported filesystem");
   };
   const query = (handle: unknown) => {
     const bytes = Buffer.alloc(65536),
@@ -224,6 +264,7 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
         next: { value?: unknown } = {};
       let result: LeaseObject | undefined, failure: unknown;
       try {
+        admitVolume(handle);
         const observed = inspect(handle);
         if (!observed.directory && observed.links !== 1) throw fail("unqualified multi-link capture");
         const original = query(handle),
@@ -290,6 +331,7 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
       const original = leaseDescriptor(originalBytes),
         planned = leaseDescriptor(plannedBytes);
       if (
+        original.rmControl !== planned.rmControl ||
         !original.owner.equals(planned.owner) ||
         !original.group.equals(planned.group) ||
         !original.sacl.equals(planned.sacl) ||
@@ -311,9 +353,8 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
       };
       try {
         inspect(root);
-        const id = Buffer.alloc(16);
-        id.writeUInt32LE(16);
-        id.writeBigUInt64LE(BigInt(`0x${identity.fileId}`), 8);
+        admitVolume(root);
+        const id = leaseFileIdDescriptor(identity.fileId);
         handle = byId(root, id, 0x60080, 7, null, 0x02200000);
         if (!valid(handle)) throw nativeFail("open saved file ID");
         verifyIdentity(handle);
