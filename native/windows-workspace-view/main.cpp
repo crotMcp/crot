@@ -138,7 +138,9 @@ int wmain(int argc,wchar_t** argv){
   need(put(root+L"\\link-source.txt","host-owned")&&put(outside+L"\\target.txt","unchanged"));
   need(!!CreateHardLinkW((outside+L"\\alias.txt").c_str(),(root+L"\\link-source.txt").c_str(),nullptr));
   phase="snapshot-hardlinks";std::vector<LinkedFile> linked;scanLinks(root,package,linked);linkedCount=static_cast<unsigned>(linked.size());
-  phase="ancestor-read";std::vector<std::unique_ptr<PinnedAcl>> reads;for(const auto& p:ancestors(root)){++ancestorIndex;auto lease=std::make_unique<PinnedAcl>(p,package);lease->add(FILE_TRAVERSE|FILE_READ_ATTRIBUTES|FILE_READ_EA|FILE_LIST_DIRECTORY|SYNCHRONIZE);reads.push_back(std::move(lease));}
+  phase="ancestor-snapshots";std::vector<std::unique_ptr<PinnedAcl>> reads;
+  for(const auto& p:ancestors(root))reads.push_back(std::make_unique<PinnedAcl>(p,package));
+  phase="ancestor-read";for(auto& lease:reads){++ancestorIndex;lease->add(FILE_TRAVERSE|FILE_READ_ATTRIBUTES|FILE_READ_EA|FILE_LIST_DIRECTORY|SYNCHRONIZE);}
   phase="grants";workspace.add();tmp.add();tools.add();secret.add(true);
   phase="deny-external-hardlinks";for(auto& f:linked){if(hasExternalName(root,f.lease->path)){// Deny the concrete write/metadata bits. A GENERIC_WRITE request maps to
    // these too; do not deny shared READ_CONTROL/SYNCHRONIZE and break reads.
@@ -150,11 +152,14 @@ int wmain(int argc,wchar_t** argv){
   wchar_t system[32768]{};need(GetSystemDirectoryW(system,32768)>0);std::wstring sys=system;
   phase="cmd";cmdCode=launch(sys+L"\\cmd.exe",{L"echo cmd-ready>cmd-result.txt & echo nul>NUL"},root,package,verified,cmdCode,true);
   std::wstring psRoot=root;for(size_t at=0;(at=psRoot.find(L"'",at))!=std::wstring::npos;at+=2)psRoot.insert(at,L"'");
-  const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop; $initial=Get-Location; [Console]::Out.WriteLine('CROT-PS-INITIAL-FILESYSTEM=' + ($initial.Provider.Name -eq 'FileSystem')); [Console]::Out.WriteLine('CROT-PS-INITIAL-ROOT=' + ($initial.Path -eq '"+psRoot+L"')); Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; & $env:ComSpec /d /c 'echo nul>NUL'; if ($LASTEXITCODE -ne 0) { throw 'NUL descendant failed' }";
+  const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop; $initial=Get-Location; [Console]::Out.WriteLine('CROT-PS-INITIAL-FILESYSTEM=' + ($initial.Provider.Name -eq 'FileSystem')); [Console]::Out.WriteLine('CROT-PS-INITIAL-ROOT=' + ($initial.Path -eq '"+psRoot+L"')); Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; & $env:ComSpec /d /c 'echo nul>NUL'; [Console]::Out.WriteLine('CROT-PS-NUL-EXIT=' + $LASTEXITCODE); if ($LASTEXITCODE -ne 0) { throw 'NUL descendant failed' }";
   phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified,psCode);
-  phase="cleanup";cleanup=secret.remove();cleanup=tools.remove()&&cleanup;cleanup=tmp.remove()&&cleanup;cleanup=workspace.remove()&&cleanup;
-  for(auto& f:linked){bool okay=f.lease->remove();restoreReasons.push_back(f.lease->restoreError);cleanup=okay&&cleanup;}
-  for(auto i=reads.rbegin();i!=reads.rend();++i){bool okay=(*i)->remove();restoreReasons.push_back((*i)->restoreError);cleanup=okay&&cleanup;}need(cleanup);
+  phase="cleanup";
+  // Restore parents before their children. No later ancestor operation may
+  // normalize an already restored workspace/file descriptor.
+  for(auto& lease:reads){bool okay=lease->remove();restoreReasons.push_back(lease->restoreError);cleanup=okay&&cleanup;}
+  cleanup=secret.remove()&&cleanup;cleanup=tools.remove()&&cleanup;cleanup=tmp.remove()&&cleanup;cleanup=workspace.remove()&&cleanup;
+  for(auto& f:linked){bool okay=f.lease->remove();restoreReasons.push_back(f.lease->restoreError);cleanup=okay&&cleanup;}need(cleanup);
  }catch(...){failureCode=GetLastError();cleanup=false;}
  if(owns){bool removed=false;for(unsigned i=0;i<20&&!removed;i++){removed=DeleteAppContainerProfile(name.c_str())==S_OK;if(!removed)Sleep(50);}cleanup=cleanup&&removed;}
  if(package)FreeSid(package);

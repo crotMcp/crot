@@ -20,14 +20,21 @@ struct PinnedAcl {
   need(!!SetSecurityDescriptorDacl(&sd,TRUE,a,(c&SE_DACL_DEFAULTED)!=0));
   constexpr WORD flags=SE_DACL_PROTECTED|SE_DACL_AUTO_INHERITED|SE_DACL_AUTO_INHERIT_REQ;
   need(!!SetSecurityDescriptorControl(&sd,flags,c&flags));aclStep="set-nonpropagating-file-acl";
-  SECURITY_INFORMATION bits=DACL_SECURITY_INFORMATION|((c&SE_DACL_PROTECTED)?PROTECTED_DACL_SECURITY_INFORMATION:UNPROTECTED_DACL_SECURITY_INFORMATION);
+  auto existing=descriptor();SECURITY_INFORMATION bits=DACL_SECURITY_INFORMATION;
+  if((control(existing)&SE_DACL_PROTECTED)!=(c&SE_DACL_PROTECTED))bits|=(c&SE_DACL_PROTECTED)?PROTECTED_DACL_SECURITY_INFORMATION:UNPROTECTED_DACL_SECURITY_INFORMATION;
   if(!SetFileSecurityW(path.c_str(),bits,&sd)){aclError=GetLastError();need(false);}
  }
  void set(PACL a){set(a,control(original));}
  void restore(std::vector<BYTE>& snapshot){
   aclStep="restore-raw-dacl-control";auto c=control(snapshot);
-  SECURITY_INFORMATION flags=DACL_SECURITY_INFORMATION|((c&SE_DACL_PROTECTED)?PROTECTED_DACL_SECURITY_INFORMATION:UNPROTECTED_DACL_SECURITY_INFORMATION);
-  if(!SetKernelObjectSecurity(object.h,flags,snapshot.data())){aclError=GetLastError();need(false);}
+  auto now=descriptor();SECURITY_INFORMATION flags=DACL_SECURITY_INFORMATION;
+  if((control(now)&SE_DACL_PROTECTED)!=(c&SE_DACL_PROTECTED)){
+   flags|=(c&SE_DACL_PROTECTED)?PROTECTED_DACL_SECURITY_INFORMATION:UNPROTECTED_DACL_SECURITY_INFORMATION;
+   if(!SetKernelObjectSecurity(object.h,flags,snapshot.data())){aclError=GetLastError();need(false);}
+  }
+  // Do not redundantly request PROTECTED/UNPROTECTED: those operations reset
+  // AUTO_INHERITED and can invalidate descendant provenance after restoration.
+  if(!SetKernelObjectSecurity(object.h,DACL_SECURITY_INFORMATION,snapshot.data())){aclError=GetLastError();need(false);}
  }
  static bool rawEqual(PACL a,PACL b){return a->AclSize==b->AclSize&&memcmp(a,b,a->AclSize)==0;}
  static bool equal(PACL a,PACL b,bool inheritedDifference=false){

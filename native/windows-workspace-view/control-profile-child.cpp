@@ -27,11 +27,20 @@ void pathDiagnostics(std::wstring directory){
   size_t slash=directory.find_last_of(L'\\');if(slash==std::wstring::npos)break;
   directory=directory.substr(0,slash<3?3:slash);
  }
+ std::cout<<"],\"childConsoleModes\":[";
+ wchar_t self[32768]{};DWORD length=GetModuleFileNameW(nullptr,self,32768);
+ for(unsigned mode=0;mode<2;mode++){
+  STARTUPINFOW si{};si.cb=sizeof(si);PROCESS_INFORMATION pi{};DWORD code=STILL_ACTIVE,error=ERROR_SUCCESS;
+  std::wstring line=L"\""+std::wstring(self)+L"\" --smoke-child";
+  if(!length||length>=32768||!CreateProcessW(self,line.data(),nullptr,nullptr,FALSE,mode?CREATE_NO_WINDOW:0,nullptr,nullptr,&si,&pi))error=GetLastError();
+  else{if(WaitForSingleObject(pi.hProcess,5000)!=WAIT_OBJECT_0){error=WAIT_TIMEOUT;TerminateProcess(pi.hProcess,1);WaitForSingleObject(pi.hProcess,5000);}GetExitCodeProcess(pi.hProcess,&code);CloseHandle(pi.hThread);CloseHandle(pi.hProcess);}
+  if(mode)std::cout<<",";std::cout<<"{\"noWindow\":"<<(mode?"true":"false")<<",\"createError\":"<<error<<",\"exit\":"<<code<<"}";
+ }
  std::cout<<"]}"<<std::endl;
 }
 DWORD openedFlags=0;
 bool denied(const std::wstring& p,DWORD mask,DWORD openedBit=0){HANDLE h=CreateFileW(p.c_str(),mask,7,nullptr,OPEN_EXISTING,0,nullptr);DWORD e=GetLastError();if(h!=INVALID_HANDLE_VALUE){openedFlags|=openedBit;CloseHandle(h);return false;}return e==ERROR_ACCESS_DENIED;}
-int wmain(int argc,wchar_t**argv){if(argc!=6)return 2;std::wstring root=argv[1],temp=argv[2],cache=argv[3],outside=argv[4],secret=argv[5];DWORD bits=0;
+int wmain(int argc,wchar_t**argv){if(argc==2&&std::wstring(argv[1])==L"--smoke-child")return 0;if(argc!=6)return 2;std::wstring root=argv[1],temp=argv[2],cache=argv[3],outside=argv[4],secret=argv[5];DWORD bits=0;
  pathDiagnostics(root);
  HANDLE nul=CreateFileW(L"\\\\.\\NUL",GENERIC_READ|GENERIC_WRITE,7,nullptr,OPEN_EXISTING,0,nullptr);if(nul!=INVALID_HANDLE_VALUE){char b=0;DWORD written=0,read=1;bool okay=!!WriteFile(nul,"x",1,&written,nullptr)&&written==1&&!!ReadFile(nul,&b,1,&read,nullptr)&&read==0;bool closed=!!CloseHandle(nul);if(okay&&closed)bits|=1;}
  auto from=root+L"\\native-юникод.txt",to=root+L"\\native-renamed.txt";
