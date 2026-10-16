@@ -135,6 +135,21 @@ DWORD launch(const std::wstring& exe,const std::vector<std::wstring>& args,const
  } catch(...){TerminateJobObject(job.h,1);WaitForSingleObject(process.h,5000);throw;}
 }
 bool put(const std::wstring& p,const char* text){Handle h;h.h=CreateFileW(p.c_str(),GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,0,nullptr);if(h.h==INVALID_HANDLE_VALUE)return false;DWORD n=0;return !!WriteFile(h.h,text,static_cast<DWORD>(strlen(text)),&n,nullptr)&&n==strlen(text);}
+// Trusted disposable NTFS controls. No ACL changes, no existing/user objects.
+// Compare directory rename with metadata/data opens and after those opens close.
+struct RenameTrial { unsigned target;DWORD access,held,closed; };
+std::vector<RenameTrial> renameTrials;
+void diagnoseRenameSharing(const std::wstring& outside){
+ auto root=outside+L"\\owner-rename-control",moved=outside+L"\\owner-rename-moved";
+ need(!!CreateDirectoryW(root.c_str(),nullptr));auto file=root+L"\\child.txt";need(put(file,"control"));
+ for(unsigned target=0;target<2;target++)for(DWORD access:std::vector<DWORD>{READ_CONTROL|WRITE_DAC|FILE_READ_ATTRIBUTES,FILE_READ_DATA|FILE_READ_ATTRIBUTES}){
+  Handle h;h.h=CreateFileW((target?file:root).c_str(),access,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);need(h.h!=INVALID_HANDLE_VALUE);
+  SetLastError(ERROR_SUCCESS);bool okay=!!MoveFileW(root.c_str(),moved.c_str());DWORD held=okay?ERROR_SUCCESS:GetLastError();if(okay)need(!!MoveFileW(moved.c_str(),root.c_str()));
+  need(!!CloseHandle(h.h));h.h=nullptr;SetLastError(ERROR_SUCCESS);okay=!!MoveFileW(root.c_str(),moved.c_str());DWORD closed=okay?ERROR_SUCCESS:GetLastError();if(okay)need(!!MoveFileW(moved.c_str(),root.c_str()));
+  renameTrials.push_back({target,access,held,closed});need(closed==ERROR_SUCCESS);
+ }
+ need(!!DeleteFileW(file.c_str())&&!!RemoveDirectoryW(root.c_str()));
+}
 struct DescriptorObservation {
  std::wstring path;std::vector<BYTE> initial;
  static std::vector<BYTE> read(const std::wstring& p){PSECURITY_DESCRIPTOR sd=nullptr;need(GetNamedSecurityInfoW(p.c_str(),SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION|LABEL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&sd)==ERROR_SUCCESS);std::vector<BYTE> result(GetSecurityDescriptorLength(sd));memcpy(result.data(),sd,result.size());LocalFree(sd);return result;}
@@ -158,6 +173,7 @@ int wmain(int argc,wchar_t** argv){
  std::vector<bool> snapshotApisAgree;for(auto& o:observations){PinnedAcl probe(o.path,nullptr);auto query=probe.descriptor();snapshotApisAgree.push_back(PinnedAcl::rawEqual(PinnedAcl::acl(o.initial),PinnedAcl::acl(query)));}
  std::vector<std::vector<bool>> observedStages;auto observe=[&](){std::vector<bool> row;for(auto& o:observations)row.push_back(o.unchanged());observedStages.push_back(row);};
  try {
+  phase="owner-rename-controls";diagnoseRenameSharing(outside);
   phase="profile";need(CreateAppContainerProfile(name.c_str(),L"CROT qualification",L"Owned disposable profile",nullptr,0,&package)==S_OK);owns=true;observe();
   PSID derived=nullptr;need(DeriveAppContainerSidFromAppContainerName(name.c_str(),&derived)==S_OK);bool sameSid=!!EqualSid(package,derived);FreeSid(derived);need(sameSid);
   Grant workspace(root,package),tmp(temp,package),tools(cache,package),secret(protectedFile,package);
@@ -211,6 +227,7 @@ int wmain(int argc,wchar_t** argv){
  observe();if(owns){bool removed=false;for(unsigned i=0;i<20&&!removed;i++){removed=DeleteAppContainerProfile(name.c_str())==S_OK;if(!removed)Sleep(50);}cleanup=cleanup&&removed;}
  observe();if(package)FreeSid(package);
  std::cout<<"{\"snapshotApisAgree\":[";for(size_t i=0;i<snapshotApisAgree.size();i++){if(i)std::cout<<",";std::cout<<(snapshotApisAgree[i]?"true":"false");}std::cout<<"],\"nativeBaselineStages\":[";for(size_t i=0;i<observedStages.size();i++){if(i)std::cout<<",";std::cout<<"[";for(size_t j=0;j<observedStages[i].size();j++){if(j)std::cout<<",";std::cout<<(observedStages[i][j]?"true":"false");}std::cout<<"]";}std::cout<<"],";
+ std::cout<<"\"renameSharingControls\":[";for(size_t i=0;i<renameTrials.size();i++){if(i)std::cout<<",";auto& t=renameTrials[i];std::cout<<"{\"target\":"<<t.target<<",\"access\":"<<t.access<<",\"held\":"<<t.held<<",\"closed\":"<<t.closed<<"}";}std::cout<<"],";
  std::cout<<"\"ownerInternalDirectoryRename\":"<<ownerInternalDirectoryRename<<",\"pinnedObjectRenameErrors\":[";for(size_t i=0;i<pinnedObjectRenameErrors.size();i++){if(i)std::cout<<",";std::cout<<pinnedObjectRenameErrors[i];}std::cout<<"],";
  std::cout<<"\"pinnedObjectRenames\":[";for(size_t i=0;i<pinnedObjectRenames.size();i++){if(i)std::cout<<",";std::cout<<(pinnedObjectRenames[i]?"true":"false");}std::cout<<"],";
  std::cout<<"\"serviceAttempted\":"<<(serviceAttempted?"true":"false")<<",\"serviceCode\":"<<serviceCode<<",\"linkedCount\":"<<linkedCount<<",\"deniedLinkedCount\":"<<deniedLinkedCount<<",\"restoreReasons\":[";for(size_t i=0;i<restoreReasons.size();i++){if(i)std::cout<<",";std::cout<<"\""<<restoreReasons[i]<<"\"";}std::cout<<"],\"phase\":\""<<phase<<"\",\"aclStep\":\""<<aclStep<<"\",\"aclError\":"<<aclError<<",\"ancestorIndex\":"<<ancestorIndex<<",\"launchStep\":\""<<launchStep<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";

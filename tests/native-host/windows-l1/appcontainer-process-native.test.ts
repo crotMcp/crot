@@ -160,7 +160,7 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
   it("ends a detached descendant and retains profile ownership until the complete Job drains", async () => {
     const descendant = "process.stdout.write('READY:'+process.pid+'\\n');setInterval(()=>{},1000)";
     const p = await launch(
-      `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:['ignore','pipe','ignore']});c.stdout.once('data',b=>process.stdout.write(b,()=>process.exit(23)));c.on('error',()=>process.exit(71));`,
+      `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:['ignore','pipe','ignore']});let ready=false;c.stdout.once('data',b=>{ready=true;process.stdout.write(b,()=>process.exit(23))});c.on('error',e=>{process.stderr.write('CHILD_ERROR:'+e.code+'\\n');process.exitCode=71});c.on('exit',(code,signal)=>{if(!ready){process.stderr.write('CHILD_EARLY_EXIT:'+JSON.stringify({code,signal})+'\\n');process.exitCode=72}});`,
     );
     // A live descendant may retain an inherited stream. Do not wait for
     // stream EOF before terminating that very descendant (circular wait).
@@ -172,7 +172,24 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
     p.stderr.on("data", (data: Buffer) => {
       errors += data.toString();
     });
-    await waitFor(() => /READY:[0-9]+\n/.test(output) && p.hasExited, 10000);
+    try {
+      await waitFor(() => /READY:[0-9]+\n/.test(output) && p.hasExited, 10000);
+    } catch (error) {
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({
+          title: "CROT-6A-appcontainer-native-launcher-descendant-failure",
+          value: {
+            parentHasExited: p.hasExited,
+            parentExit: p.hasExited ? (await p.exited).code : null,
+            stdout: output,
+            stderr: errors,
+            transportFailure: p.failure?.message ?? null,
+          },
+        }) + "\n",
+      );
+      throw error;
+    }
     expect((await p.exited).code).toBe(23);
     expect(errors).toBe("");
     const pid = Number(/READY:([0-9]+)/.exec(output)?.[1]);
