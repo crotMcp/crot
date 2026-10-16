@@ -14,6 +14,10 @@ AD-29 (`c5016ed`) выбрал встроенный AppContainer + Job, без �
 Нативные Node 20/22, NUL и cmd работают на исходном Medium workspace;
 `7596791` выявил write-handle через внешний hardlink. Поэтому достаточность
 OD-6 требует пересмотра, WP-23c не принят, Windows backend остаётся unavailable.
+`6da4386` исправил принятие неполной нативной записи и добавил диагностику
+WinPS без новых ACL: метаданные всех семи предков закрыты. Локально 1748 Core
+и 147 extension проходят; девять не-Windows CI зелёные, оба Windows красные.
+Hardlink, WinPS, точный SD и полный CROT-6A остаются блокирующими.
 Все три ОС обязательны для v1. Точные актуальные коммиты/CI и восемь критериев:
 [текущий отчёт](docs/design/windows-l1-native-os.md).
 Полные журналы: `docs/evidence/windows-l1-native-os/`.

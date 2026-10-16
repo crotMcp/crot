@@ -1,0 +1,11 @@
+{
+  "sourceHead": "6da4386c08ec41ebe9a583f8d61b7c629b473dd1",
+  "command": "npm run check",
+  "exitCode": 0,
+  "platform": "Linux x64",
+  "node": "v24.14.1",
+  "result": "1748 Core passed /168 skipped;147 extension passed",
+  "log": "6da4386-local-check.log",
+  "sha256": "b3babcb5dd1cb0e9dc2c55d0ad2c19617786229f973a8fd4bf66c33b8b636984",
+  "qualification": "Локальные пропуски Windows не являются нативной квалификацией."
+}

@@ -1,0 +1,10 @@
+{
+  "sourceHead": "6da4386c08ec41ebe9a583f8d61b7c629b473dd1",
+  "trackedFiles": {
+    "native/windows-workspace-view/control-profile-child.cpp": "3a42b7fdbf20c08c969c29f53179bdf26f07e42c",
+    "native/windows-workspace-view/main.cpp": "4894689fa5dc80f5ac768ff13c8cae16d3ef90df",
+    "tests/native-host/windows-l1/appcontainer-native.test.ts": "9520f71d2322ffe56573d6f08915f6afb2adf5e3",
+    "tests/native-host/windows-l1/diagnostics/directory-access.test.ts": "2e939352a40c9ca460d9c846a878aefd57d64793",
+    "tests/native-host/windows-l1/diagnostics/directory-access.ts": "e0717038f1a24055b00e2155449acf4315a92497"
+  }
+}

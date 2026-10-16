@@ -1,0 +1,6 @@
+{
+  "url": "https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-setkernelobjectsecurity",
+  "retrieved": "2026-10-16",
+  "officialNote": "This function should not be used when setting a security descriptor on file system objects. Instead, use the SetSecurityInfo or SetNamedSecurityInfo functions.",
+  "decision": "Не вводить SetKernelObjectSecurity для новой аренды ACE на предках. Новый коммит только диагностирует доступ и не меняет ACL."
+}

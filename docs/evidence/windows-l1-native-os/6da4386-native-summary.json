@@ -1,0 +1,796 @@
+{
+  "sourceHead": "6da4386c08ec41ebe9a583f8d61b7c629b473dd1",
+  "qualification": "Только нативная квалификационная фикстура; не производственный backend и не полный CROT-6A. Проверки дескрипторов не выполняют записи/чтения секретных байтов. Новых ACL/привилегий не выдавалось.",
+  "nodes": {
+    "20": {
+      "phase": "cleanup",
+      "launchStep": "complete",
+      "verified": true,
+      "nativeCode": 1129447807,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 1,
+      "cleanup": true,
+      "outsideHardlinkOpened": true,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "originalDescriptorsRestored": false,
+      "nodeResult": {
+        "ready": true,
+        "read": true,
+        "nul": true
+      },
+      "directoryAccess": [
+        {
+          "depth": 0,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 32,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 1,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 2,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 3,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 4,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 5,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 6,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 7,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        }
+      ],
+      "exactDescriptorRestoredByObject": [
+        false,
+        true
+      ],
+      "powershellStdout": "CROT-PS-INITIAL-FILESYSTEM=True\r\nCROT-PS-INITIAL-ROOT=False\r\n",
+      "powershellStderr": "Set-Location : Access is denied\r\nAt line:1 char:524\r\n+ ... rkspace')); Set-Location -LiteralPath 'C:\\Users\\runneradmin\\AppData\\L ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : NotSpecified: (:) [Set-Location], UnauthorizedAccessException\r\n    + FullyQualifiedErrorId : System.UnauthorizedAccessException,Microsoft.PowerShell.Commands.SetLocationCommand\r\n \r\n"
+    },
+    "22": {
+      "phase": "cleanup",
+      "launchStep": "complete",
+      "verified": true,
+      "nativeCode": 1129447807,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 1,
+      "cleanup": true,
+      "outsideHardlinkOpened": true,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "originalDescriptorsRestored": false,
+      "nodeResult": {
+        "ready": true,
+        "read": true,
+        "nul": true
+      },
+      "directoryAccess": [
+        {
+          "depth": 0,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 32,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 1,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 2,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 3,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 4,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 5,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 6,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 7,
+          "attributeError": 5,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        }
+      ],
+      "exactDescriptorRestoredByObject": [
+        false,
+        true
+      ],
+      "powershellStdout": "CROT-PS-INITIAL-FILESYSTEM=True\r\nCROT-PS-INITIAL-ROOT=False\r\n",
+      "powershellStderr": "Set-Location : Access is denied\r\nAt line:1 char:524\r\n+ ... rkspace')); Set-Location -LiteralPath 'C:\\Users\\runneradmin\\AppData\\L ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : NotSpecified: (:) [Set-Location], UnauthorizedAccessException\r\n    + FullyQualifiedErrorId : System.UnauthorizedAccessException,Microsoft.PowerShell.Commands.SetLocationCommand\r\n \r\n"
+    }
+  }
+}

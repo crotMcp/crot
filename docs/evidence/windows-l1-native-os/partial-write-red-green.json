@@ -1,0 +1,16 @@
+{
+  "before": {
+    "sourceCommit": "c635d25c23b53c4f304829ef3452a41fd0cb2396",
+    "sourceSha256": "ddca6906d28475d8f3c9fbcdee9f8dbb347611ef0bccb6cb79b828b0d8b645a1",
+    "functionSha256": "81f46a4bdf44abebe8c92424b68beb458302ebc0966b17ebbf62660c3de62022",
+    "exit": 3,
+    "output": "FAIL scenario=3 okay=1 closed=1\n"
+  },
+  "after": {
+    "sourceCommit": "6da4386c08ec41ebe9a583f8d61b7c629b473dd1",
+    "sourceSha256": "0ea9666c9c1a5f548a49bcb683ace86dee5b16919f5af4a5995fbc7c9ed591f2",
+    "functionSha256": "b4f0862b944bb0b76c348f28d8166f9d971a7aa93745efc9b96c447ea8613ab0",
+    "exit": 0,
+    "output": "PASS 5 mocked I/O outcomes (not native Windows qualification)\n"
+  }
+}

@@ -1,0 +1,10 @@
+
+ RUN  v3.2.7 /data/crot-mcp
+
+ ✓ tests/native-host/windows-l1/diagnostics/directory-access.test.ts (11 tests) 7ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  23:54:04
+   Duration  8.70s (transform 61ms, setup 0ms, collect 50ms, tests 7ms, environment 0ms, prepare 85ms)
+

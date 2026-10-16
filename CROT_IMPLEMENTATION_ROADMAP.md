@@ -596,6 +596,14 @@ WP-23b не начата. WP-23c не принят: контрпример вн�
 недоступен, remote sandbox отказывает. Все три ОС обязательны для v1.
 Коммиты, восемь критериев и доказательства: [текущий отчёт](docs/design/windows-l1-native-os.md).
 
+`6da4386`: исправлена проверка полной записи; диагностика без ACL-изменений
+показала отказ чтения атрибутов всех предков, включая корень диска. Node20/22
+и cmd проходят, WinPS/hardlink/точный SD остаются провалами. Локально 1748 Core
+и 147 extension; девять не-Windows CI успешны, два Windows неуспешны.
+Никакая дополнительная системная выдача прав либо снятие строгих проверок
+не одобрена этим диагностическим коммитом.
+
+
 **Исторические результаты до a6eb17d, не текущий выбор механизма:** WP-23a **Done** (ARCHITECTURE.md §27 AD-20; PR #6, `e1d1f61`;
 [`docs/L1.md`](docs/L1.md)). WP-23b is not implemented. WP-23c's native restricted-token/DACL spike is
 in progress following owner authorization to proceed with engineering work;
