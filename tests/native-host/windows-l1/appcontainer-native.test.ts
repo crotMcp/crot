@@ -28,7 +28,19 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       await createServicePrivateFiles(true).protectFile!(secret);
       await writeFile(secret, "owned fixture");
       const ffi = createRequire(import.meta.url)("koffi");
-      const snapshots = () => [workspace!, secret].map((file) => snapshotWorkspaceDescriptorDetails(ffi, file));
+      const parents: string[] = [];
+      let parent = path.dirname(workspace!);
+      for (;;) {
+        parents.push(parent);
+        if (path.dirname(parent) === parent) break;
+        parent = path.dirname(parent);
+      }
+      // Shared ancestors must be restored too; fingerprints include owner,
+      // group, DACL order/provenance and the integrity label.
+      const linked = path.join(workspace!, "link-source.txt");
+      await writeFile(linked, "host-owned");
+      const snapshots = () =>
+        [workspace!, secret, linked, ...parents].map((file) => snapshotWorkspaceDescriptorDetails(ffi, file));
       const before = snapshots();
       expect(before.every((s) => s.medium)).toBe(true);
       build = await buildWorkspaceViewFixture();
@@ -80,6 +92,9 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
           title: "CROT-6A-native-appcontainer",
           value: {
             ...v,
+            insideHardlinkOpened: !!(v.nativeCode & 4096),
+            insideHardlinkWriteDenied: !!(v.nativeCode & 2048),
+            externalLinkCreationDenied: !!(v.nativeCode & 8192),
             outsideHardlinkOpened: !!(v.nativeCode & 256),
             protectedReadOpened: !!(v.nativeCode & 512),
             protectedWriteOpened: !!(v.nativeCode & 1024),
@@ -120,6 +135,15 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       })) {
         expect(!!(bits & bit), name).toBe(true);
       }
+      expect(v.nativeCode & 4096, "внутреннее имя hardlink не открыто на запись").toBe(0);
+      expect(!!(v.nativeCode & 2048), "внутреннее имя hardlink закрыто на запись").toBe(true);
+      expect(!!(v.nativeCode & 8192), "создание нового внешнего hardlink отклонено").toBe(true);
+      for (const row of directoryAccess ?? []) {
+        expect(row.attributeError, `directory depth=${row.depth} attributes`).toBe(0);
+        for (const open of row.opens.slice(0, 3))
+          expect(open.error, `directory depth=${row.depth} read mask=${open.mask}`).toBe(0);
+      }
+      expect(!!(v.nativeCode & 16384), "чтение связанного файла сохранено").toBe(true);
       expect(v.nodeCode).toBe(0);
       expect(v.cmdCode).toBe(0);
       expect(v.psCode).toBe(0);
@@ -131,6 +155,8 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       expect((await readFile(path.join(workspace!, "cmd-result.txt"), "utf8")).trim()).toBe("cmd-ready");
       expect(await readFile(path.join(outside!, "target.txt"), "utf8")).toBe("unchanged");
       expect(await readFile(secret, "utf8")).toBe("owned fixture");
+      expect(await readFile(linked, "utf8")).toBe("host-owned");
+      expect(await readFile(path.join(outside!, "alias.txt"), "utf8")).toBe("host-owned");
     } finally {
       try {
         await build?.cleanup();

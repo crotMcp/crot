@@ -40,5 +40,11 @@ int wmain(int argc,wchar_t**argv){if(argc!=6)return 2;std::wstring root=argv[1],
  if(denied(outside+L"\\target.txt",GENERIC_WRITE))bits|=16;
  if(denied(secret,GENERIC_READ,512))bits|=32;if(denied(secret,GENERIC_WRITE,1024))bits|=64;
  if(denied(outside+L"\\alias.txt",GENERIC_WRITE,256))bits|=128;
+ if(denied(root+L"\\link-source.txt",GENERIC_WRITE,4096))bits|=2048;
+ HANDLE linkedRead=CreateFileW((root+L"\\link-source.txt").c_str(),GENERIC_READ,7,nullptr,OPEN_EXISTING,0,nullptr);
+ if(linkedRead!=INVALID_HANDLE_VALUE){char text[16]{};DWORD n=0;bool okay=!!ReadFile(linkedRead,text,sizeof(text),&n,nullptr)&&n==10&&memcmp(text,"host-owned",10)==0;bool closed=!!CloseHandle(linkedRead);if(okay&&closed)bits|=16384;}
+
+ bool linkSource=put(root+L"\\node-source.txt","ordinary");SetLastError(ERROR_SUCCESS);if(linkSource&&!CreateHardLinkW((outside+L"\\actor-created-link.txt").c_str(),(root+L"\\node-source.txt").c_str(),nullptr)&&GetLastError()==ERROR_ACCESS_DENIED)bits|=8192;
+
  return static_cast<int>(0x43520000u|bits|openedFlags);
 }

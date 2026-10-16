@@ -11,12 +11,14 @@
 #include <stdexcept>
 #include <cstring>
 #include <algorithm>
+#include <memory>
 struct Handle { HANDLE h=nullptr; ~Handle(){if(h && h!=INVALID_HANDLE_VALUE)CloseHandle(h);} };
 const char* phase="setup";
 const char* launchStep="none";
 DWORD failureCode=0;
 std::wstring ownedTemp,ownedCache;
 void need(bool okay){if(!okay)throw std::runtime_error("native prerequisite");}
+#include "acl-lease.h"
 std::wstring quote(const std::wstring& s){std::wstring r=L"\"";unsigned n=0;for(auto c:s){if(c==L'\\'){n++;continue;}if(c==L'"')r.append(n*2+1,L'\\');else r.append(n,L'\\');n=0;r+=c;}r.append(n*2,L'\\');return r+L"\"";}
 struct Grant {
  std::wstring path;PSID sid;bool installed=false;std::vector<BYTE> original;
@@ -56,7 +58,12 @@ struct Grant {
    need(hx->AceSize==hy->AceSize&&hx->AceType==hy->AceType&&(hx->AceFlags&~INHERITED_ACE)==(hy->AceFlags&~INHERITED_ACE));
    need(memcmp(static_cast<BYTE*>(x)+sizeof(ACE_HEADER),static_cast<BYTE*>(y)+sizeof(ACE_HEADER),hx->AceSize-sizeof(ACE_HEADER))==0);
   }
-  need(!!SetFileSecurityW(path.c_str(),DACL_SECURITY_INFORMATION,original.data()));
+  // MAXIMUM_ALLOWED is the documented non-propagating SetSecurityInfo path.
+  // Restore original ACE provenance without a second inheritance traversal.
+  PinnedAcl pinned(path,sid);pinned.set(before);auto final=pinned.descriptor();
+  need(PinnedAcl::equal(PinnedAcl::acl(final),before));
+  constexpr WORD flags=SE_DACL_PROTECTED|SE_DACL_AUTO_INHERITED|SE_DACL_AUTO_INHERIT_REQ|SE_DACL_DEFAULTED;
+  need((PinnedAcl::control(final)&flags)==(PinnedAcl::control(original)&flags));
   installed=false;return true;
  }catch(...){return false;}}
  ~Grant(){remove();}
@@ -130,7 +137,13 @@ int wmain(int argc,wchar_t** argv){
   need(!!CopyFileW(source.c_str(),child.c_str(),TRUE)&&!!CopyFileW(node.c_str(),nodeCopy.c_str(),TRUE));
   need(put(root+L"\\link-source.txt","host-owned")&&put(outside+L"\\target.txt","unchanged"));
   need(!!CreateHardLinkW((outside+L"\\alias.txt").c_str(),(root+L"\\link-source.txt").c_str(),nullptr));
+  phase="snapshot-hardlinks";std::vector<LinkedFile> linked;scanLinks(root,package,linked);
+  phase="ancestor-read";std::vector<std::unique_ptr<PinnedAcl>> reads;for(const auto& p:ancestors(root)){auto lease=std::make_unique<PinnedAcl>(p,package);lease->add(FILE_TRAVERSE|FILE_READ_ATTRIBUTES|FILE_READ_EA|FILE_LIST_DIRECTORY|SYNCHRONIZE);reads.push_back(std::move(lease));}
   phase="grants";workspace.add();tmp.add();tools.add();secret.add(true);
+  phase="deny-external-hardlinks";for(auto& f:linked){if(hasExternalName(root,f.lease->path)){// Deny the concrete write/metadata bits. A GENERIC_WRITE request maps to
+   // these too; do not deny shared READ_CONTROL/SYNCHRONIZE and break reads.
+   f.lease->add(DELETE|WRITE_DAC|WRITE_OWNER|FILE_WRITE_DATA|FILE_APPEND_DATA|FILE_WRITE_ATTRIBUTES|FILE_WRITE_EA,true);f.denied=true;}}
+
   phase="native";nativeCode=launch(child,{root,temp,cache,outside,protectedFile},root,package,verified,nativeCode);
   const std::wstring js=L"const f=require('fs');let r={ready:true};try{f.writeFileSync('node-created.txt','live');f.renameSync('node-created.txt','node-renamed.txt');r.read=f.readFileSync('node-renamed.txt','utf8')==='live';f.unlinkSync('node-renamed.txt');const h=f.openSync('\\\\\\\\.\\\\NUL','r+');f.closeSync(h);r.nul=true}catch(e){r.error=e.code;process.exitCode=1}f.writeFileSync('node-result.json',JSON.stringify(r));";
   phase="node";nodeCode=launch(nodeCopy,{L"-e",js},root,package,verified,nodeCode);
@@ -139,7 +152,9 @@ int wmain(int argc,wchar_t** argv){
   std::wstring psRoot=root;for(size_t at=0;(at=psRoot.find(L"'",at))!=std::wstring::npos;at+=2)psRoot.insert(at,L"'");
   const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop; $initial=Get-Location; [Console]::Out.WriteLine('CROT-PS-INITIAL-FILESYSTEM=' + ($initial.Provider.Name -eq 'FileSystem')); [Console]::Out.WriteLine('CROT-PS-INITIAL-ROOT=' + ($initial.Path -eq '"+psRoot+L"')); Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; 'nul' > NUL";
   phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified,psCode);
-  phase="cleanup";cleanup=secret.remove();cleanup=tools.remove()&&cleanup;cleanup=tmp.remove()&&cleanup;cleanup=workspace.remove()&&cleanup;need(cleanup);
+  phase="cleanup";cleanup=secret.remove();cleanup=tools.remove()&&cleanup;cleanup=tmp.remove()&&cleanup;cleanup=workspace.remove()&&cleanup;
+  for(auto& f:linked)cleanup=f.lease->remove()&&cleanup;
+  for(auto i=reads.rbegin();i!=reads.rend();++i)cleanup=(*i)->remove()&&cleanup;need(cleanup);
  }catch(...){failureCode=GetLastError();cleanup=false;}
  if(owns){bool removed=false;for(unsigned i=0;i<20&&!removed;i++){removed=DeleteAppContainerProfile(name.c_str())==S_OK;if(!removed)Sleep(50);}cleanup=cleanup&&removed;}
  if(package)FreeSid(package);
