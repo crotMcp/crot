@@ -55,5 +55,9 @@ int wmain(int argc,wchar_t**argv){if(argc==2&&std::wstring(argv[1])==L"--smoke-c
 
  bool linkSource=put(root+L"\\node-source.txt","ordinary");SetLastError(ERROR_SUCCESS);if(linkSource&&!CreateHardLinkW((outside+L"\\actor-created-link.txt").c_str(),(root+L"\\node-source.txt").c_str(),nullptr)&&GetLastError()==ERROR_ACCESS_DENIED)bits|=8192;
 
+ bool internal=put(root+L"\\internal-source.txt","internal-first");
+ auto readText=[](const std::wstring& p,const char* expected){HANDLE h=CreateFileW(p.c_str(),GENERIC_READ,7,nullptr,OPEN_EXISTING,0,nullptr);if(h==INVALID_HANDLE_VALUE)return false;char b[64]{};DWORD n=0;bool okay=!!ReadFile(h,b,sizeof(b),&n,nullptr)&&n==strlen(expected)&&memcmp(b,expected,n)==0;return !!CloseHandle(h)&&okay;};
+ internal=internal&&readText(root+L"\\internal-alias.txt","internal-first")&&put(root+L"\\internal-alias.txt","internal-final")&&readText(root+L"\\internal-source.txt","internal-final");
+ if(internal)bits|=32768;
  return static_cast<int>(0x43520000u|bits|openedFlags);
 }

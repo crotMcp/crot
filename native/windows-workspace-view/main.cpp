@@ -137,6 +137,8 @@ int wmain(int argc,wchar_t** argv){
   need(!!CopyFileW(source.c_str(),child.c_str(),TRUE)&&!!CopyFileW(node.c_str(),nodeCopy.c_str(),TRUE));
   need(put(root+L"\\link-source.txt","host-owned")&&put(outside+L"\\target.txt","unchanged"));
   need(!!CreateHardLinkW((outside+L"\\alias.txt").c_str(),(root+L"\\link-source.txt").c_str(),nullptr));
+  need(put(root+L"\\internal-source.txt","internal-before"));
+  need(!!CreateHardLinkW((root+L"\\internal-alias.txt").c_str(),(root+L"\\internal-source.txt").c_str(),nullptr));
   phase="snapshot-hardlinks";std::vector<LinkedFile> linked;scanLinks(root,package,linked);linkedCount=static_cast<unsigned>(linked.size());
   phase="ancestor-snapshots";std::vector<std::unique_ptr<PinnedAcl>> reads;
   for(const auto& p:ancestors(root))reads.push_back(std::make_unique<PinnedAcl>(p,package));
@@ -152,12 +154,12 @@ int wmain(int argc,wchar_t** argv){
   wchar_t system[32768]{};need(GetSystemDirectoryW(system,32768)>0);std::wstring sys=system;
   phase="cmd";cmdCode=launch(sys+L"\\cmd.exe",{L"echo cmd-ready>cmd-result.txt & echo nul>NUL"},root,package,verified,cmdCode,true);
   std::wstring psRoot=root;for(size_t at=0;(at=psRoot.find(L"'",at))!=std::wstring::npos;at+=2)psRoot.insert(at,L"'");
-  const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop; $initial=Get-Location; [Console]::Out.WriteLine('CROT-PS-INITIAL-FILESYSTEM=' + ($initial.Provider.Name -eq 'FileSystem')); [Console]::Out.WriteLine('CROT-PS-INITIAL-ROOT=' + ($initial.Path -eq '"+psRoot+L"')); Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; & $env:ComSpec /d /c 'echo nul>NUL'; [Console]::Out.WriteLine('CROT-PS-NUL-EXIT=' + $LASTEXITCODE); if ($LASTEXITCODE -ne 0) { throw 'NUL descendant failed' }";
+  const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop; $initial=Get-Location; [Console]::Out.WriteLine('CROT-PS-INITIAL-FILESYSTEM=' + ($initial.Provider.Name -eq 'FileSystem')); [Console]::Out.WriteLine('CROT-PS-INITIAL-ROOT=' + ($initial.Path -eq '"+psRoot+L"')); Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; $info=New-Object System.Diagnostics.ProcessStartInfo; $info.FileName=$env:ComSpec; $info.Arguments='/d /c \"echo nul>NUL && type NUL >NUL && echo nul-child-ready>ps-child-marker.txt\"'; $info.UseShellExecute=$false; $info.CreateNoWindow=$true; $info.WorkingDirectory=(Get-Location).Path; $child=[System.Diagnostics.Process]::Start($info); try { if (!$child.WaitForExit(5000)) { $child.Kill(); throw 'NUL descendant timeout' }; [Console]::Out.WriteLine('CROT-PS-NUL-EXIT=' + $child.ExitCode); if ($child.ExitCode -ne 0) { throw 'NUL descendant failed' }; if ([System.IO.File]::ReadAllText((Join-Path (Get-Location).Path 'ps-child-marker.txt')).Trim() -ne 'nul-child-ready') { throw 'NUL descendant marker failed' } } finally { $child.Dispose() }";
   phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified,psCode);
   phase="cleanup";
   // Restore parents before their children. No later ancestor operation may
   // normalize an already restored workspace/file descriptor.
-  for(auto& lease:reads){bool okay=lease->remove();restoreReasons.push_back(lease->restoreError);cleanup=okay&&cleanup;}
+  for(auto it=reads.rbegin();it!=reads.rend();++it){auto& lease=*it;bool okay=lease->remove();restoreReasons.push_back(lease->restoreError);cleanup=okay&&cleanup;}
   cleanup=secret.remove()&&cleanup;cleanup=tools.remove()&&cleanup;cleanup=tmp.remove()&&cleanup;cleanup=workspace.remove()&&cleanup;
   for(auto& f:linked){bool okay=f.lease->remove();restoreReasons.push_back(f.lease->restoreError);cleanup=okay&&cleanup;}need(cleanup);
  }catch(...){failureCode=GetLastError();cleanup=false;}

@@ -148,6 +148,10 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
           expect(open.error, `directory depth=${row.depth} read mask=${open.mask}`).toBe(0);
       }
       expect(!!(v.nativeCode & 16384), "чтение связанного файла сохранено").toBe(true);
+      expect(!!(v.nativeCode & 32768), "чтение и запись через оба внутренних имени").toBe(true);
+      for (const name of ["internal-source.txt", "internal-alias.txt"])
+        expect(await readFile(path.join(workspace!, name), "utf8")).toBe("internal-final");
+      expect((await readFile(path.join(workspace!, "ps-child-marker.txt"), "utf8")).trim()).toBe("nul-child-ready");
       expect(v.nodeCode).toBe(0);
       expect(v.cmdCode).toBe(0);
       expect(v.psCode).toBe(0);

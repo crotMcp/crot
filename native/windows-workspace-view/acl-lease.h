@@ -22,19 +22,23 @@ struct PinnedAcl {
   need(!!SetSecurityDescriptorControl(&sd,flags,c&flags));aclStep="set-nonpropagating-file-acl";
   auto existing=descriptor();SECURITY_INFORMATION bits=DACL_SECURITY_INFORMATION;
   if((control(existing)&SE_DACL_PROTECTED)!=(c&SE_DACL_PROTECTED))bits|=(c&SE_DACL_PROTECTED)?PROTECTED_DACL_SECURITY_INFORMATION:UNPROTECTED_DACL_SECURITY_INFORMATION;
-  if(!SetFileSecurityW(path.c_str(),bits,&sd)){aclError=GetLastError();need(false);}
+  if(c&SE_DACL_AUTO_INHERITED)need(!!SetSecurityDescriptorControl(&sd,SE_DACL_AUTO_INHERIT_REQ,SE_DACL_AUTO_INHERIT_REQ));
+  if(!SetKernelObjectSecurity(object.h,bits,&sd)){aclError=GetLastError();need(false);}
  }
  void set(PACL a){set(a,control(original));}
  void restore(std::vector<BYTE>& snapshot){
   aclStep="restore-raw-dacl-control";auto c=control(snapshot);
+  // The input request bit asks NT to preserve AUTO_INHERITED; it is not
+  // accepted as proof. Readback must still match every original control bit.
+  SECURITY_DESCRIPTOR sd{};need(!!InitializeSecurityDescriptor(&sd,SECURITY_DESCRIPTOR_REVISION));
+  need(!!SetSecurityDescriptorDacl(&sd,TRUE,acl(snapshot),(c&SE_DACL_DEFAULTED)!=0));
+  constexpr WORD controls=SE_DACL_PROTECTED|SE_DACL_AUTO_INHERITED|SE_DACL_AUTO_INHERIT_REQ;
+  WORD requested=c&controls;if(c&SE_DACL_AUTO_INHERITED)requested|=SE_DACL_AUTO_INHERIT_REQ;
+  need(!!SetSecurityDescriptorControl(&sd,controls,requested));
   auto now=descriptor();SECURITY_INFORMATION flags=DACL_SECURITY_INFORMATION;
-  if((control(now)&SE_DACL_PROTECTED)!=(c&SE_DACL_PROTECTED)){
+  if((control(now)&SE_DACL_PROTECTED)!=(c&SE_DACL_PROTECTED))
    flags|=(c&SE_DACL_PROTECTED)?PROTECTED_DACL_SECURITY_INFORMATION:UNPROTECTED_DACL_SECURITY_INFORMATION;
-   if(!SetKernelObjectSecurity(object.h,flags,snapshot.data())){aclError=GetLastError();need(false);}
-  }
-  // Do not redundantly request PROTECTED/UNPROTECTED: those operations reset
-  // AUTO_INHERITED and can invalidate descendant provenance after restoration.
-  if(!SetKernelObjectSecurity(object.h,DACL_SECURITY_INFORMATION,snapshot.data())){aclError=GetLastError();need(false);}
+  if(!SetKernelObjectSecurity(object.h,flags,&sd)){aclError=GetLastError();need(false);}
  }
  static bool rawEqual(PACL a,PACL b){return a->AclSize==b->AclSize&&memcmp(a,b,a->AclSize)==0;}
  static bool equal(PACL a,PACL b,bool inheritedDifference=false){
@@ -89,7 +93,19 @@ void scanLinks(const std::wstring& directory,PSID sid,std::vector<LinkedFile>& l
   if(!known){need(linked.size()<10000);linked.push_back({std::move(lease),info.dwVolumeSerialNumber,info.nFileIndexHigh,info.nFileIndexLow,false});}
  }while(FindNextFileW(search,&entry));need(GetLastError()==ERROR_NO_MORE_FILES);}catch(...){FindClose(search);throw;}need(!!FindClose(search));
 }
+// Compare filesystem object identity, not folded path strings. This respects
+// both ordinary case-insensitive lookup and per-directory case sensitivity.
 bool hasExternalName(const std::wstring& root,const std::wstring& file){
- need(root.size()>3&&root[1]==L':');std::wstring prefix=root.substr(2);std::vector<wchar_t> buffer(32768);DWORD n=static_cast<DWORD>(buffer.size());HANDLE search=FindFirstFileNameW(file.c_str(),0,&n,buffer.data());need(search!=INVALID_HANDLE_VALUE);bool outside=false;unsigned count=0;
- try{for(;;){need(++count<=10000);std::wstring name=buffer.data();bool inside=name.size()>prefix.size()&&name[prefix.size()]==L'\\'&&CompareStringOrdinal(name.data(),static_cast<int>(prefix.size()),prefix.data(),static_cast<int>(prefix.size()),TRUE)==CSTR_EQUAL;outside=outside||!inside;n=static_cast<DWORD>(buffer.size());if(!FindNextFileNameW(search,&n,buffer.data())){need(GetLastError()==ERROR_HANDLE_EOF);break;}}}catch(...){FindClose(search);throw;}need(!!FindClose(search));return outside;
+ need(root.size()>3&&root[1]==L':');
+ Handle rootHandle;rootHandle.h=CreateFileW(root.c_str(),FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+ BY_HANDLE_FILE_INFORMATION rootInfo{};need(rootHandle.h!=INVALID_HANDLE_VALUE&&!!GetFileInformationByHandle(rootHandle.h,&rootInfo));
+ unsigned components=1;for(size_t i=3;i<root.size();i++)if(root[i]==L'\\')++components;
+ std::vector<wchar_t> buffer(32768);DWORD n=static_cast<DWORD>(buffer.size());HANDLE search=FindFirstFileNameW(file.c_str(),0,&n,buffer.data());need(search!=INVALID_HANDLE_VALUE);bool outside=false;unsigned count=0;
+ try{for(;;){need(++count<=10000);std::wstring name=buffer.data();size_t boundary=0;
+  for(unsigned i=0;i<components;i++){boundary=name.find(L'\\',boundary+1);if(boundary==name.npos)break;}
+  bool inside=false;
+  if(boundary!=name.npos){std::wstring candidate=root.substr(0,2)+name.substr(0,boundary);Handle h;h.h=CreateFileW(candidate.c_str(),FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);BY_HANDLE_FILE_INFORMATION info{};
+   need(h.h!=INVALID_HANDLE_VALUE&&!!GetFileInformationByHandle(h.h,&info));inside=!(info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT)&&info.dwVolumeSerialNumber==rootInfo.dwVolumeSerialNumber&&info.nFileIndexHigh==rootInfo.nFileIndexHigh&&info.nFileIndexLow==rootInfo.nFileIndexLow;}
+  outside=outside||!inside;n=static_cast<DWORD>(buffer.size());if(!FindNextFileNameW(search,&n,buffer.data())){need(GetLastError()==ERROR_HANDLE_EOF);break;}
+ }}catch(...){FindClose(search);throw;}need(!!FindClose(search));return outside;
 }
