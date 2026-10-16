@@ -1,0 +1,12 @@
+{
+  "sourceHead": "bc9a1c06183e53673689b1a95578615283383aad",
+  "command": "npm run check",
+  "exitCode": 0,
+  "platform": "Linux x64 Node24",
+  "corePassed": 1748,
+  "coreSkipped": 168,
+  "extensionPassed": 147,
+  "sha256": "e7c48413b0ded288d83a88a3bcf315dbbe88865c6138017b92ddac3aae7a32f2",
+  "log": "bc9a1c0-full-check.log",
+  "qualification": "Not Windows proof"
+}
