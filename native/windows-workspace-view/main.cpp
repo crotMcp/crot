@@ -125,7 +125,7 @@ DWORD launch(const std::wstring& exe,const std::vector<std::wstring>& args,const
   auto sid=reinterpret_cast<TOKEN_APPCONTAINER_INFORMATION*>(ps.data())->TokenAppContainer;
   need(*reinterpret_cast<DWORD*>(ac.data())!=0&&sid&&IsValidSid(sid)&&EqualSid(sid,package));
   need(reinterpret_cast<TOKEN_GROUPS*>(cs.data())->GroupCount==0&&IsValidSid(label)&&*GetSidSubAuthorityCount(label)==1&&*GetSidSubAuthority(label,0)==4096);
-  verified=true;launchStep="local-shim";need(localShimInjector&&localShimInjector(process.h)==ERROR_SUCCESS);launchStep="resume";need(ResumeThread(thread.h)==1);
+  verified=true;launchStep="local-shim";DWORD shimResult=localShimInjector?localShimInjector(process.h):ERROR_DLL_NOT_FOUND;if(shimResult)SetLastError(shimResult);need(shimResult==ERROR_SUCCESS);launchStep="resume";need(ResumeThread(thread.h)==1);
   launchStep="wait-process";need(WaitForSingleObject(process.h,30000)==WAIT_OBJECT_0);
   launchStep="exit-code";need(!!GetExitCodeProcess(process.h,&observedExit));
   // The process handle can signal before Job accounting has settled. Keep the

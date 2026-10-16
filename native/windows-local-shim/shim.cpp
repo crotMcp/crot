@@ -38,7 +38,7 @@ static BOOL WINAPI localProcess(LPCWSTR app,LPWSTR command,LPSECURITY_ATTRIBUTES
  if(!realProcess(app,command,pa,ta,inherit,flags|CREATE_SUSPENDED,env,cwd,startup,&child))return FALSE;
  LPCSTR dll=ownedDll;DWORD error=ERROR_SUCCESS;
  // No helper process, elevation, architecture fallback or resumed-on-failure path.
- if(!DetourUpdateProcessWithDll(child.hProcess,&dll,1))error=GetLastError();
+ if(!DetourUpdateProcessWithDll(child.hProcess,&dll,1)){error=GetLastError();if(!error)error=ERROR_DLL_INIT_FAILED;}
  else if(!(flags&CREATE_SUSPENDED)&&ResumeThread(child.hThread)!=1)error=GetLastError()?GetLastError():ERROR_INVALID_STATE;
  if(error){
   TerminateProcess(child.hProcess,1);WaitForSingleObject(child.hProcess,5000);
@@ -52,7 +52,8 @@ static BOOL WINAPI localProcess(LPCWSTR app,LPWSTR command,LPSECURITY_ATTRIBUTES
 extern "C" __declspec(dllexport) DWORD WINAPI CrotInjectLocalShim(HANDLE process){
  if(isAppContainer())return ERROR_ACCESS_DENIED;
  char name[32768]{};if(!dllAnsiPath(selfModule,name,sizeof(name)))return ERROR_NO_UNICODE_TRANSLATION;
- LPCSTR dll=name;return DetourUpdateProcessWithDll(process,&dll,1)?ERROR_SUCCESS:GetLastError();
+ LPCSTR dll=name;if(DetourUpdateProcessWithDll(process,&dll,1))return ERROR_SUCCESS;
+ DWORD error=GetLastError();return error?error:ERROR_DLL_INIT_FAILED;
 }
 extern "C" __declspec(dllexport) DWORD WINAPI CrotLocalShimVersion(){return 1;}
 extern "C" __declspec(dllexport) DWORD WINAPI CrotMapPipeName(LPCWSTR name,LPWSTR output,DWORD count){
