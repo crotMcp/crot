@@ -207,7 +207,7 @@ describe.runIf(isWindows)("Windows owned native byte ProcessLauncher (not confin
     const script = path.join(cwd, "echo space.cmd");
     await writeFile(script, "@echo off\r\necho [%~1]\r\nexit /b 23\r\n");
     const result = await core.processes.exec(ctx, { command: script, args: ["a b"], cwd, env });
-    expect(result.exitCode).toBe(23);
+    expect(result.exitCode, JSON.stringify({ stdout: result.stdout, stderr: result.stderr })).toBe(23);
     expect(result.stdout.trim()).toBe("[a b]");
   });
   it("ends a ready detached descendant after its direct parent exited", async () => {

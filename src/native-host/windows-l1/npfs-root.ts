@@ -41,9 +41,6 @@ export function bindNpfsRootQualification(ffi: NpfsFfi, libs: TokenLibraries) {
   const close = k.func("int __stdcall CloseHandle(void *handle)");
   const last = k.func("uint32_t __stdcall GetLastError(void)");
   const free = k.func("void * __stdcall LocalFree(void *memory)");
-  const get = a.func(
-    `int __stdcall GetKernelObjectSecurity(void *handle,uint32_t flags,void *descriptor,uint32_t size,_Out_ ${N} *needed)`,
-  );
   const set = a.func("int __stdcall SetKernelObjectSecurity(void *handle,uint32_t flags,void *descriptor)");
   const text = a.func(
     `int __stdcall ConvertSecurityDescriptorToStringSecurityDescriptorW(void *descriptor,uint32_t revision,uint32_t flags,_Out_ ${H} *out,_Out_ ${N} *length)`,
@@ -51,14 +48,34 @@ export function bindNpfsRootQualification(ffi: NpfsFfi, libs: TokenLibraries) {
   const sd = a.func(
     `int __stdcall ConvertStringSecurityDescriptorToSecurityDescriptorW(str16 text,uint32_t revision,_Out_ ${H} *out,void *size)`,
   );
+  // NPFS root is a file object; use its documented file-security API, not
+  // GetKernelObjectSecurity (which returned ERROR_INVALID_PARAMETER on CI).
+  const fileSecurity = a.func(
+    `uint32_t __stdcall GetSecurityInfo(void *handle,int kind,uint32_t flags,void *owner,void *group,void *dacl,void *sacl,_Out_ ${H} *descriptor)`,
+  );
+  const descriptorLength = a.func("uint32_t __stdcall GetSecurityDescriptorLength(void *descriptor)");
   const snapshot = (handle: unknown) => {
-    const needed: { value?: number } = {};
-    if (get(handle, 4, null, 0, needed) || Number(last()) !== 122 || !needed.value || needed.value > 1048576)
-      throw fail("DACL sizing", last());
-    const result = Buffer.alloc(needed.value);
-    if (!get(handle, 4, result, result.length, needed) || !needed.value || needed.value > result.length)
-      throw fail("DACL read", last());
-    return result.subarray(0, needed.value);
+    const output: { value?: unknown } = {};
+    const code = Number(fileSecurity(handle, 1, 4, null, null, null, null, output));
+    try {
+      if (code !== 0 || !valid(output.value)) throw fail("file DACL query", code);
+      const length = Number(descriptorLength(output.value));
+      if (!Number.isSafeInteger(length) || length < 20 || length > 1048576) throw fail("file DACL length", length);
+      const bytes = ffi.decode(output.value, "uint8_t", length);
+      if (Buffer.isBuffer(bytes)) return Buffer.from(bytes);
+      if (
+        !Array.isArray(bytes) ||
+        bytes.length !== length ||
+        bytes.some((b) => !Number.isInteger(b) || b < 0 || b > 255)
+      )
+        throw fail("file DACL bytes");
+      return Buffer.from(bytes as number[]);
+    } finally {
+      if (valid(output.value) && valid(free(output.value))) {
+        retained.add(output);
+        throw fail("file DACL query release", last());
+      }
+    }
   };
   return (sid: string) => {
     // Validate before opening any shared object.
