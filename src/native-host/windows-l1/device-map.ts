@@ -146,10 +146,9 @@ export function bindPrivatePipeMaps(ffi: TokenFfi, libs: TokenLibraries & { ntdl
         return {
           apply: (process) => {
             if (closed || applied || missing(process)) throw fail("suspended process admission");
-            // PROCESS_DEVICEMAP_INFORMATION is a union: Set contains one HANDLE,
-            // but Query contains ULONG DriveMap + UCHAR DriveType[32]. Its
-            // native x64 size is 40, including union alignment (not sizeof HANDLE).
-            const value = Buffer.alloc(40);
+            // The setter accepts sizeof(Set), a single HANDLE (8), NOT the
+            // 40-byte Query union. Windows rejects 40 with INFO_LENGTH_MISMATCH.
+            const value = Buffer.alloc(8);
             ffi.encode(value, "void *", map.value);
             exact(set(process, 23, value, value.length), "suspended process assignment");
             applied = true;

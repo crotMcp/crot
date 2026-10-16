@@ -46,7 +46,7 @@ describe.skipIf(!cc)("private pipe map real native ABI stand-in", () => {
     await rm(dir, { recursive: true, force: true });
   });
   const create = () => maps.create("S-1-5-21-1-2-3-1001", "S-1-15-2-1-2-3-4-5-6-7");
-  it("uses the full zero-padded 40-byte DeviceMap union and assigns only the explicit process", () => {
+  it("uses the setter HANDLE size, not the Query union, and assigns only the explicit process", () => {
     const before = applications(),
       p = create();
     expect(live()).toBe(5);
