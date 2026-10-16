@@ -44,6 +44,7 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       const before = snapshots();
       expect(before.every((s) => s.medium)).toBe(true);
       build = await buildWorkspaceViewFixture();
+      const beforeHelper = snapshots();
       let exit = 0;
       const result = await execute(build.helper, [workspace!, temp!, cache!, outside!, secret, process.execPath], {
         timeout: 150000,
@@ -106,6 +107,7 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
             directoryAccess,
             directoryAccessError,
             originalDescriptorsRestored: restored,
+            preparationDescriptorsUnchanged: beforeHelper.map((s, i) => s.fingerprint === before[i]!.fingerprint),
             descriptorChanges: before.map((b, i) => ({ before: b, after: after[i] })),
             nodeResult,
           },

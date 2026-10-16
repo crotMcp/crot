@@ -62,6 +62,10 @@ function bind(ffi: SecurityFfi) {
         sections: Object.fromEntries(Object.entries(sections).map(([k, v]) => [k, hash(v)])),
         daclFlags: dacl.slice(2).split("(")[0],
         daclAceHashes: (dacl.match(/\([^()]*\)/g) ?? []).map(hash),
+        daclAceShape: (dacl.match(/\([^()]*\)/g) ?? []).map((ace) => {
+          const [type, flags, rights] = ace.slice(1, -1).split(";");
+          return { type, flags, rights };
+        }),
         fingerprint: createHash("sha256").update(canonical).digest("hex"),
         // No label means the documented implicit Medium/NW policy, not an
         // encoding/query error or an inferred missing access-control value.
