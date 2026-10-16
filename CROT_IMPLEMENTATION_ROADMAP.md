@@ -1350,3 +1350,11 @@ per-SID loopback lifecycle и обязательный сетевой этап r
 настоящий CROT и HTTP-token gate. Полное замыкание native recovery, service
 lifecycle, mediated Docker и production registration остаётся открытым до
 нативной квалификации; OD-6/OD-9 не объявлены закрытыми только по компонентам.
+
+WP-23c: `1ce8931` — сеть on/off, loopback cleanup, настоящий HTTP-token gate
+и cleanup SID нового workspace-node подтверждены Windows20/22; CI 11/11.
+`83da874` — отдельный WTS/token inventory-компонент остановки акторов,
+не весь LeaseRecoveryNative. Согласование on уже получено; запрос разрешения
+повторять не нужно. OD-9 Windows part / OD-6 пока не закрыты: остаются
+профильная durable receipt/intent, интегральный native recovery + CrotService,
+production CommandConfinement, проверенная поставка и Docker mediation.

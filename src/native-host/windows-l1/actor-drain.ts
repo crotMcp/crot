@@ -212,6 +212,9 @@ export function bindAppContainerActorDrain(ffi: ActorFfi, root: string) {
               if (absent(row.user) || !okay(valid(row.user))) throw fail("unknown inventory user SID");
               if (okay(equal(row.user, owner.value))) pids.push(row.pid);
             }
+            // The live controller must be present. A truncated/empty all-session
+            // result cannot be mistaken for a complete negative inventory.
+            if (!pids.includes(process.pid)) throw fail("inventory excluded live owner");
             return pids;
           } finally {
             if (!absent(output.value)) releaseInventory(allocation);
@@ -241,19 +244,41 @@ export function bindAppContainerActorDrain(ffi: ActorFfi, root: string) {
           try {
             const observed = Number(wait(h, 0));
             if (observed !== 0 && observed !== 258) throw fail("process observation", Number(last()));
-            const state = observed === 0 ? "gone" : matches(h) ? "owned" : "foreign";
+            let state: "gone" | "owned" | "foreign";
+            try {
+              state = observed === 0 ? "gone" : matches(h) ? "owned" : "foreign";
+            } catch (cause) {
+              // A process can exit between inventory/wait/token query. Prove
+              // death on THIS pinned object, then demand another full scan.
+              if (Number(wait(h, 0)) !== 0) throw cause;
+              state = "gone";
+            }
+            if (state === "owned" && pid === process.pid) throw fail("controller is in target package");
             return {
               state,
               close: dispose,
               terminateAndWait: () => {
                 if (state !== "owned") throw fail("foreign process termination");
                 const target = open(0x101001, 0, pid);
-                if (absent(target)) throw fail("owned actor termination open", Number(last()));
+                if (absent(target)) {
+                  if (Number(wait(h, 0)) === 0) return; // proved dead; next inventory is still mandatory
+                  throw fail("owned actor termination open", Number(last()));
+                }
                 handles.add(target);
                 try {
-                  if (!matches(target)) throw fail("termination token identity changed");
-                  if (!okay(terminate(target, 1))) throw fail("owned actor termination", Number(last()));
-                  if (Number(wait(target, 5000)) !== 0) throw fail("owned actor death wait", Number(last()));
+                  try {
+                    if (!matches(target)) throw fail("termination token identity changed");
+                  } catch (cause) {
+                    if (Number(wait(target, 0)) === 0) return;
+                    throw cause;
+                  }
+                  const requested = okay(terminate(target, 1));
+                  const terminationError = requested ? undefined : Number(last());
+                  // The normal Job owner may already be terminating this actor.
+                  // TerminateProcess can then fail before the process is fully
+                  // signalled. Only a successful wait on THIS handle proves death.
+                  if (Number(wait(target, 5000)) !== 0)
+                    throw fail(requested ? "owned actor death wait" : "owned actor termination", terminationError);
                 } finally {
                   release(target);
                 }

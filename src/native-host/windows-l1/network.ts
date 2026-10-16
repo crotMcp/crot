@@ -1,6 +1,6 @@
 /** AD-29 owned network component. Not a complete Windows L1 backend. */
 import { CrotError } from "../../core/errors.js";
-import type { AppContainerProfile } from "./appcontainer-profile.js";
+import { assertOwnedAppContainerProfile, type AppContainerProfile } from "./appcontainer-profile.js";
 import type { LeaseJournalStore } from "./lease-journal.js";
 
 export const WINDOWS_NETWORK_CAPABILITIES = Object.freeze([
@@ -52,6 +52,7 @@ export async function openAppContainerNetwork(
   store: LeaseJournalStore,
   native: AppContainerNetworkNative,
 ): Promise<AppContainerNetworkLease> {
+  assertOwnedAppContainerProfile(profile);
   if (profilesInUse.has(profile)) throw fail("profile network ownership already reserved");
   profilesInUse.add(profile);
   const id = profile.name.slice("crot.l1.".length);

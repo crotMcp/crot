@@ -432,8 +432,22 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
       if (!actorPid) throw new Error("Missing native actor PID");
       expect(isAlive(actorPid)).toBe(true);
       expect(isAlive(descendantPid)).toBe(true);
-      const drain = await loadAppContainerActorDrain(),
-        result = await drain(ownerSid, profile.sid);
+      const drain = await loadAppContainerActorDrain();
+      const result = await drain(ownerSid, profile.sid).catch((cause: unknown) => {
+        const detail = cause as { code?: string; details?: Record<string, unknown> };
+        appendFileSync(
+          inject("stage6aEvidence"),
+          JSON.stringify({
+            title: "CROT-6A-native-actor-inventory-failure",
+            value: {
+              code: detail.code ?? null,
+              stage: detail.details?.stage ?? null,
+              nativeCode: detail.details?.nativeCode ?? null,
+            },
+          }) + "\n",
+        );
+        throw cause;
+      });
       expect(result.terminated).toBeGreaterThanOrEqual(1);
       expect(result.emptyScans).toBe(2);
       await waitFor(() => !isAlive(actorPid) && !isAlive(descendantPid), 5000);

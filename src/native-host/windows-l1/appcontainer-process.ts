@@ -8,7 +8,7 @@ import type { LocalPipeShim } from "./local-shim.js";
 import { validateSid } from "../validation.js";
 import { CrotError } from "../../core/errors.js";
 import type { JobObject } from "../windows-job.js";
-import type { AppContainerProfile } from "./appcontainer-profile.js";
+import { assertOwnedAppContainerProfile, type AppContainerProfile } from "./appcontainer-profile.js";
 import { ownedStdioHandles } from "./byte-stdio.js";
 import { bindProbeLauncher, type ProbeProcess, type ProbeSpec } from "./probe-process.js";
 import type { TokenFfi, TokenLibraries } from "./restricted-token.js";
@@ -50,6 +50,7 @@ export function bindAppContainerProcessIdentity(
   localShim?: LocalPipeShim,
   network?: AppContainerNetworkLease,
 ): AppContainerProcessIdentity {
+  assertOwnedAppContainerProfile(profile);
   validateSid(ownerSid);
   if (!declared.has(ffi)) {
     ffi.struct(OUTPUT, { value: "void *" });

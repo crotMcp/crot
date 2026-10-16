@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createAppContainerProfiles,
+  assertOwnedAppContainerProfile,
   loadAppContainerProfiles,
   type AppContainerProfileNative,
 } from "../../../src/native-host/windows-l1/appcontainer-profile.js";
@@ -31,6 +32,16 @@ describe("AppContainer profile ownership (portable lifecycle, not kernel isolati
     expect(native.remove).toHaveBeenCalledTimes(1);
     expect(native.freeSid).toHaveBeenCalledExactlyOnceWith(allocation);
     expect(() => p.pin()).toThrow(/closed profile/);
+  });
+  it("brands only fresh S_OK owners, freezes identity and rejects copies/closed owners", () => {
+    const { profiles } = fixture(),
+      p = profiles.create();
+    expect(Object.isFrozen(p)).toBe(true);
+    expect(p.name).toBe(`crot.l1.${nonce()}`);
+    expect(() => assertOwnedAppContainerProfile(p)).not.toThrow();
+    expect(() => assertOwnedAppContainerProfile({ ...p })).toThrow("unowned profile");
+    p.close();
+    expect(() => assertOwnedAppContainerProfile(p)).toThrow("unowned profile");
   });
   it("holds the profile until all Job owners release their pins", () => {
     const { native, profiles } = fixture();

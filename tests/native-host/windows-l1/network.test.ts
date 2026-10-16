@@ -89,6 +89,13 @@ describe("Windows owned network protocol (injected)", () => {
     await lease.close();
     f.profile.close();
   });
+  it("rejects a structural profile before querying WAL or network state", async () => {
+    const f = fixture();
+    await expect(openAppContainerNetwork({ ...f.profile }, f.store, f.native)).rejects.toThrow("unowned profile");
+    expect(f.read).not.toHaveBeenCalled();
+    expect(f.list).not.toHaveBeenCalled();
+    f.profile.close();
+  });
   it("never grants without a successful durable WAL read", async () => {
     const f = fixture();
     f.read.mockRejectedValueOnce(new Error("disk"));

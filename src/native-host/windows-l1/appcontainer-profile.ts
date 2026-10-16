@@ -36,6 +36,11 @@ export interface AppContainerProfiles {
   /** Retry only exact failed-setup resources retained by this owner. */
   recover(): void;
 }
+const ownedProfiles = new WeakSet<object>();
+/** Trusted fresh S_OK owner, never a structural/RPC object claiming a SID. */
+export function assertOwnedAppContainerProfile(profile: AppContainerProfile): void {
+  if (!ownedProfiles.has(profile) || profile.closed) throw failure("unowned profile use");
+}
 const missing = (v: unknown) => v === undefined || v === null || v === 0 || v === 0n;
 const failure = (stage: string, code?: number) =>
   new CrotError("CONFINEMENT_FAILED", `Windows AppContainer ${stage} failed.`, {
@@ -94,7 +99,7 @@ export function createAppContainerProfiles(
         let closing = false,
           closed = false,
           users = 0;
-        return {
+        const profile: AppContainerProfile = {
           name: owned.name,
           sid,
           get closed() {
@@ -119,8 +124,11 @@ export function createAppContainerProfiles(
             if (users !== 0) throw failure("profile still owns actors");
             release(owned);
             closed = true;
+            ownedProfiles.delete(profile);
           },
         };
+        ownedProfiles.add(profile);
+        return Object.freeze(profile);
       } catch (cause) {
         // A binding may populate its output before throwing. Retain ownership
         // of that allocation too, but never infer profile ownership from it.
