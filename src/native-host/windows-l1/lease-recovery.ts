@@ -93,7 +93,10 @@ export class WindowsLeaseRecovery {
     if (this.blocked || !this.recovered) throw fail("recovery required");
   }
   private async cleanup(record: LeaseRecord): Promise<void> {
-    if (record.closed) return;
+    if (record.closed) {
+      this.active.delete(record.plan.id);
+      return;
+    }
     await this.native.validatePlan(record.plan, "recover");
     // Never infer actor death from parent exit, a missing lock or elapsed time.
     await this.native.drainActors(record);

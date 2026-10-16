@@ -1336,3 +1336,9 @@ LeaseRecoveryNative. Открытие по NTFS ID/creation time, точный D
 readback, отказы при чужой ACL/новом hardlink проверяются самостоятельными
 нативными тестами; аварийный тест двух SD не доказывает profile/actor recovery.
 Регистрация production/сеть/Docker/полная матрица по-прежнему открыты.
+
+`4c22e59` / проверенный merge `1ec46cc`: Windows Node20/22 PASS (включая
+native SD recovery двух объектов после убийства владельца); исходные 13/13 SD,
+7/7 CRUD, 5/5 tamper и реальный CROT-6A сохранены. Общий CI 10/11:
+browser-e2e select_option неуспешен, остальные десять заданий успешны. Это не
+приёмка WP-23c и не устранение непроверенных profile/Job/service recovery.

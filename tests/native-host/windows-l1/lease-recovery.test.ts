@@ -290,4 +290,19 @@ describe("Windows lease recovery protocol", () => {
     expect(native.pin).not.toHaveBeenCalled();
     expect(native.holdGuards).not.toHaveBeenCalled();
   });
+  it("forgets an active lease when closed was durable but the storage completion failed", async () => {
+    const p = leasePlan();
+    await owner.acquire(p);
+    const append = vi.mocked(store.append).getMockImplementation()!;
+    vi.mocked(store.append).mockImplementationOnce(async (id, event) => {
+      await append(id, event);
+      throw new Error("close after durable tombstone failed");
+    });
+    await expect(owner.release(p.id)).rejects.toThrow("durable tombstone");
+    expect(records.get(p.id)!.closed).toBe(true);
+    await owner.release(p.id);
+    await owner.recoverAll();
+    // Without forgetting the active id, recovery would permanently refuse.
+    expect(records.get(p.id)!.closed).toBe(true);
+  });
 });
