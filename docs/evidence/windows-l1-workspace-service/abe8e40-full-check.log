@@ -1,0 +1,268 @@
+
+> crot@0.1.0 check
+> npm run lint && npm run format:check && npm run typecheck && npm run typecheck:extension && npm run build && npm run build:extension && npm test && npm run test:extension
+
+
+> crot@0.1.0 lint
+> eslint .
+
+
+> crot@0.1.0 format:check
+> prettier --check .
+
+Checking formatting...
+All matched files use Prettier code style!
+
+> crot@0.1.0 typecheck
+> tsc -p tsconfig.json --noEmit
+
+
+> crot@0.1.0 typecheck:extension
+> tsc -p extension/tsconfig.test.json
+
+
+> crot@0.1.0 build
+> tsc -p tsconfig.build.json
+
+
+> crot@0.1.0 build:extension
+> tsc -p extension/tsconfig.json
+
+
+> crot@0.1.0 test
+> vitest run
+
+
+ RUN  v3.2.7 /data/crot-mcp
+
+ ✓ tests/service/shim.test.ts (11 tests | 2 skipped) 21239ms
+   ✓ stdio shim and CROT service (built, WP-20) > several stdio clients start at the same time and work concurrently through one service  3787ms
+   ✓ stdio shim and CROT service (built, WP-20) > `service status` and `service stop` work over the control channel  2714ms
+   ✓ stdio shim and CROT service (built, WP-20) > a client with another configuration gets a clear error while the service is in use  2002ms
+   ✓ stdio shim and CROT service (built, WP-20) > an idle on-demand service is replaced for a new configuration  2961ms
+   ✓ stdio shim and CROT service (built, WP-20) > graceful shutdown keeps AD-7: in-flight and background operations are audited before the audit log closes  2360ms
+   ✓ stdio shim and CROT service (built, WP-20) > after a crash the shim exits with status 1, a new service takes over, and persisted remote exposure is intact  2405ms
+   ✓ stdio shim and CROT service (built, WP-20) > concurrent service starts of one user leave exactly one owner, also when taking over after a crash  2244ms
+   ✓ stdio shim and CROT service (built, WP-20) > clients started in different working directories share the service; it does not keep the first one's  1675ms
+   ✓ stdio shim and CROT service (built, WP-20) > a managed service refuses to start twice  1089ms
+ ✓ tests/stdio.test.ts (8 tests) 15719ms
+   ✓ crot-mcp stdio server (built) > serves tools over stdio  1637ms
+   ✓ crot-mcp stdio server (built) > returns invalid tool arguments as a CROT INVALID_INPUT tool error  1536ms
+   ✓ crot-mcp shutdown (built) > closing stdin stops background processes and flushes the audit log  2229ms
+   ✓ crot-mcp shutdown (built) > SIGHUP shuts down gracefully: background processes stopped, audit flushed  2407ms
+   ✓ crot-mcp shutdown (built) > SIGTERM shuts down gracefully  2217ms
+   ✓ crot-mcp browser bridge (built) > is disabled by default and creates no bridge files  1781ms
+   ✓ crot-mcp browser bridge (built) > browser.enabled starts the bridge; crot_status reports it; the token file is protected  2383ms
+   ✓ crot-mcp browser bridge (built) > a bridge that cannot start does not stop CROT  1528ms
+ ✓ tests/browser-bridge/integration.test.ts (8 tests) 12852ms
+   ✓ browser extension chain (built crot-mcp + crot-browser-relay) > full_control: tool calls reach the extension through the relay and validated results come back  1385ms
+   ✓ browser extension chain (built crot-mcp + crot-browser-relay) > sandbox: the PermissionEngine denies every browser tool and nothing reaches the extension  1531ms
+   ✓ browser extension chain (built crot-mcp + crot-browser-relay) > sandbox with browser.read listed: reads are forwarded, control stays denied and denials are audited without page data  1540ms
+   ✓ browser extension chain (built crot-mcp + crot-browser-relay) > the extension cannot initiate operations: a request from the browser side closes the connection  1186ms
+   ✓ browser extension chain (built crot-mcp + crot-browser-relay) > a relay without a running CROT exits with an explanation  415ms
+   ✓ browser extension chain (built crot-mcp + crot-browser-relay) > several stdio clients share one CROT service and its browser bridge: no in_use (WP-20)  2288ms
+   ✓ browser extension chain (built crot-mcp + crot-browser-relay) > a client with another configuration is refused with an explanation while the service is in use  2217ms
+   ✓ browser extension chain (built crot-mcp + crot-browser-relay) > `crot-mcp browser install` registers a launcher the browser can start  2289ms
+ ✓ tests/cloud-relay/forwarding.test.ts (27 tests) 6042ms
+   ✓ limits (AD-22 points 6 and 11) > passes a 22 MiB response and aborts one above 32 MiB (device gets response_too_large)  748ms
+   ✓ bodies the relay does not forward are bounded in time > an unauthenticated request that never finishes its body does not hold the connection  494ms
+   ✓ bodies the relay does not forward are bounded in time > a chunked body that is not complete within the exchange deadline is refused 408 not_executed  366ms
+   ✓ outcomes, cancellation, deadline (AD-22 points 12–13) > deadline: 504 unknown before the head (device gets deadline_exceeded), abort after it  683ms
+   ✓ outcomes, cancellation, deadline (AD-22 points 12–13) > an approval-length wait without bytes is not cut before the deadline  972ms
+ ✓ tests/service/tray-control.test.ts (15 tests) 4315ms
+   ✓ WP-22: device controls > remote: off by default refuses relay requests before Core; on admits and lists; revoke ends and refuses  383ms
+   ✓ WP-28: identity and device binding > re-grant: tokens issued before it stay refused, new ones are accepted; audit first  2339ms
+ ✓ tests/capabilities/process.test.ts (40 tests | 11 skipped) 4017ms
+   ✓ process: exec > enforces timeouts  312ms
+   ✓ process: shell (POSIX) > terminates descendants left running when a foreground command finishes  1039ms
+   ✓ process: shell (POSIX) > kills the whole process tree on timeout  309ms
+   ✓ process: output encoding > background output: holds back a character split across writes  1553ms
+ ✓ tests/capabilities/git-write.test.ts (72 tests | 1 skipped) 4209ms
+ ✓ tests/service/locks-race.test.ts (3 tests) 2563ms
+   ✓ stale directory lock with file-system latency (WP-20) > 8 concurrent breakers: exactly one wins, the lock is fresh, nothing is left behind  2501ms
+ ✓ tests/cloud-relay/tunnel-integration.test.ts (11 tests) 2565ms
+   ✓ slow clients (AD-22 point 8) > a client that does not read stalls only its own stream and is reset after the stall limit  433ms
+   ✓ slow clients (AD-22 point 8) > an approval-style wait (no data pending) is not a stall  520ms
+   ✓ liveness (AD-22 point 9) > the relay pings an idle device and drops a silent one; its requests become 503 offline  378ms
+   ✓ liveness (AD-22 point 9) > a device answering PINGs stays online  611ms
+crot: remote exposure state: The remote exposure state /tmp/crot-test-AuYBka/outside/state/remote-exposure.json is malformed; every remote client is treated as exposed.
+ ✓ tests/adapters/http-modern.test.ts (28 tests) 2418ms
+   ✓ WP-20: concurrency limit for sessionless requests > rejects requests beyond http.maxConcurrentRequests with 503 and Retry-After, before Core  1568ms
+ ✓ tests/cloud-relay/device-tunnel.test.ts (19 tests) 2119ms
+   ✓ relay → device tunnel → local CROT (WP-30 acceptance) > tunnel loss during a pending approval: outcome unknown, approval cancelled, nothing re-executed  422ms
+ ✓ tests/cloud-relay/registration.test.ts (18 tests) 1914ms
+   ✓ tunnel handshake (AD-22 points 3, 10, 14) > closes 4408 when the handshake does not finish in time  347ms
+ ✓ tests/service/channel.test.ts (9 tests) 1335ms
+   ✓ authenticated local channel (WP-20) > rejects a peer without a credential (no handshake, garbage, a message without authentication)  1114ms
+ ✓ tests/browser-bridge/server.test.ts (20 tests) 1178ms
+   ✓ BrowserBridge > closes connections that fail the handshake  415ms
+   ✓ BrowserBridge > reports in_use in a second instance without failing, and never takes over  325ms
+ ✓ tests/cloud-relay/end-to-end.test.ts (8 tests) 1113ms
+ ✓ tests/cloud-relay/websocket.test.ts (8 tests) 1257ms
+   ✓ WebSocket message assembly (AD-22 point 2) > delivers a maximum-size message that arrives one byte at a time  786ms
+ ✓ tests/cloud-relay/tunnel.test.ts (34 tests) 1046ms
+   ✓ keep-alive and GOAWAY (AD-22 point 9) > frames from the device keep the tunnel alive  417ms
+ ✓ tests/cloud-relay/device-registration.test.ts (14 tests) 495ms
+ ✓ tests/capabilities/git.test.ts (26 tests | 1 skipped) 1011ms
+ ✓ tests/service/service.test.ts (20 tests) 954ms
+ ✓ tests/identity/verifier.test.ts (11 tests) 932ms
+ ✓ tests/capabilities/docker.test.ts (84 tests) 655ms
+ ✓ tests/capabilities/network.test.ts (47 tests) 719ms
+   ✓ network.access: proxies, limits, timeouts and errors > times out a request that does not answer  306ms
+ ✓ tests/core/shutdown.test.ts (5 tests) 612ms
+   ✓ Core shutdown > terminates running foreground commands and records them before closing the audit log  321ms
+ ✓ tests/tray/controller.test.ts (4 tests) 645ms
+ ✓ tests/core/confinement.test.ts (26 tests) 528ms
+ ✓ tests/native-host/linux-l1/docker-upstream.test.ts (9 tests) 539ms
+   ✓ createUpstream: the end of a dial-stdio connection > delivers the whole answer and ends without an error when it is read after dial-stdio exited  411ms
+ ✓ tests/core/browser-approval.test.ts (16 tests) 550ms
+ ✓ tests/platform/startup-path.test.ts (13 tests | 1 skipped) 544ms
+   ✓ startup PATH with a real login shell (POSIX) > does not hang on a login shell that never finishes  506ms
+ ✓ tests/service/full-control-grant.test.ts (7 tests) 503ms
+ ✓ tests/core/approval-gates.test.ts (33 tests) 478ms
+ ✓ tests/service/control-center.test.ts (22 tests) 472ms
+ ✓ tests/native-host/linux-l1/docker-endpoint.test.ts (12 tests) 503ms
+   ✓ Docker endpoint against a mock daemon > forwards the data that arrives while a container check is still waiting for the daemon  307ms
+ ✓ tests/identity/pairing.test.ts (3 tests) 413ms
+ ✓ tests/browser-bridge/protocol.test.ts (48 tests) 261ms
+ ✓ tests/adapters/http.test.ts (17 tests) 350ms
+ ✓ tests/browser-bridge/relay.test.ts (11 tests) 385ms
+ ✓ tests/native-host/linux-l1/init-protocol.test.ts (7 tests) 358ms
+ ✓ tests/service/secrets/os-backends.test.ts (7 tests | 5 skipped) 278ms
+ ✓ tests/native-host/linux-l1/availability.test.ts (24 tests) 407ms
+ ✓ tests/core/session-exposure.test.ts (30 tests) 351ms
+ ✓ tests/adapters/relay-untrusted.test.ts (6 tests) 413ms
+ ✓ tests/adapters/mcp.test.ts (9 tests) 195ms
+ ✓ tests/capabilities/child-environment.test.ts (11 tests) 254ms
+ ✓ tests/native-host/windows-l1/owned-desktop-lifetime.test.ts (9 tests) 245ms
+ ✓ tests/adapters/mcp-browser.test.ts (8 tests) 245ms
+ ✓ tests/capabilities/filesystem.test.ts (23 tests | 3 skipped) 215ms
+ ✓ tests/cli/lifecycle.test.ts (12 tests) 185ms
+ ✓ tests/native-host/native-host.test.ts (9 tests | 2 skipped) 129ms
+ ✓ tests/native-host/windows-l1/restricted-token-ffi.test.ts (68 tests) 164ms
+ ✓ tests/service/secrets/dpapi-ffi.test.ts (2 tests) 123ms
+ ✓ tests/capabilities/browser.test.ts (36 tests) 133ms
+ ✓ tests/core/untrusted-sources.test.ts (7 tests) 110ms
+ ✓ tests/native-host/windows-l1/workspace-rpc-lifecycle.test.ts (4 tests) 129ms
+ ✓ tests/core/audit.test.ts (5 tests) 99ms
+ ✓ tests/service/endpoints.test.ts (5 tests) 92ms
+ ✓ tests/core/browser-core.test.ts (4 tests) 87ms
+ ✓ tests/native-host/windows-l1/windows-state-ffi.test.ts (29 tests) 87ms
+ ✓ tests/service/secrets/store.test.ts (19 tests) 91ms
+ ✓ tests/native-host/windows-l1/byte-stdio-ffi.test.ts (5 tests) 58ms
+ ✓ tests/native-host/linux-l1/sandbox-layout.test.ts (22 tests | 2 skipped) 71ms
+ ✓ tests/native-host/windows-l1/bno-isolation.test.ts (12 tests) 65ms
+ ✓ tests/native-host/windows-l1/byte-stdio.test.ts (11 tests) 78ms
+ ✓ tests/core/secret-paths.test.ts (4 tests) 47ms
+ ✓ tests/cli/browser-install.test.ts (13 tests) 72ms
+ ✓ tests/identity/binding.test.ts (13 tests) 52ms
+ ✓ tests/service/private-files.test.ts (8 tests) 47ms
+ ✓ tests/core/protected-paths.test.ts (4 tests) 51ms
+ ✓ tests/capabilities/process-transport.test.ts (3 tests) 35ms
+ ✓ tests/native-host/windows-l1/workspace-view.test.ts (20 tests) 44ms
+ ✓ tests/capabilities/network-core.test.ts (3 tests) 34ms
+ ✓ tests/cli/secrets.test.ts (7 tests) 40ms
+ ✓ tests/core/config.test.ts (10 tests) 39ms
+ ✓ tests/core/workspace.test.ts (13 tests) 28ms
+ ✓ tests/core/remote-exposure.test.ts (13 tests) 29ms
+ ✓ tests/native-host/windows-l1/restricted-stdio.test.ts (20 tests) 36ms
+ ✓ tests/cli.test.ts (13 tests) 27ms
+ ✓ tests/platform/private-files.test.ts (6 tests | 1 skipped) 31ms
+ ✓ tests/cli/browser.test.ts (8 tests) 31ms
+ ✓ tests/native-host/windows-l1/stage6a-decode.test.ts (1 test) 19ms
+ ✓ tests/native-host/windows-l1/user-objects.test.ts (10 tests) 16ms
+ ✓ tests/capabilities/docker-compose-policy.test.ts (68 tests) 16ms
+ ✓ tests/core/approval-broker.test.ts (11 tests) 18ms
+ ✓ tests/native-host/linux-l1/docker-policy.test.ts (21 tests) 17ms
+ ✓ tests/core/network-policy.test.ts (40 tests) 16ms
+ ✓ tests/service/shim-private.test.ts (1 test) 14ms
+ ✓ tests/cloud-relay/units.test.ts (11 tests) 16ms
+ ✓ tests/platform/directories.test.ts (4 tests) 15ms
+ ✓ tests/native-host/windows-job-ownership.test.ts (9 tests) 19ms
+ ✓ tests/native-host/windows-l1/native-process-ownership.test.ts (2 tests) 16ms
+ ✓ tests/native-host/windows-l1/owned-access-stack-lifetime.test.ts (4 tests) 10ms
+ ✓ tests/native-host/windows-l1/host-preparation.test.ts (1 test) 16ms
+ ✓ tests/core/remote-profile.test.ts (18 tests) 11ms
+ ✓ tests/cli-http.test.ts (3 tests) 10ms
+ ✓ tests/native-host/linux-l1/docker-fixture-image.test.ts (5 tests) 13ms
+ ✓ tests/native-host/validation.test.ts (10 tests) 9ms
+ ✓ tests/capabilities/output-buffer.test.ts (13 tests) 11ms
+ ✓ tests/tray/view-model.test.ts (11 tests) 14ms
+ ✓ tests/native-host/job-launcher-ownership.test.ts (8 tests) 18ms
+ ✓ tests/core/git-metadata-lock.test.ts (6 tests) 10ms
+ ✓ tests/platform/node-platform.test.ts (1 test) 10ms
+ ✓ tests/platform/path-only-lookup.test.ts (5 tests) 10ms
+ ✓ tests/native-host/windows-l1/stage6a-evidence.test.ts (1 test) 10ms
+ ✓ tests/native-host/windows-l1/launch-environment.test.ts (7 tests) 9ms
+ ✓ tests/core/remote-capabilities.test.ts (5 tests) 6ms
+ ✓ tests/native-host/windows-l1/workspace-view-security.test.ts (5 tests) 14ms
+ ✓ tests/platform/path-rules.test.ts (43 tests) 15ms
+ ✓ tests/core/permissions.test.ts (10 tests) 6ms
+ ✓ tests/platform/windows-command.test.ts (13 tests) 13ms
+ ✓ tests/native-host/windows-l1/workspace-probe.test.ts (37 tests) 10ms
+ ✓ tests/native-host/windows-l1/diagnostics/directory-access.test.ts (11 tests) 13ms
+ ✓ tests/native-host/windows-l1/command-token.test.ts (4 tests) 8ms
+ ✓ tests/platform/encoding.test.ts (9 tests) 11ms
+ ✓ tests/native-host/windows-l1/owned-loader.test.ts (2 tests) 10ms
+ ✓ tests/core/approval-rules.test.ts (1 test) 9ms
+ ✓ tests/native-host/windows-l1/control-profile-probe.test.ts (17 tests) 10ms
+ ✓ tests/native-host/windows-l1/probe-spec.test.ts (16 tests) 9ms
+ ✓ tests/adapters/invoke.test.ts (3 tests) 8ms
+ ✓ tests/native-host/windows-l1/owned-stack.test.ts (5 tests) 5ms
+ ✓ tests/tray/profile-lines.test.ts (5 tests) 9ms
+ ✓ tests/capabilities/git-config-policy.test.ts (6 tests) 5ms
+ ✓ tests/platform/environment.test.ts (5 tests) 6ms
+ ↓ tests/native-host/windows-acl.test.ts (8 tests | 8 skipped)
+ ↓ tests/native-host/windows-job.test.ts (6 tests | 6 skipped)
+ ↓ tests/platform/windows-cmd-encoding.test.ts (5 tests | 5 skipped)
+stderr | tests/tray/smoke.test.ts
+tray smoke test skipped: no DISPLAY and xvfb-run is not available
+
+ ↓ tests/tray/smoke.test.ts (1 test | 1 skipped)
+ ↓ tests/native-host/windows-l1/appcontainer-native.test.ts (1 test | 1 skipped)
+ ↓ tests/native-host/windows-l1/memory-ipc.test.ts (2 tests | 2 skipped)
+ ↓ tests/native-host/windows-l1/native-process.test.ts (11 tests | 11 skipped)
+ ↓ tests/native-host/windows-l1/probe-process.test.ts (5 tests | 5 skipped)
+ ↓ tests/native-host/windows-l1/restricted-token.test.ts (6 tests | 6 skipped)
+ ↓ tests/native-host/windows-l1/stage6a-diagnostics.test.ts (10 tests | 10 skipped)
+ ↓ tests/native-host/windows-l1/workspace-native.test.ts (7 tests | 7 skipped)
+ ↓ tests/native-host/windows-l1/write-boundary.test.ts (12 tests | 12 skipped)
+ ↓ tests/native-host/windows-l1/write-restricted-mic.test.ts (14 tests | 14 skipped)
+ ↓ tests/native-host/linux-l1/l1-docker-integration.test.ts (30 tests | 30 skipped)
+ ↓ tests/native-host/linux-l1/l1-integration.test.ts (19 tests | 19 skipped)
+ ↓ tests/native-host/linux-l1/l1-reasons.test.ts (2 tests | 2 skipped)
+
+ Test Files  122 passed | 16 skipped (138)
+      Tests  1748 passed | 168 skipped (1916)
+   Start at  04:40:48
+   Duration  162.12s (transform 2.97s, setup 0ms, collect 24.11s, tests 103.27s, environment 29ms, prepare 9.77s)
+
+
+> crot@0.1.0 test:extension
+> vitest run --config extension/vitest.config.ts
+
+
+ RUN  v3.2.7 /data/crot-mcp
+
+ ✓ extension/test/input.test.ts (20 tests) 8427ms
+   ✓ actionability (AD-16 point 6) > accepts own and descendant pseudo-elements, never an unrelated overlay's pseudo-element  1309ms
+   ✓ actionability (AD-16 point 6) > refuses obscured, invisible, off-viewport and disabled elements and dispatches nothing  2617ms
+   ✓ actionability (AD-16 point 6) > scrolls a covered element towards the viewport centre once, then acts; names what keeps covering it  2313ms
+   ✓ select and check > fails when the page does not show the requested option (no false success)  1008ms
+   ✓ select and check > fails when the click does not change the state (no false success)  1007ms
+ ✓ extension/test/host-connection.test.ts (14 tests) 699ms
+   ✓ HostConnection > reconnects with backoff after the host goes away  362ms
+ ✓ extension/test/control.test.ts (21 tests) 441ms
+ ✓ extension/test/commands.test.ts (21 tests) 162ms
+ ✓ extension/test/snapshot.test.ts (18 tests) 30ms
+ ✓ extension/test/frames.test.ts (11 tests) 22ms
+ ✓ extension/test/cdp.test.ts (11 tests) 12ms
+ ✓ extension/test/page-functions.test.ts (9 tests) 9ms
+ ✓ extension/test/expected-subject.test.ts (16 tests) 14ms
+ ✓ extension/test/manifest.test.ts (6 tests) 5ms
+
+ Test Files  10 passed (10)
+      Tests  147 passed (147)
+   Start at  04:43:31
+   Duration  12.89s (transform 425ms, setup 0ms, collect 868ms, tests 9.82s, environment 2ms, prepare 712ms)
+
