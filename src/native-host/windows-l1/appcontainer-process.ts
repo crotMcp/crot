@@ -3,8 +3,7 @@
  * No filesystem grant, network-on promise or CommandConfinement availability.
  * Keeps the existing owned byte streams / Job / cancellation implementation.
  */
-import path from "node:path";
-import { bindPrivatePipeMaps, type PrivatePipeMap } from "./device-map.js";
+import { validateSid } from "../validation.js";
 import { CrotError } from "../../core/errors.js";
 import type { JobObject } from "../windows-job.js";
 import type { AppContainerProfile } from "./appcontainer-profile.js";
@@ -47,6 +46,7 @@ export function bindAppContainerProcessIdentity(
   profile: AppContainerProfile,
   ownerSid: string,
 ): AppContainerProcessIdentity {
+  validateSid(ownerSid);
   if (!declared.has(ffi)) {
     ffi.struct(OUTPUT, { value: "void *" });
     ffi.struct(SIZE, { value: "size_t" });
@@ -109,10 +109,6 @@ export function bindAppContainerProcessIdentity(
   const equal = a.func("int __stdcall EqualSid(void *left, void *right)");
   const subCount = a.func("void * __stdcall GetSidSubAuthorityCount(void *sid)");
   const sub = a.func("void * __stdcall GetSidSubAuthority(void *sid, uint32_t index)");
-  const maps = bindPrivatePipeMaps(ffi, {
-    ...libraries,
-    ntdll: libraries.ntdll ?? path.join(path.dirname(libraries.kernel32), "ntdll.dll"),
-  });
   const retained = new Set<unknown>();
   const failedPins = new Set<ReturnType<typeof profile.pin>>();
   let blocked = false;
@@ -132,7 +128,6 @@ export function bindAppContainerProcessIdentity(
       const pin = profile.pin();
       const packageSid: { value?: unknown } = {};
       let child: ProbeProcess | undefined;
-      let pipeMap: PrivatePipeMap | undefined;
       let abortedBeforeResume = false;
       const launchers = new Set<ReturnType<typeof bindProbeLauncher>>();
       try {
@@ -217,7 +212,6 @@ export function bindAppContainerProcessIdentity(
             if (fault) throw fault;
           },
           abortedBeforeResume: () => {
-            pipeMap?.close();
             abortedBeforeResume = true;
           },
           verify: (process) => {
@@ -281,8 +275,6 @@ export function bindAppContainerProcessIdentity(
               }
             }
             if (verificationFault) throw verificationFault;
-            pipeMap = maps.create(ownerSid, pin.sid);
-            pipeMap.apply(process);
           },
         });
         launchers.add(launch);
@@ -317,7 +309,6 @@ export function bindAppContainerProcessIdentity(
               }
             } else if (!released) throw failure("owned Job closed before drain");
             owned.close();
-            pipeMap?.close();
             if (!released) {
               pin.release();
               released = true;
@@ -341,13 +332,13 @@ export function bindAppContainerProcessIdentity(
           // bindProbeLauncher retains any failed native cleanup in its closure.
           // Preserve that closure strongly, rather than losing ownership on throw.
           blocked = true;
-          failedAppContainerStarts.add({ profile, pin, child, job, pipeMap, retained, failedPins, launchers, ffi });
+          failedAppContainerStarts.add({ profile, pin, child, job, retained, failedPins, launchers, ffi });
         }
         if (!cleanupFailed && !blocked) pin.release();
         else {
           blocked = true;
           failedPins.add(pin);
-          failedAppContainerStarts.add({ profile, pin, child, job, pipeMap, retained, failedPins, launchers, ffi });
+          failedAppContainerStarts.add({ profile, pin, child, job, retained, failedPins, launchers, ffi });
         }
         throw cause;
       }

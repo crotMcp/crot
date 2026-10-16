@@ -655,3 +655,13 @@ and no external service has a CROT integration.
 | Download hand-over mechanism (staging in the download directory or stream over the bridge) | WP-26 |
 | Store acceptance of the `debugger` permission | WP-35 |
 | How a preset change is applied by the supervised service (reload or restart) | Decided by AD-23 point 10: a new Core, switched only while idle; refused while busy; restored settings and the previous Core if the new Core cannot be built; implemented in PR #21 (not merged) |
+
+**Продолжение WP-23c после 3f094a1.** Вызов ProcessDeviceMap удалён из запуска;
+контроллер ACL SDK и очистка до ResumeThread не изменены. Подготовлен первый
+разрешённый вариант A.1: квалификационная аренда корня NPFS с ненаследуемым
+ACE 0x100084 только свежему package SID. Она применяется только в обязательном
+нативном тесте потомков, не в production; после остановки Job проверяется
+точное восстановление DACL, чужая конкурентная правка не перезаписывается.
+Результат Windows Node20/22 ещё должен быть получен на новом коммите.
+Восстановление аварийной аренды, LOCAL-прослойка и CommandConfinement не
+реализованы этим изменением. WP-23c не принят; availability не включена.

@@ -5697,3 +5697,15 @@ NTFS ID, не по старому пути. Проверяются том, file 
 не объявляются network=on; общего обхода защиты или виртуализации нет.
 Доказательства: docs/evidence/windows-l1-internal-rename/; восемь критериев:
 docs/design/windows-l1-curator-appcontainer.md. WP-23c не принят; PR27 Draft.
+
+**Продолжение AD-29 после 3f094a1: разрешённая квалификация NPFS.**
+ProcessDeviceMap и его привилегированный NtSetInformationProcess исключены из
+пути запуска; проверка токена до ResumeThread и доказанная очистка при
+прерывании до ResumeThread сохраняются. По разрешению куратора сначала
+проверяется ненаследуемый ACE только свежего package SID на корне NPFS с
+маской FILE_CREATE_PIPE_INSTANCE | FILE_READ_ATTRIBUTES | SYNCHRONIZE
+(0x00100084), без FILE_READ_DATA/FILE_WRITE_DATA. Это эксперимент, не
+производственная доступность. Чужие DACL каналов, deny CROT, Job и capabilities
+не ослабляются. Если NPFS отвергает не-LOCAL имена независимо от DACL,
+следующий разрешённый вариант — пользовательское перенаправление только
+префиксов libuv в LOCAL. Граница безопасности остаётся в ядре.

@@ -1312,3 +1312,9 @@ permitted under MIT/LGPL obligations, but stock control boundary remains unsafe.
 source-pinned actual results/8 criteria remain partial/NOT MET, not a backend or acceptance. See `docs/design/windows-l1-zero-license.md`.
 
 WP-23c validation20808e8: unchanged implementation75ce0f2; all9 non-Windows CI PASS, both Windows FAIL. NUL compatibility and all8 acceptance criteria remain partial/NOT MET; earlier macOS20 concurrency failure retained, not claimed fixed.
+
+**WP-23c, продолжение после 3f094a1:** ProcessDeviceMap исключён из запуска.
+Первым проверяется разрешённый узкий ACE корня NPFS (0x100084, точный package
+SID, без наследования и доступа к данным чужих каналов) в тесте потомков.
+Квалификация Windows Node20/22, аварийное восстановление и производственная
+интеграция остаются обязательными; пакет не объявлен выполненным.

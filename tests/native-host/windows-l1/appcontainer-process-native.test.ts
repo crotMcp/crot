@@ -4,6 +4,7 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, inject, it } from "vitest";
+import { bindNpfsRootQualification } from "../../../src/native-host/windows-l1/npfs-root.js";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 import { currentUserSid, runTool, windowsTools } from "../../../src/native-host/windows-acl.js";
 import { loadJobObjectApi } from "../../../src/native-host/windows-job.js";
@@ -160,66 +161,99 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
     );
   }, 30000);
   it("ends a detached descendant and retains profile ownership until the complete Job drains", async () => {
-    const trace = path.join(dirs.workspace, "descendant-trace.jsonl");
-    const record = `const record=v=>require('fs').appendFileSync(${JSON.stringify(trace)},JSON.stringify(v)+'\\n');`;
-    const descendant =
-      record +
-      "record({step:'child-start',pid:process.pid});process.stdout.write('READY:'+process.pid+'\\n');setInterval(()=>{},1000)";
-    const p = await launch(
-      `${record}record({step:'parent-start'});const cp=require('child_process');record({step:'before-spawn'});const c=cp.spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:['ignore','pipe','ignore']});record({step:'after-spawn',pid:c.pid});c.on('spawn',()=>record({step:'spawn-event',pid:c.pid}));let ready=false;c.stdout.once('data',b=>{ready=true;process.stdout.write(b,()=>process.exit(23))});c.on('error',e=>{process.stderr.write('CHILD_ERROR:'+e.code+'\\n');process.exitCode=71});c.on('exit',(code,signal)=>{if(!ready){process.stderr.write('CHILD_EARLY_EXIT:'+JSON.stringify({code,signal})+'\\n');process.exitCode=72}});`,
-    );
-    // A live descendant may retain an inherited stream. Do not wait for
-    // stream EOF before terminating that very descendant (circular wait).
-    let output = "",
-      errors = "";
-    p.stdout.on("data", (data: Buffer) => {
-      output += data.toString();
-    });
-    p.stderr.on("data", (data: Buffer) => {
-      errors += data.toString();
-    });
+    const imported = await import("koffi"),
+      ffi = imported.default ?? imported;
+    const dll = (name: string) => path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", name);
+    let lease: ReturnType<ReturnType<typeof bindNpfsRootQualification>> | undefined;
     try {
-      await waitFor(() => /READY:[0-9]+\n/.test(output) && p.hasExited, 10000);
+      lease = bindNpfsRootQualification(ffi, { kernel32: dll("kernel32.dll"), advapi32: dll("advapi32.dll") })(
+        profile.sid,
+      );
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({
+          title: "CROT-6A-npfs-root-grant",
+          value: { mask: lease.mask, inherited: false, sid: profile.sid },
+        }) + "\n",
+      );
+      const trace = path.join(dirs.workspace, "descendant-trace.jsonl");
+      const record = `const record=v=>require('fs').appendFileSync(${JSON.stringify(trace)},JSON.stringify(v)+'\\n');`;
+      const descendant =
+        record +
+        "record({step:'child-start',pid:process.pid});process.stdout.write('READY:'+process.pid+'\\n');setInterval(()=>{},1000)";
+      const p = await launch(
+        `${record}record({step:'parent-start'});const cp=require('child_process');record({step:'before-spawn'});const c=cp.spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:['ignore','pipe','ignore']});record({step:'after-spawn',pid:c.pid});c.on('spawn',()=>record({step:'spawn-event',pid:c.pid}));let ready=false;c.stdout.once('data',b=>{ready=true;process.stdout.write(b,()=>process.exit(23))});c.on('error',e=>{process.stderr.write('CHILD_ERROR:'+e.code+'\\n');process.exitCode=71});c.on('exit',(code,signal)=>{if(!ready){process.stderr.write('CHILD_EARLY_EXIT:'+JSON.stringify({code,signal})+'\\n');process.exitCode=72}});`,
+      );
+      // A live descendant may retain an inherited stream. Do not wait for
+      // stream EOF before terminating that very descendant (circular wait).
+      let output = "",
+        errors = "";
+      p.stdout.on("data", (data: Buffer) => {
+        output += data.toString();
+      });
+      p.stderr.on("data", (data: Buffer) => {
+        errors += data.toString();
+      });
+      try {
+        await waitFor(() => /READY:[0-9]+\n/.test(output) && p.hasExited, 10000);
+      } catch (error) {
+        appendFileSync(
+          inject("stage6aEvidence"),
+          JSON.stringify({
+            title: "CROT-6A-appcontainer-native-launcher-descendant-failure",
+            value: {
+              parentHasExited: p.hasExited,
+              parentExit: p.hasExited ? (await p.exited).code : null,
+              stdout: output,
+              stderr: errors,
+              transportFailure: p.failure?.message ?? null,
+              trace: await readFile(trace, "utf8").catch((e) => "TRACE_READ_ERROR:" + e.code),
+            },
+          }) + "\n",
+        );
+        throw error;
+      }
+      expect((await p.exited).code).toBe(23);
+      expect(errors).toBe("");
+      const pid = Number(/READY:([0-9]+)/.exec(output)?.[1]);
+      expect(Number.isInteger(pid) && pid > 0).toBe(true);
+      expect(isAlive(pid)).toBe(true);
+      expect(() => profile.close()).toThrow(/still owns actors/);
+      await p.terminate("force");
+      await waitFor(() => !isAlive(pid), 5000);
+      profile.close();
+      expect(profile.closed).toBe(true);
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({
+          title: "CROT-6A-appcontainer-native-launcher-descendant",
+          value: {
+            ready: true,
+            parentExit: 23,
+            descendantReady: true,
+            profileHeldUntilJobDrain: true,
+            descendantTerminated: true,
+            profileClosed: true,
+          },
+        }) + "\n",
+      );
     } catch (error) {
       appendFileSync(
         inject("stage6aEvidence"),
         JSON.stringify({
-          title: "CROT-6A-appcontainer-native-launcher-descendant-failure",
-          value: {
-            parentHasExited: p.hasExited,
-            parentExit: p.hasExited ? (await p.exited).code : null,
-            stdout: output,
-            stderr: errors,
-            transportFailure: p.failure?.message ?? null,
-            trace: await readFile(trace, "utf8").catch((e) => "TRACE_READ_ERROR:" + e.code),
-          },
+          title: "CROT-6A-npfs-root-failure",
+          value: { message: String(error), details: (error as { details?: unknown }).details },
         }) + "\n",
       );
       throw error;
+    } finally {
+      // Even on failed spawn, stop/drain the complete Job BEFORE touching NPFS.
+      await launcher.close();
+      lease?.close();
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({ title: "CROT-6A-npfs-root-restored", value: { exact: Boolean(lease) } }) + "\n",
+      );
     }
-    expect((await p.exited).code).toBe(23);
-    expect(errors).toBe("");
-    const pid = Number(/READY:([0-9]+)/.exec(output)?.[1]);
-    expect(Number.isInteger(pid) && pid > 0).toBe(true);
-    expect(isAlive(pid)).toBe(true);
-    expect(() => profile.close()).toThrow(/still owns actors/);
-    await p.terminate("force");
-    await waitFor(() => !isAlive(pid), 5000);
-    profile.close();
-    expect(profile.closed).toBe(true);
-    appendFileSync(
-      inject("stage6aEvidence"),
-      JSON.stringify({
-        title: "CROT-6A-appcontainer-native-launcher-descendant",
-        value: {
-          ready: true,
-          parentExit: 23,
-          descendantReady: true,
-          profileHeldUntilJobDrain: true,
-          descendantTerminated: true,
-          profileClosed: true,
-        },
-      }) + "\n",
-    );
   }, 30000);
 });
