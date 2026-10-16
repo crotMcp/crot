@@ -1,4 +1,7 @@
-/** Mandatory native unique-SID component gate, not full filesystem acceptance. */
+/** Archived OD-6 candidate: WRITE_RESTRICTED Low, explicitly rejected by curator.
+ * Reproduce historical failures only with CROT_WINDOWS_REJECTED_TOKEN_RESEARCH=1.
+ * This is NOT the mandatory AppContainer, native-process, RPC or CROT-6A suite.
+ */
 import { appendFileSync, openSync, closeSync, readSync, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { ownedAccessStack } from "./diagnostics/owned-access-stack.js";
@@ -31,7 +34,10 @@ $rule=[System.Security.AccessControl.FileSystemAccessRule]::new($sid,[System.Sec
 $acl.AddAccessRule($rule)
 [System.IO.Directory]::SetAccessControl($p,$acl)
 `;
-describe.runIf(isWindows)("Windows unique write-filter component — real global Low denial", () => {
+const rejectedCandidateResearch = process.env.CROT_WINDOWS_REJECTED_TOKEN_RESEARCH === "1";
+if (rejectedCandidateResearch && (!isWindows || !["x64", "arm64"].includes(process.arch)))
+  throw new Error("Rejected Windows token research requires native 64-bit Windows.");
+describe.runIf(isWindows && rejectedCandidateResearch)("Rejected OD-6 Low write-filter research", () => {
   let dirs: TempDirs, host: NativeHost, token: RestrictedToken, launcher: NativeProcessLauncher;
   let privateRoot: string, outside: string, project: string;
   let desktop: OwnedDesktop;

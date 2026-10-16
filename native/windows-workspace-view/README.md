@@ -25,3 +25,28 @@ PowerShell явно загружает только штатные Utility/Manag
 PSHOME и устанавливает выбранный каталог перед относительной записью.
 Внешний hardlink остаётся обязательным отрицательным тестом; обнаруженный
 доступ на запись нельзя скрывать исправлением оболочки или очистки.
+
+
+## Обязательные гейты и отвергнутый кандидат OD-6
+
+AppContainer + Job выбран куратором; тест appcontainer-native.test.ts остаётся
+обязательным на Windows Node20/22, включая точные дескрипторы, переименование
+существовавших узлов, WinPS/NUL/hardlink и настоящий сервисный CROT-6A.
+Наборы native-process, RPC, владения stdio/Job и существующие unit-гейты не
+отключаются и не меняют строгость проверок.
+
+Единственный переведённый набор: tests/native-host/windows-l1/write-boundary.test.ts.
+Он проверяет отвергнутый WRITE_RESTRICTED Low без AppContainer, а не выбранный
+backend. Исходные проверки и старые доказательства сохранены без изменения
+ожидаемых результатов. Для воспроизведения на Windows PowerShell:
+
+```powershell
+$env:CROT_WINDOWS_REJECTED_TOKEN_RESEARCH = '1'
+npm run build
+npx --no-install vitest run tests/native-host/windows-l1/write-boundary.test.ts
+Remove-Item Env:CROT_WINDOWS_REJECTED_TOKEN_RESEARCH
+```
+
+Эти исторические эксперименты могут завершаться ошибками 0xc0000142/NUL/WinPS;
+их успешное выполнение не является требованием к выбранному AppContainer.
+Их исключение из обязательного CI не закрывает production-интеграцию или WP-23c.
