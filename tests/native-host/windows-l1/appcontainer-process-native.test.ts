@@ -76,13 +76,15 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
     const imported = await import("koffi");
     const ffi = imported.default ?? imported;
     const dll = (n: string) => path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", n);
+    const ownerSid = await currentUserSid(tools);
     launcher = new NativeProcessLauncher({
       token: bindAppContainerProcessIdentity(
         ffi,
         { advapi32: dll("advapi32.dll"), kernel32: dll("kernel32.dll") },
         profile,
+        ownerSid,
       ),
-      ownerSid: await currentUserSid(tools),
+      ownerSid,
       pipes: await loadBytePipeApi(),
       jobs: await loadJobObjectApi(),
       environment: host.platform.environment,
