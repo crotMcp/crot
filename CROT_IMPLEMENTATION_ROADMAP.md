@@ -204,7 +204,7 @@ mcp-crot PR #14 (`8169b1f`). Verified in the tree:
 | Process lifecycle | One per-user service (on demand from the shim, or managed by an OS supervisor), shim, control channel (WP-20, AD-17) | No autostart registration / supervisor files (WP-34); background processes are owned by the service, not by the client that started them (follow-up) |
 | Child-process environment | Allowlist for `shell.execute` / `process.manage` plus `environment.allow`; overrides cannot copy withheld variables; Docker and Git keep their rules (WP-21, AD-18) | — |
 | Secrets | OS secret store (Keychain, DPAPI, Secret Service) with owner-only file fallback; verified migration; denied to all CROT tools (WP-21, AD-18) | Unconfined commands can still use the OS store as the user (AD-18 residual risk): closed for Linux workspace mode by WP-23a; open on macOS/Windows (WP-23b/c) and in `full_control` |
-| Command confinement L1 | Linux workspace mode (WP-23a, AD-20); components installed by `scripts/l1-install.sh` | macOS (WP-23b) and Windows (WP-23c, OD-6 spike) report `not_implemented`, so remote `shell`/`process` operations are refused there; OD-9 macOS/Windows part open; packaging and policy loading on user machines (WP-34) |
+| Command confinement L1 | Linux workspace mode (WP-23a, AD-20); components installed by `scripts/l1-install.sh` | macOS (WP-23b) and Windows (WP-23c, OD-6 spike) report `not_implemented`, so remote `shell`/`process` operations are refused there; OD-9 platform decision recorded in AD-29, native qualification pending; packaging and policy loading on user machines (WP-34) |
 | Cross-OS browser validation | Linux E2E only | macOS / Windows browser chain unverified end to end (WP-25, WP-40) |
 
 ### 2.4 Missing for v1 (nothing in the repository yet)
@@ -287,7 +287,7 @@ What changed in this roadmap and why:
 | --- | --- | --- |
 | 0 Contracts | Decide before code | WP-17, WP-18 — **Done** |
 | 1 Local foundation | Supervised product on one machine | WP-19, WP-20, WP-21, WP-22 **Done**, WP-19b (optional) |
-| 2 Confinement | L1 on all three OS | WP-23a **Done**, WP-23b, WP-23c (blocked by OD-9 macOS/Windows part; WP-23c also OD-6) |
+| 2 Confinement | L1 on all three OS | WP-23a **Done**; WP-23b unblocked by AD-29/OD-9; WP-23c AppContainer + Job selected, acceptance and OD-6 qualification open |
 | 2B Browser v1 | AD-16 contract | WP-24, WP-25, WP-26, WP-27 |
 | 3 Remote | Identity → relay → tunnel → profile → acceptance → review | WP-28, WP-29, WP-30, WP-31, WP-38, WP-32, WP-33 |
 | 4 Commercial | Ship and operate | WP-34, WP-35, WP-36, WP-37, WP-39, WP-40 |
@@ -336,7 +336,7 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | OD-3 | Exact device resource URI form and PRM location (AD-15 open item) | Token audience, client configuration UX, relay routing | WP-29, WP-30, WP-28 tests | **Decided by ARCHITECTURE.md §27 AD-21 points 5 and 6:** `https://<relay-host>/d/<deviceId>/mcp` (resource, MCP endpoint, RFC 8707 `resource`, only accepted `aud`); PRM at `https://<relay-host>/.well-known/oauth-protected-resource/d/<deviceId>/mcp`, served by the relay |
 | OD-4 | **Decided by ARCHITECTURE.md §27 AD-22:** relay–device tunnel wire protocol within the AD-15 shape (framing, multiplexing, flow control, keep-alive, versioning) | A long-lived contract between independently deployed relay and installed devices; version skew after release | WP-29, WP-30, WP-34 (updates) | Start of WP-29 — **AD required** (new boundary) |
 | OD-5 | **Decided by ARCHITECTURE.md §27 AD-22 points 12–13:** §26 Q13: relay/tunnel timeouts for gated requests (approval up to 300 s) and bounded browser waits; behaviour towards clients with shorter timeouts. The device-side margin (a request ends 5 s before the exchange deadline) is recorded in AD-22 by commit `37b3126` (WP-30, PR #20); measured client timeouts are WP-32 | Remote multi-step tasks with approvals must not fail silently | WP-29, WP-30, WP-32 | Before WP-30 is merged — **met** |
-| OD-6 | Windows L1 | Куратор закрепил AppContainer + Job без виртуализации/сторонних драйверов (`98f7e0c`, `08bc430`). `fe6bd33`/`e812f1d` закрывают исходный внешний hardlink через защищённый readonly DACL; безопасность всех гонок и путей ещё не квалифицирована | WP-23c, WP-34, Gate 6 | Выбор механизма зафиксирован; приёмка восьми критериев открыта, точный SD и WinPS ещё не прошли |
+| OD-6 | Windows L1 | Куратор закрепил AppContainer + Job без виртуализации/сторонних драйверов (`98f7e0c`, `08bc430`). `fe6bd33`/`e812f1d` закрывают исходный внешний hardlink через защищённый readonly DACL; безопасность всех гонок и путей ещё не квалифицирована | WP-23c, WP-34, Gate 6 | Выбор механизма зафиксирован; приёмка восьми критериев открыта: WinPS-smoke исправлен в 93cb601, точный SD 8/10 в bc9a1c0, пункт Г не выполнен |
 | OD-7 | How a preset / remote-profile change is applied by the service (reload vs restart) | Policy immutability (AD-5, AD-10) vs usability | WP-22, WP-31 | **Decided by AD-19 point 5 (WP-22):** device state in `service-settings.json`; a new Core with the new policy, only while Core is idle; WP-31 adds the `autonomous-browser` rule set and the remote profile on the same mechanism |
 | OD-8 | Download hand-over mechanism (staging in download directory vs stream over bridge) | File-integrity guarantees of AD-16 p.12 | WP-26 | Start of WP-26 (already assigned by AD-16) |
 | OD-9 | Матрица платформ v1 | Linux AD-20; Windows/macOS AD-29: Windows11 x64/ARM64, Server2022/2025 x64, Node20/22; актуальная macOS и две предыдущие на выпускаемых Apple архитектурах, Seatbelt/Keychain. Server ARM64 не выдумывается; браузерная часть ещё открыта | WP-23a/b/c, WP-34, WP-37 | Платформенная зависимость WP-23b разблокирована; реальная квалификация обязательна |
@@ -412,7 +412,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | yes | with WP-21 | **Done** (AD-19) |
 | WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part and OD-14 decided) | M | yes | with 23b/c | **Done** (AD-20; PR #6, `e1d1f61`) |
 | WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Разблокирован AD-29; реализация Seatbelt/Keychain ещё не начата |
-| WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Не принят. AppContainer + Job без виртуализации. `e812f1d`: оба имени внешнего hardlink закрыты на запись, чтение сохранено, readonly предки доступны, опасные права закрыты. Точный SD и WinPS-гейт ещё красные; полный CROT-6A AppContainer и backend не выполнены. PR27 Draft/open. Текущий отчёт: docs/design/windows-l1-curator-appcontainer.md |
+| WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Не принят. AppContainer + Job без виртуализации. `bc9a1c0`: оба имени внешнего hardlink закрыты на запись, внутренние ссылки читаются/пишутся, readonly предки доступны, опасные права закрыты. WinPS и cmd-потомок проходят smoke; точный SD 8/10, cleanup=false. Полный CROT-6A AppContainer и backend не выполнены. PR27 Draft/open. Текущий отчёт: docs/design/windows-l1-curator-appcontainer.md |
 | WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | **Merged** (PR #22–#25): implemented incl. out-of-process frames and element/frame-origin approval subjects; manual runs 1–5/follow-up recorded; B4/E5/windows and G5/H passed by owner; default-load timeout signalling in `wp-24-load-timeout-and-acceptance`; C1 partial, final acceptance open |
 | WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
 | WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | Not started |
@@ -591,13 +591,15 @@ AppContainer + Job Object по AD-29, с незакрытой квалифика
 
 **Актуальный статус после директивы куратора:** WP-23a завершён; платформы
 OD-9 решены, WP-23b (Seatbelt/Keychain) разблокирован, но не реализован.
-OD-6 закреплён за AppContainer + Job без виртуализации. На `e812f1d` исходный
-контрпример hardlink закрыт и readonly-предки доступны; точное восстановление
-SD и WinPS-гейт ещё не прошли. Пункт Г до успешных А–В не выполнен.
+OD-6 закреплён за AppContainer + Job без виртуализации. На `bc9a1c0` исходный
+контрпример hardlink закрыт, внутренние имена читаются/пишутся, readonly-предки
+доступны. WinPS-smoke и настоящий cmd-потомок с маркером проходят; точный SD
+восстановлен 8/10, cleanup=false. Следующая правка очистки заблокирована до
+исполнения. Пункт Г до успешных А–В не выполнен.
 Производственный Windows backend unavailable, remote sandbox отказывает.
 Все три ОС обязательны для v1. Восемь критериев и актуальный CI:
 [текущий отчёт](docs/design/windows-l1-curator-appcontainer.md).
-Полные журналы: `docs/evidence/windows-l1-curator-appcontainer/`.
+Полные новые журналы: `docs/evidence/windows-l1-acl-winps/`; прежние сохранены.
 
 **Исторические результаты до a6eb17d, не текущий выбор механизма:** WP-23a **Done** (ARCHITECTURE.md §27 AD-20; PR #6, `e1d1f61`;
 [`docs/L1.md`](docs/L1.md)). WP-23b is not implemented. WP-23c's native restricted-token/DACL spike is

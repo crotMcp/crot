@@ -7,19 +7,21 @@ package PR updates this file.
 
 ## WP-23c — директива куратора без виртуализации, не принят
 
-`98f7e0c`/`08bc430`: AppContainer + Job, без Hyper-V/HCS/Windows Sandbox.
-`fe6bd33`/`e812f1d`: оба имени внешнего hardlink закрыты на запись, чтение
-сохранено; новый внешний hardlink и 35 опасных открытий предков отклонены.
-WinPS теперь начинает в workspace, но его проверка потомка остаётся красной
-из-за пустого LASTEXITCODE. Точное восстановление SD также НЕ прошло:
-AUTO_INHERITED и происхождение ACE ещё расходятся. Пункт Г не выполнен,
-производственный Windows backend остаётся unavailable. Отдельное исправление
-macOS `fd4fd47` сохранено; WP-23b не объявлен готовым. Все три ОС обязательны.
-На `e812f1d`: локально 1748 Core +147 extension; девять не-Windows CI успешны,
-оба Windows неуспешны. Подготовленная замена проверки потомка заблокирована
-автоматической проверкой безопасности и не применена; запрошено согласие.
+`93cb601`: разрешённые правки WinPS, внутренних hardlink и сравнения по
+идентичности каталога применены. На обоих Node дочерний cmd имеет реальный
+ExitCode=0; маркер после NUL проверен; внутренние ссылки читаются и пишутся.
+`447af5e`/`bc9a1c0`: полные снимки OWNER/GROUP/DACL/LABEL согласованы между API,
+AUTO_INHERITED предков сохранён. Итог **8/10**, workspace и связанный файл ещё
+отличаются; cleanup=false. Следующая правка очистки дерева заблокирована до
+исполнения и не применена; требуется отдельное подтверждение для повторения.
+AppContainer + Job, без виртуализации/сторонних драйверов. Пункт Г не выполнен,
+производственный backend unavailable, гейты не ослаблены. macOS `fd4fd47`
+сохранён; WP-23b не реализован; все три ОС обязательны.
+На `bc9a1c0`: полный локальный check — 1748 Core +147 extension, 168 skipped;
+CI — девять успешных, оба Windows неуспешны. Общий ACL-гейт и прежние
+restricted-token провалы не скрыты.
 Текущие восемь критериев: [отчёт](docs/design/windows-l1-curator-appcontainer.md).
-Полные журналы: `docs/evidence/windows-l1-curator-appcontainer/`.
+Новые полные журналы: `docs/evidence/windows-l1-acl-winps/`; прежние сохранены.
 
 ## Исторические проверки до a6eb17d — не текущий выбор механизма
 
@@ -589,7 +591,7 @@ WP-40; WP-32 waits for WP-24…WP-27 and WP-38.
 | WP-30 | Device tunnel adapter (AD-22, device side) | Done, merged (PR #20): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32) |
 | WP-25, WP-27 | Browser dialogs / file chooser / background screenshots / tab group; per-tab queue for remote, explicit `tabId`, `openedBy` | unblocked by WP-24 |
 | WP-26 | Browser upload and download (AD-16 points 11–12) | after WP-24 and OD-8; also provides the end-to-end check of the WP-31 upload/download gate (AD-23 point 8) |
-| WP-23b/c | Command confinement L1 на macOS и Windows (Linux готов: WP-23a, AD-20) | AD-29 решил платформы OD-9 и разблокировал начало WP-23b. WP-23b не реализован. WP-23c не принят: встроенный AppContainer проходит Node20/22/NUL/cmd, но внешний hardlink получает write-handle; достаточность OD-6 повторно открыта. Полная CROT-6A/сеть/Docker/матрица/backend впереди. На недоступных ОС remote shell/process по-прежнему CONFINEMENT_UNAVAILABLE; все три ОС обязательны для v1 |
+| WP-23b/c | Command confinement L1 на macOS и Windows (Linux готов: WP-23a, AD-20) | AD-29 решил платформы OD-9 и разблокировал начало WP-23b. WP-23b не реализован. WP-23c не принят: bc9a1c0 проходит Node20/22/NUL/cmd/WinPS-smoke, внешний hardlink закрыт на запись; точный SD 8/10, cleanup=false. AppContainer + Job выбран, приёмка OD-6 открыта. Полная CROT-6A/сеть/Docker/матрица/backend впереди. На недоступных ОС remote shell/process по-прежнему CONFINEMENT_UNAVAILABLE; все три ОС обязательны для v1 |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
 | WP-41, WP-42 | Extensibility invariant tests; workspace image view (post-v1 phase 5; depend on no open contract — WP-42 without downscale, see product-reassessment §8) | can start now with spare capacity; never displace the critical path; WP-43/44/49 wait for OD-16/15/17 ADs |
 | OD-15…OD-20, OD-23 | ADs of the expanded product goal (jobs, components, media, edit description, connectors, credentials; release staging) | documentation work, parallel to WP-31; see roadmap §4.2 |
