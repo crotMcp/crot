@@ -58,9 +58,9 @@ struct Grant {
    need(hx->AceSize==hy->AceSize&&hx->AceType==hy->AceType&&(hx->AceFlags&~INHERITED_ACE)==(hy->AceFlags&~INHERITED_ACE));
    need(memcmp(static_cast<BYTE*>(x)+sizeof(ACE_HEADER),static_cast<BYTE*>(y)+sizeof(ACE_HEADER),hx->AceSize-sizeof(ACE_HEADER))==0);
   }
-  // MAXIMUM_ALLOWED is the documented non-propagating SetSecurityInfo path.
-  // Restore original ACE provenance without a second inheritance traversal.
-  PinnedAcl pinned(path,sid);pinned.set(before);auto final=pinned.descriptor();
+  // Restore original DACL/control via the non-propagating file API.
+  // The exact descriptor assertion below remains mandatory.
+  PinnedAcl pinned(path,sid);pinned.set(before,PinnedAcl::control(original));auto final=pinned.descriptor();
   need(PinnedAcl::equal(PinnedAcl::acl(final),before));
   constexpr WORD flags=SE_DACL_PROTECTED|SE_DACL_AUTO_INHERITED|SE_DACL_AUTO_INHERIT_REQ|SE_DACL_DEFAULTED;
   need((PinnedAcl::control(final)&flags)==(PinnedAcl::control(original)&flags));

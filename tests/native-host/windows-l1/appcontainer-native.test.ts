@@ -86,12 +86,16 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       } catch {
         directoryAccessError = "Missing or invalid fixed native directory-access evidence";
       }
+      const testedCheckout = (await execute("git", ["rev-parse", "HEAD"], { windowsHide: true })).stdout.trim();
       appendFileSync(
         inject("stage6aEvidence"),
         JSON.stringify({
           title: "CROT-6A-native-appcontainer",
           value: {
             ...v,
+            testedCheckout,
+            githubSha: process.env.GITHUB_SHA ?? null,
+            runtime: { node: process.version, arch: process.arch, os: os.version() },
             insideHardlinkOpened: !!(v.nativeCode & 4096),
             insideHardlinkWriteDenied: !!(v.nativeCode & 2048),
             externalLinkCreationDenied: !!(v.nativeCode & 8192),
