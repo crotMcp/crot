@@ -45,6 +45,24 @@ export interface ProbeProcess {
   close(): void;
 }
 
+/** Trusted native-host seam for the selected AppContainer mechanism.
+ * Never comes from CommandSpec, configuration or an RPC request.
+ * Existing Job/stdio/termination ownership remains in this module.
+ */
+export interface SuspendedProcessFactory {
+  create(input: {
+    executable: string;
+    command: Buffer;
+    flags: number;
+    environment: Buffer;
+    cwd: string;
+    stdio: NativeByteStdio;
+    info: object;
+  }): void;
+  /** Mandatory independent token readback before ResumeThread. */
+  verify(process: unknown): void;
+}
+
 const STARTUP = "CROT_L1_STARTUPINFO";
 const INFORMATION = "CROT_L1_PROCESS_INFORMATION";
 const DWORD = "CROT_L1_PROCESS_DWORD";
@@ -77,7 +95,7 @@ export function probeEnvironment(env: Readonly<Record<string, string>>): Buffer 
   return Buffer.from(text, "utf16le");
 }
 
-export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
+export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries, factory?: SuspendedProcessFactory) {
   if (!declared.has(ffi)) {
     ffi.struct(STARTUP, {
       cb: "uint32_t",
@@ -194,7 +212,19 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
         if (!ownedStdio && spec.stdio !== "nul") throw invalid("BNO requires owned extended startup");
         bnoVerifier!.retry();
       }
-      if (ownedStdio) {
+      if (factory) {
+        if (!ownedStdio || spec.desktop || spec.bnoIsolation || spec.console || spec.diagnostics)
+          throw invalid("AppContainer requires owned stdio and its own verified startup");
+        factory.create({
+          executable,
+          command: Buffer.from(`${command}\0`, "utf16le"),
+          flags,
+          environment: env,
+          cwd,
+          stdio: ownedStdio,
+          info,
+        });
+      } else if (ownedStdio) {
         bindPipeProcessCreation(ffi, libraries)(
           token,
           executable,
@@ -253,6 +283,7 @@ export function bindProbeLauncher(ffi: TokenFfi, libraries: TokenLibraries) {
       assigned = true;
       const contained = job.accounting();
       if (!contained || contained.active < 1 || contained.total < 1) throw failure("Job accounting");
+      if (factory) factory.verify(info.hProcess);
       if (ownedStdio) releaseStdioChildEnds(ownedStdio);
       if (bno) bnoVerifier!.verify(info.hProcess, bno);
       if (spec.diagnostics) {

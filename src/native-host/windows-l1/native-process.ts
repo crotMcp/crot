@@ -24,7 +24,7 @@ import type { RestrictedToken } from "./restricted-token.js";
 
 export interface NativeProcessOptions {
   /** All dependencies are trusted host objects, never RPC parameters. */
-  readonly token: RestrictedToken;
+  readonly token: Pick<RestrictedToken, "restrictingSid" | "launchProbe">;
   readonly pipes: BytePipeApi;
   readonly jobs: JobObjectApi;
   readonly ownerSid: string;

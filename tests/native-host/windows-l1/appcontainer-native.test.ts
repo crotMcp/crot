@@ -147,6 +147,7 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       const v = JSON.parse(result.stdout) as {
         serviceAttempted: boolean;
         serviceCode: number;
+        pinnedObjectRenames: boolean[];
         verified: boolean;
         nativeCode: number;
         nodeCode: number;
@@ -249,6 +250,7 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       );
       expect(exit, "код контроллера").toBe(0);
       expect(v.cleanup).toBe(true);
+      expect(v.pinnedObjectRenames).toEqual([true, true, true, true, true]);
       expect(directoryAccessError).toBeUndefined();
       expect(JSON.parse(String(actorOutput["native-stdout.txt"]))).toMatchObject({ existingWorkspaceCrud: true });
       expect(await readFile(existingFile, "utf8")).toBe("changed");

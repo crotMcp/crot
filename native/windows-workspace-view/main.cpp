@@ -22,7 +22,10 @@ void need(bool okay){if(!okay)throw std::runtime_error("native prerequisite");}
 std::wstring quote(const std::wstring& s){std::wstring r=L"\"";unsigned n=0;for(auto c:s){if(c==L'\\'){n++;continue;}if(c==L'"')r.append(n*2+1,L'\\');else r.append(n,L'\\');n=0;r+=c;}r.append(n*2,L'\\');return r+L"\"";}
 struct Grant {
  std::wstring path;PSID sid;bool installed=false;std::vector<BYTE> original,expected;const char* restoreError="none";
- Grant(std::wstring p,PSID s):path(p),sid(s){original=descriptor();}
+ // Keep the same root/protected object pinned for the COMPLETE lease, not
+ // just while taking/restoring its snapshot. Never opt into DELETE sharing.
+ std::unique_ptr<PinnedAcl> pinned;
+ Grant(std::wstring p,PSID s):path(p),sid(s){pinned=std::make_unique<PinnedAcl>(path,sid);original=pinned->original;}
  std::vector<BYTE> descriptor(){
   PSECURITY_DESCRIPTOR sd=nullptr;need(GetNamedSecurityInfoW(path.c_str(),SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION|LABEL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&sd)==ERROR_SUCCESS);
   DWORD length=GetSecurityDescriptorLength(sd);std::vector<BYTE> bytes(length);memcpy(bytes.data(),sd,length);LocalFree(sd);return bytes;
@@ -39,7 +42,7 @@ struct Grant {
  // Fresh SID is never adopted; cleanup owns a possibly partial mutation too.
  void add(bool deny=false){installed=true;change(deny?DENY_ACCESS:GRANT_ACCESS,deny?FILE_ALL_ACCESS:0x1301bf,deny?0:SUB_CONTAINERS_AND_OBJECTS_INHERIT);expected=descriptor();}
  bool remove(){if(!installed)return true;try{
-  PinnedAcl pinned(path,sid);auto current=pinned.descriptor();auto foreign=pinned.withoutOwned(PinnedAcl::acl(current));
+  auto& pinned=*this->pinned;auto current=pinned.descriptor();auto foreign=pinned.withoutOwned(PinnedAcl::acl(current));
   restoreError="missing-installed-snapshot";need(!expected.empty());auto installedForeign=pinned.withoutOwned(PinnedAcl::acl(expected));
   restoreError="foreign-acl-changed";need(PinnedAcl::equal(reinterpret_cast<PACL>(foreign.data()),reinterpret_cast<PACL>(installedForeign.data())));
   constexpr WORD flags=SE_DACL_PRESENT|SE_DACL_DEFAULTED|SE_DACL_PROTECTED|SE_DACL_AUTO_INHERITED|SE_DACL_AUTO_INHERIT_REQ;
@@ -149,7 +152,7 @@ int wmain(int argc,wchar_t** argv){
  ownedTemp=temp;ownedCache=cache;
  GUID guid{};need(SUCCEEDED(CoCreateGuid(&guid)));wchar_t id[64]{};StringFromGUID2(guid,id,64);std::wstring name=L"crot.l1.";for(auto c:std::wstring(id))if(c!=L'{'&&c!=L'}')name+=c;
  if(argc==14){if(!validProfileName(argv[7]))return 2;name=argv[7];for(int i=8;i<=12;i++){std::wstring p=argv[i];if(p.size()<4||p[1]!=L':'||p[2]!=L'\\'||p.find(L'"')!=p.npos)return 2;}std::wstring endpoint=argv[13];if(endpoint.find(L"\\\\.\\pipe\\crot-control-")!=0||endpoint.size()>256||endpoint.find(L'"')!=endpoint.npos)return 2;}
- DWORD serviceCode=STILL_ACTIVE;bool serviceAttempted=false;
+ DWORD serviceCode=STILL_ACTIVE;bool serviceAttempted=false;std::vector<bool> pinnedObjectRenames;
  PSID package=nullptr;bool owns=false,cleanup=true;unsigned linkedCount=0,deniedLinkedCount=0;std::vector<std::string> restoreReasons;DWORD nativeCode=0,nodeCode=0,cmdCode=0,psCode=0;bool verified=false;
  std::vector<DescriptorObservation> observations;observations.emplace_back(root);observations.emplace_back(protectedFile);observations.emplace_back(root+L"\\link-source.txt");auto parents=ancestors(root);std::reverse(parents.begin(),parents.end());for(const auto& p:parents)observations.emplace_back(p);
  std::vector<bool> snapshotApisAgree;for(auto& o:observations){PinnedAcl probe(o.path,nullptr);auto query=probe.descriptor();snapshotApisAgree.push_back(PinnedAcl::rawEqual(PinnedAcl::acl(o.initial),PinnedAcl::acl(query)));}
@@ -179,6 +182,12 @@ int wmain(int argc,wchar_t** argv){
 
   for(auto& lease:existing){lease->expected=lease->descriptor();lease->installed=true;}
   for(auto& f:linked)if(!f.denied){f.lease->expected=f.lease->descriptor();f.lease->installed=true;}
+  // Owner-positive disposable objects must reject even a trusted rename
+  // while held. Do not try renaming any shared/user ancestor.
+  phase="verify-protected-pins";for(const auto& p:std::vector<std::wstring>{root,temp,cache,protectedFile,root+L"\\link-source.txt"}){
+   SetLastError(ERROR_SUCCESS);bool moved=!!MoveFileW(p.c_str(),(p+L".pin-probe").c_str());DWORD error=GetLastError();
+   if(moved)need(!!MoveFileW((p+L".pin-probe").c_str(),p.c_str()));pinnedObjectRenames.push_back(!moved&&error==ERROR_SHARING_VIOLATION);
+  }
   phase="native";nativeCode=launch(child,{root,temp,cache,outside,protectedFile},root,package,verified,nativeCode);
   const std::wstring js=L"const f=require('fs');let r={ready:true};try{f.writeFileSync('node-created.txt','live');f.renameSync('node-created.txt','node-renamed.txt');r.read=f.readFileSync('node-renamed.txt','utf8')==='live';f.unlinkSync('node-renamed.txt');const h=f.openSync('\\\\\\\\.\\\\NUL','r+');f.closeSync(h);r.nul=true}catch(e){r.error=e.code;process.exitCode=1}f.writeFileSync('node-result.json',JSON.stringify(r));";
   phase="node";nodeCode=launch(nodeCopy,{L"-e",js},root,package,verified,nodeCode);
@@ -199,6 +208,7 @@ int wmain(int argc,wchar_t** argv){
  observe();if(owns){bool removed=false;for(unsigned i=0;i<20&&!removed;i++){removed=DeleteAppContainerProfile(name.c_str())==S_OK;if(!removed)Sleep(50);}cleanup=cleanup&&removed;}
  observe();if(package)FreeSid(package);
  std::cout<<"{\"snapshotApisAgree\":[";for(size_t i=0;i<snapshotApisAgree.size();i++){if(i)std::cout<<",";std::cout<<(snapshotApisAgree[i]?"true":"false");}std::cout<<"],\"nativeBaselineStages\":[";for(size_t i=0;i<observedStages.size();i++){if(i)std::cout<<",";std::cout<<"[";for(size_t j=0;j<observedStages[i].size();j++){if(j)std::cout<<",";std::cout<<(observedStages[i][j]?"true":"false");}std::cout<<"]";}std::cout<<"],";
+ std::cout<<"\"pinnedObjectRenames\":[";for(size_t i=0;i<pinnedObjectRenames.size();i++){if(i)std::cout<<",";std::cout<<(pinnedObjectRenames[i]?"true":"false");}std::cout<<"],";
  std::cout<<"\"serviceAttempted\":"<<(serviceAttempted?"true":"false")<<",\"serviceCode\":"<<serviceCode<<",\"linkedCount\":"<<linkedCount<<",\"deniedLinkedCount\":"<<deniedLinkedCount<<",\"restoreReasons\":[";for(size_t i=0;i<restoreReasons.size();i++){if(i)std::cout<<",";std::cout<<"\""<<restoreReasons[i]<<"\"";}std::cout<<"],\"phase\":\""<<phase<<"\",\"aclStep\":\""<<aclStep<<"\",\"aclError\":"<<aclError<<",\"ancestorIndex\":"<<ancestorIndex<<",\"launchStep\":\""<<launchStep<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";
  return cleanup?0:1;
 }

@@ -129,3 +129,8 @@ uint32_t SetNamedSecurityInfoW(uint16_t *path, int type, uint32_t info, void *ow
   if (fault == 18 || !path || type != 1 || info != 0x10 || owner || group || dacl || *(int *)sacl != 9) return 5;
   return 0;
 }
+
+/* Trusted factory seam ABI; no OS process is executed. */
+int CreateFactoryProcess(PROCESS_INFORMATION *out){
+ creates++;out->process=alloc(5);out->thread=alloc(6);out->pid=42;out->tid=43;phase=0;return 1;
+}

@@ -135,7 +135,7 @@ export function createAppContainerProfiles(
 }
 
 interface ProfileFfi extends TokenFfi {
-  decode(pointer: unknown, type: string): unknown;
+  decode(pointer: unknown, type: string, length?: number): unknown;
 }
 interface ProfileLibraries {
   readonly userenv: string;
@@ -192,7 +192,7 @@ export function bindAppContainerProfiles(ffi: ProfileFfi, libraries: ProfileLibr
       const output: { value?: unknown } = {};
       try {
         if (!ok(text(sid, output)) || missing(output.value)) throw failure("SID conversion");
-        const value = ffi.decode(output.value, "str16");
+        const value = ffi.decode(output.value, "char16_t", -1);
         if (typeof value !== "string") throw failure("SID conversion output");
         return value;
       } finally {

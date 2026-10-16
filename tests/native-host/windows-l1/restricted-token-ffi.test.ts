@@ -1,3 +1,5 @@
+import { bindProbeLauncher } from "../../../src/native-host/windows-l1/probe-process.js";
+import { createNativeByteStdio, type BytePipeApi } from "../../../src/native-host/windows-l1/byte-stdio.js";
 import { bindProbeIntegrity, type ProbeLabel } from "../../../src/native-host/windows-l1/probe-integrity.js";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -29,6 +31,7 @@ const cc = compiler();
 const sid = "S-1-5-32-545";
 let dir = "";
 let api: RestrictedTokenApi;
+let nativeFfi: TokenFfi;
 let labelFixture: (file: string, label: ProbeLabel) => void;
 let fault: (n: number) => void;
 let live: () => number;
@@ -80,6 +83,7 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     execFileSync(cc!, ["-shared", "-fPIC", "-o", lib, source]);
     const imported: unknown = await import("koffi");
     const ffi = ((imported as { default?: unknown }).default ?? imported) as TokenFfi;
+    nativeFfi = ffi;
     api = bindRestrictedTokens(ffi, { advapi32: lib, kernel32: lib, ntdll: lib });
     labelFixture = bindProbeIntegrity(ffi, { advapi32: lib, kernel32: lib });
     expect(bindRestrictedTokens(ffi, { advapi32: lib, kernel32: lib, ntdll: lib })).toBe(api);
@@ -627,5 +631,64 @@ describe.skipIf(!cc)("restricted tokens: compiled native ABI stand-in (not real 
     expect(live()).toBe(0);
     expect(() => api.create(sid, true, undefined, "mic-only")).toThrow(/extra SID filtering/);
     expect(live()).toBe(0);
+  });
+
+  it.each([false, true])("trusted selected-mechanism factory verifies before resume (reject=%s)", async (reject) => {
+    fault(0);
+    resetProcess();
+    let serial = 0;
+    const pipeApi: BytePipeApi = {
+      create: async () => ({
+        parent: BigInt(++serial),
+        child: BigInt(++serial),
+        read: () => {
+          throw new Error("no I/O expected");
+        },
+        write: () => {
+          throw new Error("no I/O expected");
+        },
+        closeParent: () => undefined,
+        closeChild: () => undefined,
+      }),
+    };
+    const io = await createNativeByteStdio(pipeApi, "S-1-5-21-1-2-3-1001");
+    const owned = job();
+    const verify = vi.fn(() => {
+      expect(owned.accounting()?.active).toBe(1);
+      expect(resumes()).toBe(0);
+      if (reject) throw new Error("independent token mismatch");
+    });
+    const launch = bindProbeLauncher(
+      nativeFfi,
+      { advapi32: path.join(dir, "token.so"), kernel32: path.join(dir, "token.so") },
+      {
+        create: (input) => {
+          expect(input.flags & 4).toBe(4);
+          expect(input.stdio).toBe(io);
+          const create = nativeFfi
+            .load(path.join(dir, "token.so"))
+            .func("int CreateFactoryProcess(_Out_ CROT_L1_PROCESS_INFORMATION *out)");
+          expect(create(input.info)).toBe(1);
+        },
+        verify,
+      },
+    );
+    try {
+      if (reject) {
+        expect(() => launch(null, { ...spec, stdio: io }, owned)).toThrow(/token mismatch/);
+        expect(resumes()).toBe(0);
+        expect(kills()).toBe(1);
+        expect(owned.closed).toBe(true);
+      } else {
+        const child = launch(null, { ...spec, stdio: io }, owned);
+        expect(resumes()).toBe(1);
+        child.close();
+      }
+      expect(verify).toHaveBeenCalledOnce();
+      expect(creates()).toBe(1);
+      expect(live()).toBe(0);
+    } finally {
+      await io.close();
+    }
   });
 });
