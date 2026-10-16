@@ -17,6 +17,8 @@ const char* phase="setup";
 const char* launchStep="none";
 DWORD failureCode=0;
 std::wstring ownedTemp,ownedCache;
+using ShimInjector=DWORD(WINAPI*)(HANDLE);
+ShimInjector localShimInjector=nullptr;
 void need(bool okay){if(!okay)throw std::runtime_error("native prerequisite");}
 #include "acl-lease.h"
 std::wstring quote(const std::wstring& s){std::wstring r=L"\"";unsigned n=0;for(auto c:s){if(c==L'\\'){n++;continue;}if(c==L'"')r.append(n*2+1,L'\\');else r.append(n,L'\\');n=0;r+=c;}r.append(n*2,L'\\');return r+L"\"";}
@@ -123,7 +125,7 @@ DWORD launch(const std::wstring& exe,const std::vector<std::wstring>& args,const
   auto sid=reinterpret_cast<TOKEN_APPCONTAINER_INFORMATION*>(ps.data())->TokenAppContainer;
   need(*reinterpret_cast<DWORD*>(ac.data())!=0&&sid&&IsValidSid(sid)&&EqualSid(sid,package));
   need(reinterpret_cast<TOKEN_GROUPS*>(cs.data())->GroupCount==0&&IsValidSid(label)&&*GetSidSubAuthorityCount(label)==1&&*GetSidSubAuthority(label,0)==4096);
-  verified=true;launchStep="resume";need(ResumeThread(thread.h)==1);
+  verified=true;launchStep="local-shim";need(localShimInjector&&localShimInjector(process.h)==ERROR_SUCCESS);launchStep="resume";need(ResumeThread(thread.h)==1);
   launchStep="wait-process";need(WaitForSingleObject(process.h,30000)==WAIT_OBJECT_0);
   launchStep="exit-code";need(!!GetExitCodeProcess(process.h,&observedExit));
   // The process handle can signal before Job accounting has settled. Keep the
@@ -184,6 +186,16 @@ int wmain(int argc,wchar_t** argv){
   need(!!CreateHardLinkW((outside+L"\\alias.txt").c_str(),(root+L"\\link-source.txt").c_str(),nullptr));
   need(put(root+L"\\internal-source.txt","internal-before"));
   need(!!CreateHardLinkW((root+L"\\internal-alias.txt").c_str(),(root+L"\\internal-source.txt").c_str(),nullptr));
+  phase="local-shim-rx";
+  auto compatDir=outside+L"\\local-compat",compatDll=compatDir+L"\\crot-local-shim.dll";
+  need(!!CreateDirectoryW(compatDir.c_str(),nullptr));
+  auto buildDir=source.substr(0,source.find_last_of(L'\\')+1);
+  need(!!CopyFileW((buildDir+L"crot-local-shim.dll").c_str(),compatDll.c_str(),TRUE));
+  PinnedAcl compatDirectory(compatDir,package),compatFile(compatDll,package);
+  compatDirectory.add(FILE_GENERIC_READ|FILE_GENERIC_EXECUTE);
+  compatFile.add(FILE_GENERIC_READ|FILE_GENERIC_EXECUTE);
+  auto shimModule=LoadLibraryW(compatDll.c_str());need(shimModule!=nullptr);
+  localShimInjector=reinterpret_cast<ShimInjector>(GetProcAddress(shimModule,"CrotInjectLocalShim"));need(localShimInjector!=nullptr);
   phase="snapshot-hardlinks";std::vector<LinkedFile> linked;scanLinks(root,package,linked);linkedCount=static_cast<unsigned>(linked.size());
   // The cross-root link is a host setup action too: keep its PRE-setup snapshot.
   for(auto& f:linked)if(f.lease->path==root+L"\\link-source.txt")f.lease->original=observations[2].initial;
@@ -220,6 +232,7 @@ int wmain(int argc,wchar_t** argv){
   const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop; $initial=Get-Location; [Console]::Out.WriteLine('CROT-PS-INITIAL-FILESYSTEM=' + ($initial.Provider.Name -eq 'FileSystem')); [Console]::Out.WriteLine('CROT-PS-INITIAL-ROOT=' + ($initial.Path -eq '"+psRoot+L"')); Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; $info=New-Object System.Diagnostics.ProcessStartInfo; $info.FileName=$env:ComSpec; $info.Arguments='/d /c \"echo nul>NUL && type NUL >NUL && echo nul-child-ready>ps-child-marker.txt\"'; $info.UseShellExecute=$false; $info.CreateNoWindow=$true; $info.WorkingDirectory=(Get-Location).Path; $child=[System.Diagnostics.Process]::Start($info); try { if (!$child.WaitForExit(5000)) { $child.Kill(); throw 'NUL descendant timeout' }; [Console]::Out.WriteLine('CROT-PS-NUL-EXIT=' + $child.ExitCode); if ($child.ExitCode -ne 0) { throw 'NUL descendant failed' }; if ([System.IO.File]::ReadAllText((Join-Path (Get-Location).Path 'ps-child-marker.txt')).Trim() -ne 'nul-child-ready') { throw 'NUL descendant marker failed' } } finally { $child.Dispose() }";
   phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified,psCode);
   if(argc==14){phase="service";serviceAttempted=true;std::vector<std::wstring> args{L"service-actor.cjs"};for(int i=8;i<=13;i++)args.push_back(argv[i]);serviceCode=launch(nodeCopy,args,root,package,verified,serviceCode);}
+  phase="cleanup-shim";need(!!FreeLibrary(shimModule));localShimInjector=nullptr;need(compatFile.remove()&&compatDirectory.remove());
   phase="cleanup-workspace-only";stripWorkspaceSid(root,package);
   // Object-handle restoration is non-propagating. Restore leaves first;
   // exact independent snapshots remain the acceptance gate.

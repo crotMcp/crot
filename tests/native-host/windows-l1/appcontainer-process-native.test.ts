@@ -3,8 +3,9 @@ import { appendFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
-import { afterEach, beforeEach, describe, expect, inject, it } from "vitest";
-import { bindNpfsRootQualification } from "../../../src/native-host/windows-l1/npfs-root.js";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, inject, it } from "vitest";
+import { bindLocalPipeShim, type LocalPipeShim } from "../../../src/native-host/windows-l1/local-shim.js";
+import { buildLocalShimFixture } from "./diagnostics/local-shim-build.js";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 import { currentUserSid, runTool, windowsTools } from "../../../src/native-host/windows-acl.js";
 import { loadJobObjectApi } from "../../../src/native-host/windows-job.js";
@@ -29,6 +30,11 @@ foreach($p in @($env:CROT_APPC_TEST_WORKSPACE,$env:CROT_APPC_TEST_PRIVATE)) {
  $acl.AddAccessRule($rule)
  [System.IO.Directory]::SetAccessControl($p,$acl)
 }
+$p=$env:CROT_APPC_TEST_COMPAT
+$acl=[System.IO.Directory]::GetAccessControl($p)
+$flags=[System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+$acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new($sid,[System.Security.AccessControl.FileSystemRights]::ReadAndExecute,$flags,[System.Security.AccessControl.PropagationFlags]::None,[System.Security.AccessControl.AccessControlType]::Allow))
+[System.IO.Directory]::SetAccessControl($p,$acl)
 `;
 const bytes = async (stream: Readable) => {
   const chunks: Buffer[] = [];
@@ -38,12 +44,24 @@ const bytes = async (stream: Readable) => {
 describe.runIf(isWindows)("Windows AppContainer verified launch through NativeProcessLauncher", () => {
   let dirs: TempDirs, profile: AppContainerProfile, launcher: NativeProcessLauncher, host: NativeHost;
   let executable: string, secret: string;
+  let localShim: LocalPipeShim | undefined;
   const children = new Set<ManagedProcess>();
+  let shimBuild: Awaited<ReturnType<typeof buildLocalShimFixture>>, shimLibrary: string;
+  beforeAll(async () => {
+    shimBuild = await buildLocalShimFixture();
+  }, 150000);
+  afterAll(async () => {
+    await shimBuild?.cleanup();
+  });
   beforeEach(async () => {
     dirs = await makeTempDirs();
     profile = (await loadAppContainerProfiles()).create();
     host = await NativeHost.start({ startupPath: "inherited", jobObjects: false });
     const privateRoot = path.join(dirs.outside, "private-runtime");
+    const compat = path.join(dirs.outside, "local-compat");
+    await mkdir(compat);
+    shimLibrary = path.join(compat, "crot-local-shim.dll");
+    await copyFile(shimBuild.library, shimLibrary);
     const environment = new WindowsLaunchEnvironment({
       systemRoot: process.env.SystemRoot ?? "C:\\Windows",
       privateRoot,
@@ -73,17 +91,20 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
       CROT_APPC_TEST_SID: profile.sid,
       CROT_APPC_TEST_WORKSPACE: dirs.workspace,
       CROT_APPC_TEST_PRIVATE: privateRoot,
+      CROT_APPC_TEST_COMPAT: compat,
     });
     const imported = await import("koffi");
     const ffi = imported.default ?? imported;
     const dll = (n: string) => path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", n);
     const ownerSid = await currentUserSid(tools);
+    localShim = bindLocalPipeShim(ffi, shimLibrary);
     launcher = new NativeProcessLauncher({
       token: bindAppContainerProcessIdentity(
         ffi,
         { advapi32: dll("advapi32.dll"), kernel32: dll("kernel32.dll") },
         profile,
         ownerSid,
+        localShim,
       ),
       ownerSid,
       pipes: await loadBytePipeApi(),
@@ -97,6 +118,8 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
     try {
       await launcher?.close();
       expect(quarantinedStdioOperations()).toBe(0);
+      localShim?.close();
+      localShim = undefined;
       profile?.close();
     } finally {
       await host?.close();
@@ -145,14 +168,14 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
   it("denies read/write of a real protected file and outside writes after a ready Node startup", async () => {
     const target = path.join(dirs.outside, "forbidden.txt");
     const p = await launch(
-      `const f=require('fs');const a=op=>{try{op();return 'ALLOWED'}catch(e){return e.code}};process.stdout.write(JSON.stringify({ready:true,read:a(()=>f.readFileSync(${JSON.stringify(secret)})),write:a(()=>f.writeFileSync(${JSON.stringify(secret)},'bad')),outside:a(()=>f.writeFileSync(${JSON.stringify(target)},'bad'))}));`,
+      `const f=require('fs');const a=op=>{try{op();return 'ALLOWED'}catch(e){return e.code}};process.stdout.write(JSON.stringify({ready:true,read:a(()=>f.readFileSync(${JSON.stringify(secret)})),write:a(()=>f.writeFileSync(${JSON.stringify(secret)},'bad')),outside:a(()=>f.writeFileSync(${JSON.stringify(target)},'bad')),shimWrite:a(()=>{const h=f.openSync(${JSON.stringify(shimLibrary)},'r+');f.closeSync(h)})}));`,
     );
     const [exit, out, err] = await Promise.all([p.exited, bytes(p.stdout), bytes(p.stderr)]);
     expect(exit.code).toBe(0);
     expect(err.length).toBe(0);
     const result = JSON.parse(out.toString());
     expect(result.ready).toBe(true);
-    for (const key of ["read", "write", "outside"]) expect(["EPERM", "EACCES"]).toContain(result[key]);
+    for (const key of ["read", "write", "outside", "shimWrite"]) expect(["EPERM", "EACCES"]).toContain(result[key]);
     expect(await readFile(secret, "utf8")).toBe("canary");
     await p.terminate("force");
     appendFileSync(
@@ -161,99 +184,72 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
     );
   }, 30000);
   it("ends a detached descendant and retains profile ownership until the complete Job drains", async () => {
-    const imported = await import("koffi"),
-      ffi = imported.default ?? imported;
-    const dll = (name: string) => path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", name);
-    let lease: ReturnType<ReturnType<typeof bindNpfsRootQualification>> | undefined;
+    const trace = path.join(dirs.workspace, "descendant-trace.jsonl");
+    const record = `const record=v=>require('fs').appendFileSync(${JSON.stringify(trace)},JSON.stringify(v)+'\\n');`;
+    const grandchild = "process.stdout.write('READY:'+process.pid+'\\n');setInterval(()=>{},1000)";
+    const descendant =
+      record +
+      `record({step:'child-start',pid:process.pid});const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(grandchild)}],{stdio:['ignore','pipe','ignore']});c.on('error',e=>{record({step:'grandchild-error',code:e.code});process.exit(74)});c.stdout.once('data',b=>process.stdout.write('READY:'+process.pid+':'+c.pid+'\\n'));setInterval(()=>{},1000)`;
+    const p = await launch(
+      `${record}record({step:'parent-start'});const cp=require('child_process');record({step:'before-spawn'});const c=cp.spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:['ignore','pipe','ignore']});record({step:'after-spawn',pid:c.pid});c.on('spawn',()=>record({step:'spawn-event',pid:c.pid}));let ready=false;c.stdout.once('data',b=>{ready=true;process.stdout.write(b,()=>process.exit(23))});c.on('error',e=>{process.stderr.write('CHILD_ERROR:'+e.code+'\\n');process.exitCode=71});c.on('exit',(code,signal)=>{if(!ready){process.stderr.write('CHILD_EARLY_EXIT:'+JSON.stringify({code,signal})+'\\n');process.exitCode=72}});`,
+    );
+    // A live descendant may retain an inherited stream. Do not wait for
+    // stream EOF before terminating that very descendant (circular wait).
+    let output = "",
+      errors = "";
+    p.stdout.on("data", (data: Buffer) => {
+      output += data.toString();
+    });
+    p.stderr.on("data", (data: Buffer) => {
+      errors += data.toString();
+    });
     try {
-      lease = bindNpfsRootQualification(ffi, { kernel32: dll("kernel32.dll"), advapi32: dll("advapi32.dll") })(
-        profile.sid,
-      );
-      appendFileSync(
-        inject("stage6aEvidence"),
-        JSON.stringify({
-          title: "CROT-6A-npfs-root-grant",
-          value: { mask: lease.mask, inherited: false, sid: profile.sid },
-        }) + "\n",
-      );
-      const trace = path.join(dirs.workspace, "descendant-trace.jsonl");
-      const record = `const record=v=>require('fs').appendFileSync(${JSON.stringify(trace)},JSON.stringify(v)+'\\n');`;
-      const descendant =
-        record +
-        "record({step:'child-start',pid:process.pid});process.stdout.write('READY:'+process.pid+'\\n');setInterval(()=>{},1000)";
-      const p = await launch(
-        `${record}record({step:'parent-start'});const cp=require('child_process');record({step:'before-spawn'});const c=cp.spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:['ignore','pipe','ignore']});record({step:'after-spawn',pid:c.pid});c.on('spawn',()=>record({step:'spawn-event',pid:c.pid}));let ready=false;c.stdout.once('data',b=>{ready=true;process.stdout.write(b,()=>process.exit(23))});c.on('error',e=>{process.stderr.write('CHILD_ERROR:'+e.code+'\\n');process.exitCode=71});c.on('exit',(code,signal)=>{if(!ready){process.stderr.write('CHILD_EARLY_EXIT:'+JSON.stringify({code,signal})+'\\n');process.exitCode=72}});`,
-      );
-      // A live descendant may retain an inherited stream. Do not wait for
-      // stream EOF before terminating that very descendant (circular wait).
-      let output = "",
-        errors = "";
-      p.stdout.on("data", (data: Buffer) => {
-        output += data.toString();
-      });
-      p.stderr.on("data", (data: Buffer) => {
-        errors += data.toString();
-      });
-      try {
-        await waitFor(() => /READY:[0-9]+\n/.test(output) && p.hasExited, 10000);
-      } catch (error) {
-        appendFileSync(
-          inject("stage6aEvidence"),
-          JSON.stringify({
-            title: "CROT-6A-appcontainer-native-launcher-descendant-failure",
-            value: {
-              parentHasExited: p.hasExited,
-              parentExit: p.hasExited ? (await p.exited).code : null,
-              stdout: output,
-              stderr: errors,
-              transportFailure: p.failure?.message ?? null,
-              trace: await readFile(trace, "utf8").catch((e) => "TRACE_READ_ERROR:" + e.code),
-            },
-          }) + "\n",
-        );
-        throw error;
-      }
-      expect((await p.exited).code).toBe(23);
-      expect(errors).toBe("");
-      const pid = Number(/READY:([0-9]+)/.exec(output)?.[1]);
-      expect(Number.isInteger(pid) && pid > 0).toBe(true);
-      expect(isAlive(pid)).toBe(true);
-      expect(() => profile.close()).toThrow(/still owns actors/);
-      await p.terminate("force");
-      await waitFor(() => !isAlive(pid), 5000);
-      profile.close();
-      expect(profile.closed).toBe(true);
-      appendFileSync(
-        inject("stage6aEvidence"),
-        JSON.stringify({
-          title: "CROT-6A-appcontainer-native-launcher-descendant",
-          value: {
-            ready: true,
-            parentExit: 23,
-            descendantReady: true,
-            profileHeldUntilJobDrain: true,
-            descendantTerminated: true,
-            profileClosed: true,
-          },
-        }) + "\n",
-      );
+      await waitFor(() => /READY:[0-9]+:[0-9]+\n/.test(output) && p.hasExited, 10000);
     } catch (error) {
       appendFileSync(
         inject("stage6aEvidence"),
         JSON.stringify({
-          title: "CROT-6A-npfs-root-failure",
-          value: { message: String(error), details: (error as { details?: unknown }).details },
+          title: "CROT-6A-appcontainer-native-launcher-descendant-failure",
+          value: {
+            parentHasExited: p.hasExited,
+            parentExit: p.hasExited ? (await p.exited).code : null,
+            stdout: output,
+            stderr: errors,
+            transportFailure: p.failure?.message ?? null,
+            trace: await readFile(trace, "utf8").catch((e) => "TRACE_READ_ERROR:" + e.code),
+          },
         }) + "\n",
       );
       throw error;
-    } finally {
-      // Even on failed spawn, stop/drain the complete Job BEFORE touching NPFS.
-      await launcher.close();
-      lease?.close();
-      appendFileSync(
-        inject("stage6aEvidence"),
-        JSON.stringify({ title: "CROT-6A-npfs-root-restored", value: { exact: Boolean(lease) } }) + "\n",
-      );
     }
+    expect((await p.exited).code).toBe(23);
+    expect(errors).toBe("");
+    const match = /READY:([0-9]+):([0-9]+)/.exec(output);
+    const pid = Number(match?.[1]),
+      grandchildPid = Number(match?.[2]);
+    expect(Number.isInteger(pid) && pid > 0).toBe(true);
+    expect(isAlive(pid)).toBe(true);
+    expect(isAlive(grandchildPid)).toBe(true);
+    expect(() => profile.close()).toThrow(/still owns actors/);
+    await p.terminate("force");
+    await waitFor(() => !isAlive(pid) && !isAlive(grandchildPid), 5000);
+    profile.close();
+    expect(profile.closed).toBe(true);
+    appendFileSync(
+      inject("stage6aEvidence"),
+      JSON.stringify({
+        title: "CROT-6A-appcontainer-native-launcher-descendant",
+        value: {
+          ready: true,
+          parentExit: 23,
+          descendantReady: true,
+          profileHeldUntilJobDrain: true,
+          descendantTerminated: true,
+          grandchildTerminated: true,
+          shimPropagatedAcrossTwoSpawns: true,
+          profileClosed: true,
+        },
+      }) + "\n",
+    );
   }, 30000);
 });

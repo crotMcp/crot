@@ -1,0 +1,6 @@
+LIBRARY crot-local-shim
+EXPORTS
+    DetourFinishHelperProcess @1 NONAME
+    CrotInjectLocalShim
+    CrotLocalShimVersion
+    CrotMapPipeName

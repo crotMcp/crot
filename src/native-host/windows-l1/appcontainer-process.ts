@@ -3,6 +3,7 @@
  * No filesystem grant, network-on promise or CommandConfinement availability.
  * Keeps the existing owned byte streams / Job / cancellation implementation.
  */
+import type { LocalPipeShim } from "./local-shim.js";
 import { validateSid } from "../validation.js";
 import { CrotError } from "../../core/errors.js";
 import type { JobObject } from "../windows-job.js";
@@ -45,6 +46,7 @@ export function bindAppContainerProcessIdentity(
   libraries: TokenLibraries,
   profile: AppContainerProfile,
   ownerSid: string,
+  localShim?: LocalPipeShim,
 ): AppContainerProcessIdentity {
   validateSid(ownerSid);
   if (!declared.has(ffi)) {
@@ -275,6 +277,7 @@ export function bindAppContainerProcessIdentity(
               }
             }
             if (verificationFault) throw verificationFault;
+            localShim?.prepareSuspended(process);
           },
         });
         launchers.add(launch);

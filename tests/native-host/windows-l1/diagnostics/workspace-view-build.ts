@@ -57,6 +57,22 @@ foreach($item in @(@($env:CROT_VIEW_SOURCE,'view.exe','view.obj'),@($env:CROT_CH
       ],
       { env, timeout: 60000, maxBuffer: 1024 * 1024 },
     );
+    await execute(
+      ps,
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        path.resolve("scripts/build-windows-local-shim.ps1"),
+        "-OutputDirectory",
+        dir,
+        "-Architecture",
+        process.arch === "arm64" ? "ARM64" : "x64",
+      ],
+      { timeout: 120000, maxBuffer: 1048576 },
+    );
     return { helper: path.join(dir, "view.exe"), cleanup };
   } catch (error) {
     await cleanup();
