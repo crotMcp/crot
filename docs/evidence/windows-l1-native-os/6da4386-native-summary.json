@@ -390,10 +390,7 @@
           ]
         }
       ],
-      "exactDescriptorRestoredByObject": [
-        false,
-        true
-      ],
+      "exactDescriptorRestoredByObject": [false, true],
       "powershellStdout": "CROT-PS-INITIAL-FILESYSTEM=True\r\nCROT-PS-INITIAL-ROOT=False\r\n",
       "powershellStderr": "Set-Location : Access is denied\r\nAt line:1 char:524\r\n+ ... rkspace')); Set-Location -LiteralPath 'C:\\Users\\runneradmin\\AppData\\L ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : NotSpecified: (:) [Set-Location], UnauthorizedAccessException\r\n    + FullyQualifiedErrorId : System.UnauthorizedAccessException,Microsoft.PowerShell.Commands.SetLocationCommand\r\n \r\n"
     },
@@ -785,10 +782,7 @@
           ]
         }
       ],
-      "exactDescriptorRestoredByObject": [
-        false,
-        true
-      ],
+      "exactDescriptorRestoredByObject": [false, true],
       "powershellStdout": "CROT-PS-INITIAL-FILESYSTEM=True\r\nCROT-PS-INITIAL-ROOT=False\r\n",
       "powershellStderr": "Set-Location : Access is denied\r\nAt line:1 char:524\r\n+ ... rkspace')); Set-Location -LiteralPath 'C:\\Users\\runneradmin\\AppData\\L ...\r\n+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : NotSpecified: (:) [Set-Location], UnauthorizedAccessException\r\n    + FullyQualifiedErrorId : System.UnauthorizedAccessException,Microsoft.PowerShell.Commands.SetLocationCommand\r\n \r\n"
     }
