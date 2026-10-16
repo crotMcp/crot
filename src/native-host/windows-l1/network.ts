@@ -27,6 +27,9 @@ export interface AppContainerNetworkLease {
   close(): Promise<void>;
 }
 const owners = new WeakSet<object>();
+// Reserve before the first await: two wrappers must never own one SID lifetime.
+// Failed setup remains reserved; recovery, not another grant, is required.
+const profilesInUse = new WeakSet<object>();
 const fail = (stage: string) => new CrotError("CONFINEMENT_FAILED", `Windows network: ${stage} failed.`, { stage });
 
 /** Branded owner check before the launch path consumes capabilities. */
@@ -49,6 +52,8 @@ export async function openAppContainerNetwork(
   store: LeaseJournalStore,
   native: AppContainerNetworkNative,
 ): Promise<AppContainerNetworkLease> {
+  if (profilesInUse.has(profile)) throw fail("profile network ownership already reserved");
+  profilesInUse.add(profile);
   const id = profile.name.slice("crot.l1.".length);
   const record = await store.read(id);
   if (
@@ -99,8 +104,9 @@ export async function openAppContainerNetwork(
       if (await native.contains(profile.sid)) throw fail("loopback removal readback");
       profilePin.release();
       closed = true;
+      profilesInUse.delete(profile);
     },
   };
   owners.add(lease);
-  return lease;
+  return Object.freeze(lease);
 }

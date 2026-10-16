@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { leaseDescriptor, leaseFileIdDescriptor } from "../../../src/native-host/windows-l1/lease-acl.js";
+import {
+  leaseDescriptor,
+  leaseFileIdDescriptor,
+  prepareNewWorkspaceSidRemoval,
+} from "../../../src/native-host/windows-l1/lease-acl.js";
 function sd() {
   const b = Buffer.alloc(52);
   b[0] = 1;
@@ -81,5 +85,89 @@ describe("bounded self-relative lease descriptor parser", () => {
     if (kind === "ACL-revision") b[44] = 1;
     if (kind === "null-DACL") b.writeUInt32LE(0, 16);
     expect(() => leaseDescriptor(b)).toThrow();
+  });
+});
+
+describe("exact owned-SID cleanup planning (pure bytes, not native proof)", () => {
+  const packageSid = "S-1-15-2-1-2-3-4-5-6-7";
+  function fixture() {
+    const bin = (last: number) => {
+      const b = Buffer.alloc(40);
+      b[0] = 1;
+      b[1] = 8;
+      b[7] = 15;
+      [2, 1, 2, 3, 4, 5, 6, last].forEach((v, i) => b.writeUInt32LE(v, 8 + i * 4));
+      return b;
+    };
+    const ace = (last: number, type = 0) => {
+      const offset = type === 5 ? 28 : 8,
+        b = Buffer.alloc(offset + 40);
+      b[0] = type;
+      b[1] = 0x13;
+      b.writeUInt16LE(b.length, 2);
+      b.writeUInt32LE(0x1301bf, 4);
+      if (type === 5) {
+        b.writeUInt32LE(1, 8);
+        b.fill(0x4f, 12, 28);
+      }
+      bin(last).copy(b, offset);
+      return b;
+    };
+    const foreign = ace(8),
+      own = ace(7),
+      objectOwn = ace(7, 5),
+      tail = Buffer.from([0x11, 0x22, 0x33, 0x44]);
+    const old = sd(),
+      b = Buffer.concat([old, foreign, own, objectOwn, tail]);
+    b.writeUInt16LE(b.length - 44, 46);
+    b.writeUInt16LE(3, 48);
+    const identity = {
+      volume: "\\\\?\\Volume{00000000-0000-4000-8000-000000000001}\\",
+      fileId: "0000000000000001",
+      creationTime: "0000000000000001",
+      directory: false,
+    };
+    return {
+      object: {
+        identity,
+        role: "workspace-node" as const,
+        original: b.toString("base64"),
+        planned: b.toString("base64"),
+      },
+      b,
+      foreign,
+      tail,
+    };
+  }
+  it("removes simple/object own ACEs and preserves foreign ACE plus unused tail exactly", () => {
+    const f = fixture(),
+      before = leaseDescriptor(f.b),
+      p = prepareNewWorkspaceSidRemoval(f.object, packageSid),
+      after = leaseDescriptor(Buffer.from(p.planned, "base64"));
+    expect(after.dacl.readUInt16LE(4)).toBe(1);
+    expect(after.dacl.subarray(8)).toEqual(Buffer.concat([f.foreign, f.tail]));
+    expect(after.control).toBe(before.control);
+    expect(after.rmControl).toBe(before.rmControl);
+    for (const key of ["owner", "group", "sacl"] as const) expect(after[key]).toEqual(before[key]);
+    expect(p.original).toBe(f.object.original);
+    expect(p.identity).toEqual(f.object.identity);
+    expect(prepareNewWorkspaceSidRemoval({ ...p, original: p.planned }, packageSid).planned).toBe(p.planned);
+  });
+  it("returns identical original bytes when no trustee SID matches", () => {
+    const f = fixture();
+    expect(prepareNewWorkspaceSidRemoval(f.object, "S-1-15-2-9-9-9-9-9-9-9").planned).toBe(f.object.original);
+  });
+  it.each(["S-1-1-0", "S-1-15-2-01-2-3-4-5-6-7", "S-1-15-2-4294967296-2-3-4-5-6-7"])(
+    "refuses unsafe cleanup SID %s",
+    (sid) => {
+      expect(() => prepareNewWorkspaceSidRemoval(fixture().object, sid)).toThrow();
+    },
+  );
+  it("refuses non-workspace-node roles and malformed descriptors", () => {
+    const f = fixture();
+    expect(() => prepareNewWorkspaceSidRemoval({ ...f.object, role: "runtime-node" }, packageSid)).toThrow("role");
+    expect(() =>
+      prepareNewWorkspaceSidRemoval({ ...f.object, original: Buffer.alloc(20).toString("base64") }, packageSid),
+    ).toThrow();
   });
 });

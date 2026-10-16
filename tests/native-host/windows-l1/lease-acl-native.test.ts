@@ -2,7 +2,11 @@
 import { link, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadLeaseAclObjects } from "../../../src/native-host/windows-l1/lease-acl.js";
+import {
+  loadLeaseAclObjects,
+  prepareNewWorkspaceSidRemoval,
+  leaseDescriptor,
+} from "../../../src/native-host/windows-l1/lease-acl.js";
 import { createServicePrivateFiles } from "../../../src/service/private-files.js";
 import { isWindows, makeTempDirs, type TempDirs } from "../../helpers.js";
 const sid = "S-1-15-2-1-2-3-4-5-6-7",
@@ -76,6 +80,42 @@ describe.runIf(isWindows)("Windows native lease ACL transactions", () => {
     await link(file, path.join(dirs.outside, "alias.txt"));
     expect(() => api.pin(object)).toThrow("links changed");
     expect(() => api.capture(file, "workspace-node", sid, 0x1301bf)).toThrow("multi-link");
+  });
+  it("strips only the owned inherited SID on a new workspace node after parent restore", async () => {
+    const root = api.capture(dirs.workspace, "workspace", sid, 0x1301bf, false, true),
+      rootPin = api.pin(root);
+    let childPin: ReturnType<typeof api.pin> | undefined;
+    try {
+      rootPin.apply();
+      const child = path.join(dirs.workspace, "new-after-acquire.txt");
+      await writeFile(child, "new content");
+      // Foreign ACE is deliberately added and MUST survive exact byte readback.
+      const foreign = api.capture(child, "workspace-node", other, 0x1200a9),
+        foreignPin = api.pin(foreign);
+      try {
+        foreignPin.apply();
+      } finally {
+        foreignPin.close();
+      }
+      rootPin.restore();
+      const before = api.capture(child, "workspace-node", sid, 0x1301bf),
+        removal = prepareNewWorkspaceSidRemoval(before, sid);
+      expect(removal.planned).not.toBe(before.original);
+      childPin = api.pin(removal);
+      childPin.apply();
+      const after = api.capture(child, "workspace-node", sid, 0x1301bf).original;
+      expect(after).toBe(removal.planned);
+      expect(prepareNewWorkspaceSidRemoval({ ...before, original: after }, sid).planned).toBe(after);
+      const old = leaseDescriptor(Buffer.from(before.original, "base64")),
+        next = leaseDescriptor(Buffer.from(after, "base64"));
+      for (const field of ["owner", "group", "sacl"] as const) expect(next[field]).toEqual(old[field]);
+      expect(next.control).toBe(old.control);
+      expect(await readFile(child, "utf8")).toBe("new content");
+    } finally {
+      childPin?.close();
+      rootPin.restore();
+      rootPin.close();
+    }
   });
   it("rejects a stale creation time even if the volume/file ID still exists", () => {
     const object = api.capture(file, "workspace-node", sid, 0x1301bf);

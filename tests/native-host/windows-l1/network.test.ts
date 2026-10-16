@@ -80,6 +80,15 @@ describe("Windows owned network protocol (injected)", () => {
     expect(f.change).not.toHaveBeenCalled();
     f.profile.close();
   });
+  it("reserves the profile before any await and rejects concurrent owners", async () => {
+    const f = fixture();
+    const first = openAppContainerNetwork(f.profile, f.store, f.native);
+    await expect(openAppContainerNetwork(f.profile, f.store, f.native)).rejects.toThrow("already reserved");
+    const lease = await first;
+    expect(Object.isFrozen(lease)).toBe(true);
+    await lease.close();
+    f.profile.close();
+  });
   it("never grants without a successful durable WAL read", async () => {
     const f = fixture();
     f.read.mockRejectedValueOnce(new Error("disk"));

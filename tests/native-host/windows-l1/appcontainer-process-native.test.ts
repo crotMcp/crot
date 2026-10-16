@@ -1,5 +1,7 @@
 /** Selected AppContainer launch primitive + existing ProcessLauncher; not full L1 availability. */
 import { createServer } from "node:http";
+import { get as httpsGet } from "node:https";
+import { lookup } from "node:dns/promises";
 import { networkInterfaces } from "node:os";
 import { once } from "node:events";
 import { CrotService } from "../../../src/service/service.js";
@@ -266,6 +268,10 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
         .flat()
         .find((v) => v && v.family === "IPv4" && !v.internal)?.address;
       if (!lan) throw new Error("No LAN interface for qualification");
+      let actorConnections = 0;
+      server.on("connection", () => {
+        actorConnections++;
+      });
       let service: CrotService | undefined;
       let control: Awaited<ReturnType<typeof ControlClient.connect>>;
       try {
@@ -274,6 +280,24 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
           const r = await fetch(`http://${host}:${address.port}`, { signal: AbortSignal.timeout(10000) });
           expect(await r.text()).toBe("NETWORK-READY");
         }
+        const publicIp = (await lookup("api.github.com", { family: 4 })).address;
+        const publicControl = await new Promise<number>((resolve, reject) => {
+          const r = httpsGet(
+            "https://api.github.com/",
+            {
+              headers: { "User-Agent": "CROT-network-qualification" },
+              family: 4,
+              lookup: (_host, _options, callback) => callback(null, publicIp, 4),
+            },
+            (s) => {
+              s.resume();
+              s.on("end", () => resolve(s.statusCode ?? 0));
+            },
+          );
+          r.on("error", reject);
+          r.setTimeout(12000, () => r.destroy(new Error("Owner internet control timed out")));
+        });
+        expect(publicControl).toBeGreaterThan(0);
         const stateDir = path.join(dirs.outside, "network-service-state");
         const privateFiles = createServicePrivateFiles(true, [profile.sid]);
         const started = await CrotService.start({
@@ -312,12 +336,12 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
         const before = await Promise.all(files.map((f) => readFile(f)));
         const body = `
         const http=require('http'),https=require('https'),net=require('net'),fs=require('fs');
-        const get=(url,headers={})=>new Promise(resolve=>{let done=false;const finish=v=>{if(!done){done=true;resolve(v)}};const r=(url.startsWith('https:')?https:http).get(url,{headers},s=>{s.resume();s.on('end',()=>finish({status:s.statusCode}))});r.on('error',e=>finish({error:e.code}));r.setTimeout(12000,()=>{r.destroy();finish({error:'TIMEOUT'})})});
+        const get=(url,headers={},fixedIp)=>new Promise(resolve=>{let done=false;const finish=v=>{if(!done){done=true;resolve(v)}};const r=(url.startsWith('https:')?https:http).get(url,{headers,...(fixedIp?{family:4,autoSelectFamily:false,lookup:(_host,_opts,cb)=>cb(null,fixedIp,4)}:{})},s=>{s.resume();s.on('end',()=>finish({status:s.statusCode}))});r.on('error',e=>finish({error:e.code}));r.setTimeout(12000,()=>{r.destroy();finish({error:'TIMEOUT'})})});
         const op=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};
         (async()=>{const result={ready:true,mode:${JSON.stringify(mode)}};
         result.loopback=await get(${JSON.stringify(`http://127.0.0.1:${address.port}`)});
         result.lan=await get(${JSON.stringify(`http://${lan}:${address.port}`)});
-        result.internet=await get('https://api.github.com/',{'User-Agent':'CROT-network-qualification'});
+        result.internet=await get('https://api.github.com/',{'User-Agent':'CROT-network-qualification'},${JSON.stringify(publicIp)});
         result.httpNoToken=await get(${JSON.stringify(service.httpUrl)});
         result.httpWrongToken=await get(${JSON.stringify(service.httpUrl)},{Authorization:'Bearer deliberately-wrong-token'});
         result.reads=${JSON.stringify(files)}.map(f=>op(()=>fs.readFileSync(f)));
@@ -325,11 +349,15 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
         result.control=await new Promise(resolve=>{const c=net.connect(${JSON.stringify(endpoint)});c.on('error',e=>resolve(e.code));c.on('connect',()=>{c.destroy();resolve('ALLOWED')})});
         process.stdout.write(JSON.stringify(result));})().catch(e=>{process.stderr.write(e.stack);process.exit(70)});
       `;
+        actorConnections = 0;
         const p = await launch(body);
         const [exit, out, err] = await Promise.all([p.exited, bytes(p.stdout), bytes(p.stderr)]);
         expect(exit.code).toBe(0);
         expect(err.length).toBe(0);
         const result = JSON.parse(out.toString());
+        result.ownerNetworkControls = true;
+        result.internetDnsBypassed = true;
+        result.hostAcceptedConnections = actorConnections;
         appendFileSync(
           inject("stage6aEvidence"),
           JSON.stringify({ title: `CROT-6A-appcontainer-network-${mode}`, value: result }) + "\n",
@@ -337,13 +365,21 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
         expect(result.ready).toBe(true);
         for (const target of ["loopback", "lan", "internet"]) {
           if (mode === "on") expect(result[target].status).toBeGreaterThan(0);
-          else expect(["EACCES", "EPERM"]).toContain(result[target].error);
+          else {
+            // WFP can silently drop traffic. A timeout is not re-labelled EPERM:
+            // same-IP owner controls, zero capabilities, absent loopback and
+            // zero server-side accepts are separate mandatory evidence.
+            expect(["EACCES", "EPERM", "ETIMEDOUT", "TIMEOUT"]).toContain(result[target].error);
+            expect(result[target].status).toBeUndefined();
+          }
         }
         if (mode === "on") {
+          expect(actorConnections).toBeGreaterThanOrEqual(2);
           expect(result.httpNoToken.status).toBe(401);
           expect(result.httpWrongToken.status).toBe(401);
         } else {
-          expect(["EACCES", "EPERM"]).toContain(result.httpNoToken.error);
+          expect(["EACCES", "EPERM", "ETIMEDOUT", "TIMEOUT"]).toContain(result.httpNoToken.error);
+          expect(actorConnections).toBe(0);
         }
         expect(result.reads).toEqual(files.map(() => "EPERM"));
         expect(result.writes).toEqual(files.map(() => "EPERM"));

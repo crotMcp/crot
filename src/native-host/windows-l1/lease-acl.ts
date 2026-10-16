@@ -108,6 +108,57 @@ function repack(original: Buffer, dacl: Buffer): Buffer {
   return result;
 }
 
+/**
+ * Pure cleanup transaction for a newly-created workspace node AFTER actor drain
+ * and original-parent restore. Removes only trustee ACEs of the exact fresh
+ * package SID, preserving all foreign ACE bytes/order, unused tail and control.
+ * Scope/tree admission is NOT inferred from a pathname or this role string.
+ */
+export function prepareNewWorkspaceSidRemoval(object: LeaseObject, sid: string): LeaseObject {
+  if (object.role !== "workspace-node") throw fail("new workspace cleanup role");
+  validateSid(sid);
+  if (
+    !SID.test(sid) ||
+    sid
+      .split("-")
+      .slice(3)
+      .some((v) => Number(v) > 0xffffffff || String(Number(v)) !== v)
+  )
+    throw fail("cleanup package SID");
+  const subAuthorities = sid.split("-").slice(3).map(Number),
+    binarySid = Buffer.alloc(8 + subAuthorities.length * 4);
+  binarySid[0] = 1;
+  binarySid[1] = subAuthorities.length;
+  binarySid[7] = 15;
+  subAuthorities.forEach((value, i) => binarySid.writeUInt32LE(value, 8 + i * 4));
+  const original = Buffer.from(object.original, "base64"),
+    parsed = leaseDescriptor(original),
+    acl = parsed.dacl,
+    kept: Buffer[] = [];
+  let cursor = 8,
+    removed = 0;
+  for (let i = 0; i < acl.readUInt16LE(4); i++) {
+    const size = acl.readUInt16LE(cursor + 2),
+      ace = acl.subarray(cursor, cursor + size),
+      type = ace[0]!;
+    let sidOffset = 8;
+    if ([5, 6, 7, 8, 11, 12, 15, 16].includes(type)) {
+      const flags = ace.readUInt32LE(8);
+      sidOffset = 12 + (flags & 1 ? 16 : 0) + (flags & 2 ? 16 : 0);
+    }
+    const bytes = 8 + 4 * ace[sidOffset + 1]!;
+    if (ace.subarray(sidOffset, sidOffset + bytes).equals(binarySid)) removed++;
+    else kept.push(ace);
+    cursor += size;
+  }
+  if (!removed) return { ...object, identity: { ...object.identity }, planned: object.original };
+  const next = Buffer.concat([acl.subarray(0, 8), ...kept, acl.subarray(cursor)]);
+  next.writeUInt16LE(next.length, 2);
+  next.writeUInt16LE(kept.length, 4);
+  const desired = repack(original, next);
+  return { ...object, identity: { ...object.identity }, planned: desired.toString("base64") };
+}
+
 /** Win10 SDK FILE_ID_DESCRIPTOR: header 8 + max(union FILE_ID_128) 16. */
 export function leaseFileIdDescriptor(fileId: string): Buffer {
   if (!/^[0-9a-f]{16}$/.test(fileId)) throw fail("file ID shape");
