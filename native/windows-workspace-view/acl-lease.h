@@ -6,7 +6,7 @@
 const char* aclStep="none";DWORD aclError=0;unsigned ancestorIndex=0;
 void aclResult(DWORD result){if(result!=ERROR_SUCCESS){aclError=result;SetLastError(result);need(false);}}
 struct PinnedAcl {
- Handle object;std::wstring path;PSID sid;std::vector<BYTE> original,expected;bool installed=false;const char* restoreError="none";
+ Handle object,renameGuard;std::wstring path;PSID sid;std::vector<BYTE> original,expected;bool installed=false;const char* restoreError="none";
  PinnedAcl(const std::wstring& p,PSID s,bool allowRename=false):path(p),sid(s){
   // Capture before opening a mutation handle. Compare the same requested
   // sections as the independent owner snapshot, never only a DACL projection.
@@ -15,7 +15,20 @@ struct PinnedAcl {
   if(object.h==INVALID_HANDLE_VALUE){aclError=GetLastError();need(false);}BY_HANDLE_FILE_INFORMATION info{};need(!!GetFileInformationByHandle(object.h,&info)&&!(info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT));
   // Multi-link objects retain their separate non-renamable protection lease.
   if(allowRename)need(info.nNumberOfLinks<=1);
+  else {
+   // Metadata-only opens (READ_CONTROL/WRITE_DAC/READ_ATTRIBUTES) do NOT
+   // participate in the I/O manager's data/delete share-access accounting.
+   // A separate read/list handle makes the no-DELETE-share guard effective;
+   // no bytes are read and no ACL/label is broadened by this owner handle.
+   renameGuard.h=CreateFileW(p.c_str(),FILE_READ_DATA|FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+   need(renameGuard.h!=INVALID_HANDLE_VALUE);
+   BY_HANDLE_FILE_INFORMATION guardInfo{};need(!!GetFileInformationByHandle(renameGuard.h,&guardInfo));
+   need(guardInfo.dwVolumeSerialNumber==info.dwVolumeSerialNumber&&guardInfo.nFileIndexHigh==info.nFileIndexHigh&&guardInfo.nFileIndexLow==info.nFileIndexLow);
+  }
  }
+ // Only after all hardlink names have been verified INTERNAL before actors.
+ // External links, roots, ancestors and protected files never call this.
+ void releaseInternalRenameGuard(){if(renameGuard.h&&renameGuard.h!=INVALID_HANDLE_VALUE){need(!!CloseHandle(renameGuard.h));renameGuard.h=nullptr;}}
  std::vector<BYTE> descriptor(){PSECURITY_DESCRIPTOR value=nullptr;aclStep="query-descriptor";DWORD result=GetSecurityInfo(object.h,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION|LABEL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&value);aclResult(result);need(value!=nullptr);DWORD size=GetSecurityDescriptorLength(value);std::vector<BYTE>b(size);memcpy(b.data(),value,size);LocalFree(value);return b;}
  static PACL acl(std::vector<BYTE>& b){BOOL present=FALSE,def=FALSE;PACL a=nullptr;need(!!GetSecurityDescriptorDacl(b.data(),&present,&a,&def)&&present&&a);return a;}
  static SECURITY_DESCRIPTOR_CONTROL control(std::vector<BYTE>& b){SECURITY_DESCRIPTOR_CONTROL c=0;DWORD rev=0;need(!!GetSecurityDescriptorControl(b.data(),&c,&rev));return c;}

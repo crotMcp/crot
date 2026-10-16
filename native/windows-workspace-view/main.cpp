@@ -152,7 +152,7 @@ int wmain(int argc,wchar_t** argv){
  ownedTemp=temp;ownedCache=cache;
  GUID guid{};need(SUCCEEDED(CoCreateGuid(&guid)));wchar_t id[64]{};StringFromGUID2(guid,id,64);std::wstring name=L"crot.l1.";for(auto c:std::wstring(id))if(c!=L'{'&&c!=L'}')name+=c;
  if(argc==14){if(!validProfileName(argv[7]))return 2;name=argv[7];for(int i=8;i<=12;i++){std::wstring p=argv[i];if(p.size()<4||p[1]!=L':'||p[2]!=L'\\'||p.find(L'"')!=p.npos)return 2;}std::wstring endpoint=argv[13];if(endpoint.find(L"\\\\.\\pipe\\crot-control-")!=0||endpoint.size()>256||endpoint.find(L'"')!=endpoint.npos)return 2;}
- DWORD serviceCode=STILL_ACTIVE;bool serviceAttempted=false;std::vector<bool> pinnedObjectRenames;
+ DWORD serviceCode=STILL_ACTIVE;bool serviceAttempted=false;std::vector<bool> pinnedObjectRenames;std::vector<DWORD> pinnedObjectRenameErrors;DWORD ownerInternalDirectoryRename=ERROR_NOT_READY;
  PSID package=nullptr;bool owns=false,cleanup=true;unsigned linkedCount=0,deniedLinkedCount=0;std::vector<std::string> restoreReasons;DWORD nativeCode=0,nodeCode=0,cmdCode=0,psCode=0;bool verified=false;
  std::vector<DescriptorObservation> observations;observations.emplace_back(root);observations.emplace_back(protectedFile);observations.emplace_back(root+L"\\link-source.txt");auto parents=ancestors(root);std::reverse(parents.begin(),parents.end());for(const auto& p:parents)observations.emplace_back(p);
  std::vector<bool> snapshotApisAgree;for(auto& o:observations){PinnedAcl probe(o.path,nullptr);auto query=probe.descriptor();snapshotApisAgree.push_back(PinnedAcl::rawEqual(PinnedAcl::acl(o.initial),PinnedAcl::acl(query)));}
@@ -178,7 +178,7 @@ int wmain(int argc,wchar_t** argv){
   phase="grants";workspace.add();tmp.add();tools.add();secret.add(true);
   phase="deny-external-hardlinks";for(auto& f:linked){if(hasExternalName(root,f.lease->path)){// Deny the concrete write/metadata bits. A GENERIC_WRITE request maps to
    // these too; do not deny shared READ_CONTROL/SYNCHRONIZE and break reads.
-   f.lease->protectLinkedReadOnly(DELETE|WRITE_DAC|WRITE_OWNER|FILE_WRITE_DATA|FILE_APPEND_DATA|FILE_WRITE_ATTRIBUTES|FILE_WRITE_EA);f.denied=true;++deniedLinkedCount;}}
+   f.lease->protectLinkedReadOnly(DELETE|WRITE_DAC|WRITE_OWNER|FILE_WRITE_DATA|FILE_APPEND_DATA|FILE_WRITE_ATTRIBUTES|FILE_WRITE_EA);f.denied=true;++deniedLinkedCount;}else{f.lease->releaseInternalRenameGuard();}}
 
   for(auto& lease:existing){lease->expected=lease->descriptor();lease->installed=true;}
   for(auto& f:linked)if(!f.denied){f.lease->expected=f.lease->descriptor();f.lease->installed=true;}
@@ -186,8 +186,11 @@ int wmain(int argc,wchar_t** argv){
   // while held. Do not try renaming any shared/user ancestor.
   phase="verify-protected-pins";for(const auto& p:std::vector<std::wstring>{root,temp,cache,protectedFile,root+L"\\link-source.txt"}){
    SetLastError(ERROR_SUCCESS);bool moved=!!MoveFileW(p.c_str(),(p+L".pin-probe").c_str());DWORD error=GetLastError();
-   if(moved)need(!!MoveFileW((p+L".pin-probe").c_str(),p.c_str()));pinnedObjectRenames.push_back(!moved&&error==ERROR_SHARING_VIOLATION);
+   if(moved)need(!!MoveFileW((p+L".pin-probe").c_str(),p.c_str()));pinnedObjectRenameErrors.push_back(moved?ERROR_SUCCESS:error);pinnedObjectRenames.push_back(!moved&&(error==ERROR_SHARING_VIOLATION||error==ERROR_ACCESS_DENIED));
   }
+  // Distinguish an AppContainer ACL denial from an owner/NTFS open-handle
+  // limitation, without broadening any access mask or changing test outcomes.
+  {auto from=root+L"\\existing-directory",to=root+L"\\owner-rename-probe";SetLastError(ERROR_SUCCESS);bool moved=!!MoveFileW(from.c_str(),to.c_str());ownerInternalDirectoryRename=moved?ERROR_SUCCESS:GetLastError();if(moved)need(!!MoveFileW(to.c_str(),from.c_str()));}
   phase="native";nativeCode=launch(child,{root,temp,cache,outside,protectedFile},root,package,verified,nativeCode);
   const std::wstring js=L"const f=require('fs');let r={ready:true};try{f.writeFileSync('node-created.txt','live');f.renameSync('node-created.txt','node-renamed.txt');r.read=f.readFileSync('node-renamed.txt','utf8')==='live';f.unlinkSync('node-renamed.txt');const h=f.openSync('\\\\\\\\.\\\\NUL','r+');f.closeSync(h);r.nul=true}catch(e){r.error=e.code;process.exitCode=1}f.writeFileSync('node-result.json',JSON.stringify(r));";
   phase="node";nodeCode=launch(nodeCopy,{L"-e",js},root,package,verified,nodeCode);
@@ -208,6 +211,7 @@ int wmain(int argc,wchar_t** argv){
  observe();if(owns){bool removed=false;for(unsigned i=0;i<20&&!removed;i++){removed=DeleteAppContainerProfile(name.c_str())==S_OK;if(!removed)Sleep(50);}cleanup=cleanup&&removed;}
  observe();if(package)FreeSid(package);
  std::cout<<"{\"snapshotApisAgree\":[";for(size_t i=0;i<snapshotApisAgree.size();i++){if(i)std::cout<<",";std::cout<<(snapshotApisAgree[i]?"true":"false");}std::cout<<"],\"nativeBaselineStages\":[";for(size_t i=0;i<observedStages.size();i++){if(i)std::cout<<",";std::cout<<"[";for(size_t j=0;j<observedStages[i].size();j++){if(j)std::cout<<",";std::cout<<(observedStages[i][j]?"true":"false");}std::cout<<"]";}std::cout<<"],";
+ std::cout<<"\"ownerInternalDirectoryRename\":"<<ownerInternalDirectoryRename<<",\"pinnedObjectRenameErrors\":[";for(size_t i=0;i<pinnedObjectRenameErrors.size();i++){if(i)std::cout<<",";std::cout<<pinnedObjectRenameErrors[i];}std::cout<<"],";
  std::cout<<"\"pinnedObjectRenames\":[";for(size_t i=0;i<pinnedObjectRenames.size();i++){if(i)std::cout<<",";std::cout<<(pinnedObjectRenames[i]?"true":"false");}std::cout<<"],";
  std::cout<<"\"serviceAttempted\":"<<(serviceAttempted?"true":"false")<<",\"serviceCode\":"<<serviceCode<<",\"linkedCount\":"<<linkedCount<<",\"deniedLinkedCount\":"<<deniedLinkedCount<<",\"restoreReasons\":[";for(size_t i=0;i<restoreReasons.size();i++){if(i)std::cout<<",";std::cout<<"\""<<restoreReasons[i]<<"\"";}std::cout<<"],\"phase\":\""<<phase<<"\",\"aclStep\":\""<<aclStep<<"\",\"aclError\":"<<aclError<<",\"ancestorIndex\":"<<ancestorIndex<<",\"launchStep\":\""<<launchStep<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";
  return cleanup?0:1;

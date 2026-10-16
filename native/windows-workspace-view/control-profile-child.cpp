@@ -8,9 +8,10 @@ bool put(const std::wstring& p,const char* text){HANDLE h=CreateFileW(p.c_str(),
 // Read-only host-path diagnosis. Do not enumerate names, read file bytes,
 // change a descriptor, enable privileges, or turn observations into grants.
 // A successful directory open with a write mask is recorded, never exercised.
+DWORD existingDirectoryDeleteOpen=ERROR_NOT_READY;
 DWORD existingWorkspaceSteps[7]={ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY};
 void pathDiagnostics(std::wstring directory,bool existingCrud){
- std::cout<<"{\"existingWorkspaceCrud\":"<<(existingCrud?"true":"false")<<",\"existingWorkspaceSteps\":[";for(unsigned i=0;i<7;i++){if(i)std::cout<<",";std::cout<<existingWorkspaceSteps[i];}std::cout<<"],\"directoryAccess\":[";bool first=true;
+ std::cout<<"{\"existingDirectoryDeleteOpen\":"<<existingDirectoryDeleteOpen<<",\"existingWorkspaceCrud\":"<<(existingCrud?"true":"false")<<",\"existingWorkspaceSteps\":[";for(unsigned i=0;i<7;i++){if(i)std::cout<<",";std::cout<<existingWorkspaceSteps[i];}std::cout<<"],\"directoryAccess\":[";bool first=true;
  for(unsigned depth=0;depth<64;depth++){
   if(!first)std::cout<<",";first=false;
   SetLastError(ERROR_SUCCESS);DWORD attributes=GetFileAttributesW(directory.c_str());
@@ -55,6 +56,7 @@ int wmain(int argc,wchar_t**argv){if(argc==2&&std::wstring(argv[1])==L"--smoke-c
    existingCrud=true;for(unsigned i=0;i<4;i++){bool moved=!!MoveFileW(from[i].c_str(),to[i].c_str());existingWorkspaceSteps[3+i]=moved?ERROR_SUCCESS:GetLastError();if(!moved){existingCrud=false;break;}}
   }
  }
+ HANDLE directoryDelete=CreateFileW(dir.c_str(),DELETE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);existingDirectoryDeleteOpen=directoryDelete==INVALID_HANDLE_VALUE?GetLastError():ERROR_SUCCESS;if(directoryDelete!=INVALID_HANDLE_VALUE)CloseHandle(directoryDelete);
  pathDiagnostics(root,existingCrud);
  HANDLE nul=CreateFileW(L"\\\\.\\NUL",GENERIC_READ|GENERIC_WRITE,7,nullptr,OPEN_EXISTING,0,nullptr);if(nul!=INVALID_HANDLE_VALUE){char b=0;DWORD written=0,read=1;bool okay=!!WriteFile(nul,"x",1,&written,nullptr)&&written==1&&!!ReadFile(nul,&b,1,&read,nullptr)&&read==0;bool closed=!!CloseHandle(nul);if(okay&&closed)bits|=1;}
  auto from=root+L"\\native-юникод.txt",to=root+L"\\native-renamed.txt";

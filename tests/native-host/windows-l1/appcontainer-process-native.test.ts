@@ -158,14 +158,24 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
     );
   }, 30000);
   it("ends a detached descendant and retains profile ownership until the complete Job drains", async () => {
-    const descendant = "process.stdout.write(String(process.pid));setInterval(()=>{},1000)";
+    const descendant = "process.stdout.write('READY:'+process.pid+'\\n');setInterval(()=>{},1000)";
     const p = await launch(
       `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:['ignore','pipe','ignore']});c.stdout.once('data',b=>process.stdout.write(b,()=>process.exit(23)));c.on('error',()=>process.exit(71));`,
     );
-    const [exit, out, err] = await Promise.all([p.exited, bytes(p.stdout), bytes(p.stderr)]);
-    expect(exit.code).toBe(23);
-    expect(err.length).toBe(0);
-    const pid = Number(out.toString());
+    // A live descendant may retain an inherited stream. Do not wait for
+    // stream EOF before terminating that very descendant (circular wait).
+    let output = "",
+      errors = "";
+    p.stdout.on("data", (data: Buffer) => {
+      output += data.toString();
+    });
+    p.stderr.on("data", (data: Buffer) => {
+      errors += data.toString();
+    });
+    await waitFor(() => /READY:[0-9]+\n/.test(output) && p.hasExited, 10000);
+    expect((await p.exited).code).toBe(23);
+    expect(errors).toBe("");
+    const pid = Number(/READY:([0-9]+)/.exec(output)?.[1]);
     expect(Number.isInteger(pid) && pid > 0).toBe(true);
     expect(isAlive(pid)).toBe(true);
     expect(() => profile.close()).toThrow(/still owns actors/);
