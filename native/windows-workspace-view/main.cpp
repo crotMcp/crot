@@ -138,7 +138,7 @@ int wmain(int argc,wchar_t** argv){
   need(put(root+L"\\link-source.txt","host-owned")&&put(outside+L"\\target.txt","unchanged"));
   need(!!CreateHardLinkW((outside+L"\\alias.txt").c_str(),(root+L"\\link-source.txt").c_str(),nullptr));
   phase="snapshot-hardlinks";std::vector<LinkedFile> linked;scanLinks(root,package,linked);
-  phase="ancestor-read";std::vector<std::unique_ptr<PinnedAcl>> reads;for(const auto& p:ancestors(root)){auto lease=std::make_unique<PinnedAcl>(p,package);lease->add(FILE_TRAVERSE|FILE_READ_ATTRIBUTES|FILE_READ_EA|FILE_LIST_DIRECTORY|SYNCHRONIZE);reads.push_back(std::move(lease));}
+  phase="ancestor-read";std::vector<std::unique_ptr<PinnedAcl>> reads;for(const auto& p:ancestors(root)){++ancestorIndex;auto lease=std::make_unique<PinnedAcl>(p,package);lease->add(FILE_TRAVERSE|FILE_READ_ATTRIBUTES|FILE_READ_EA|FILE_LIST_DIRECTORY|SYNCHRONIZE);reads.push_back(std::move(lease));}
   phase="grants";workspace.add();tmp.add();tools.add();secret.add(true);
   phase="deny-external-hardlinks";for(auto& f:linked){if(hasExternalName(root,f.lease->path)){// Deny the concrete write/metadata bits. A GENERIC_WRITE request maps to
    // these too; do not deny shared READ_CONTROL/SYNCHRONIZE and break reads.
@@ -158,6 +158,6 @@ int wmain(int argc,wchar_t** argv){
  }catch(...){failureCode=GetLastError();cleanup=false;}
  if(owns){bool removed=false;for(unsigned i=0;i<20&&!removed;i++){removed=DeleteAppContainerProfile(name.c_str())==S_OK;if(!removed)Sleep(50);}cleanup=cleanup&&removed;}
  if(package)FreeSid(package);
- std::cout<<"{\"phase\":\""<<phase<<"\",\"launchStep\":\""<<launchStep<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";
+ std::cout<<"{\"phase\":\""<<phase<<"\",\"aclStep\":\""<<aclStep<<"\",\"aclError\":"<<aclError<<",\"ancestorIndex\":"<<ancestorIndex<<",\"launchStep\":\""<<launchStep<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";
  return cleanup?0:1;
 }

@@ -1,13 +1,15 @@
 // AD-29 curator refinement. Qualification only: no production crash journal.
 // Handles stay pinned, reparse objects are rejected, and shared ancestor updates
 // MUST NOT propagate existing inheritable ACEs into unrelated child trees.
+const char* aclStep="none";DWORD aclError=0;unsigned ancestorIndex=0;
+void aclResult(DWORD result){if(result!=ERROR_SUCCESS){aclError=result;SetLastError(result);need(false);}}
 struct PinnedAcl {
  Handle object;std::wstring path;PSID sid;std::vector<BYTE> original;bool installed=false;
  PinnedAcl(const std::wstring& p,PSID s):path(p),sid(s){
-  object.h=CreateFileW(p.c_str(),MAXIMUM_ALLOWED,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
-  need(object.h!=INVALID_HANDLE_VALUE);BY_HANDLE_FILE_INFORMATION info{};need(!!GetFileInformationByHandle(object.h,&info)&&!(info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT));original=descriptor();
+  aclStep="open-pinned";object.h=CreateFileW(p.c_str(),MAXIMUM_ALLOWED,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+  if(object.h==INVALID_HANDLE_VALUE){aclError=GetLastError();need(false);}BY_HANDLE_FILE_INFORMATION info{};need(!!GetFileInformationByHandle(object.h,&info)&&!(info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT));original=descriptor();
  }
- std::vector<BYTE> descriptor(){PSECURITY_DESCRIPTOR value=nullptr;DWORD result=GetSecurityInfo(object.h,SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&value);need(result==ERROR_SUCCESS&&value);DWORD size=GetSecurityDescriptorLength(value);std::vector<BYTE>b(size);memcpy(b.data(),value,size);LocalFree(value);return b;}
+ std::vector<BYTE> descriptor(){PSECURITY_DESCRIPTOR value=nullptr;aclStep="query-descriptor";DWORD result=GetSecurityInfo(object.h,SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&value);aclResult(result);need(value!=nullptr);DWORD size=GetSecurityDescriptorLength(value);std::vector<BYTE>b(size);memcpy(b.data(),value,size);LocalFree(value);return b;}
  static PACL acl(std::vector<BYTE>& b){BOOL present=FALSE,def=FALSE;PACL a=nullptr;need(!!GetSecurityDescriptorDacl(b.data(),&present,&a,&def)&&present&&a);return a;}
  static SECURITY_DESCRIPTOR_CONTROL control(std::vector<BYTE>& b){SECURITY_DESCRIPTOR_CONTROL c=0;DWORD rev=0;need(!!GetSecurityDescriptorControl(b.data(),&c,&rev));return c;}
  void set(PACL a){need(a&&SetSecurityInfo(object.h,SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,a,nullptr)==ERROR_SUCCESS);}
@@ -18,9 +20,9 @@ struct PinnedAcl {
  bool owns(void* value){auto h=static_cast<ACE_HEADER*>(value);if(h->AceType!=ACCESS_ALLOWED_ACE_TYPE&&h->AceType!=ACCESS_DENIED_ACE_TYPE)return false;auto a=static_cast<ACCESS_ALLOWED_ACE*>(value);return !!EqualSid(&a->SidStart,sid);}
  void add(DWORD rights,bool deny=false){
   auto now=descriptor();PACL next=nullptr;EXPLICIT_ACCESSW a{};a.grfAccessPermissions=rights;a.grfAccessMode=deny?DENY_ACCESS:GRANT_ACCESS;a.grfInheritance=NO_INHERITANCE;a.Trustee.TrusteeForm=TRUSTEE_IS_SID;a.Trustee.TrusteeType=TRUSTEE_IS_UNKNOWN;a.Trustee.ptstrName=static_cast<LPWSTR>(sid);
-  need(SetEntriesInAclW(1,&a,acl(now),&next)==ERROR_SUCCESS&&next);installed=true;
-  DWORD result=SetSecurityInfo(object.h,SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,next,nullptr);LocalFree(next);need(result==ERROR_SUCCESS);
-  auto readback=descriptor();PACL actual=acl(readback);bool found=false;for(DWORD i=0;i<actual->AceCount;i++){void* e=nullptr;need(!!GetAce(actual,i,&e));if(owns(e)){auto h=static_cast<ACE_HEADER*>(e);auto ace=static_cast<ACCESS_ALLOWED_ACE*>(e);if(h->AceType==(deny?ACCESS_DENIED_ACE_TYPE:ACCESS_ALLOWED_ACE_TYPE)&&h->AceFlags==0&&ace->Mask==rights)found=true;}}need(found);
+  aclStep="compose-acl";aclResult(SetEntriesInAclW(1,&a,acl(now),&next));need(next!=nullptr);installed=true;
+  aclStep="set-acl";DWORD result=SetSecurityInfo(object.h,SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,next,nullptr);LocalFree(next);aclResult(result);
+  auto readback=descriptor();PACL actual=acl(readback);aclStep="verify-owned-ace";bool found=false;for(DWORD i=0;i<actual->AceCount;i++){void* e=nullptr;need(!!GetAce(actual,i,&e));if(owns(e)){auto h=static_cast<ACE_HEADER*>(e);auto ace=static_cast<ACCESS_ALLOWED_ACE*>(e);if(h->AceType==(deny?ACCESS_DENIED_ACE_TYPE:ACCESS_ALLOWED_ACE_TYPE)&&h->AceFlags==0&&ace->Mask==rights)found=true;}}if(!found){aclError=ERROR_INVALID_DATA;SetLastError(aclError);need(false);}
  }
  // Remove fresh-SID entries from CURRENT ACL, then compare every other entry.
  // Never return an old snapshot over changed user permissions.
