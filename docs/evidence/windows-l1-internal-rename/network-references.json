@@ -1,0 +1,26 @@
+{
+  "qualification": "Technical references only; no runtime network-on/off qualification and no loopback exemption has been configured.",
+  "sources": [
+    {
+      "url": "https://learn.microsoft.com/en-us/windows/win32/secauthz/implementing-an-appcontainer",
+      "facts": [
+        "AppContainer resource access is the intersection of user/group and package/capability grants.",
+        "Explicit package/capability access can allow writing objects at Medium IL without lowering their labels.",
+        "Zero capabilities is not network=on."
+      ]
+    },
+    {
+      "url": "https://learn.microsoft.com/en-us/windows/security/operating-system-security/network-security/windows-firewall/troubleshooting-uwp-firewall",
+      "facts": [
+        "Loopback connections require separate configuration; internet capability alone is not a localhost qualification."
+      ]
+    },
+    {
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/netfw/nf-netfw-networkisolationsetappcontainerconfig",
+      "facts": [
+        "Setting loopback exemptions must preserve all already configured SIDs by reading the existing configuration first.",
+        "The API documentation describes this exemption as intended for debugging."
+      ]
+    }
+  ]
+}

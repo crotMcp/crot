@@ -5,23 +5,27 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
-## WP-23c — директива куратора без виртуализации, не принят
+## WP-23c — AppContainer: переименование исправлено, пакет не принят
 
-`abe8e40`: разрешённая точечная очистка workspace без повторного распространения
-наследования; temp/cache без рекурсивной перезаписи. Независимое восстановление
-исходных дескрипторов **10/10**, cleanup=true на Windows Node20 и Node22.
-`595ea79`: настоящий CrotService под AppContainer — пять чтений, пять записей
-и настоящий управляющий канал получают EPERM; состояние неизменно, владелец
-после проверки сохраняет аутентифицированный доступ. Node/cmd/WinPS/NUL/hardlink
-проходят. Производственный CommandConfinement ещё не подключён.
-Следующая правка FILE_SHARE_DELETE только для обычных снимков workspace и
-позитивный тест переименования остановлены до исполнения и ждут подтверждения.
-На `595ea79` локальный check: 1748 Core +147 extension, 168 skipped, код 0;
-CI: девять успешных, оба Windows неуспешны из-за старых restricted-token тестов.
-AppContainer-гейты зелёные; проверки не ослаблены. macOS `fd4fd47` сохранён;
-WP-23b не реализован; все три ОС обязательны. Восемь критериев:
-[отчёт](docs/design/windows-l1-curator-appcontainer.md). Полные новые доказательства:
-`docs/evidence/windows-l1-workspace-service/`; прежние сохранены.
+`0f9a998`/`bd96740`: обычные существовавшие файлы и каталоги workspace проходят
+запись/переименование; восстановление по проверенному исходному NTFS ID без
+подстановки старого пути. На Node20/22 **13/13 SD**, cleanup=true. `5d4791d`
+сохраняет эффективные no-DELETE-share guards корня/предков/защищённых объектов
+и внешних hardlink; пять owner-rename проверок получают Win32=32.
+`1f015ff`: только отвергнутый Low WRITE_RESTRICTED spike переведён в явный opt-in
+по разрешению куратора. AppContainer/WinPS/RPC/native-process/CROT-6A обязательны.
+`394c1e8`/`a36a701`: выбранный компонент NativeProcessLauncher проверяет токен до
+ResumeThread; бинарные 1 МиБ stdin/stdout +256 КиБ stderr, Unicode argv и exit=23
+подтверждены. Настоящий CROT-6A: 5 чтений +5 записей +канал=EPERM, состояние
+неизменно, владелец после проверки аутентифицирован.
+На `a36a701` локальный check=0: 1767 Core +147 extension, 172 skipped;
+CI: 9 успешных/2 Windows неуспешных из-за обязательного теста detached-потомка
+(синхронный spawn не возвращает готовность). Backend CommandConfinement ещё
+не зарегистрирован; сеть/Docker/аварийная очистка/полная матрица открыты.
+Windows sandbox остаётся CONFINEMENT_UNAVAILABLE. macOS `fd4fd47` сохранён;
+WP-23b архитектурно разблокирован, но не реализован; все три ОС обязательны.
+[Восемь критериев](docs/design/windows-l1-curator-appcontainer.md);
+полные новые доказательства: `docs/evidence/windows-l1-internal-rename/`.
 
 ## Исторические проверки до a6eb17d — не текущий выбор механизма
 
@@ -591,7 +595,7 @@ WP-40; WP-32 waits for WP-24…WP-27 and WP-38.
 | WP-30 | Device tunnel adapter (AD-22, device side) | Done, merged (PR #20): tunnel, pipeline entry and registration at pairing implemented; OD-5 decided and recorded in ARCHITECTURE.md (`37b3126`), status markers updated (`01f4a20`); open elsewhere: relay-side deregistration, key rotation and orphaned registration (AD-22 open question 3, WP-29), measured client timeouts (WP-32) |
 | WP-25, WP-27 | Browser dialogs / file chooser / background screenshots / tab group; per-tab queue for remote, explicit `tabId`, `openedBy` | unblocked by WP-24 |
 | WP-26 | Browser upload and download (AD-16 points 11–12) | after WP-24 and OD-8; also provides the end-to-end check of the WP-31 upload/download gate (AD-23 point 8) |
-| WP-23b/c | Command confinement L1 на macOS и Windows (Linux готов: WP-23a, AD-20) | AD-29 решил платформы OD-9 и разблокировал начало WP-23b. WP-23b не реализован. WP-23c не принят: 595ea79 проходит Node20/22/NUL/cmd/WinPS, точный SD 10/10, cleanup=true и реальный CROT-6A 5+5+канал EPERM. Переименование существовавших узлов ещё не квалифицировано. AppContainer + Job выбран, приёмка OD-6 открыта. Сеть/Docker/полная матрица/backend впереди. На недоступных ОС remote shell/process по-прежнему CONFINEMENT_UNAVAILABLE; все три ОС обязательны для v1 |
+| WP-23b/c | Command confinement L1 на macOS и Windows (Linux готов: WP-23a, AD-20) | AD-29 решил платформы OD-9 и разблокировал WP-23b, который ещё не реализован. WP-23c не принят: a36a701 проходит переименование существовавших узлов, точный SD 13/13 и настоящий CROT-6A 5+5+канал EPERM на Node20/22. Обязательный тест потомка неуспешен; CI 9 успешных/2 Windows неуспешных. Backend/сеть/Docker/аварийная очистка/полная матрица открыты; Windows remote sandbox остаётся CONFINEMENT_UNAVAILABLE. Все три ОС обязательны для v1 |
 | WP-35 | Extension publication, submitted early | preparation now; submission after WP-24…WP-26 (`debugger`, `downloads`, `tabGroups`) |
 | WP-41, WP-42 | Extensibility invariant tests; workspace image view (post-v1 phase 5; depend on no open contract — WP-42 without downscale, see product-reassessment §8) | can start now with spare capacity; never displace the critical path; WP-43/44/49 wait for OD-16/15/17 ADs |
 | OD-15…OD-20, OD-23 | ADs of the expanded product goal (jobs, components, media, edit description, connectors, credentials; release staging) | documentation work, parallel to WP-31; see roadmap §4.2 |
