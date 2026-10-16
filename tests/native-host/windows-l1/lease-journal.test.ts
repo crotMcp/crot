@@ -29,7 +29,7 @@ async function protection(): Promise<PrivateFileProtection> {
     ensureDirectory: async (dir) => {
       await mkdir(dir, { recursive: true, mode: 0o700 });
     },
-    protectFile: (file) => chmod(file, 0o600),
+    protectFile: async (file) => chmod(file, (await lstat(file)).isDirectory() ? 0o700 : 0o600),
     inspect: async (file) => ({
       mechanism: "posix-mode",
       ownerOnly: ((await lstat(file)).mode & 0o077) === 0,
@@ -49,6 +49,7 @@ describe("durable lease WAL (real filesystem; no native ACL recovery claim)", ()
     root = await mkdtemp(path.join(os.tmpdir(), "crot-lease-wal-"));
     privateFiles = await protection();
     await privateFiles.protectFile?.(root);
+    if (process.platform !== "win32") expect((await lstat(root)).mode & 0o700).toBe(0o700);
     let locked = false;
     lock =
       process.platform === "win32"

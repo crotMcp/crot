@@ -26,7 +26,7 @@ try {
       ensureDirectory: async (dir) => {
         await mkdir(dir, { recursive: true, mode: 0o700 });
       },
-      protectFile: (file) => chmod(file, 0o600),
+      protectFile: async (file) => chmod(file, (await lstat(file)).isDirectory() ? 0o700 : 0o600),
       inspect: async (file) => ({
         mechanism: "posix-mode",
         ownerOnly: ((await lstat(file)).mode & 0o077) === 0,
@@ -37,7 +37,26 @@ try {
   }
   const store = await openLeaseJournalStore({ directory, privateFiles, lock });
   const plan = JSON.parse(serialized);
+  let acl;
+  if (stage === "acl") {
+    const { loadLeaseAclObjects } = await load("native-host/windows-l1/lease-acl.js");
+    acl = await loadLeaseAclObjects();
+    plan.objects = [
+      acl.capture(plan.workspace, "workspace", plan.profile.sid, 0x1301bf),
+      acl.capture(path.join(plan.workspace, "original.txt"), "workspace-node", plan.profile.sid, 0x1301bf),
+    ];
+  }
   await store.create(plan);
+  if (acl)
+    for (const object of plan.objects) {
+      const pin = acl.pin(object);
+      try {
+        pin.apply();
+        if (pin.state() !== "planned") throw new Error("Native ACL install mismatch");
+      } finally {
+        pin.close();
+      }
+    }
   if (stage !== "plan") await store.append(plan.id, { type: "active" });
   if (stage === "job") await store.append(plan.id, { type: "job", name: `Local\\crot-l1-job-${"e".repeat(48)}` });
   process.send({ ready: true });

@@ -1330,3 +1330,9 @@ fsync, no-share lock Windows с автоматическим освобожде�
 восстановления и сервисная интеграция ещё отсутствуют. Сеть/Docker/матрица
 остаются обязательными. Последний ранее подтверждённый CI de18eca — 11/11;
 приёмка пакета и available=true не объявляются.
+
+WP-23c: низкоуровневые native ACL transactions добавлены отдельно от полного
+LeaseRecoveryNative. Открытие по NTFS ID/creation time, точный DACL/control
+readback, отказы при чужой ACL/новом hardlink проверяются самостоятельными
+нативными тестами; аварийный тест двух SD не доказывает profile/actor recovery.
+Регистрация production/сеть/Docker/полная матрица по-прежнему открыты.
