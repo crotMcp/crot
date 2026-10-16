@@ -656,12 +656,16 @@ and no external service has a CROT integration.
 | Store acceptance of the `debugger` permission | WP-35 |
 | How a preset change is applied by the supervised service (reload or restart) | Decided by AD-23 point 10: a new Core, switched only while idle; refused while busy; restored settings and the previous Core if the new Core cannot be built; implemented in PR #21 (not merged) |
 
-**Продолжение WP-23c после 3f094a1.** Вызов ProcessDeviceMap удалён из запуска;
-контроллер ACL SDK и очистка до ResumeThread не изменены. Подготовлен первый
-разрешённый вариант A.1: квалификационная аренда корня NPFS с ненаследуемым
-ACE 0x100084 только свежему package SID. Она применяется только в обязательном
-нативном тесте потомков, не в production; после остановки Job проверяется
-точное восстановление DACL, чужая конкурентная правка не перезаписывается.
-Результат Windows Node20/22 ещё должен быть получен на новом коммите.
-Восстановление аварийной аренды, LOCAL-прослойка и CommandConfinement не
-реализованы этим изменением. WP-23c не принят; availability не включена.
+**Продолжение WP-23c: LOCAL после d7436af.** Обращения к DACL корня
+NPFS удалены. Реализована пользовательская DLL совместимости: только префиксы
+libuv `\\?\pipe\uv\` и `\\.\pipe\uv\` перенаправляются в
+`\\.\pipe\LOCAL\uv\`. Охвачены ANSI и Unicode CreateNamedPipe/CreateFile;
+ANSI API фактически используются stdio libuv в Node20/22. Реальные каналы
+CROT и Docker не переименовываются; коды ошибок ядра сохраняются.
+DLL находится вне workspace с RX для package SID, внедряется до ResumeThread
+после проверки токена и Job; потомки получают её до возобновления.
+Обязательный тест проверяет два уровня spawn и остановку обоих потомков Job.
+Квалификация проводится Windows CI на том же коде, вместе с 13/13 ACL,
+7/7 операциями, 5/5 отказами подмены и настоящим CROT-6A.
+Аварийное восстановление аренды и производственный CommandConfinement этим
+изменением не реализованы. Windows L1 не объявлен доступным; WP-23c не принят.

@@ -1313,8 +1313,10 @@ source-pinned actual results/8 criteria remain partial/NOT MET, not a backend or
 
 WP-23c validation20808e8: unchanged implementation75ce0f2; all9 non-Windows CI PASS, both Windows FAIL. NUL compatibility and all8 acceptance criteria remain partial/NOT MET; earlier macOS20 concurrency failure retained, not claimed fixed.
 
-**WP-23c, продолжение после 3f094a1:** ProcessDeviceMap исключён из запуска.
-Первым проверяется разрешённый узкий ACE корня NPFS (0x100084, точный package
-SID, без наследования и доступа к данным чужих каналов) в тесте потомков.
-Квалификация Windows Node20/22, аварийное восстановление и производственная
-интеграция остаются обязательными; пакет не объявлен выполненным.
+**WP-23c, вариант А.2 после d7436af:** эксперимент с DACL корня NPFS
+исключён. Добавлена пользовательская LOCAL-прослойка только префиксов libuv,
+с ANSI/Unicode API, RX-каталогом вне workspace и передачей DLL потомкам до
+ResumeThread. Обязательны два уровня spawn/Job, неизменённый реальный CROT-6A
+и точное восстановление исходной матрицы ACL. Пакет остаётся незавершённым:
+аварийное восстановление аренды, сеть/Docker и производственная регистрация
+CommandConfinement пока открыты. Выбор механизма OD-6 не означает приёмку WP.
