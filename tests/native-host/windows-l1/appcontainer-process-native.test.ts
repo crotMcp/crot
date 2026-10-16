@@ -1,4 +1,15 @@
 /** Selected AppContainer launch primitive + existing ProcessLauncher; not full L1 availability. */
+import { createServer } from "node:http";
+import { networkInterfaces } from "node:os";
+import { once } from "node:events";
+import { CrotService } from "../../../src/service/service.js";
+import { ControlClient } from "../../../src/service/control-client.js";
+import { openSecretStore, generateSecret } from "../../../src/service/secrets/store.js";
+import { secretFile } from "../../../src/service/secrets/backends.js";
+import { secretCredentialStore, serviceEndpoint } from "../../../src/service/endpoints.js";
+import { openAppContainerNetwork, type AppContainerNetworkLease } from "../../../src/native-host/windows-l1/network.js";
+import { loadAppContainerNetworkNative } from "../../../src/native-host/windows-l1/network-native.js";
+import type { LeaseJournalStore } from "../../../src/native-host/windows-l1/lease-journal.js";
 import { appendFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -48,6 +59,8 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
   let dirs: TempDirs, profile: AppContainerProfile, launcher: NativeProcessLauncher, host: NativeHost;
   let executable: string, secret: string;
   let localShim: LocalPipeShim | undefined;
+  let buildLauncher: (network?: AppContainerNetworkLease) => Promise<NativeProcessLauncher>;
+  let networkLease: AppContainerNetworkLease | undefined, networkStore: LeaseJournalStore | undefined;
   const children = new Set<ManagedProcess>();
   let shimBuild: Awaited<ReturnType<typeof buildLocalShimFixture>>, shimLibrary: string;
   beforeAll(async () => {
@@ -101,21 +114,24 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
     const dll = (n: string) => path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", n);
     const ownerSid = await currentUserSid(tools);
     localShim = bindLocalPipeShim(ffi, shimLibrary);
-    launcher = new NativeProcessLauncher({
-      token: bindAppContainerProcessIdentity(
-        ffi,
-        { advapi32: dll("advapi32.dll"), kernel32: dll("kernel32.dll") },
-        profile,
+    buildLauncher = async (network) =>
+      new NativeProcessLauncher({
+        token: bindAppContainerProcessIdentity(
+          ffi,
+          { advapi32: dll("advapi32.dll"), kernel32: dll("kernel32.dll") },
+          profile,
+          ownerSid,
+          localShim,
+          network,
+        ),
         ownerSid,
-        localShim,
-      ),
-      ownerSid,
-      pipes: await loadBytePipeApi(),
-      jobs: await loadJobObjectApi(),
-      environment: host.platform.environment,
-      childEnvironment: environment,
-      resolver: host.platform.launcher,
-    });
+        pipes: await loadBytePipeApi(),
+        jobs: await loadJobObjectApi(),
+        environment: host.platform.environment,
+        childEnvironment: environment,
+        resolver: host.platform.launcher,
+      });
+    launcher = await buildLauncher();
   }, 120000);
   afterEach(async () => {
     try {
@@ -123,6 +139,10 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
       expect(quarantinedStdioOperations()).toBe(0);
       localShim?.close();
       localShim = undefined;
+      await networkLease?.close();
+      networkLease = undefined;
+      await networkStore?.close();
+      networkStore = undefined;
       profile?.close();
     } finally {
       await host?.close();
@@ -217,6 +237,139 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
       await store.close();
     }
   }, 30000);
+  it.each(["off", "on"] as const)(
+    "qualifies actual network=%s with owned loopback, HTTP auth and real CROT denials",
+    async (mode) => {
+      const nativeNetwork = await loadAppContainerNetworkNative();
+      networkStore = await openLeaseJournalStore({
+        directory: path.join(dirs.outside, "network-wal"),
+        privateFiles: createServicePrivateFiles(true, [profile.sid]),
+        lock: await loadWindowsLeaseLock(),
+      });
+      const plan = leasePlan(profile.name.slice("crot.l1.".length));
+      plan.profile = { name: profile.name, sid: profile.sid };
+      plan.workspace = dirs.workspace;
+      plan.network = mode;
+      // Synthetic SDs: this test qualifies networking, not full native recovery.
+      await networkStore.create(plan);
+      networkLease = await openAppContainerNetwork(profile, networkStore, nativeNetwork);
+      await launcher.close();
+      launcher = await buildLauncher(networkLease);
+      const server = createServer((_request, response) => {
+        response.end("NETWORK-READY");
+      });
+      server.listen(0, "0.0.0.0");
+      await once(server, "listening");
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("No owned TCP port");
+      const lan = Object.values(networkInterfaces())
+        .flat()
+        .find((v) => v && v.family === "IPv4" && !v.internal)?.address;
+      if (!lan) throw new Error("No LAN interface for qualification");
+      let service: CrotService | undefined;
+      let control: Awaited<ReturnType<typeof ControlClient.connect>>;
+      try {
+        // Owner controls prove host connectivity before accepting sandbox results.
+        for (const host of ["127.0.0.1", lan]) {
+          const r = await fetch(`http://${host}:${address.port}`, { signal: AbortSignal.timeout(10000) });
+          expect(await r.text()).toBe("NETWORK-READY");
+        }
+        const stateDir = path.join(dirs.outside, "network-service-state");
+        const privateFiles = createServicePrivateFiles(true, [profile.sid]);
+        const started = await CrotService.start({
+          command: {
+            kind: "serve",
+            config: {
+              workspace: { root: dirs.workspace },
+              environment: { path: "inherited" },
+              secrets: { store: "file" },
+              browser: { enabled: false },
+              http: { enabled: true, port: 0 },
+              audit: { sink: "file", path: path.join(stateDir, "audit.jsonl") },
+            },
+            warnings: [],
+          },
+          launch: "managed",
+          stateDir,
+          privateFiles,
+          log: () => undefined,
+          requestStop: () => undefined,
+        });
+        if (started === "already_running") throw new Error("Service collision");
+        service = started;
+        const store = await openSecretStore(stateDir, privateFiles);
+        await store.write("device-key", generateSecret());
+        control = await ControlClient.connect({ stateDir, privateFiles });
+        if (!control) throw new Error("No actual owner control");
+        await control.request("preset.set", { value: "require-approval" });
+        const credential = await secretCredentialStore(stateDir, privateFiles).read("control");
+        if (!credential || !service.httpUrl) throw new Error("Missing real service endpoint");
+        const endpoint = serviceEndpoint(stateDir, "control", credential).path;
+        const files = (["service-token", "control-token", "device-key", "http-token"] as const).map((n) =>
+          secretFile(stateDir, n),
+        );
+        files.push(path.join(stateDir, "service-settings.json"), path.join(stateDir, "audit.jsonl"));
+        const before = await Promise.all(files.map((f) => readFile(f)));
+        const body = `
+        const http=require('http'),https=require('https'),net=require('net'),fs=require('fs');
+        const get=(url,headers={})=>new Promise(resolve=>{let done=false;const finish=v=>{if(!done){done=true;resolve(v)}};const r=(url.startsWith('https:')?https:http).get(url,{headers},s=>{s.resume();s.on('end',()=>finish({status:s.statusCode}))});r.on('error',e=>finish({error:e.code}));r.setTimeout(12000,()=>{r.destroy();finish({error:'TIMEOUT'})})});
+        const op=f=>{try{f();return 'ALLOWED'}catch(e){return e.code}};
+        (async()=>{const result={ready:true,mode:${JSON.stringify(mode)}};
+        result.loopback=await get(${JSON.stringify(`http://127.0.0.1:${address.port}`)});
+        result.lan=await get(${JSON.stringify(`http://${lan}:${address.port}`)});
+        result.internet=await get('https://api.github.com/',{'User-Agent':'CROT-network-qualification'});
+        result.httpNoToken=await get(${JSON.stringify(service.httpUrl)});
+        result.httpWrongToken=await get(${JSON.stringify(service.httpUrl)},{Authorization:'Bearer deliberately-wrong-token'});
+        result.reads=${JSON.stringify(files)}.map(f=>op(()=>fs.readFileSync(f)));
+        result.writes=${JSON.stringify(files)}.map(f=>op(()=>{const h=fs.openSync(f,'r+');fs.closeSync(h)}));
+        result.control=await new Promise(resolve=>{const c=net.connect(${JSON.stringify(endpoint)});c.on('error',e=>resolve(e.code));c.on('connect',()=>{c.destroy();resolve('ALLOWED')})});
+        process.stdout.write(JSON.stringify(result));})().catch(e=>{process.stderr.write(e.stack);process.exit(70)});
+      `;
+        const p = await launch(body);
+        const [exit, out, err] = await Promise.all([p.exited, bytes(p.stdout), bytes(p.stderr)]);
+        expect(exit.code).toBe(0);
+        expect(err.length).toBe(0);
+        const result = JSON.parse(out.toString());
+        appendFileSync(
+          inject("stage6aEvidence"),
+          JSON.stringify({ title: `CROT-6A-appcontainer-network-${mode}`, value: result }) + "\n",
+        );
+        expect(result.ready).toBe(true);
+        for (const target of ["loopback", "lan", "internet"]) {
+          if (mode === "on") expect(result[target].status).toBeGreaterThan(0);
+          else expect(["EACCES", "EPERM"]).toContain(result[target].error);
+        }
+        if (mode === "on") {
+          expect(result.httpNoToken.status).toBe(401);
+          expect(result.httpWrongToken.status).toBe(401);
+        } else {
+          expect(["EACCES", "EPERM"]).toContain(result.httpNoToken.error);
+        }
+        expect(result.reads).toEqual(files.map(() => "EPERM"));
+        expect(result.writes).toEqual(files.map(() => "EPERM"));
+        expect(result.control).toBe("EPERM");
+        expect(await Promise.all(files.map((f) => readFile(f)))).toEqual(before);
+        expect(await control.request("ping")).toMatchObject({ state: "running" });
+        await p.terminate("force");
+        await launcher.close();
+        await networkLease.close();
+        expect(await nativeNetwork.contains(profile.sid)).toBe(false);
+        networkLease = undefined;
+        appendFileSync(
+          inject("stage6aEvidence"),
+          JSON.stringify({
+            title: `CROT-6A-appcontainer-network-${mode}-cleanup`,
+            value: { loopbackRemoved: true, serviceUnchanged: true, ownerAuthenticated: true },
+          }) + "\n",
+        );
+      } finally {
+        control?.close();
+        await service?.shutdown("Network qualification end");
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
+    },
+    120000,
+  );
   it("ends a detached descendant and retains profile ownership until the complete Job drains", async () => {
     const trace = path.join(dirs.workspace, "descendant-trace.jsonl");
     const record = `const record=v=>require('fs').appendFileSync(${JSON.stringify(trace)},JSON.stringify(v)+'\\n');`;

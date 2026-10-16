@@ -168,6 +168,7 @@ describe("durable journal after abrupt owner termination", () => {
             drainActors: async () => {},
             pin: acl.pin,
             stripNewWorkspaceObjects: async () => {},
+            removeNetwork: async () => {},
             deleteProfile: async () => {},
           });
           await recovery.recoverAll();

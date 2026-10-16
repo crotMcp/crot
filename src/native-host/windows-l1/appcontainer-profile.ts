@@ -15,6 +15,7 @@ export interface AppContainerProfilePin {
   release(): void;
 }
 export interface AppContainerProfile {
+  readonly name: string;
   readonly sid: string;
   /** False until both the owned profile and SID allocation have been released. */
   readonly closed: boolean;
@@ -94,6 +95,7 @@ export function createAppContainerProfiles(
           closed = false,
           users = 0;
         return {
+          name: owned.name,
           sid,
           get closed() {
             return closed;

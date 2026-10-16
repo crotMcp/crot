@@ -1342,3 +1342,11 @@ native SD recovery двух объектов после убийства вла�
 7/7 CRUD, 5/5 tamper и реальный CROT-6A сохранены. Общий CI 10/11:
 browser-e2e select_option неуспешен, остальные десять заданий успешны. Это не
 приёмка WP-23c и не устранение непроверенных profile/Job/service recovery.
+
+WP-23c, продолжение после 8eb3393: по подтверждению куратора реализованы
+отдельные режимы сети on/off, intent в WAL, exact capability readback,
+per-SID loopback lifecycle и обязательный сетевой этап recovery перед
+удалением профиля. Новые Windows-тесты включают интернет, LAN, localhost,
+настоящий CROT и HTTP-token gate. Полное замыкание native recovery, service
+lifecycle, mediated Docker и production registration остаётся открытым до
+нативной квалификации; OD-6/OD-9 не объявлены закрытыми только по компонентам.

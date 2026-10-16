@@ -3,6 +3,7 @@
  * No filesystem grant, network-on promise or CommandConfinement availability.
  * Keeps the existing owned byte streams / Job / cancellation implementation.
  */
+import { pinAppContainerNetwork, type AppContainerNetworkLease } from "./network.js";
 import type { LocalPipeShim } from "./local-shim.js";
 import { validateSid } from "../validation.js";
 import { CrotError } from "../../core/errors.js";
@@ -47,6 +48,7 @@ export function bindAppContainerProcessIdentity(
   profile: AppContainerProfile,
   ownerSid: string,
   localShim?: LocalPipeShim,
+  network?: AppContainerNetworkLease,
 ): AppContainerProcessIdentity {
   validateSid(ownerSid);
   if (!declared.has(ffi)) {
@@ -128,11 +130,21 @@ export function bindAppContainerProcessIdentity(
     launchProbe: (spec, job) => {
       if (blocked || retained.size || failedPins.size) throw failure("previous incomplete cleanup");
       const pin = profile.pin();
+      let networkPin: ReturnType<typeof pinAppContainerNetwork> | undefined;
+      const capabilitySids: unknown[] = [];
       const packageSid: { value?: unknown } = {};
       let child: ProbeProcess | undefined;
       let abortedBeforeResume = false;
       const launchers = new Set<ReturnType<typeof bindProbeLauncher>>();
       try {
+        networkPin = network ? pinAppContainerNetwork(network, profile) : undefined;
+        for (const sid of networkPin?.capabilities ?? []) {
+          const out: { value?: unknown } = {};
+          const converted = convert(sid, out);
+          if (!missing(out.value)) capabilitySids.push(out.value);
+          if (!ok(converted) || missing(out.value) || !ok(valid(out.value)))
+            throw failure("network capability conversion", last());
+        }
         if (!ok(convert(pin.sid, packageSid)) || missing(packageSid.value) || !ok(valid(packageSid.value)))
           throw failure("launch SID conversion", last());
         const launch = bindProbeLauncher(ffi, libraries, {
@@ -147,11 +159,15 @@ export function bindAppContainerProcessIdentity(
               throw failure("startup attribute sizing", error);
             const list = Buffer.alloc(bytes),
               caps = Buffer.alloc(24),
-              allow = Buffer.alloc(24);
+              allow = Buffer.alloc(24),
+              capabilityArray = Buffer.alloc(capabilitySids.length * 16);
+            capabilitySids.forEach((sid, i) =>
+              ffi.encode(capabilityArray.subarray(i * 16), SID_ATTRIBUTES, { Sid: sid, Attributes: 4 }),
+            );
             ffi.encode(caps, CAPABILITIES, {
               AppContainerSid: packageSid.value,
-              Capabilities: null,
-              CapabilityCount: 0,
+              Capabilities: capabilitySids.length ? capabilityArray : null,
+              CapabilityCount: capabilitySids.length,
               Reserved: 0,
             });
             handles.forEach((h, i) => ffi.encode(allow.subarray(i * 8), "void *", h));
@@ -253,7 +269,24 @@ export function bindAppContainerProcessIdentity(
                 !ok(equal(observedSid, packageSid.value))
               )
                 throw failure("AppContainer identity verification");
-              if (capabilities.readUInt32LE(0) !== 0) throw failure("zero capabilities verification");
+              const observedCount = capabilities.readUInt32LE(0);
+              if (
+                observedCount !== capabilitySids.length ||
+                (observedCount > 0 && capabilities.length < 8 + observedCount * 16)
+              )
+                throw failure("exact network capability count");
+              const matched = new Set<number>();
+              for (let i = 0; i < observedCount; i++) {
+                const row = ffi.decode(capabilities.subarray(8 + i * 16), SID_ATTRIBUTES) as {
+                  Sid?: unknown;
+                  Attributes?: number;
+                };
+                if (!row || missing(row.Sid) || !ok(valid(row.Sid)) || row.Attributes !== 4)
+                  throw failure("network capability attributes");
+                const index = capabilitySids.findIndex((sid) => ok(equal(row.Sid, sid)));
+                if (index < 0 || matched.has(index)) throw failure("exact network capability identity");
+                matched.add(index);
+              }
               if (!label || missing(label.Sid) || !ok(valid(label.Sid))) throw failure("integrity SID verification");
               const count = subCount(label.Sid);
               if (missing(count) || ffi.decode(count, "uint8_t") !== 1) throw failure("integrity authority count");
@@ -285,6 +318,10 @@ export function bindAppContainerProcessIdentity(
         launchers.delete(launch);
         releaseMemory(packageSid.value);
         packageSid.value = undefined;
+        while (capabilitySids.length) {
+          releaseMemory(capabilitySids[0]);
+          capabilitySids.shift();
+        }
         const owned = child;
         let released = false;
         return {
@@ -313,6 +350,7 @@ export function bindAppContainerProcessIdentity(
             } else if (!released) throw failure("owned Job closed before drain");
             owned.close();
             if (!released) {
+              networkPin?.release();
               pin.release();
               released = true;
             }
@@ -335,13 +373,23 @@ export function bindAppContainerProcessIdentity(
           // bindProbeLauncher retains any failed native cleanup in its closure.
           // Preserve that closure strongly, rather than losing ownership on throw.
           blocked = true;
-          failedAppContainerStarts.add({ profile, pin, child, job, retained, failedPins, launchers, ffi });
+          failedAppContainerStarts.add({ profile, pin, networkPin, child, job, retained, failedPins, launchers, ffi });
         }
-        if (!cleanupFailed && !blocked) pin.release();
-        else {
+        for (const sid of [...capabilitySids]) {
+          try {
+            releaseMemory(sid);
+            capabilitySids.splice(capabilitySids.indexOf(sid), 1);
+          } catch {
+            cleanupFailed = true;
+          }
+        }
+        if (!cleanupFailed && !blocked) {
+          networkPin?.release();
+          pin.release();
+        } else {
           blocked = true;
           failedPins.add(pin);
-          failedAppContainerStarts.add({ profile, pin, child, job, retained, failedPins, launchers, ffi });
+          failedAppContainerStarts.add({ profile, pin, networkPin, child, job, retained, failedPins, launchers, ffi });
         }
         throw cause;
       }

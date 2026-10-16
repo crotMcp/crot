@@ -64,6 +64,8 @@ const planSchema = z
           ),
       })
       .strict(),
+    // Old v1 journals predate network-on: omission MUST mean off, never on.
+    network: z.enum(["on", "off"]).default("off"),
     workspace: z.string().min(4).max(32700),
     objects: z.array(object).min(1).max(10000),
   })

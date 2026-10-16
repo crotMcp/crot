@@ -16,6 +16,7 @@ export function leasePlan(id = newLeaseId()): LeasePlan {
   }));
   return {
     version: 1,
+    network: "off",
     id,
     profile: { name: `crot.l1.${id}`, sid: "S-1-15-2-1-2-3-4-5-6-7" },
     workspace: "C:\\project",

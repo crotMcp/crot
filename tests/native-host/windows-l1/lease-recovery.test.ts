@@ -77,6 +77,9 @@ describe("Windows lease recovery protocol", () => {
       stripNewWorkspaceObjects: vi.fn(async () => {
         log.push("strip-new");
       }),
+      removeNetwork: vi.fn(async () => {
+        log.push("remove-network");
+      }),
       deleteProfile: vi.fn(async () => {
         log.push("delete-profile");
       }),
@@ -108,7 +111,18 @@ describe("Windows lease recovery protocol", () => {
     expect(log.indexOf("drain")).toBeLessThan(log.indexOf(`pin-${key(p, 0)}`));
     expect(log.filter((s) => s.startsWith("restore-"))).toEqual([2, 1, 0].map((i) => `restore-${key(p, i)}`));
     expect(log.indexOf("strip-new")).toBeGreaterThan(log.lastIndexOf(`unpin-${key(p, 0)}`));
-    expect(log.slice(-4)).toEqual(["strip-new", "release-guards", "delete-profile", "closed-flush"]);
+    expect(log.slice(-5)).toEqual(["strip-new", "release-guards", "remove-network", "delete-profile", "closed-flush"]);
+    expect(records.get(p.id)!.closed).toBe(true);
+  });
+  it("retains an open WAL and profile when network cleanup fails", async () => {
+    const p = leasePlan();
+    p.network = "on";
+    await owner.acquire(p);
+    vi.mocked(native.removeNetwork).mockRejectedValueOnce(new Error("loopback removal"));
+    await expect(owner.release(p.id)).rejects.toThrow("loopback removal");
+    expect(native.deleteProfile).not.toHaveBeenCalled();
+    expect(records.get(p.id)!.closed).toBe(false);
+    await owner.release(p.id);
     expect(records.get(p.id)!.closed).toBe(true);
   });
   it("recovers an uncommitted partial apply after owner death and is idempotent", async () => {

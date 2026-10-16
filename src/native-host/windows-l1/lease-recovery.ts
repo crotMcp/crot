@@ -48,6 +48,8 @@ export interface LeaseRecoveryNative {
    * handle, and must make this pass repeatable across interrupted cleanup.
    */
   stripNewWorkspaceObjects(plan: LeasePlan): Promise<void>;
+  /** Remove ONLY this owned SID loopback entry after drain, before profile deletion. */
+  removeNetwork(plan: LeasePlan): Promise<void>;
   /** Delete only this fresh owned profile; already-deleted success is verified. */
   deleteProfile(plan: LeasePlan): Promise<void>;
 }
@@ -122,6 +124,7 @@ export class WindowsLeaseRecovery {
       guard.close();
       this.guards.delete(record.plan.id);
     }
+    await this.native.removeNetwork(record.plan);
     await this.native.deleteProfile(record.plan);
     // Crash before this durable tombstone simply retries idempotent cleanup.
     await this.store.append(record.plan.id, { type: "closed" });
