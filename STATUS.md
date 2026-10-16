@@ -5,7 +5,16 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
-## WP-23c — LOCAL подтверждён; восстановление реализуется, пакет не принят
+## WP-23c — производственная интеграция открыта; пакет не принят
+
+Актуальная база `eb3c0f9`: CI 11/11; Server2025 x64 Node20/22 подтвердили
+on/off, защиту HTTP-токена, очистку loopback и остановку акторов своего SID.
+Новая дельта: Windows drive-aware Docker path policy подключена к общим
+проверкам bind/npipe/inspect/volume/Swarm. Тест HTTP proxy подтверждает 403,
+refusal callback и отсутствие передачи запрещённых запросов daemon.
+Это не native pipe/ACL qualification: полный recovery/service lifecycle,
+production backend, поставка и Windows Docker transport остаются открытыми.
+Ниже сохранены более ранние этапы, не актуальный полный перечень блокеров.
 
 Ранее подтверждённая база `de18eca`: CI **11/11**,
 Windows Server 2025 x64, Node20/22: `13/13` SD (cleanup=true), `7/7` CRUD,

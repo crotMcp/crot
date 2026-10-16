@@ -5791,3 +5791,16 @@ In-memory владелец профиля выдаётся только посл
 Это не замена durable receipt после аварии, profile-intent протоколу,
 самопроверке установки и полной производственной регистрации.
 OD-9 Windows part и OD-6 остаются открытыми до такого целостного подключения.
+
+**Продолжение AD-29: Windows host-path boundary медиируемого Docker.**
+
+Общая политика запросов Docker использует отдельный Windows adapter, а не
+POSIX isAbsolute/split(':'). Drive-aware Binds, bind/npipe/inspect, local volume
+options и Swarm проверяют лексическую и native-resolved границы; context keys
+защищены независимо от writable. Неизвестные daemon-to-host отображения
+(UNC/device/Volume GUID/WSL/Desktop) отказывают до подтверждения их идентичности.
+Разрешение точного собственного LOCAL endpoint не является доказательством
+владения каналом: оно обязательно обеспечивается native владельцем и DACL.
+Request-policy/Unix mock proxy tests не заменяют нативную квалификацию transport,
+защиту прямого docker_engine и аудит сервиса. Полный recovery/service/backend
+и поставка остаются открытыми; OD-6 и Windows part OD-9 этим не закрываются.

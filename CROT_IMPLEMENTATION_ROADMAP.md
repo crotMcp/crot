@@ -1358,3 +1358,10 @@ WP-23c: `1ce8931` — сеть on/off, loopback cleanup, настоящий HTTP
 повторять не нужно. OD-9 Windows part / OD-6 пока не закрыты: остаются
 профильная durable receipt/intent, интегральный native recovery + CrotService,
 production CommandConfinement, проверенная поставка и Docker mediation.
+
+Windows Docker continuation: общий request-policy теперь принимает отдельный
+Windows host-path adapter (drive-aware Binds, bind/npipe/inspect/volume/Swarm,
+обязательный resolver, запрет неоднозначных alias-путей). 403/refusal callback
+проверяется через настоящий HTTP proxy с подставным daemon на Unix transport.
+Нативный LOCAL endpoint/ACL, daemon path admission и производственная интеграция
+не подменяются этим тестом; WP-23c/OD-6/OD-9 Windows остаются открытыми.
