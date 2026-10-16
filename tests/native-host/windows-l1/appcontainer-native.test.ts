@@ -48,8 +48,16 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       // group, DACL order/provenance and the integrity label.
       const linked = path.join(workspace!, "link-source.txt");
       await writeFile(linked, "host-owned");
+      const existingDirectory = path.join(workspace!, "existing-directory");
+      await mkdir(existingDirectory);
+      const existingFile = path.join(existingDirectory, "before.txt");
+      const existingSibling = path.join(existingDirectory, "sibling.txt");
+      await writeFile(existingFile, "initial");
+      await writeFile(existingSibling, "untouched");
       const snapshots = () =>
-        [workspace!, secret, linked, ...parents].map((file) => snapshotWorkspaceDescriptorDetails(ffi, file));
+        [workspace!, secret, linked, ...parents, existingDirectory, existingFile, existingSibling].map((file) =>
+          snapshotWorkspaceDescriptorDetails(ffi, file),
+        );
       const before = snapshots();
       expect(before.every((s) => s.medium)).toBe(true);
       build = await buildWorkspaceViewFixture();
@@ -242,6 +250,9 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       expect(exit, "код контроллера").toBe(0);
       expect(v.cleanup).toBe(true);
       expect(directoryAccessError).toBeUndefined();
+      expect(JSON.parse(String(actorOutput["native-stdout.txt"]))).toMatchObject({ existingWorkspaceCrud: true });
+      expect(await readFile(existingFile, "utf8")).toBe("changed");
+      expect(await readFile(existingSibling, "utf8")).toBe("untouched");
       expect(directoryAccess).toBeDefined();
       for (const row of directoryAccess ?? []) {
         for (const open of row.opens) {

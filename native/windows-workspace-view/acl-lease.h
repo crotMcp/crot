@@ -1,16 +1,20 @@
 // AD-29 curator refinement. Qualification only: no production crash journal.
-// Handles stay pinned without DELETE sharing, reparse objects are rejected; shared ancestor updates
+// Root/ancestor/protected/link handles stay pinned without DELETE sharing.
+// Only qualified ordinary existing workspace nodes may opt into rename sharing.
+// Reparse objects are rejected; shared ancestor updates
 // MUST NOT propagate existing inheritable ACEs into unrelated child trees.
 const char* aclStep="none";DWORD aclError=0;unsigned ancestorIndex=0;
 void aclResult(DWORD result){if(result!=ERROR_SUCCESS){aclError=result;SetLastError(result);need(false);}}
 struct PinnedAcl {
  Handle object;std::wstring path;PSID sid;std::vector<BYTE> original,expected;bool installed=false;const char* restoreError="none";
- PinnedAcl(const std::wstring& p,PSID s):path(p),sid(s){
+ PinnedAcl(const std::wstring& p,PSID s,bool allowRename=false):path(p),sid(s){
   // Capture before opening a mutation handle. Compare the same requested
   // sections as the independent owner snapshot, never only a DACL projection.
   PSECURITY_DESCRIPTOR initial=nullptr;aclResult(GetNamedSecurityInfoW(p.c_str(),SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION|LABEL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&initial));need(initial!=nullptr);original.resize(GetSecurityDescriptorLength(initial));memcpy(original.data(),initial,original.size());LocalFree(initial);
-  aclStep="open-pinned";object.h=CreateFileW(p.c_str(),READ_CONTROL|WRITE_DAC|FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
+  aclStep="open-pinned";object.h=CreateFileW(p.c_str(),READ_CONTROL|WRITE_DAC|FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|(allowRename?FILE_SHARE_DELETE:0),nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
   if(object.h==INVALID_HANDLE_VALUE){aclError=GetLastError();need(false);}BY_HANDLE_FILE_INFORMATION info{};need(!!GetFileInformationByHandle(object.h,&info)&&!(info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT));
+  // Multi-link objects retain their separate non-renamable protection lease.
+  if(allowRename)need(info.nNumberOfLinks<=1);
  }
  std::vector<BYTE> descriptor(){PSECURITY_DESCRIPTOR value=nullptr;aclStep="query-descriptor";DWORD result=GetSecurityInfo(object.h,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION|LABEL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&value);aclResult(result);need(value!=nullptr);DWORD size=GetSecurityDescriptorLength(value);std::vector<BYTE>b(size);memcpy(b.data(),value,size);LocalFree(value);return b;}
  static PACL acl(std::vector<BYTE>& b){BOOL present=FALSE,def=FALSE;PACL a=nullptr;need(!!GetSecurityDescriptorDacl(b.data(),&present,&a,&def)&&present&&a);return a;}

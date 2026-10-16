@@ -61,6 +61,10 @@ void snapshotWorkspaceNodes(const std::wstring& directory,PSID sid,const std::ws
   if(p==protectedFile)continue;auto lease=std::make_unique<PinnedAcl>(p,sid);BY_HANDLE_FILE_INFORMATION info{};need(!!GetFileInformationByHandle(lease->object.h,&info));
   if(item.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)snapshotWorkspaceNodes(p,sid,protectedFile,saved,depth+1);
   else if(info.nNumberOfLinks>1)continue;
+  // Only ordinary existing nodes strictly below root reach this path. The
+  // constructor rechecks single-link identity before accepting rename sharing.
+  // Root, ancestors, protected files and all multi-link leases keep defaults.
+  lease=std::make_unique<PinnedAcl>(p,sid,true);
   need(saved.size()<10000);saved.push_back(std::move(lease));
  }while(FindNextFileW(find,&item));need(GetLastError()==ERROR_NO_MORE_FILES);}catch(...){FindClose(find);throw;}need(!!FindClose(find));
 }
