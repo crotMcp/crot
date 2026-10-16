@@ -134,18 +134,25 @@ struct DescriptorObservation {
  DescriptorObservation(const std::wstring& p):path(p),initial(read(p)){}
  bool unchanged(){auto now=read(path);return PinnedAcl::rawEqual(PinnedAcl::acl(initial),PinnedAcl::acl(now))&&PinnedAcl::control(initial)==PinnedAcl::control(now);}
 };
+bool validProfileName(const std::wstring& name){if(name.size()!=44||name.substr(0,8)!=L"crot.l1.")return false;unsigned dash=0;for(size_t i=8;i<name.size();i++){wchar_t c=name[i];if(c==L'-'){++dash;continue;}if(!((c>=L'0'&&c<=L'9')||(c>=L'a'&&c<=L'f')))return false;}return dash==4;}
 int wmain(int argc,wchar_t** argv){
- if(argc!=7)return 2;
+ if(argc==3&&std::wstring(argv[1])==L"--derive-sid"){
+  if(!validProfileName(argv[2]))return 2;PSID derived=nullptr;if(DeriveAppContainerSidFromAppContainerName(argv[2],&derived)!=S_OK)return 3;LPWSTR text=nullptr;bool okay=!!ConvertSidToStringSidW(derived,&text);if(okay){std::wcout<<text;LocalFree(text);}FreeSid(derived);return okay?0:3;
+ }
+ if(argc!=7&&argc!=14)return 2;
  std::wstring root=argv[1],temp=argv[2],cache=argv[3],outside=argv[4],protectedFile=argv[5],node=argv[6];
- for(int i=1;i<argc;i++){std::wstring p=argv[i];if(p.size()<4||p[1]!=L':'||p[2]!=L'\\'||p.find(L'"')!=p.npos)return 2;}
+ for(int i=1;i<=6;i++){std::wstring p=argv[i];if(p.size()<4||p[1]!=L':'||p[2]!=L'\\'||p.find(L'"')!=p.npos)return 2;}
  ownedTemp=temp;ownedCache=cache;
  GUID guid{};need(SUCCEEDED(CoCreateGuid(&guid)));wchar_t id[64]{};StringFromGUID2(guid,id,64);std::wstring name=L"crot.l1.";for(auto c:std::wstring(id))if(c!=L'{'&&c!=L'}')name+=c;
+ if(argc==14){if(!validProfileName(argv[7]))return 2;name=argv[7];for(int i=8;i<=12;i++){std::wstring p=argv[i];if(p.size()<4||p[1]!=L':'||p[2]!=L'\\'||p.find(L'"')!=p.npos)return 2;}std::wstring endpoint=argv[13];if(endpoint.find(L"\\\\.\\pipe\\crot-control-")!=0||endpoint.size()>256||endpoint.find(L'"')!=endpoint.npos)return 2;}
+ DWORD serviceCode=STILL_ACTIVE;bool serviceAttempted=false;
  PSID package=nullptr;bool owns=false,cleanup=true;unsigned linkedCount=0,deniedLinkedCount=0;std::vector<std::string> restoreReasons;DWORD nativeCode=0,nodeCode=0,cmdCode=0,psCode=0;bool verified=false;
  std::vector<DescriptorObservation> observations;observations.emplace_back(root);observations.emplace_back(protectedFile);observations.emplace_back(root+L"\\link-source.txt");auto parents=ancestors(root);std::reverse(parents.begin(),parents.end());for(const auto& p:parents)observations.emplace_back(p);
  std::vector<bool> snapshotApisAgree;for(auto& o:observations){PinnedAcl probe(o.path,nullptr);auto query=probe.descriptor();snapshotApisAgree.push_back(PinnedAcl::rawEqual(PinnedAcl::acl(o.initial),PinnedAcl::acl(query)));}
  std::vector<std::vector<bool>> observedStages;auto observe=[&](){std::vector<bool> row;for(auto& o:observations)row.push_back(o.unchanged());observedStages.push_back(row);};
  try {
   phase="profile";need(CreateAppContainerProfile(name.c_str(),L"CROT qualification",L"Owned disposable profile",nullptr,0,&package)==S_OK);owns=true;observe();
+  PSID derived=nullptr;need(DeriveAppContainerSidFromAppContainerName(name.c_str(),&derived)==S_OK);bool sameSid=!!EqualSid(package,derived);FreeSid(derived);need(sameSid);
   Grant workspace(root,package),tmp(temp,package),tools(cache,package),secret(protectedFile,package);
   wchar_t self[32768]{};need(GetModuleFileNameW(nullptr,self,32768)>0);std::wstring source=self;source=source.substr(0,source.find_last_of(L'\\')+1)+L"control-profile-child.exe";
   std::wstring child=cache+L"\\fixed-child.exe",nodeCopy=cache+L"\\node.exe";
@@ -176,6 +183,7 @@ int wmain(int argc,wchar_t** argv){
   std::wstring psRoot=root;for(size_t at=0;(at=psRoot.find(L"'",at))!=std::wstring::npos;at+=2)psRoot.insert(at,L"'");
   const std::wstring ps=L"$ErrorActionPreference='Stop';Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Utility\\Microsoft.PowerShell.Utility.psd1\";Import-Module -Name \"$PSHOME\\Modules\\Microsoft.PowerShell.Management\\Microsoft.PowerShell.Management.psd1\" -ErrorAction Stop; $initial=Get-Location; [Console]::Out.WriteLine('CROT-PS-INITIAL-FILESYSTEM=' + ($initial.Provider.Name -eq 'FileSystem')); [Console]::Out.WriteLine('CROT-PS-INITIAL-ROOT=' + ($initial.Path -eq '"+psRoot+L"')); Set-Location -LiteralPath '"+psRoot+L"' -ErrorAction Stop; 'ps-ready' > ps-result.txt; $info=New-Object System.Diagnostics.ProcessStartInfo; $info.FileName=$env:ComSpec; $info.Arguments='/d /c \"echo nul>NUL && type NUL >NUL && echo nul-child-ready>ps-child-marker.txt\"'; $info.UseShellExecute=$false; $info.CreateNoWindow=$true; $info.WorkingDirectory=(Get-Location).Path; $child=[System.Diagnostics.Process]::Start($info); try { if (!$child.WaitForExit(5000)) { $child.Kill(); throw 'NUL descendant timeout' }; [Console]::Out.WriteLine('CROT-PS-NUL-EXIT=' + $child.ExitCode); if ($child.ExitCode -ne 0) { throw 'NUL descendant failed' }; if ([System.IO.File]::ReadAllText((Join-Path (Get-Location).Path 'ps-child-marker.txt')).Trim() -ne 'nul-child-ready') { throw 'NUL descendant marker failed' } } finally { $child.Dispose() }";
   phase="powershell";psCode=launch(sys+L"\\WindowsPowerShell\\v1.0\\powershell.exe",{L"-NoProfile",L"-NonInteractive",L"-Command",ps},root,package,verified,psCode);
+  if(argc==14){phase="service";serviceAttempted=true;std::vector<std::wstring> args{L"service-actor.cjs"};for(int i=8;i<=13;i++)args.push_back(argv[i]);serviceCode=launch(nodeCopy,args,root,package,verified,serviceCode);}
   phase="cleanup-workspace-only";stripWorkspaceSid(root,package);
   // Object-handle restoration is non-propagating. Restore leaves first;
   // exact independent snapshots remain the acceptance gate.
@@ -187,6 +195,6 @@ int wmain(int argc,wchar_t** argv){
  observe();if(owns){bool removed=false;for(unsigned i=0;i<20&&!removed;i++){removed=DeleteAppContainerProfile(name.c_str())==S_OK;if(!removed)Sleep(50);}cleanup=cleanup&&removed;}
  observe();if(package)FreeSid(package);
  std::cout<<"{\"snapshotApisAgree\":[";for(size_t i=0;i<snapshotApisAgree.size();i++){if(i)std::cout<<",";std::cout<<(snapshotApisAgree[i]?"true":"false");}std::cout<<"],\"nativeBaselineStages\":[";for(size_t i=0;i<observedStages.size();i++){if(i)std::cout<<",";std::cout<<"[";for(size_t j=0;j<observedStages[i].size();j++){if(j)std::cout<<",";std::cout<<(observedStages[i][j]?"true":"false");}std::cout<<"]";}std::cout<<"],";
- std::cout<<"\"linkedCount\":"<<linkedCount<<",\"deniedLinkedCount\":"<<deniedLinkedCount<<",\"restoreReasons\":[";for(size_t i=0;i<restoreReasons.size();i++){if(i)std::cout<<",";std::cout<<"\""<<restoreReasons[i]<<"\"";}std::cout<<"],\"phase\":\""<<phase<<"\",\"aclStep\":\""<<aclStep<<"\",\"aclError\":"<<aclError<<",\"ancestorIndex\":"<<ancestorIndex<<",\"launchStep\":\""<<launchStep<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";
+ std::cout<<"\"serviceAttempted\":"<<(serviceAttempted?"true":"false")<<",\"serviceCode\":"<<serviceCode<<",\"linkedCount\":"<<linkedCount<<",\"deniedLinkedCount\":"<<deniedLinkedCount<<",\"restoreReasons\":[";for(size_t i=0;i<restoreReasons.size();i++){if(i)std::cout<<",";std::cout<<"\""<<restoreReasons[i]<<"\"";}std::cout<<"],\"phase\":\""<<phase<<"\",\"aclStep\":\""<<aclStep<<"\",\"aclError\":"<<aclError<<",\"ancestorIndex\":"<<ancestorIndex<<",\"launchStep\":\""<<launchStep<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";
  return cleanup?0:1;
 }
