@@ -131,7 +131,7 @@ export function bindPrivatePipeMaps(ffi: TokenFfi, libs: TokenLibraries & { ntdl
         exact(open(shadow, 0xb, attributes(base, null, null)), "shadow open");
         if (missing(shadow.value)) throw fail("shadow output");
         // Fresh, ephemeral private directory under this logon DOS directory.
-        // NT rejects assigning an unnamed directory as a process DeviceMap.
+        // Named-directory qualification is separate from process-map assignment.
         // Exact STATUS_SUCCESS only: never adopt a collided object.
         const mapName = unicode(`CrotPipeMap-${randomUUID()}`);
         exact(
@@ -146,7 +146,10 @@ export function bindPrivatePipeMaps(ffi: TokenFfi, libs: TokenLibraries & { ntdl
         return {
           apply: (process) => {
             if (closed || applied || missing(process)) throw fail("suspended process admission");
-            const value = Buffer.alloc(8);
+            // PROCESS_DEVICEMAP_INFORMATION is a union: Set contains one HANDLE,
+            // but Query contains ULONG DriveMap + UCHAR DriveType[32]. Its
+            // native x64 size is 40, including union alignment (not sizeof HANDLE).
+            const value = Buffer.alloc(40);
             ffi.encode(value, "void *", map.value);
             exact(set(process, 23, value, value.length), "suspended process assignment");
             applied = true;
