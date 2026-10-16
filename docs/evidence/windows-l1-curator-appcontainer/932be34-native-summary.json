@@ -1,0 +1,1656 @@
+{
+  "sourceHead": "932be342f4fc19fdc48189d62655b4c7b1b9c19a",
+  "qualification": "AppContainer SDK fixture, not full real-service CROT-6A, not production availability. No secret bytes emitted. Successful write-handle probes do not write data.",
+  "snapshotObjectOrder": [
+    "workspace",
+    "protected fixture",
+    "cross-root linked file",
+    "fixture parent",
+    "Temp",
+    "Local",
+    "AppData",
+    "runner profile",
+    "Users",
+    "volume root"
+  ],
+  "nodes": {
+    "20": {
+      "phase": "cleanup",
+      "aclStep": "query-descriptor",
+      "aclError": 0,
+      "ancestorIndex": 7,
+      "lastWin32Error": 0,
+      "verified": true,
+      "nativeCode": 1129476479,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 1,
+      "cleanup": false,
+      "originalDescriptorsRestored": false,
+      "insideHardlinkWriteDenied": false,
+      "insideHardlinkOpened": true,
+      "outsideHardlinkOpened": true,
+      "externalLinkCreationDenied": true,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "directoryAccess": [
+        {
+          "depth": 0,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 32,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 1,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 2,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 3,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 4,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 5,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 6,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 7,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        }
+      ],
+      "nodeResult": {
+        "ready": true,
+        "read": true,
+        "nul": true
+      },
+      "runtime": {
+        "node": "v20.20.2",
+        "arch": "x64",
+        "os": "Windows Server 2025 Datacenter"
+      },
+      "nativeCodeHex": "0x4352717f",
+      "linkedReadPreserved": true,
+      "exactDescriptorRestoredByObject": [false, true, false, false, false, false, false, true, false, false],
+      "descriptorFlags": [
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "P",
+          "after": "P"
+        },
+        {
+          "before": "",
+          "after": "AI"
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "P",
+          "after": "P"
+        },
+        {
+          "before": "PAI",
+          "after": "P"
+        },
+        {
+          "before": "AI",
+          "after": ""
+        }
+      ],
+      "powershellStdout": "CROT-PS-INITIAL-FILESYSTEM=True\r\nCROT-PS-INITIAL-ROOT=True\r\n",
+      "powershellStderr": "out-file : FileStream was asked to open a device that was not a file. For support for devices like 'com1:' or 'lpt1:', \r\ncall CreateFile, then use the FileStream constructors that take an OS handle as an IntPtr.\r\nAt line:1 char:666\r\n+ ... workspace' -ErrorAction Stop; 'ps-ready' > ps-result.txt; 'nul' > NUL\r\n+                                                               ~~~~~~~~~~~\r\n    + CategoryInfo          : OpenError: (:) [Out-File], NotSupportedException\r\n    + FullyQualifiedErrorId : FileOpenFailure,Microsoft.PowerShell.Commands.OutFileCommand\r\n \r\n",
+      "nativeDiagnostics": {
+        "directoryAccess": [
+          {
+            "depth": 0,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 32,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 1,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 2,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 3,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 4,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 5,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 6,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 7,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "22": {
+      "phase": "cleanup",
+      "aclStep": "query-descriptor",
+      "aclError": 0,
+      "ancestorIndex": 7,
+      "lastWin32Error": 0,
+      "verified": true,
+      "nativeCode": 1129476479,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 1,
+      "cleanup": false,
+      "originalDescriptorsRestored": false,
+      "insideHardlinkWriteDenied": false,
+      "insideHardlinkOpened": true,
+      "outsideHardlinkOpened": true,
+      "externalLinkCreationDenied": true,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "directoryAccess": [
+        {
+          "depth": 0,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 32,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 1,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 2,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 3,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 4,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 5,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 6,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 7,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        }
+      ],
+      "nodeResult": {
+        "ready": true,
+        "read": true,
+        "nul": true
+      },
+      "runtime": {
+        "node": "v22.23.3",
+        "arch": "x64",
+        "os": "Windows Server 2025 Datacenter"
+      },
+      "nativeCodeHex": "0x4352717f",
+      "linkedReadPreserved": true,
+      "exactDescriptorRestoredByObject": [false, true, false, false, false, false, false, true, false, false],
+      "descriptorFlags": [
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "P",
+          "after": "P"
+        },
+        {
+          "before": "",
+          "after": "AI"
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "P",
+          "after": "P"
+        },
+        {
+          "before": "PAI",
+          "after": "P"
+        },
+        {
+          "before": "AI",
+          "after": ""
+        }
+      ],
+      "powershellStdout": "CROT-PS-INITIAL-FILESYSTEM=True\r\nCROT-PS-INITIAL-ROOT=True\r\n",
+      "powershellStderr": "out-file : FileStream was asked to open a device that was not a file. For support for devices like 'com1:' or 'lpt1:', \r\ncall CreateFile, then use the FileStream constructors that take an OS handle as an IntPtr.\r\nAt line:1 char:666\r\n+ ... workspace' -ErrorAction Stop; 'ps-ready' > ps-result.txt; 'nul' > NUL\r\n+                                                               ~~~~~~~~~~~\r\n    + CategoryInfo          : OpenError: (:) [Out-File], NotSupportedException\r\n    + FullyQualifiedErrorId : FileOpenFailure,Microsoft.PowerShell.Commands.OutFileCommand\r\n \r\n",
+      "nativeDiagnostics": {
+        "directoryAccess": [
+          {
+            "depth": 0,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 32,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 1,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 2,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 3,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 4,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 5,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 6,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 7,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "sourceHead": "932be342f4fc19fdc48189d62655b4c7b1b9c19a",
+  "command": "npm run check",
+  "exitCode": 0,
+  "platform": "Linux x64",
+  "node": "v24.14.1",
+  "result": "1748 Core passed /168 skipped;147 extension passed",
+  "log": "932be34-full-check.log",
+  "sha256": "c7c405a9df67a3699a9b094e89ce53fe32971005090ec5e904a289c33657075b",
+  "qualification": "Portable checks only; Windows tests are skipped on Linux."
+}

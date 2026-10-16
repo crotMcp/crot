@@ -1,0 +1,154 @@
+{
+  "sourceHead": "45787026674963d50122c23618277dd40c3ac442",
+  "qualification": "AppContainer SDK fixture, not full real-service CROT-6A, not production availability. No secret bytes emitted. Successful write-handle probes do not write data.",
+  "snapshotObjectOrder": [
+    "workspace",
+    "protected fixture",
+    "cross-root linked file",
+    "fixture parent",
+    "Temp",
+    "Local",
+    "AppData",
+    "runner profile",
+    "Users",
+    "volume root"
+  ],
+  "nodes": {
+    "20": {
+      "phase": "ancestor-read",
+      "aclStep": "open-pinned",
+      "aclError": 32,
+      "ancestorIndex": 1,
+      "lastWin32Error": 32,
+      "verified": false,
+      "nativeCode": 0,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 0,
+      "cleanup": false,
+      "originalDescriptorsRestored": true,
+      "insideHardlinkWriteDenied": false,
+      "insideHardlinkOpened": false,
+      "outsideHardlinkOpened": false,
+      "externalLinkCreationDenied": false,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "directoryAccessError": "Missing or invalid fixed native directory-access evidence",
+      "nativeCodeHex": "0x0",
+      "linkedReadPreserved": false,
+      "exactDescriptorRestoredByObject": [true, true, true, true, true, true, true, true, true, true],
+      "descriptorFlags": [
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "P",
+          "after": "P"
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "P",
+          "after": "P"
+        },
+        {
+          "before": "PAI",
+          "after": "PAI"
+        },
+        {
+          "before": "AI",
+          "after": "AI"
+        }
+      ],
+      "powershellStdout": null,
+      "powershellStderr": null
+    },
+    "22": {
+      "phase": "ancestor-read",
+      "aclStep": "open-pinned",
+      "aclError": 32,
+      "ancestorIndex": 1,
+      "lastWin32Error": 32,
+      "verified": false,
+      "nativeCode": 0,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 0,
+      "cleanup": false,
+      "originalDescriptorsRestored": true,
+      "insideHardlinkWriteDenied": false,
+      "insideHardlinkOpened": false,
+      "outsideHardlinkOpened": false,
+      "externalLinkCreationDenied": false,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "directoryAccessError": "Missing or invalid fixed native directory-access evidence",
+      "nativeCodeHex": "0x0",
+      "linkedReadPreserved": false,
+      "exactDescriptorRestoredByObject": [true, true, true, true, true, true, true, true, true, true],
+      "descriptorFlags": [
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "P",
+          "after": "P"
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "P",
+          "after": "P"
+        },
+        {
+          "before": "PAI",
+          "after": "PAI"
+        },
+        {
+          "before": "AI",
+          "after": "AI"
+        }
+      ],
+      "powershellStdout": null,
+      "powershellStderr": null
+    }
+  }
+}

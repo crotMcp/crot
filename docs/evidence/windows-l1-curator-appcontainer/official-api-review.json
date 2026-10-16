@@ -1,0 +1,15 @@
+{
+  "SetSecurityInfo": {
+    "url": "https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo",
+    "finding": "Inheritable ACEs are propagated. MAXIMUM_ALLOWED handle suppresses propagation, but real volume root open failed with sharing violation."
+  },
+  "SetFileSecurityW": {
+    "url": "https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-setfilesecurityw",
+    "finding": "Obsolete API; documentation explicitly says directory security applied here is not inherited by children."
+  },
+  "SetKernelObjectSecurity": {
+    "url": "https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-setkernelobjectsecurity",
+    "finding": "Microsoft advises against filesystem use. Existing PrivateFileProtection uses it; narrow pinned DACL/control restoration tested here does not yet restore original volume-root AUTO_INHERITED exactly."
+  },
+  "retrieved": "2026-10-16"
+}

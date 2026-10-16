@@ -1,0 +1,9 @@
+{
+  "sourceHead": "e812f1d95c6d992b6a4f0ad8a1c4a731e8d3b36f",
+  "paths": {
+    "native/windows-workspace-view/main.cpp": "b0553e8393a4479ddbb1103dbf1eed8f0c4048a8",
+    "native/windows-workspace-view/acl-lease.h": "244ba0f9d3741df403df14328ce644388fbabc89",
+    "native/windows-workspace-view/control-profile-child.cpp": "fda049eb49ee464b91949b0e0c9387fbf46fbbbc",
+    "tests/native-host/windows-l1/appcontainer-native.test.ts": "f2f941b40a9af9de29cfd22c99f5c6684eb278e6"
+  }
+}

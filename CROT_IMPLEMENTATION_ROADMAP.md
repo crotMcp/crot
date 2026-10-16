@@ -336,7 +336,7 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | OD-3 | Exact device resource URI form and PRM location (AD-15 open item) | Token audience, client configuration UX, relay routing | WP-29, WP-30, WP-28 tests | **Decided by ARCHITECTURE.md §27 AD-21 points 5 and 6:** `https://<relay-host>/d/<deviceId>/mcp` (resource, MCP endpoint, RFC 8707 `resource`, only accepted `aud`); PRM at `https://<relay-host>/.well-known/oauth-protected-resource/d/<deviceId>/mcp`, served by the relay |
 | OD-4 | **Decided by ARCHITECTURE.md §27 AD-22:** relay–device tunnel wire protocol within the AD-15 shape (framing, multiplexing, flow control, keep-alive, versioning) | A long-lived contract between independently deployed relay and installed devices; version skew after release | WP-29, WP-30, WP-34 (updates) | Start of WP-29 — **AD required** (new boundary) |
 | OD-5 | **Decided by ARCHITECTURE.md §27 AD-22 points 12–13:** §26 Q13: relay/tunnel timeouts for gated requests (approval up to 300 s) and bounded browser waits; behaviour towards clients with shorter timeouts. The device-side margin (a request ends 5 s before the exchange deadline) is recorded in AD-22 by commit `37b3126` (WP-30, PR #20); measured client timeouts are WP-32 | Remote multi-step tasks with approvals must not fail silently | WP-29, WP-30, WP-32 | Before WP-30 is merged — **met** |
-| OD-6 | Windows L1 | AD-29 выбрал встроенный AppContainer + Job; достаточность решения повторно открыта контрпримером внешнего hardlink на 7596791. Только встроенные механизмы, без стороннего драйвера; NUL подготовка явная | WP-23c, WP-34, Gate 6 | Нельзя считать закрытым без безопасной границы по путям и восьми критериев |
+| OD-6 | Windows L1 | Куратор закрепил AppContainer + Job без виртуализации/сторонних драйверов (`98f7e0c`, `08bc430`). `fe6bd33`/`e812f1d` закрывают исходный внешний hardlink через защищённый readonly DACL; безопасность всех гонок и путей ещё не квалифицирована | WP-23c, WP-34, Gate 6 | Выбор механизма зафиксирован; приёмка восьми критериев открыта, точный SD и WinPS ещё не прошли |
 | OD-7 | How a preset / remote-profile change is applied by the service (reload vs restart) | Policy immutability (AD-5, AD-10) vs usability | WP-22, WP-31 | **Decided by AD-19 point 5 (WP-22):** device state in `service-settings.json`; a new Core with the new policy, only while Core is idle; WP-31 adds the `autonomous-browser` rule set and the remote profile on the same mechanism |
 | OD-8 | Download hand-over mechanism (staging in download directory vs stream over bridge) | File-integrity guarantees of AD-16 p.12 | WP-26 | Start of WP-26 (already assigned by AD-16) |
 | OD-9 | Матрица платформ v1 | Linux AD-20; Windows/macOS AD-29: Windows11 x64/ARM64, Server2022/2025 x64, Node20/22; актуальная macOS и две предыдущие на выпускаемых Apple архитектурах, Seatbelt/Keychain. Server ARM64 не выдумывается; браузерная часть ещё открыта | WP-23a/b/c, WP-34, WP-37 | Платформенная зависимость WP-23b разблокирована; реальная квалификация обязательна |
@@ -412,7 +412,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | yes | with WP-21 | **Done** (AD-19) |
 | WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part and OD-14 decided) | M | yes | with 23b/c | **Done** (AD-20; PR #6, `e1d1f61`) |
 | WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Разблокирован AD-29; реализация Seatbelt/Keychain ещё не начата |
-| WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Не принят. AD-29, встроенный AppContainer, без Dokan/WinFsp. Node20/22/NUL/cmd работают в нативной фикстуре; внешний hardlink получает write-handle. Требуются строгая граница, восстановление ACE, WinPS, CROT-6A реального сервиса, сеть/Docker/матрица/backend. OD-6 требует пересмотра достаточности; платформа OD-9 решена; PR27 Draft/open. Текущий отчёт: docs/design/windows-l1-native-os.md |
+| WP-23c | 2 | L1 Windows (spike → implementation) | WP-21, OD-9 | L | yes | with 23a/b | Не принят. AppContainer + Job без виртуализации. `e812f1d`: оба имени внешнего hardlink закрыты на запись, чтение сохранено, readonly предки доступны, опасные права закрыты. Точный SD и WinPS-гейт ещё красные; полный CROT-6A AppContainer и backend не выполнены. PR27 Draft/open. Текущий отчёт: docs/design/windows-l1-curator-appcontainer.md |
 | WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | **Merged** (PR #22–#25): implemented incl. out-of-process frames and element/frame-origin approval subjects; manual runs 1–5/follow-up recorded; B4/E5/windows and G5/H passed by owner; default-load timeout signalling in `wp-24-load-timeout-and-acceptance`; C1 partial, final acceptance open |
 | WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
 | WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | Not started |
@@ -589,20 +589,15 @@ Common card for WP-23a (Linux: bubblewrap + installer-shipped AppArmor
 profile), WP-23b (macOS: Seatbelt, secrets in Keychain), WP-23c (Windows:
 AppContainer + Job Object по AD-29, с незакрытой квалификацией границы записи).
 
-**Актуальный статус после a6eb17d:** WP-23a завершён. Платформенная зависимость
-OD-9 решена AD-29 и не блокирует начало WP-23b (Seatbelt/Keychain); реализация
-WP-23b не начата. WP-23c не принят: контрпример внешнего hardlink повторно
-открывает достаточность механизма OD-6. Производственный Windows backend
-недоступен, remote sandbox отказывает. Все три ОС обязательны для v1.
-Коммиты, восемь критериев и доказательства: [текущий отчёт](docs/design/windows-l1-native-os.md).
-
-`6da4386`: исправлена проверка полной записи; диагностика без ACL-изменений
-показала отказ чтения атрибутов всех предков, включая корень диска. Node20/22
-и cmd проходят, WinPS/hardlink/точный SD остаются провалами. Локально 1748 Core
-и 147 extension; девять не-Windows CI успешны, два Windows неуспешны.
-Никакая дополнительная системная выдача прав либо снятие строгих проверок
-не одобрена этим диагностическим коммитом.
-
+**Актуальный статус после директивы куратора:** WP-23a завершён; платформы
+OD-9 решены, WP-23b (Seatbelt/Keychain) разблокирован, но не реализован.
+OD-6 закреплён за AppContainer + Job без виртуализации. На `e812f1d` исходный
+контрпример hardlink закрыт и readonly-предки доступны; точное восстановление
+SD и WinPS-гейт ещё не прошли. Пункт Г до успешных А–В не выполнен.
+Производственный Windows backend unavailable, remote sandbox отказывает.
+Все три ОС обязательны для v1. Восемь критериев и актуальный CI:
+[текущий отчёт](docs/design/windows-l1-curator-appcontainer.md).
+Полные журналы: `docs/evidence/windows-l1-curator-appcontainer/`.
 
 **Исторические результаты до a6eb17d, не текущий выбор механизма:** WP-23a **Done** (ARCHITECTURE.md §27 AD-20; PR #6, `e1d1f61`;
 [`docs/L1.md`](docs/L1.md)). WP-23b is not implemented. WP-23c's native restricted-token/DACL spike is

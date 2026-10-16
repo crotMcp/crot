@@ -5,22 +5,21 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
-## WP-23c — текущая итерация после a6eb17d, не принят
+## WP-23c — директива куратора без виртуализации, не принят
 
-AD-29 (`c5016ed`) выбрал встроенный AppContainer + Job, без стороннего драйвера,
-зафиксировал платформы Windows/macOS и разблокировал зависимость WP-23b.
-`fd4fd47` отдельным коммитом исправил обход POSIX endpoint-lock; red/green тест
-сохранён, macOS Node 20/22 проверены настоящим CI. Это не завершение WP-23b.
-Нативные Node 20/22, NUL и cmd работают на исходном Medium workspace;
-`7596791` выявил write-handle через внешний hardlink. Поэтому достаточность
-OD-6 требует пересмотра, WP-23c не принят, Windows backend остаётся unavailable.
-`6da4386` исправил принятие неполной нативной записи и добавил диагностику
-WinPS без новых ACL: метаданные всех семи предков закрыты. Локально 1748 Core
-и 147 extension проходят; девять не-Windows CI зелёные, оба Windows красные.
-Hardlink, WinPS, точный SD и полный CROT-6A остаются блокирующими.
-Все три ОС обязательны для v1. Точные актуальные коммиты/CI и восемь критериев:
-[текущий отчёт](docs/design/windows-l1-native-os.md).
-Полные журналы: `docs/evidence/windows-l1-native-os/`.
+`98f7e0c`/`08bc430`: AppContainer + Job, без Hyper-V/HCS/Windows Sandbox.
+`fe6bd33`/`e812f1d`: оба имени внешнего hardlink закрыты на запись, чтение
+сохранено; новый внешний hardlink и 35 опасных открытий предков отклонены.
+WinPS теперь начинает в workspace, но его проверка потомка остаётся красной
+из-за пустого LASTEXITCODE. Точное восстановление SD также НЕ прошло:
+AUTO_INHERITED и происхождение ACE ещё расходятся. Пункт Г не выполнен,
+производственный Windows backend остаётся unavailable. Отдельное исправление
+macOS `fd4fd47` сохранено; WP-23b не объявлен готовым. Все три ОС обязательны.
+На `e812f1d`: локально 1748 Core +147 extension; девять не-Windows CI успешны,
+оба Windows неуспешны. Подготовленная замена проверки потомка заблокирована
+автоматической проверкой безопасности и не применена; запрошено согласие.
+Текущие восемь критериев: [отчёт](docs/design/windows-l1-curator-appcontainer.md).
+Полные журналы: `docs/evidence/windows-l1-curator-appcontainer/`.
 
 ## Исторические проверки до a6eb17d — не текущий выбор механизма
 
