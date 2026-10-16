@@ -57,25 +57,31 @@ export function bindNpfsRootQualification(ffi: NpfsFfi, libs: TokenLibraries) {
   const snapshot = (handle: unknown) => {
     const output: { value?: unknown } = {};
     const code = Number(fileSecurity(handle, 1, 4, null, null, null, null, output));
+    let result: Buffer | undefined, fault: unknown;
     try {
       if (code !== 0 || !valid(output.value)) throw fail("file DACL query", code);
       const length = Number(descriptorLength(output.value));
       if (!Number.isSafeInteger(length) || length < 20 || length > 1048576) throw fail("file DACL length", length);
       const bytes = ffi.decode(output.value, "uint8_t", length);
-      if (Buffer.isBuffer(bytes)) return Buffer.from(bytes);
-      if (
+      if (Buffer.isBuffer(bytes)) result = Buffer.from(bytes);
+      else if (
         !Array.isArray(bytes) ||
         bytes.length !== length ||
         bytes.some((b) => !Number.isInteger(b) || b < 0 || b > 255)
       )
         throw fail("file DACL bytes");
-      return Buffer.from(bytes as number[]);
+      else result = Buffer.from(bytes as number[]);
+    } catch (cause) {
+      fault = cause;
     } finally {
       if (valid(output.value) && valid(free(output.value))) {
         retained.add(output);
-        throw fail("file DACL query release", last());
+        fault ??= fail("file DACL query release", last());
       }
     }
+    if (fault) throw fault;
+    if (!result) throw fail("file DACL query result");
+    return result;
   };
   return (sid: string) => {
     // Validate before opening any shared object.
