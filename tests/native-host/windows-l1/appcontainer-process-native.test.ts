@@ -1,4 +1,6 @@
 /** Selected AppContainer launch primitive + existing ProcessLauncher; not full L1 availability. */
+import { spawn } from "node:child_process";
+import { loadAppContainerActorDrain } from "../../../src/native-host/windows-l1/actor-drain.js";
 import { createServer } from "node:http";
 import { get as httpsGet } from "node:https";
 import { lookup } from "node:dns/promises";
@@ -59,7 +61,7 @@ const bytes = async (stream: Readable) => {
 };
 describe.runIf(isWindows)("Windows AppContainer verified launch through NativeProcessLauncher", () => {
   let dirs: TempDirs, profile: AppContainerProfile, launcher: NativeProcessLauncher, host: NativeHost;
-  let executable: string, secret: string;
+  let executable: string, secret: string, ownerSid: string;
   let localShim: LocalPipeShim | undefined;
   let buildLauncher: (network?: AppContainerNetworkLease) => Promise<NativeProcessLauncher>;
   let networkLease: AppContainerNetworkLease | undefined, networkStore: LeaseJournalStore | undefined;
@@ -114,7 +116,7 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
     const imported = await import("koffi");
     const ffi = imported.default ?? imported;
     const dll = (n: string) => path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", n);
-    const ownerSid = await currentUserSid(tools);
+    ownerSid = await currentUserSid(tools);
     localShim = bindLocalPipeShim(ffi, shimLibrary);
     buildLauncher = async (network) =>
       new NativeProcessLauncher({
@@ -406,6 +408,49 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
     },
     120000,
   );
+  it("drains token-verified actors through a complete native inventory without killing a host control", async () => {
+    const sentinel = spawn(process.execPath, ["-e", "process.stdout.write('READY');setInterval(()=>{},1000)"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let sentinelReady = false;
+    sentinel.stdout.on("data", () => {
+      sentinelReady = true;
+    });
+    try {
+      await waitFor(() => sentinelReady, 5000);
+      const descendant = "process.stdout.write('READY:'+process.pid+'\\n');setInterval(()=>{},1000)";
+      const p = await launch(
+        `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{stdio:['ignore','pipe','ignore']});c.stdout.once('data',b=>process.stdout.write(b));setInterval(()=>{},1000)`,
+      );
+      let output = "";
+      p.stdout.on("data", (b: Buffer) => {
+        output += b.toString();
+      });
+      await waitFor(() => /READY:[0-9]+/.test(output), 10000);
+      const descendantPid = Number(/READY:([0-9]+)/.exec(output)?.[1]);
+      const actorPid = p.pid;
+      if (!actorPid) throw new Error("Missing native actor PID");
+      expect(isAlive(actorPid)).toBe(true);
+      expect(isAlive(descendantPid)).toBe(true);
+      const drain = await loadAppContainerActorDrain(),
+        result = await drain(ownerSid, profile.sid);
+      expect(result.terminated).toBeGreaterThanOrEqual(1);
+      expect(result.emptyScans).toBe(2);
+      await waitFor(() => !isAlive(actorPid) && !isAlive(descendantPid), 5000);
+      expect(isAlive(sentinel.pid!)).toBe(true);
+      await p.terminate("force");
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({
+          title: "CROT-6A-native-actor-inventory-drain",
+          value: { ...result, descendantsDead: true, foreignHostActorAlive: true, profileRecoveryTested: false },
+        }) + "\n",
+      );
+    } finally {
+      sentinel.kill();
+      if (sentinel.exitCode === null && sentinel.signalCode === null) await once(sentinel, "exit");
+    }
+  }, 30000);
   it("ends a detached descendant and retains profile ownership until the complete Job drains", async () => {
     const trace = path.join(dirs.workspace, "descendant-trace.jsonl");
     const record = `const record=v=>require('fs').appendFileSync(${JSON.stringify(trace)},JSON.stringify(v)+'\\n');`;
