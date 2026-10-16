@@ -167,7 +167,7 @@ int wmain(int argc,wchar_t** argv){
  ownedTemp=temp;ownedCache=cache;
  GUID guid{};need(SUCCEEDED(CoCreateGuid(&guid)));wchar_t id[64]{};StringFromGUID2(guid,id,64);std::wstring name=L"crot.l1.";for(auto c:std::wstring(id))if(c!=L'{'&&c!=L'}')name+=c;
  if(argc==14){if(!validProfileName(argv[7]))return 2;name=argv[7];for(int i=8;i<=12;i++){std::wstring p=argv[i];if(p.size()<4||p[1]!=L':'||p[2]!=L'\\'||p.find(L'"')!=p.npos)return 2;}std::wstring endpoint=argv[13];if(endpoint.find(L"\\\\.\\pipe\\crot-control-")!=0||endpoint.size()>256||endpoint.find(L'"')!=endpoint.npos)return 2;}
- DWORD serviceCode=STILL_ACTIVE;bool serviceAttempted=false;std::vector<bool> pinnedObjectRenames;std::vector<DWORD> pinnedObjectRenameErrors;DWORD ownerInternalDirectoryRename=ERROR_NOT_READY;
+ unsigned ordinaryFilesReopenedById=0;DWORD serviceCode=STILL_ACTIVE;bool serviceAttempted=false;std::vector<bool> pinnedObjectRenames;std::vector<DWORD> pinnedObjectRenameErrors;DWORD ownerInternalDirectoryRename=ERROR_NOT_READY;
  PSID package=nullptr;bool owns=false,cleanup=true;unsigned linkedCount=0,deniedLinkedCount=0;std::vector<std::string> restoreReasons;DWORD nativeCode=0,nodeCode=0,cmdCode=0,psCode=0;bool verified=false;
  std::vector<DescriptorObservation> observations;observations.emplace_back(root);observations.emplace_back(protectedFile);observations.emplace_back(root+L"\\link-source.txt");auto parents=ancestors(root);std::reverse(parents.begin(),parents.end());for(const auto& p:parents)observations.emplace_back(p);
  std::vector<bool> snapshotApisAgree;for(auto& o:observations){PinnedAcl probe(o.path,nullptr);auto query=probe.descriptor();snapshotApisAgree.push_back(PinnedAcl::rawEqual(PinnedAcl::acl(o.initial),PinnedAcl::acl(query)));}
@@ -198,6 +198,10 @@ int wmain(int argc,wchar_t** argv){
 
   for(auto& lease:existing){lease->expected=lease->descriptor();lease->installed=true;}
   for(auto& f:linked)if(!f.denied){f.lease->expected=f.lease->descriptor();f.lease->installed=true;}
+  // Retain ordinary directory handles with DELETE sharing, but close ordinary
+  // descendant FILE handles while actors run. Reopen original file IDs only
+  // after every actor Job has drained; roots/ancestors/protected/links stay held.
+  for(auto& lease:existing)if(!(lease->identity.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY))lease->releaseOrdinaryFileForActors(workspace.pinned->object.h);
   // Owner-positive disposable objects must reject even a trusted rename
   // while held. Do not try renaming any shared/user ancestor.
   phase="verify-protected-pins";for(const auto& p:std::vector<std::wstring>{root,temp,cache,protectedFile,root+L"\\link-source.txt"}){
@@ -221,13 +225,13 @@ int wmain(int argc,wchar_t** argv){
   // exact independent snapshots remain the acceptance gate.
   for(auto it=reads.rbegin();it!=reads.rend();++it){auto& lease=*it;bool okay=lease->remove();restoreReasons.push_back(lease->restoreError);cleanup=okay&&cleanup;}
   for(auto* grant:{&secret,&workspace,&tmp,&tools}){bool okay=grant->remove();restoreReasons.push_back(grant->restoreError);cleanup=okay&&cleanup;}
-  for(auto& lease:existing){bool okay=lease->remove();restoreReasons.push_back(lease->restoreError);cleanup=okay&&cleanup;}
+  for(auto& lease:existing){bool okay=lease->remove();if(lease->reopenedById)++ordinaryFilesReopenedById;restoreReasons.push_back(lease->restoreError);cleanup=okay&&cleanup;}
   for(auto& f:linked){bool okay=f.lease->remove();restoreReasons.push_back(f.lease->restoreError);cleanup=okay&&cleanup;}need(cleanup);
  }catch(...){failureCode=GetLastError();cleanup=false;}
  observe();if(owns){bool removed=false;for(unsigned i=0;i<20&&!removed;i++){removed=DeleteAppContainerProfile(name.c_str())==S_OK;if(!removed)Sleep(50);}cleanup=cleanup&&removed;}
  observe();if(package)FreeSid(package);
  std::cout<<"{\"snapshotApisAgree\":[";for(size_t i=0;i<snapshotApisAgree.size();i++){if(i)std::cout<<",";std::cout<<(snapshotApisAgree[i]?"true":"false");}std::cout<<"],\"nativeBaselineStages\":[";for(size_t i=0;i<observedStages.size();i++){if(i)std::cout<<",";std::cout<<"[";for(size_t j=0;j<observedStages[i].size();j++){if(j)std::cout<<",";std::cout<<(observedStages[i][j]?"true":"false");}std::cout<<"]";}std::cout<<"],";
- std::cout<<"\"renameSharingControls\":[";for(size_t i=0;i<renameTrials.size();i++){if(i)std::cout<<",";auto& t=renameTrials[i];std::cout<<"{\"target\":"<<t.target<<",\"access\":"<<t.access<<",\"held\":"<<t.held<<",\"closed\":"<<t.closed<<"}";}std::cout<<"],";
+ std::cout<<"\"ordinaryFilesReopenedById\":"<<ordinaryFilesReopenedById<<",\"renameSharingControls\":[";for(size_t i=0;i<renameTrials.size();i++){if(i)std::cout<<",";auto& t=renameTrials[i];std::cout<<"{\"target\":"<<t.target<<",\"access\":"<<t.access<<",\"held\":"<<t.held<<",\"closed\":"<<t.closed<<"}";}std::cout<<"],";
  std::cout<<"\"ownerInternalDirectoryRename\":"<<ownerInternalDirectoryRename<<",\"pinnedObjectRenameErrors\":[";for(size_t i=0;i<pinnedObjectRenameErrors.size();i++){if(i)std::cout<<",";std::cout<<pinnedObjectRenameErrors[i];}std::cout<<"],";
  std::cout<<"\"pinnedObjectRenames\":[";for(size_t i=0;i<pinnedObjectRenames.size();i++){if(i)std::cout<<",";std::cout<<(pinnedObjectRenames[i]?"true":"false");}std::cout<<"],";
  std::cout<<"\"serviceAttempted\":"<<(serviceAttempted?"true":"false")<<",\"serviceCode\":"<<serviceCode<<",\"linkedCount\":"<<linkedCount<<",\"deniedLinkedCount\":"<<deniedLinkedCount<<",\"restoreReasons\":[";for(size_t i=0;i<restoreReasons.size();i++){if(i)std::cout<<",";std::cout<<"\""<<restoreReasons[i]<<"\"";}std::cout<<"],\"phase\":\""<<phase<<"\",\"aclStep\":\""<<aclStep<<"\",\"aclError\":"<<aclError<<",\"ancestorIndex\":"<<ancestorIndex<<",\"launchStep\":\""<<launchStep<<"\",\"lastWin32Error\":"<<failureCode<<",\"verified\":"<<(verified?"true":"false")<<",\"nativeCode\":"<<nativeCode<<",\"nodeCode\":"<<nodeCode<<",\"cmdCode\":"<<cmdCode<<",\"psCode\":"<<psCode<<",\"cleanup\":"<<(cleanup?"true":"false")<<"}";

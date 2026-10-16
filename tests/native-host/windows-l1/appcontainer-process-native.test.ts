@@ -158,9 +158,13 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
     );
   }, 30000);
   it("ends a detached descendant and retains profile ownership until the complete Job drains", async () => {
-    const descendant = "process.stdout.write('READY:'+process.pid+'\\n');setInterval(()=>{},1000)";
+    const trace = path.join(dirs.workspace, "descendant-trace.jsonl");
+    const record = `const record=v=>require('fs').appendFileSync(${JSON.stringify(trace)},JSON.stringify(v)+'\\n');`;
+    const descendant =
+      record +
+      "record({step:'child-start',pid:process.pid});process.stdout.write('READY:'+process.pid+'\\n');setInterval(()=>{},1000)";
     const p = await launch(
-      `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:['ignore','pipe','ignore']});let ready=false;c.stdout.once('data',b=>{ready=true;process.stdout.write(b,()=>process.exit(23))});c.on('error',e=>{process.stderr.write('CHILD_ERROR:'+e.code+'\\n');process.exitCode=71});c.on('exit',(code,signal)=>{if(!ready){process.stderr.write('CHILD_EARLY_EXIT:'+JSON.stringify({code,signal})+'\\n');process.exitCode=72}});`,
+      `${record}record({step:'parent-start'});const cp=require('child_process');record({step:'before-spawn'});const c=cp.spawn(process.execPath,['-e',${JSON.stringify(descendant)}],{detached:true,stdio:['ignore','pipe','ignore']});record({step:'after-spawn',pid:c.pid});c.on('spawn',()=>record({step:'spawn-event',pid:c.pid}));let ready=false;c.stdout.once('data',b=>{ready=true;process.stdout.write(b,()=>process.exit(23))});c.on('error',e=>{process.stderr.write('CHILD_ERROR:'+e.code+'\\n');process.exitCode=71});c.on('exit',(code,signal)=>{if(!ready){process.stderr.write('CHILD_EARLY_EXIT:'+JSON.stringify({code,signal})+'\\n');process.exitCode=72}});`,
     );
     // A live descendant may retain an inherited stream. Do not wait for
     // stream EOF before terminating that very descendant (circular wait).
@@ -185,6 +189,7 @@ describe.runIf(isWindows)("Windows AppContainer verified launch through NativePr
             stdout: output,
             stderr: errors,
             transportFailure: p.failure?.message ?? null,
+            trace: await readFile(trace, "utf8").catch((e) => "TRACE_READ_ERROR:" + e.code),
           },
         }) + "\n",
       );

@@ -6,14 +6,15 @@
 const char* aclStep="none";DWORD aclError=0;unsigned ancestorIndex=0;
 void aclResult(DWORD result){if(result!=ERROR_SUCCESS){aclError=result;SetLastError(result);need(false);}}
 struct PinnedAcl {
- Handle object,renameGuard;std::wstring path;PSID sid;std::vector<BYTE> original,expected;bool installed=false;const char* restoreError="none";
- PinnedAcl(const std::wstring& p,PSID s,bool allowRename=false):path(p),sid(s){
+ Handle object,renameGuard;HANDLE volumeHint=nullptr;BY_HANDLE_FILE_INFORMATION identity{};bool renameAllowed=false,reopenedById=false;std::wstring path;PSID sid;std::vector<BYTE> original,expected;bool installed=false;const char* restoreError="none";
+ PinnedAcl(const std::wstring& p,PSID s,bool allowRename=false):renameAllowed(allowRename),path(p),sid(s){
   // Capture before opening a mutation handle. Compare the same requested
   // sections as the independent owner snapshot, never only a DACL projection.
   PSECURITY_DESCRIPTOR initial=nullptr;aclResult(GetNamedSecurityInfoW(p.c_str(),SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION|LABEL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&initial));need(initial!=nullptr);original.resize(GetSecurityDescriptorLength(initial));memcpy(original.data(),initial,original.size());LocalFree(initial);
   aclStep="open-pinned";object.h=CreateFileW(p.c_str(),READ_CONTROL|WRITE_DAC|FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|(allowRename?FILE_SHARE_DELETE:0),nullptr,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
   if(object.h==INVALID_HANDLE_VALUE){aclError=GetLastError();need(false);}BY_HANDLE_FILE_INFORMATION info{};need(!!GetFileInformationByHandle(object.h,&info)&&!(info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT));
   // Multi-link objects retain their separate non-renamable protection lease.
+  identity=info;
   if(allowRename)need(info.nNumberOfLinks<=1);
   else {
    // Metadata-only opens (READ_CONTROL/WRITE_DAC/READ_ATTRIBUTES) do NOT
@@ -29,7 +30,30 @@ struct PinnedAcl {
  // Only after all hardlink names have been verified INTERNAL before actors.
  // External links, roots, ancestors and protected files never call this.
  void releaseInternalRenameGuard(){if(renameGuard.h&&renameGuard.h!=INVALID_HANDLE_VALUE){need(!!CloseHandle(renameGuard.h));renameGuard.h=nullptr;}}
- std::vector<BYTE> descriptor(){PSECURITY_DESCRIPTOR value=nullptr;aclStep="query-descriptor";DWORD result=GetSecurityInfo(object.h,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION|LABEL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&value);aclResult(result);need(value!=nullptr);DWORD size=GetSecurityDescriptorLength(value);std::vector<BYTE>b(size);memcpy(b.data(),value,size);LocalFree(value);return b;}
+ // NTFS blocks renaming a directory with ANY open descendant file, even if
+ // all opens specify DELETE sharing (qualified by the isolated owner controls).
+ // Ordinary single-link files therefore keep their snapshot + NTFS file ID,
+ // not a live file handle during actors. Protected objects never use this path.
+ void releaseOrdinaryFileForActors(HANDLE hint){
+  need(renameAllowed&&!(identity.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)&&identity.nNumberOfLinks==1&&installed&&!expected.empty());
+  need(!renameGuard.h&&hint&&hint!=INVALID_HANDLE_VALUE&&object.h&&object.h!=INVALID_HANDLE_VALUE);
+  volumeHint=hint;need(!!CloseHandle(object.h));object.h=nullptr;
+ }
+ void ensureObject(){
+  if(object.h&&object.h!=INVALID_HANDLE_VALUE)return;
+  need(renameAllowed&&volumeHint&&volumeHint!=INVALID_HANDLE_VALUE);
+  FILE_ID_DESCRIPTOR id{};id.dwSize=sizeof(id);id.Type=FileIdType;
+  id.FileId.QuadPart=(static_cast<ULONGLONG>(identity.nFileIndexHigh)<<32)|identity.nFileIndexLow;
+  // No name lookup or following a replacement at the old pathname.
+  Handle candidate;candidate.h=OpenFileById(volumeHint,&id,READ_CONTROL|WRITE_DAC|FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,FILE_FLAG_BACKUP_SEMANTICS|FILE_FLAG_OPEN_REPARSE_POINT);
+  need(candidate.h!=INVALID_HANDLE_VALUE);BY_HANDLE_FILE_INFORMATION now{};need(!!GetFileInformationByHandle(candidate.h,&now));
+  need(now.dwVolumeSerialNumber==identity.dwVolumeSerialNumber&&now.nFileIndexHigh==identity.nFileIndexHigh&&now.nFileIndexLow==identity.nFileIndexLow);
+  need(!(now.dwFileAttributes&(FILE_ATTRIBUTE_REPARSE_POINT|FILE_ATTRIBUTE_DIRECTORY)));
+  // A missing/deleted/reused identity fails cleanup; never fall back to a path.
+  need(now.ftCreationTime.dwHighDateTime==identity.ftCreationTime.dwHighDateTime&&now.ftCreationTime.dwLowDateTime==identity.ftCreationTime.dwLowDateTime);
+  object.h=candidate.h;candidate.h=nullptr;reopenedById=true;
+ }
+ std::vector<BYTE> descriptor(){ensureObject();PSECURITY_DESCRIPTOR value=nullptr;aclStep="query-descriptor";DWORD result=GetSecurityInfo(object.h,SE_FILE_OBJECT,OWNER_SECURITY_INFORMATION|GROUP_SECURITY_INFORMATION|DACL_SECURITY_INFORMATION|LABEL_SECURITY_INFORMATION,nullptr,nullptr,nullptr,nullptr,&value);aclResult(result);need(value!=nullptr);DWORD size=GetSecurityDescriptorLength(value);std::vector<BYTE>b(size);memcpy(b.data(),value,size);LocalFree(value);return b;}
  static PACL acl(std::vector<BYTE>& b){BOOL present=FALSE,def=FALSE;PACL a=nullptr;need(!!GetSecurityDescriptorDacl(b.data(),&present,&a,&def)&&present&&a);return a;}
  static SECURITY_DESCRIPTOR_CONTROL control(std::vector<BYTE>& b){SECURITY_DESCRIPTOR_CONTROL c=0;DWORD rev=0;need(!!GetSecurityDescriptorControl(b.data(),&c,&rev));return c;}
  void set(PACL a,SECURITY_DESCRIPTOR_CONTROL c){

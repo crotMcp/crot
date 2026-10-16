@@ -148,6 +148,7 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
         serviceAttempted: boolean;
         serviceCode: number;
         pinnedObjectRenames: boolean[];
+        ordinaryFilesReopenedById: number;
         verified: boolean;
         nativeCode: number;
         nodeCode: number;
@@ -253,6 +254,7 @@ describe.runIf(process.platform === "win32")("Windows AppContainer без дра
       expect(v.pinnedObjectRenames).toEqual([true, true, true, true, true]);
       expect(directoryAccessError).toBeUndefined();
       expect(JSON.parse(String(actorOutput["native-stdout.txt"]))).toMatchObject({ existingWorkspaceCrud: true });
+      expect(v.ordinaryFilesReopenedById).toBeGreaterThanOrEqual(2);
       expect(await readFile(existingFile, "utf8")).toBe("changed");
       expect(await readFile(existingSibling, "utf8")).toBe("untouched");
       expect(directoryAccess).toBeDefined();
