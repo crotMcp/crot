@@ -1,6 +1,8 @@
 // AD-29 fixed OS-only child. No arbitrary program or RPC interface.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <sddl.h>
+#include <vector>
 #include <string>
 #include <cstring>
 #include <iostream>
@@ -10,8 +12,39 @@ bool put(const std::wstring& p,const char* text){HANDLE h=CreateFileW(p.c_str(),
 // A successful directory open with a write mask is recorded, never exercised.
 DWORD existingDirectoryDeleteOpen=ERROR_NOT_READY;
 DWORD existingWorkspaceSteps[7]={ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY,ERROR_NOT_READY};
+// Finite owner-only pipe creation controls, NEVER a retry loop or a grant on
+// shared pipe namespaces. Each successful new instance is closed immediately.
+// Explicit descriptors apply only to our fresh diagnostic pipe instance.
+void pipeCreationDiagnostics(){
+ HANDLE token=nullptr;DWORD tokenError=ERROR_SUCCESS;std::vector<BYTE> package,user;
+ if(!OpenProcessToken(GetCurrentProcess(),TOKEN_QUERY,&token))tokenError=GetLastError();
+ auto info=[&](TOKEN_INFORMATION_CLASS type,std::vector<BYTE>& value){DWORD n=0;GetTokenInformation(token,type,nullptr,0,&n);if(!n||n>65536)return false;value.resize(n);return !!GetTokenInformation(token,type,value.data(),n,&n);};
+ PSECURITY_DESCRIPTOR descriptor=nullptr;
+ if(tokenError==ERROR_SUCCESS){
+  if(info(TokenAppContainerSid,package)&&info(TokenUser,user)){
+   auto p=reinterpret_cast<TOKEN_APPCONTAINER_INFORMATION*>(package.data())->TokenAppContainer;auto u=reinterpret_cast<TOKEN_USER*>(user.data())->User.Sid;
+   LPWSTR packageText=nullptr,userText=nullptr;
+   if(p&&IsValidSid(p)&&IsValidSid(u)&&ConvertSidToStringSidW(p,&packageText)&&ConvertSidToStringSidW(u,&userText)){
+    std::wstring sddl=L"D:P(A;;GA;;;"+std::wstring(packageText)+L")(A;;GA;;;"+std::wstring(userText)+L")";
+    if(!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(),1,&descriptor,nullptr))tokenError=GetLastError();
+   }else tokenError=GetLastError();
+   if(packageText)LocalFree(packageText);if(userText)LocalFree(userText);
+  }else tokenError=GetLastError();
+ }
+ if(token)CloseHandle(token);
+ if(!descriptor&&tokenError==ERROR_SUCCESS)tokenError=ERROR_INVALID_DATA;
+ std::cout<<"\"pipeCreationDiagnostics\":{\"descriptorError\":"<<tokenError<<",\"attempts\":[";
+ const wchar_t* prefixes[]={L"\\\\.\\pipe\\",L"\\\\?\\pipe\\uv\\",L"\\\\.\\pipe\\LOCAL\\"};
+ for(unsigned space=0;space<3;space++)for(unsigned explicitAcl=0;explicitAcl<2;explicitAcl++){
+  auto name=std::wstring(prefixes[space])+L"crot-own-probe-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(space)+L"-"+std::to_wstring(explicitAcl);
+  SECURITY_ATTRIBUTES sa{sizeof(sa),descriptor,FALSE};DWORD error=tokenError,closeError=ERROR_SUCCESS;
+  if(!explicitAcl||descriptor){SetLastError(ERROR_SUCCESS);HANDLE h=CreateNamedPipeW(name.c_str(),PIPE_ACCESS_INBOUND|FILE_FLAG_OVERLAPPED|WRITE_DAC|FILE_FLAG_FIRST_PIPE_INSTANCE,PIPE_TYPE_BYTE|PIPE_READMODE_BYTE|PIPE_WAIT,1,65536,65536,0,explicitAcl?&sa:nullptr);error=h==INVALID_HANDLE_VALUE?GetLastError():ERROR_SUCCESS;if(h!=INVALID_HANDLE_VALUE&&!CloseHandle(h))closeError=GetLastError();}
+  if(space||explicitAcl)std::cout<<",";std::cout<<"{\"namespaceIndex\":"<<space<<",\"explicitOwnedAcl\":"<<(explicitAcl?"true":"false")<<",\"createError\":"<<error<<",\"closeError\":"<<closeError<<"}";
+ }
+ if(descriptor)LocalFree(descriptor);std::cout<<"]},";
+}
 void pathDiagnostics(std::wstring directory,bool existingCrud){
- std::cout<<"{\"existingDirectoryDeleteOpen\":"<<existingDirectoryDeleteOpen<<",\"existingWorkspaceCrud\":"<<(existingCrud?"true":"false")<<",\"existingWorkspaceSteps\":[";for(unsigned i=0;i<7;i++){if(i)std::cout<<",";std::cout<<existingWorkspaceSteps[i];}std::cout<<"],\"directoryAccess\":[";bool first=true;
+ std::cout<<"{";pipeCreationDiagnostics();std::cout<<"\"existingDirectoryDeleteOpen\":"<<existingDirectoryDeleteOpen<<",\"existingWorkspaceCrud\":"<<(existingCrud?"true":"false")<<",\"existingWorkspaceSteps\":[";for(unsigned i=0;i<7;i++){if(i)std::cout<<",";std::cout<<existingWorkspaceSteps[i];}std::cout<<"],\"directoryAccess\":[";bool first=true;
  for(unsigned depth=0;depth<64;depth++){
   if(!first)std::cout<<",";first=false;
   SetLastError(ERROR_SUCCESS);DWORD attributes=GetFileAttributesW(directory.c_str());
