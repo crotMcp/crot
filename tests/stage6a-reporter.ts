@@ -43,7 +43,7 @@ export default class Stage6aReporter {
         tasks?: unknown[];
       };
       if (
-        !/(stage6a-diagnostics|workspace-native|native-process|write-boundary|appcontainer-native)\.test\.ts$/.test(
+        !/(stage6a-diagnostics|workspace-native|native-process|write-boundary|appcontainer-native|appcontainer-process-native)\.test\.ts$/.test(
           f.filepath ?? f.name ?? "",
         )
       )
