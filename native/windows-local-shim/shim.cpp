@@ -2,10 +2,13 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <string>
+#include <cstring>
 #include "detours.h"
 #include "pipe-prefix.h"
 static decltype(&CreateNamedPipeW) realPipe=CreateNamedPipeW;
 static decltype(&CreateFileW) realFile=CreateFileW;
+static decltype(&CreateNamedPipeA) realPipeA=CreateNamedPipeA;
+static decltype(&CreateFileA) realFileA=CreateFileA;
 static decltype(&CreateProcessW) realProcess=CreateProcessW;
 static char ownedDll[32768]{};
 static HMODULE selfModule=nullptr;
@@ -26,11 +29,19 @@ static bool dllAnsiPath(HMODULE module,char* output,DWORD count){
  return size>0&&!used;
 }
 static HANDLE WINAPI localPipe(LPCWSTR name,DWORD openMode,DWORD mode,DWORD instances,DWORD outSize,DWORD inSize,DWORD timeout,LPSECURITY_ATTRIBUTES security){
- try{std::wstring local;return realPipe(crotLocalPipeName(name,local)?local.c_str():name,openMode,mode,instances,outSize,inSize,timeout,security);}
+ try{HANDLE result;DWORD error;{std::wstring local;result=realPipe(crotLocalPipeName(name,local)?local.c_str():name,openMode,mode,instances,outSize,inSize,timeout,security);error=GetLastError();}SetLastError(error);return result;}
  catch(...){SetLastError(ERROR_NOT_ENOUGH_MEMORY);return INVALID_HANDLE_VALUE;}
 }
 static HANDLE WINAPI localFile(LPCWSTR name,DWORD access,DWORD share,LPSECURITY_ATTRIBUTES security,DWORD disposition,DWORD flags,HANDLE templateFile){
- try{std::wstring local;return realFile(crotLocalPipeName(name,local)?local.c_str():name,access,share,security,disposition,flags,templateFile);}
+ try{HANDLE result;DWORD error;{std::wstring local;result=realFile(crotLocalPipeName(name,local)?local.c_str():name,access,share,security,disposition,flags,templateFile);error=GetLastError();}SetLastError(error);return result;}
+ catch(...){SetLastError(ERROR_NOT_ENOUGH_MEMORY);return INVALID_HANDLE_VALUE;}
+}
+static HANDLE WINAPI localPipeA(LPCSTR name,DWORD openMode,DWORD mode,DWORD instances,DWORD outSize,DWORD inSize,DWORD timeout,LPSECURITY_ATTRIBUTES security){
+ try{HANDLE result;DWORD error;{std::string local;result=realPipeA(crotLocalPipeName(name,local)?local.c_str():name,openMode,mode,instances,outSize,inSize,timeout,security);error=GetLastError();}SetLastError(error);return result;}
+ catch(...){SetLastError(ERROR_NOT_ENOUGH_MEMORY);return INVALID_HANDLE_VALUE;}
+}
+static HANDLE WINAPI localFileA(LPCSTR name,DWORD access,DWORD share,LPSECURITY_ATTRIBUTES security,DWORD disposition,DWORD flags,HANDLE templateFile){
+ try{HANDLE result;DWORD error;{std::string local;result=realFileA(crotLocalPipeName(name,local)?local.c_str():name,access,share,security,disposition,flags,templateFile);error=GetLastError();}SetLastError(error);return result;}
  catch(...){SetLastError(ERROR_NOT_ENOUGH_MEMORY);return INVALID_HANDLE_VALUE;}
 }
 static BOOL WINAPI localProcess(LPCWSTR app,LPWSTR command,LPSECURITY_ATTRIBUTES pa,LPSECURITY_ATTRIBUTES ta,BOOL inherit,DWORD flags,LPVOID env,LPCWSTR cwd,LPSTARTUPINFOW startup,LPPROCESS_INFORMATION output){
@@ -69,6 +80,8 @@ BOOL WINAPI DllMain(HINSTANCE instance,DWORD reason,LPVOID){
  LONG error=DetourUpdateThread(GetCurrentThread());
  if(!error)error=DetourAttach(reinterpret_cast<PVOID*>(&realPipe),localPipe);
  if(!error)error=DetourAttach(reinterpret_cast<PVOID*>(&realFile),localFile);
+ if(!error)error=DetourAttach(reinterpret_cast<PVOID*>(&realPipeA),localPipeA);
+ if(!error)error=DetourAttach(reinterpret_cast<PVOID*>(&realFileA),localFileA);
  if(!error)error=DetourAttach(reinterpret_cast<PVOID*>(&realProcess),localProcess);
  if(error){DetourTransactionAbort();return FALSE;}
  return DetourTransactionCommit()==NO_ERROR;

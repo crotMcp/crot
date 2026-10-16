@@ -9,3 +9,12 @@ inline bool crotLocalPipeName(const wchar_t* input, std::wstring& output) {
  if(name.size()<=extended.size() || name.size()>32700)return false;
  output=L"\\\\.\\pipe\\LOCAL\\uv\\"+name.substr(extended.size());return true;
 }
+
+// libuv's stdio pipe pair uses the ANSI APIs in shipped Node 20/22.
+inline bool crotLocalPipeName(const char* input, std::string& output) {
+ if(!input)return false;
+ const std::string name(input),extended="\\\\?\\pipe\\uv\\",ordinary="\\\\.\\pipe\\uv\\";
+ if(name.compare(0,extended.size(),extended)!=0&&name.compare(0,ordinary.size(),ordinary)!=0)return false;
+ if(name.size()<=extended.size()||name.size()>32700)return false;
+ output="\\\\.\\pipe\\LOCAL\\uv\\"+name.substr(extended.size());return true;
+}

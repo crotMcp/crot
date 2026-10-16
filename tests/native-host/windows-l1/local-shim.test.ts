@@ -64,7 +64,11 @@ int main(){
  for(auto input:valid){std::wstring out;if(!crotLocalPipeName(input,out)||out!=LR"(\\.\pipe\LOCAL\uv\one)")return 1;}
  const wchar_t* unchanged[]={LR"(\\.\pipe\service.sock)",LR"(\\.\pipe\control.sock)",LR"(\\.\pipe\docker_engine)",LR"(\\.\pipe\crot-control-owner)",LR"(\\?\pipe\uv-other\one)",LR"(\\.\pipe\LOCAL\uv\one)",LR"(C:\workspace\uv\one)",LR"(\\?\pipe\uv\)"};
  for(auto input:unchanged){std::wstring out;if(crotLocalPipeName(input,out))return 2;}
- std::wstring out;if(crotLocalPipeName(nullptr,out))return 3;return 0;
+ std::wstring out;if(crotLocalPipeName(static_cast<const wchar_t*>(nullptr),out))return 3;
+ const char* narrow[]={R"(\\?\pipe\uv\one)",R"(\\.\pipe\uv\one)"};
+ for(auto input:narrow){std::string result;if(!crotLocalPipeName(input,result)||result!=R"(\\.\pipe\LOCAL\uv\one)")return 4;}
+ const char* host[]={R"(\\.\pipe\control.sock)",R"(\\.\pipe\service.sock)",R"(\\.\pipe\docker_engine)",R"(\\.\pipe\crot-control-owner)"};
+ for(auto input:host){std::string result;if(crotLocalPipeName(input,result))return 5;}return 0;
 }`,
     );
     execFileSync(cc!, ["-std=c++17", "-I", path.resolve("native/windows-local-shim"), source, "-o", exe]);
