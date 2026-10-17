@@ -1,8 +1,9 @@
+import { runtimeProtectedPaths } from "../../../src/native-host/macos-l1/runtime.js";
 import { reinitializationProbe } from "../../../src/native-host/macos-l1/reinitialization.js";
 import { execFileSync } from "node:child_process";
 import { seatbeltProfile } from "../../../src/native-host/macos-l1/profile.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, rm, readFile, writeFile, symlink, realpath } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readFile, writeFile, symlink, realpath, link } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
@@ -116,6 +117,18 @@ console.log('PRIVATE-TOOL-CACHES');`,
     expect(r, r.err).toMatchObject({ code: 0 });
     expect(r.out).toContain("PRIVATE-TOOL-CACHES");
   });
+  it("does not grant write handles to the owner/guardian Node and CROT runtime", async () => {
+    const core = await open("on");
+    // No truncation or writes even if the gate regresses: open/close only.
+    const paths = runtimeProtectedPaths();
+    const targets = [paths[0]!, path.join(paths[2]!, "package.json")];
+    const r = await run(
+      core,
+      `const fs=require('fs');for(const p of ${JSON.stringify(targets)}){try{const fd=fs.openSync(p,'r+');fs.closeSync(fd);throw Error('writable runtime')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}}console.log('RUNTIME-READONLY');`,
+    );
+    expect(r, r.err).toMatchObject({ code: 0 });
+    expect(r.out).toContain("RUNTIME-READONLY");
+  });
   it("rejects protected reads/writes, outside writes and symlink escape", async () => {
     const core = await open("on");
     await symlink(root, path.join(workspace, "escape"));
@@ -200,6 +213,18 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
     expect(r, r.err).toMatchObject({ code: 0 });
     expect(r.out).toContain("DOCKER-200-403-403");
     expect(refusals).toHaveLength(2);
+  });
+  it("does not modify an external file through a pre-existing workspace hardlink", async () => {
+    const external = path.join(root, "preexisting-external");
+    await writeFile(external, "ORIGINAL");
+    await link(external, path.join(workspace, "preexisting-alias"));
+    const core = await open("on");
+    const r = await run(
+      core,
+      `const fs=require('fs');try{fs.writeFileSync('preexisting-alias','BAD');throw Error('hardlink escaped')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}console.log('PREEXISTING-LINK-DENIED');`,
+    );
+    expect(r, r.err).toMatchObject({ code: 0 });
+    expect(await readFile(external, "utf8")).toBe("ORIGINAL");
   });
   it("cannot turn a new external hardlink into an outside write", async () => {
     const external = path.join(root, "outside-hardlink");

@@ -1,4 +1,5 @@
 import { macosPlatformSupported } from "./platform.js";
+import { runtimeProtectedPaths } from "./runtime.js";
 import { prepareRustup } from "./toolchains.js";
 import { reinitializationProbe } from "./reinitialization.js";
 import { randomUUID } from "node:crypto";
@@ -172,9 +173,11 @@ export class MacosConfinement implements CommandConfinement {
           .map(canonicalPath),
       ),
     ];
+    const readOnlyPaths = runtimeProtectedPaths().map(canonicalPath);
     const layout: SeatbeltLayout = {
       writable: [canonicalPath(scope.workspace), home, temp],
       protectedPaths,
+      readOnlyPaths,
       dockerSocket: path.join(root, "d.sock"),
       network: scope.network,
     };
@@ -190,7 +193,7 @@ export class MacosConfinement implements CommandConfinement {
         }),
       boundary: {
         writable: layout.writable,
-        protectedPaths,
+        protectedPaths: [...protectedPaths, ...readOnlyPaths],
         unreadable: protectedPaths,
         daemonSockets: [
           canonicalPath("/var/run/docker.sock"),
@@ -317,7 +320,7 @@ class MacosCore implements CoreConfinement {
     this.assertAdmission();
     try {
       // Re-resolve every policy path before launch: a moved/replaced protected root is not silently admitted.
-      for (const p of [...this.layout.writable, ...this.layout.protectedPaths])
+      for (const p of [...this.layout.writable, ...this.layout.protectedPaths, ...(this.layout.readOnlyPaths ?? [])])
         if (canonicalPath(p) !== p) throw failed();
       const id = await this.actors.identity(this.root);
       await this.watchdog.register(id);

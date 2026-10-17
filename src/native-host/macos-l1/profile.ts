@@ -30,6 +30,7 @@ export function sbplString(value: string): string {
 export interface SeatbeltLayout {
   readonly writable: readonly string[];
   readonly protectedPaths: readonly string[];
+  readonly readOnlyPaths?: readonly string[];
   readonly dockerSocket: string;
   readonly network: ConfinementNetwork;
 }
@@ -37,7 +38,7 @@ export interface SeatbeltLayout {
 export function seatbeltProfile(layout: SeatbeltLayout): string {
   const subpaths = (paths: readonly string[]) => paths.map((p) => `(subpath ${sbplString(p)})`).join("\n");
   const guards = new Set<string>();
-  for (const root of [...layout.writable, ...layout.protectedPaths]) {
+  for (const root of [...layout.writable, ...layout.protectedPaths, ...(layout.readOnlyPaths ?? [])]) {
     for (let p = root; p !== "/"; p = path.posix.dirname(p)) guards.add(p);
   }
   const guardedNames = [...guards].map((p) => `(literal ${sbplString(p)})`).join("\n");
@@ -66,6 +67,7 @@ export function seatbeltProfile(layout: SeatbeltLayout): string {
 (deny file-write-unlink file-write-mode file-write-owner file-write-flags ${guardedNames})
 ; Denial wins over broad host reads and writable workspace roots.
 (deny file-read* file-write* ${subpaths(layout.protectedPaths)})
+${layout.readOnlyPaths?.length ? `(deny file-write* ${subpaths(layout.readOnlyPaths)})` : ""}
 ; No arbitrary AF_UNIX: control, Docker, SSH agents and user daemons stay outside.
 (allow network* (local unix-socket (literal ${sbplString(layout.dockerSocket)})))
 (allow network-outbound (remote unix-socket (literal ${sbplString(layout.dockerSocket)})))
