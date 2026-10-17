@@ -4,6 +4,7 @@ import { link, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, inject, it } from "vitest";
+import { RemoteExposureStore } from "../../../src/core/approvals/remote-exposure.js";
 import type { CrotCore } from "../../../src/core/crot-core.js";
 import { NativeHost } from "../../../src/native-host/native-host.js";
 import { loadWindowsPrivateState } from "../../../src/native-host/windows-state.js";
@@ -84,7 +85,7 @@ describe.runIf(isWindows)("production Windows AppContainer CommandConfinement", 
       core = await createTestCore(
         { workspace: { root: dirs.workspace }, permissions: { mode: "sandbox" }, confinement: { network: "on" } },
         undefined,
-        { platform: native.platform },
+        { platform: native.platform, remoteExposure: RemoteExposureStore.inMemory() },
       );
       const shell = await core.processes.shell(testContext, {
         cwd: dirs.workspace,
@@ -143,8 +144,9 @@ f.unlinkSync('delete-original.txt');try{f.writeFileSync('host-link','bad');proce
       core = await createTestCore(
         { workspace: { root: dirs.workspace }, permissions: { mode: "sandbox" } },
         undefined,
-        { platform: native.platform },
+        { platform: native.platform, remoteExposure: RemoteExposureStore.inMemory() },
       );
+      // Qualify confinement refusal with a clean scope, not the independent untrusted-content approval gate.
       const remote = {
         principal: remotePrincipal({
           id: "windows-l1-qualification",
@@ -163,7 +165,7 @@ f.unlinkSync('delete-original.txt');try{f.writeFileSync('host-link','bad');proce
       core = await createTestCore(
         { workspace: { root: dirs.workspace }, permissions: { mode: "full_control" } },
         undefined,
-        { platform: native.platform },
+        { platform: native.platform, remoteExposure: RemoteExposureStore.inMemory() },
       );
       const unrestricted = await core.processes.exec(testContext, {
         cwd: dirs.outside,
