@@ -600,6 +600,41 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
       retryStdioReleases();
       if (quarantined.size) throw failure("previous incomplete cancellation");
       const name = `\\\\.\\pipe\\LOCAL\\crot-l1-docker-${randomBytes(24).toString("hex")}`;
+      // LOCAL is virtualized only for an AppContainer caller. The trusted
+      // host must listen in that package/session's *physical* NPFS namespace,
+      // while child DOCKER_HOST keeps the documented logical LOCAL address.
+      const convertSid = a.func(`int __stdcall ConvertStringSidToSidW(str16 text, _Out_ ${HANDLE} *out)`);
+      const objectPath = k.func(
+        `int __stdcall GetAppContainerNamedObjectPath(void *token, void *sid, uint32_t length, void *path, _Out_ ${COUNT} *needed)`,
+      );
+      const packageSid: { value?: NativeHandle } = {};
+      let physical: string;
+      try {
+        if (!ok(convertSid(options.packageSid, packageSid)) || !valid(packageSid.value))
+          throw failure("LOCAL package SID allocation", errorCode());
+        const text = Buffer.alloc(8192),
+          needed: { value?: number } = {};
+        if (!ok(objectPath(null, packageSid.value, text.length / 2, text, needed)))
+          throw failure("LOCAL named-object path", errorCode());
+        const count = text.indexOf(Buffer.from([0, 0]));
+        // UTF-16 terminators must be found on a code-unit boundary.
+        let end = 0;
+        while (end + 1 < text.length && text.readUInt16LE(end) !== 0) end += 2;
+        if (end === 0 || end >= text.length || count < 0) throw failure("LOCAL named-object path length");
+        const prefix = text.subarray(0, end).toString("utf16le").replace(/\\+$/, "");
+        if (
+          !/^\\Sessions\\[0-9]+\\AppContainerNamedObjects\\S-1-15-2-/.test(prefix) ||
+          !prefix.endsWith(`\\${options.packageSid}`)
+        )
+          throw failure("LOCAL named-object namespace");
+        physical = `\\\\.\\pipe${prefix}\\${name.slice(name.lastIndexOf("\\") + 1)}`;
+      } finally {
+        if (valid(packageSid.value))
+          releaseSetup(() => {
+            if (valid(free(packageSid.value))) throw failure("LOCAL package SID LocalFree", errorCode());
+            packageSid.value = undefined;
+          });
+      }
       const descriptor: { value?: NativeHandle } = {};
       const sockets = new Set<LocalDuplex>();
       let listener: NativeHandle,
@@ -639,7 +674,7 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
         connection = undefined;
       };
       const prepare = () => {
-        listener = server(name, 3 | 0x40000000 | (first ? 0x80000 : 0), 8, 255, 65536, 65536, 0, {
+        listener = server(physical, 3 | 0x40000000 | (first ? 0x80000 : 0), 8, 255, 65536, 65536, 0, {
           length: 24,
           descriptor: descriptor.value,
           inherit: 0,

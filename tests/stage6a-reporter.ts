@@ -43,7 +43,7 @@ export default class Stage6aReporter {
         tasks?: unknown[];
       };
       if (
-        !/(stage6a-diagnostics|workspace-native|native-process|write-boundary|appcontainer-native|appcontainer-process-native|lease-journal|lease-recovery|lease-lock|lease-crash|lease-acl|lease-acl-native|network|network-native|actor-drain|actor-drain-ffi|native-lease-recovery|profile-receipts)\.test\.ts$/.test(
+        !/(stage6a-diagnostics|workspace-native|native-process|write-boundary|appcontainer-native|appcontainer-process-native|lease-journal|lease-recovery|lease-lock|lease-crash|lease-acl|lease-acl-native|network|network-native|actor-drain|actor-drain-ffi|native-lease-recovery|profile-receipts|production-confinement|components)\.test\.ts$/.test(
           f.filepath ?? f.name ?? "",
         )
       )

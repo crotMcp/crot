@@ -152,6 +152,7 @@ export class WindowsNativeLeases {
             this.serial(async () => {
               if (closed) return;
               try {
+                await owner.stop();
                 await this.recovery.release(plan.id);
                 closed = true;
               } catch (cause) {
@@ -190,7 +191,10 @@ export class WindowsNativeLeases {
     this.closing = true;
     return this.serial(async () => {
       if (this.closed) return;
-      for (const owner of [...this.live.values()]) await this.recovery.release(owner.profile.name.slice(8));
+      for (const owner of [...this.live.values()]) {
+        await owner.stop();
+        await this.recovery.release(owner.profile.name.slice(8));
+      }
       await this.store.close();
       this.closed = true;
     });

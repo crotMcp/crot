@@ -308,7 +308,7 @@ export type ConfinementNetwork = (typeof CONFINEMENT_NETWORK_MODES)[number];
  * paths.
  */
 export interface ConfinementStatus {
-  readonly mechanism: "linux-bubblewrap" | "none";
+  readonly mechanism: "linux-bubblewrap" | "windows-appcontainer" | "none";
   readonly available: boolean;
   readonly network: ConfinementNetwork;
   readonly reason: ConfinementReason | null;

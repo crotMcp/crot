@@ -122,17 +122,24 @@ const query=(target,body)=>new Promise((resolve,reject)=>{const data=body?JSON.s
 (async()=>{const docker=[await query('/_ping'),await query('/containers/create',{HostConfig:{Privileged:true}}),await query('/containers/create',{HostConfig:{Binds:[${JSON.stringify(config.protectedPaths[0] + ":C:\\forbidden:ro")}]}}),await query('/containers/create',{HostConfig:{Binds:['C:\\\\outside:C:\\\\forbidden:rw']}})];
 f.mkdirSync('new-dir');f.writeFileSync('new-dir/after.txt','created during lease');f.renameSync('original-0.txt','renamed-0.txt');const c=cp.spawn(process.execPath,['-e',"setInterval(()=>{},1000)"],{stdio:'ignore'});f.writeFileSync('actor-ready.json',JSON.stringify({pid:process.pid,child:c.pid,docker,dockerHost:process.env.DOCKER_HOST}));setInterval(()=>{},1000)})().catch(e=>{console.error(e);process.exit(1)});`;
   const spec = await launcher.resolveCommand(config.executable, ["-e", js], { cwd: config.workspace, env: {} });
-  await launcher.launch(spec, { cwd: config.workspace, env: {}, stdin: false });
+  const actor = await launcher.launch(spec, { cwd: config.workspace, env: {}, stdin: false });
+  let actorErrors = "";
+  actor.stderr.on("data", (bytes) => {
+    actorErrors += bytes.toString();
+  });
+  actor.stdout.resume();
   let ready;
   for (let i = 0; i < 500; i++) {
     try {
       ready = JSON.parse(await readFile(path.join(config.workspace, "actor-ready.json"), "utf8"));
       break;
     } catch {
+      if (actor.hasExited)
+        throw new Error(`Actor exited before ready: ${JSON.stringify(await actor.exited)} ${actorErrors}`);
       await new Promise((r) => setTimeout(r, 20));
     }
   }
-  if (!ready?.child) throw new Error("actor did not reach real child spawn");
+  if (!ready?.child) throw new Error(`actor did not reach real child spawn: ${actorErrors}`);
   process.send?.({ ready: true, plan: lease.plan, actors: ready, refusals, forwarded });
   setInterval(() => {}, 1000);
 } catch (e) {

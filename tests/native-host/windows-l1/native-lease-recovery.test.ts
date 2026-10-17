@@ -162,7 +162,7 @@ describe.runIf(isWindows)("full native Windows lease recovery after owner death"
         JSON.stringify({ title: "CROT-6A-full-native-lease-recovery", value: evidence }) + "\n",
       );
     } finally {
-      if (child) {
+      if (child && child.exitCode === null && child.signalCode === null) {
         const exited = once(child, "exit");
         child.kill("SIGKILL");
         await exited;

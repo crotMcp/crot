@@ -1,3 +1,4 @@
+import { WindowsConfinement } from "./windows-l1/confinement.js";
 import { WindowsLeaseServiceLifecycle } from "./windows-l1/service-lifecycle.js";
 import { createNodePlatform } from "../core/platform/node-platform.js";
 import type {
@@ -138,7 +139,7 @@ export class NativeHost {
       }
     }
 
-    // Command confinement L1 (AD-20): Linux only; other systems report not_implemented (WP-23b, WP-23c).
+    // Command confinement L1: qualified native backends only, no launch fallback.
     let confinement: CommandConfinement | undefined;
     if (base.info.os === "linux" && confinementOption !== false) {
       confinement = new LinuxConfinement({
@@ -147,6 +148,19 @@ export class NativeHost {
         env: process.env,
         ...(log ? { log } : {}),
         ...(typeof confinementOption === "object" ? confinementOption : {}),
+      });
+    }
+
+    if (base.info.os === "windows" && confinementOption !== false) {
+      confinement = new WindowsConfinement({
+        stateDir: stateDir ?? base.info.directories.state,
+        ownerSid: windowsOwnerSid,
+        privateFiles,
+        lifecycle: windowsLeases,
+        base: launcher,
+        environment: base.environment,
+        env: base.baseEnvironment,
+        ...(log ? { log } : {}),
       });
     }
 
