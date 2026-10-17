@@ -209,11 +209,14 @@ All paths end in the same Core pipeline; no path bypasses it.
 
 ### 2.4 Component placement
 
+Актуальное решение Windows L1 — §27 AD-30 (WP-23c); прежние spike-статусы
+заменены квалифицированным backend, без изменения Linux AD-20 / full_control.
+
 | Component | Runs where | Responsibility | Status |
 | --- | --- | --- | --- |
 | CROT Core | device, inside `crot-mcp` | permissions, execution guard, capabilities, audit, config | **[Implemented]** |
 | CROT MCP server (adapter) | device, inside `crot-mcp` | MCP tools over stdio and Streamable HTTP (loopback) | **[Implemented]** |
-| Native Host (OS platform layer) | device, inside `crot-mcp` | OS-specific Platform implementations (Windows Job Objects, ACLs) | **[Implemented]** |
+| Native Host (OS platform layer) | device, inside `crot-mcp` | OS-specific Platform implementations (Windows AppContainer + Job, ACLs, AD-30) | **[Implemented]** |
 | Browser bridge | device, inside `crot-mcp` | local IPC endpoint, handshake, request/response | **[Implemented]** |
 | `crot-browser-relay` | device, started by the browser | native-messaging host; forwards frames only | **[Implemented]** |
 | CROT Browser Extension | user's browser | fixed browser commands | **[Implemented]** (Chromium), basic command set; browser contract v1 decided (§27 AD-16), implementation **[Target, v1]** (§7.1) |
@@ -282,7 +285,7 @@ When the user grants them, CROT can provide:
 - Git — **[Partial]**: read operations (`status`, `diff`, `log`, `branch`, `show`) are a dedicated capability gated by `git.read` (§27 AD-1); local write operations (`add`, `commit`, branch create/rename/delete, checkout of a branch or a detached commit) are gated by `git.write` (§27 AD-2); network operations (fetch, pull, push) and destructive operations (amend, force, reset) are not implemented and remain usable only through `shell.execute`
 - Docker — **[Partial]**: dedicated operations gated by `docker.use` (§27 AD-3): list containers, read container logs, `compose up` and `compose down` with a reviewed Compose model; build, pull, push, run, exec and every other Docker command are not implemented and remain usable only through `shell.execute`
 - Network — **[Partial]**: HTTP(S) requests made by CROT itself, gated by `network.access` and the host policy `permissions.network` (§27 AD-4); no OS-level egress control for processes or containers
-- Python, Node.js, FFmpeg, project tools — **[Partial]**: usable through `shell.execute` / `process.manage` (not covered by tests; remote principals on macOS/Windows in workspace mode are refused until L1 exists there, AD-20 point 11). Dedicated media operations are **[Target]** (§26 question 18)
+- Python, Node.js, FFmpeg, project tools — **[Partial]**: usable through `shell.execute` / `process.manage` (not covered by tests; remote principals require ready L1: Linux AD-20 / qualified Windows AD-30; macOS pending). Dedicated media operations are **[Target]** (§26 question 18)
 
 New local capabilities are added as Core capability services that go through
 the ExecutionGuard, with their own capability names in the PermissionEngine.
@@ -644,6 +647,9 @@ Do not:
 
 ## 16. Development Order
 
+Актуальное решение Windows L1 — §27 AD-30 (WP-23c); прежние spike-статусы
+заменены квалифицированным backend, без изменения Linux AD-20 / full_control.
+
 Approximate order (status in brackets):
 
 ```text
@@ -680,7 +686,7 @@ packages, their order and dependencies are in
 21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
-24. Command confinement L1 (Linux, macOS, Windows) [Partial: Linux implemented (WP-23a, §27 AD-20); macOS, Windows Target, v1, §27 AD-13]
+24. Command confinement L1 (Linux, macOS, Windows) [Partial: Linux implemented (WP-23a, §27 AD-20); Windows implemented (WP-23c, AD-30); macOS Target, v1, §27 AD-13]
 25. Browser contract v1                           [Target, v1, §7.1, §27 AD-14; contract AD-16]
 26. Jobs, artifacts, optional components          [Target, post-v1 foundation, §26 q16–17]
 27. Media operations and rendering                [Target, post-v1, §26 q18–19]
@@ -748,10 +754,13 @@ Boundaries:
 
 ## 19. Trust Boundaries
 
+Актуальное решение Windows L1 — §27 AD-30 (WP-23c); прежние spike-статусы
+заменены квалифицированным backend, без изменения Linux AD-20 / full_control.
+
 | Boundary | Trusted side | Untrusted / external side | Enforcement | Status |
 | --- | --- | --- | --- | --- |
 | Agent -> CROT | Core | agent requests | schemas, ExecutionGuard, PermissionEngine, audit | **[Implemented]** |
-| Local operations | Core + Platform | commands and their effects | workspace boundary, protected paths, timeouts, process-tree control; not OS sandboxing | **[Implemented]** |
+| Local operations | Core + Platform | commands and their effects | workspace boundary, protected paths, timeouts, process-tree control; shell/process sandbox: Linux AD-20, qualified Windows AD-30; local full_control remains unconfined | **[Implemented]** |
 | Repository contents (`git.read`) | Core + Git on `PATH` | repository files and repository Git configuration | §27 AD-1: PATH-only lookup, configuration allowlist, hardened invocation, metadata lock | **[Implemented]** |
 | Repository contents (`git.write`) | Core + Git on `PATH` | repository files, repository Git configuration, hooks, agent-supplied messages and names | §27 AD-2: AD-1 checks plus hooks/editors/signing/maintenance disabled, fixed non-destructive commands, exclusive metadata lock, protected paths | **[Implemented]** |
 | Docker (`docker.use`) | Core + Docker CLI on `PATH` | Compose files, env files, container labels and logs, the Docker daemon | §27 AD-3: fixed operations, Compose policy and host-path checks, canonical private model file, no build/pull, environment allowlist | **[Implemented]** |
@@ -975,6 +984,9 @@ The tray app is a UI; control logic stays in Core/service.
 
 ## 25. Implementation Status Summary
 
+Актуальное решение Windows L1 — §27 AD-30 (WP-23c); прежние spike-статусы
+заменены квалифицированным backend, без изменения Linux AD-20 / full_control.
+
 | Component | Status |
 | --- | --- |
 | Core, PermissionEngine, ExecutionGuard, audit | **[Implemented]** |
@@ -996,11 +1008,11 @@ The tray app is a UI; control logic stays in Core/service.
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | Provider, claim model, revocation model and device resource URI decided (§27 AD-21: WorkOS AuthKit); device side **[Implemented]** (WP-28: verifier, pairing, device id and credential, unpair, re-grant; development environment only); staging/production environments **[Target]** (WP-38, WP-39); provider-side revocation and accounts **[Target]** (WP-36) |
 | Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); Cloud Relay v1 and the relay side of the tunnel **[Partial]** (WP-29, §27 AD-22; per-client rate limits and the load test open); device tunnel: device side **[Implemented]** (WP-30, §27 AD-22, [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)); deployment WP-38/WP-39 **[Target]** |
-| Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); macOS, Windows **[Target]** (v1, AD-13; WP-23b/c) |
+| Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); Windows **[Implemented]** (WP-23c, AD-30; Server2025 x64 Node20/22); macOS **[Target]** (WP-23b) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
 | Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
-| CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children: Linux **[Implemented]** (L1, WP-23a, §27 AD-20), macOS/Windows **[Target]** (WP-23b/c) |
-| Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (Linux: closed for confined children by WP-23a; macOS/Windows: WP-23b/c) |
+| CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children: Linux **[Implemented]** (L1, WP-23a, §27 AD-20), Windows **[Implemented]** (WP-23c, AD-30); macOS **[Target]** (WP-23b) |
+| Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (Linux: closed for confined children by WP-23a; qualified Windows: closed by WP-23c, AD-30; macOS: WP-23b) |
 | Installer, tray packaging, autostart of the service | **[Target]** (v1, AD-13; WP-34) |
 | Jobs and artifacts, optional-component availability | **[Target]** (post-v1 foundation; §26 q16–17; WP-43, WP-44) |
 | Media operations, edit description, render, verification | **[Target]** (post-v1; §26 q18–19; WP-49…WP-57) |
@@ -1008,6 +1020,9 @@ The tray app is a UI; control logic stays in Core/service.
 | Editor integrations, application bridges, scoped application control | **[Target]** / under reassessment (post-v1; §26 q22–23; WP-65…WP-70) |
 
 ## 26. Open Architectural Questions
+
+Актуальное решение Windows L1 — §27 AD-30 (WP-23c); прежние spike-статусы
+заменены квалифицированным backend, без изменения Linux AD-20 / full_control.
 
 These need explicit decisions before the corresponding work packages.
 
@@ -1026,7 +1041,7 @@ These need explicit decisions before the corresponding work packages.
    stricter) capability profile.
 4. **Isolation of locally started external MCP servers.** An external server
    started locally over stdio is local code with the user's OS permissions;
-   CROT has no OS-level sandbox. Decide whether such servers are supported and
+   the shell/process L1 backends do not automatically confine external-server launch. Decide whether such servers are supported and
    how they are confined.
 5. **Server-initiated MCP features** of external servers (requests back to the
    client, root listings and similar): forwarding policy.
@@ -4001,8 +4016,8 @@ development capability CROT already offers.
 12. **Availability checks, reason codes and status.** The checks run when a
     Core is created, after a sandbox failure and before `crot_status` reports.
     The first failing check is the reason. Stable reason codes:
-    - `not_implemented` — L1 is not implemented for this OS (macOS and
-      Windows until WP-23b and WP-23c);
+    - `not_implemented` — L1 is not implemented for this OS (macOS until
+      WP-23b; Windows availability and owner-provisioned components: AD-30);
     - `userns_unavailable` — unprivileged user namespaces are disabled;
     - `components_missing` — `/usr/lib/crot/l1/<v>/` or one of its components
       is missing;
@@ -5804,3 +5819,45 @@ options и Swarm проверяют лексическую и native-resolved г
 Request-policy/Unix mock proxy tests не заменяют нативную квалификацию transport,
 защиту прямого docker_engine и аудит сервиса. Полный recovery/service/backend
 и поставка остаются открытыми; OD-6 и Windows part OD-9 этим не закрываются.
+
+
+### AD-30. Производственный Windows L1 — OD-6 и Windows-часть OD-9 закрыты
+
+Квалификация `8fe6ba5`: [CI 11/11](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906), Windows Server 2025 x64, Node 20/22.
+
+1. Встроенный AppContainer + Job Object + DACL выбран окончательно: без
+   виртуализации, сторонних драйверов, ProcessDeviceMap и изменения корня NPFS.
+2. LOCAL-прослойка только для libuv, вне workspace; цепочки Node и Job tree kill
+   квалифицированы. Настоящие CROT/Docker pipe не переписываются.
+3. NTFS ID/WAL/полный preflight/guards сохраняют чужие ACE; workspace остаётся
+   настоящим. Многоссылочные файлы read-only. Новые узлы теряют только свой SID.
+4. Долговечное владение свежим профилем, actor drain по Job/реальному SID,
+   loopback cleanup и profile deletion подключены к CrotService/Core lifecycle.
+   Неоднозначные/повреждённые доказательства не удаляются.
+5. Секреты/WAL — owner-only Medium/NWNR; компоненты — Medium/NW;
+   изменяемый одноразовый runtime — owner-only Low/NW строго в своём корне.
+   Метки пользовательского workspace не понижаются.
+6. network=off: ноль capabilities/нет loopback; on: три стандартные capabilities
+   и только своё временное loopback. HTTP-token/CROT-6A защищены. AD-20.14,
+   включая остаточный риск Docker TCP без TLS, сохранён без запрета сети.
+7. LOCAL Docker endpoint с owner+lease-SID DACL и фиксированным DOCKER_HOST
+   использует общую политику a–d, native host-path guards, HTTP403/audit.
+   Неквалифицированные UNC/WSL/daemon mappings не объявляются поддержанными;
+   CI проверяет native transport с контролируемым upstream, не real daemon.
+8. Проверенная SHA-256 поставка и настоящий self_test обязательны до
+   windows-appcontainer/available=true/reason=null в status/overview.
+   Missing/mismatch/private-storage/self-test причины стабильны; remote
+   UNAVAILABLE и post-admission FAILED не дают неизолированного повтора.
+9. Локальный full_control остаётся неограниченным (AD-13, AD-23).
+10. Единственное machine-wide владение исключает наложение ACL аренд разных
+    сервисов/stateDir. Это явное ограничение, не общесистемный AppContainer ACE.
+11. OD-6 закрыт. Windows-часть OD-9: Server2025 x64 Node20/22 квалифицированы;
+    Win11/ARM64/Server2022/неподготовленные конфигурации честно unavailable.
+    macOS и браузерная часть OD-9 этим не закрываются; упаковка/подпись — WP-34.
+12. WP-23c Done. Политика поставки, ошибки, остаточные риски и квалификация
+    удаления stale NTFS ID описаны в docs/L1.md; восемь критериев и компактные
+    доказательства — docs/design/windows-l1-curator-appcontainer.md и
+    docs/evidence/windows-l1-production/qualification.json.
+
+AD-24…AD-29 сохраняются как история исследования; прежние записи unavailable
+не отменяют это текущее решение и не объявляются старыми production-прогонами.

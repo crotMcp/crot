@@ -5,6 +5,18 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
+## WP-23c — Done
+
+Квалификация `8fe6ba5`: [CI 11/11](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906), Windows Server 2025 x64, Node 20/22.
+
+Производственный windows-appcontainer, оба сетевых режима, LOCAL Docker,
+целый CrotService recovery; 7/7 workspace, 13/13 ACL, 5/5 tamper,
+Node → Node → Node, настоящий CROT-6A/HTTP-token. OD-6 и Windows OD-9
+закрыты AD-30. Все 8 критериев — в design-документе; поставка, ограничения
+матрицы и остаточный риск AD-20.14 — docs/L1.md.
+
+## Архив прежних этапов WP-23c (не текущий статус)
+
 ## WP-23c — производственная интеграция открыта; пакет не принят
 
 Актуальная база `eb3c0f9`: CI 11/11; Server2025 x64 Node20/22 подтвердили

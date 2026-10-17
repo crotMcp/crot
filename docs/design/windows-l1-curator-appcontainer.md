@@ -1,9 +1,7 @@
 # WP-23c: внутренние переименования и выбранный запуск AppContainer
 
-**WP-23c не принят.** Последний полностью зелёный исходный коммит: `1ce8931506de3eb39767270d17ba7181c39a958f`.
-PR27 остаётся черновиком. AppContainer + Job выбран без виртуализации,
-сторонних драйверов и лицензионных платежей. Производственная регистрация
-CommandConfinement не объявляется до квалификации всего жизненного цикла.
+**WP-23c Done.** Производственный backend — AD-30. Квалификация `8fe6ba5`: [CI 11/11](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906), Windows Server 2025 x64, Node 20/22.
+Следующие разделы с прежними SHA сохраняют историю, не текущие блокеры.
 
 ## Историческая дельта до восстановления сессии (не текущий отчёт)
 
@@ -57,22 +55,21 @@ CommandConfinement не объявляется до квалификации в�
 
 ## Восемь критериев приёмки
 
-Текущая квалификация: `53d071b` — сетевой компонент; `1ce8931` — прямой
-TCP без DNS, owner controls, безопасная очистка ACE нового workspace-node.
-На `1ce8931` все 11 заданий зелёные; оба Windows — Server2025 x64 Node20/22.
-Компонент WTS/token inventory добавлен в `83da874` и квалифицируется отдельно;
-его наличие не означает замыкание всей аварийной аренды или production backend.
+Квалификация `8fe6ba5`: [CI 11/11](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906), Windows Server 2025 x64, Node 20/22.
 
-| № | Критерий | Подтверждено / остаётся | Статус |
+| № | Критерий | Доказательство | Статус |
 | --- | --- | --- | --- |
-| 1 | Обычные API, существовавшие узлы, точный ACL | На 1ce8931: 7/7 CRUD/rename, 13/13 SD, cleanup=true; восстановление двух SD после kill владельца по WAL | Нативный гейт пройден; полная crash-аренда ещё открыта |
-| 2 | Процессы, stdio, Job и потомки | Node → Node → Node; Job завершает дерево; 1 МиБ stdin/stdout, 256 КиБ stderr, Unicode, exit=23 | Пройден на Server2025 x64 Node20/22 |
-| 3 | Запись, hardlink/reparse/гонки | 5/5 tamper, внешние hardlink без записи; собственный SID нового файла удалён без изменения чужих ACE/SD/control | Частично: scope/tree admission, guards и полный обход новых узлов не замкнуты |
-| 4 | Секреты, состояние, аудит и IPC | Старый настоящий CROT-6A 5+5+канал EPERM; в on/off дополнительно 6+6 (включая http-token) и control EPERM, HTTP on без/с неверным токеном=401, состояние неизменно | Сервисные гейты пройдены |
-| 5 | Квалифицируемая платформа и честный отказ остальных | Облачная матрица Server2025 x64 Node20/22 пройдена; Win11/ARM64/обычный пользователь не объявлены готовыми | Частично: отдельные readiness/refusal-предикаты production ещё не подключены |
-| 6 | Регрессии и CI | 1ce8931: 11/11, включая оба Windows и все 9 остальных заданий | Пройден для указанного коммита; последующий HEAD проверяется отдельно |
-| 7 | CommandConfinement, сеть/Docker, отказы | on: интернет/LAN/localhost=200; off: прямой внешний TCP EACCES, ноль принятых соединений хоста; per-SID loopback очищен; full recovery/backend/Docker не подключены | Частично; Windows confinement unavailable |
-| 8 | Нет критических блокеров | Нужны durable profile ownership, цельный native recovery/service lifecycle, защищённые компоненты поставки и mediated Docker | Не выполнен; PR27 Draft, WP-23c открыт |
+| 1 | Обычные API и точный ACL | 7/7 workspace/rename, 13/13 исходных SD; production Core и WAL recovery | Пройден |
+| 2 | Процессы, stdio, Job и потомки | Node → Node → Node, убийство дерева, бинарные stdio/Unicode/exit=23 | Пройден |
+| 3 | Запись, hardlink/reparse/гонки | 5/5 tamper, внешний hardlink EPERM, native guards, снятие только своего SID | Пройден |
+| 4 | Секреты, состояние, аудит и IPC | Настоящий CROT-6A 5+5+control=EPERM; http-token/HTTP 401 | Пройден |
+| 5 | Матрица и честный отказ остальных | Server2025 x64 Node20/22; предикаты отказа неподготовленных/неквалифицированных конфигураций | Пройден |
+| 6 | Регрессии и CI | npm run check; 11/11, включая оба Windows production задания | Пройден |
+| 7 | CommandConfinement, сеть/Docker и отказы | on/off, LOCAL Docker 403/audit, status/shell/process, UNAVAILABLE/FAILED без отката; full_control | Пройден |
+| 8 | Нет критических блокеров | Цельный service recovery, поставка/самопроверка; OD-6 и Windows OD-9 закрыты | Пройден |
+
+Доказательства: `docs/evidence/windows-l1-production/qualification.json`.
+Не квалифицированные ОС не выдаются за пройденную native матрицу.
 
 ## CI и границы доказательств
 
