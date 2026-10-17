@@ -59,6 +59,13 @@ macOS-решение OD-9 закрыто AD-31; браузерная часть,
 | b46b326 / 39061601256 | Заранее созданный workspace hardlink действительно менял внешний файл | Preflight dev/ino/nlink: неизвестные имена — read-only, multiply named protected secret — unavailable. Негативный тест не ослаблен |
 | fde009b / 39062319803 | Unit test ошибочно сравнивал /var с canonical /private/var; production security tests passed | Исправлено ожидание unit test, не политика; чистый native прогон 4308b0e / 39062611495 |
 
+В полном прогоне документационного среза `5a7b260` / CI `39063960897` оба macOS
+jobs прошли, но Windows выявил ошибку переносимости unit test: POSIX-only
+canonicalPath получил Windows os.tmpdir. Проверка существующих POSIX aliases
+теперь выполняется только на POSIX, а отказ Windows/UNC путям проверяется
+на всех платформах. Production policy и Windows L1 не изменены; этот прогон
+не выдаётся за финальные 11/11.
+
 ## Эксплуатационные ограничения и остаточные риски
 
 - Seatbelt deprecated; часть native ABI private. Семантика/компоненты или self_test

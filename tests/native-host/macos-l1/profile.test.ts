@@ -5,10 +5,14 @@ import { realpathSync } from "node:fs";
 import { canonicalPath, sbplString, seatbeltProfile } from "../../../src/native-host/macos-l1/profile.js";
 
 describe("macOS Seatbelt profile compiler", () => {
-  it("canonicalizes existing aliases and absent leaves", () => {
+  it.runIf(process.platform !== "win32")("canonicalizes existing POSIX aliases and absent leaves", () => {
     expect(canonicalPath(path.join(os.tmpdir(), "missing-crot-leaf", "file"))).toBe(
       path.join(realpathSync(os.tmpdir()), "missing-crot-leaf", "file"),
     );
+  });
+  it("rejects Windows paths instead of accepting them as Darwin policy paths", () => {
+    expect(() => canonicalPath("C:\\Users\\owner\\workspace")).toThrow("invalid policy path");
+    expect(() => canonicalPath("\\\\host\\share")).toThrow("invalid policy path");
   });
   it("escapes Scheme literals, rejects controls, never interpolates raw policy", () => {
     expect(sbplString('a"b\\c')).toBe('"a\\"b\\\\c"');

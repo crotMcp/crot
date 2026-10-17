@@ -425,7 +425,7 @@ presets, Q3–Q5 (external gateway).
 | WP-28…WP-31 | Kept; dependencies refined | WP-28 core work can start now |
 | WP-32 | Dependencies add WP-27 and WP-38 | D2, D6 |
 | WP-33 | Scope makes threat-model refresh and production-config review explicit | Security gate needs it |
-| WP-34 | Scope adds supply-chain integrity, version skew, uninstall/upgrade; deps add WP-23a, WP-23c (AD-30 component delivery), WP-35 | D4, D7 |
+| WP-34 | Scope adds supply-chain integrity, version skew, uninstall/upgrade; deps add WP-23a, WP-23b (AD-31 runtime), WP-23c (AD-30 component delivery), WP-35 | D4, D7 |
 | WP-35 | Deps changed to WP-24, WP-25, WP-26; preparation early | D3 |
 | WP-36 | Scope adds billing and account portal with device list and remote revocation | D7; §20 revocation of lost devices |
 | WP-37 | Scope clarified: user, privacy, security docs and legal | — |
@@ -464,7 +464,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-38 | 3 | Staging cloud environment | WP-29, WP-28 | M | yes | with WP-30/31 | Not started |
 | WP-32 | 3 | Remote E2E acceptance suite and client compatibility | WP-24…WP-27, WP-30, WP-31, WP-38 | L | yes | — | Not started |
 | WP-33 | 3 | External security review and fixes | WP-32, WP-34 (release-candidate build), WP-38 | M (+fix time) | yes | with WP-37 | Not started |
-| WP-34 | 4 | Installers, signing, updates, autostart, supply chain | WP-20, WP-22, WP-23a, WP-23c (AD-30 component delivery) (L1 components, AD-20 point 3), WP-35 (IDs), OD-1, OD-10, OD-11 | L | yes | with phase 3 | Not started |
+| WP-34 | 4 | Installers, signing, updates, autostart, supply chain | WP-20, WP-22, WP-23a, WP-23b (AD-31 runtime), WP-23c (AD-30 component delivery) (L1 components, AD-20 point 3), WP-35 (IDs), OD-1, OD-10, OD-11 | L | yes | with phase 3 | Not started |
 | WP-35 | 4 | Extension publication | WP-24, WP-25, WP-26 (prep: now) | M | yes | early | Not started |
 | WP-36 | 4 | Accounts, plans, billing, entitlements, device management | WP-28, WP-29, OD-13 | M–L | yes | with phase 3 | Not started |
 | WP-37 | 4 | Documentation, privacy/security docs, legal | content from all WPs; final after WP-33 | M | yes | ongoing | Not started |
