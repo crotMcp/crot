@@ -13,7 +13,8 @@ fs.writeSync(1,ack);const b=Buffer.alloc(Buffer.byteLength(ack));let n=0;
 while(n<b.length){let r;try{r=fs.readSync(0,b,n,b.length-n,null)}catch(e){if(e.code!=='EAGAIN')throw e;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,1);continue}if(!r)process.exit(125);n+=r;}
 if(b.toString()!==ack)process.exit(125);
 const p=cp.spawn(file,args,{stdio:'inherit',env:process.env});
-p.on('error',()=>process.exit(127));p.on('exit',(code,signal)=>{if(signal){try{process.kill(process.pid,signal)}catch{process.exit(128)}}else process.exit(code??1)});`;
+for(const sig of ['SIGTERM','SIGINT'])process.on(sig,()=>{try{p.kill(sig)}catch{}});
+p.on('error',()=>process.exit(127));p.on('exit',(code,signal)=>{if(signal){process.removeAllListeners(signal);try{process.kill(process.pid,signal)}catch{process.exit(128)}}else process.exit(code??1)});`;
 
 export async function launchSeatbelt(
   base: ProcessLauncher,

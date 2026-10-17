@@ -326,6 +326,28 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
     expect(r, r.err).toMatchObject({ code: 0 });
     expect(r.out).toContain("UID-STABLE");
   });
+  it("lets the real command finish its graceful SIGTERM handler before draining", async () => {
+    const core = await open("on");
+    const p = await core.launcher.launch(
+      {
+        file: process.execPath,
+        args: [
+          "-e",
+          "process.on('SIGTERM',()=>setTimeout(()=>{console.log('GRACEFUL-DONE');process.exit(0)},100));console.log('READY');setInterval(()=>{},1000)",
+        ],
+        display: "graceful termination",
+      },
+      { cwd: workspace, env: process.env as Record<string, string>, stdin: false },
+    );
+    let out = "";
+    p.stdout.on("data", (b) => (out += String(b)));
+    for (let n = 0; n < 100 && !out.includes("READY"); n++) await new Promise((r) => setTimeout(r, 20));
+    expect(out).toContain("READY");
+    await p.terminate("graceful");
+    expect((await p.exited).code).toBe(0);
+    if (!p.stdout.readableEnded) await new Promise<void>((resolve) => p.stdout.once("end", resolve));
+    expect(out).toContain("GRACEFUL-DONE");
+  });
   it("never drains another admitted Core's actors", async () => {
     const a = await open("on"),
       b = await open("on");

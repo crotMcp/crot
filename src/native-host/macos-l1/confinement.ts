@@ -37,7 +37,9 @@ const statusOf = (network: ConfinementNetwork, reason: ConfinementReason | null)
   available: reason === null,
   network,
   reason,
-  detail: reason ? `macOS Seatbelt readiness: ${reason}` : null,
+  detail: reason
+    ? `macOS Seatbelt readiness: ${reason}`
+    : "macOS uses the host IP/loopback stack; unauthenticated host-local execution endpoints remain an owner risk (AD-20.14).",
 });
 export interface MacosConfinementOptions {
   readonly base: ProcessLauncher;
