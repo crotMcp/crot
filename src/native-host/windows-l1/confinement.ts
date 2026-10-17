@@ -1,6 +1,6 @@
 /** Production Windows L1: no authorization, elevation or unconfined retry. */
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import path from "node:path";
 import type { Readable } from "node:stream";
@@ -99,7 +99,16 @@ export class WindowsConfinement implements CommandConfinement {
       try {
         const c = await this.components();
         await this.selfTest(c, network);
-        status = { mechanism: "windows-appcontainer", available: true, network, reason: null, detail: null };
+        status = {
+          mechanism: "windows-appcontainer",
+          available: true,
+          network,
+          reason: null,
+          detail:
+            network === "on"
+              ? "Host network is available; unauthenticated host execution endpoints remain the owner's residual risk (AD-20.14)."
+              : null,
+        };
         this.healthy.set(network, status);
       } catch (cause) {
         this.options.log?.(
@@ -160,17 +169,35 @@ export class WindowsConfinement implements CommandConfinement {
     }
     let dockerBin: string | undefined;
     if (dockerExecutable) {
-      const executable = canonicalWindowsDockerPath(dockerExecutable),
-        workspace = canonicalWindowsDockerPath(scope.workspace);
-      if (executable === workspace || executable.startsWith(workspace + "\\"))
-        throw failed("Docker CLI resolves inside actor-writable workspace");
-      dockerBin = path.dirname(dockerExecutable);
+      // Resolve the actual host file before trusting it as an upstream tool.
+      // A PATH alias/junction into the actor's workspace is not a host CLI.
+      const acl = await loadLeaseAclObjects();
+      const object = acl.capture(dockerExecutable, "protected", "S-1-15-2-1-2-3-4-5-6-7", 0);
+      const guard = acl.hold(object, false);
+      try {
+        const observed = guard.snapshot();
+        const executable = canonicalWindowsDockerPath(observed.dosPath.replace(/^\\\\\?\\/, ""));
+        for (const root of [scope.workspace, directory]) {
+          const writable = canonicalWindowsDockerPath(root);
+          if (executable === writable || executable.startsWith(writable + "\\"))
+            throw failed("Docker CLI resolves inside actor-writable storage");
+        }
+        if (observed.links !== 1) throw failed("Docker CLI has multiple host aliases");
+        dockerExecutable = executable;
+      } finally {
+        guard.close();
+      }
+      // The host CLI remains host-only. Its disposable child-side copy needs
+      // no WRITE_DAC/lease grant on Program Files, C:\ or a package manager.
+      dockerBin = path.join(directory, "tools");
+      await mkdir(dockerBin);
+      await copyFile(dockerExecutable, path.join(dockerBin, "docker.exe"));
     }
     const dockerConfig = await windowsDockerConfiguration({ ...hostEnvironment, ...scope.dockerEnvironment }, home);
     const upstream = dockerExecutable
       ? createUpstream({
           host: dockerConfig.host,
-          tls: false,
+          tls: dockerConfig.tls,
           env: dockerConfig.env,
           docker: dockerExecutable,
         })
@@ -188,7 +215,7 @@ export class WindowsConfinement implements CommandConfinement {
         workspace: scope.workspace,
         network: scope.network,
         writableRuntime: [directory],
-        readOnlyRuntime: dockerBin ? [c.root, dockerBin] : [c.root],
+        readOnlyRuntime: [c.root],
         protectedPaths,
         start: async (profile, network) => {
           const moduleName: string = "koffi";

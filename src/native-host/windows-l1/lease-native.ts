@@ -246,7 +246,20 @@ export async function planNativeLease(options: {
     if (seen.has(k)) return undefined;
     seen.add(k);
     objects.push(o);
-    if (guard || o.role === "workspace-link") holds.push(acl.hold(o));
+    if (guard || o.role === "workspace-link") {
+      try {
+        holds.push(acl.hold(o));
+      } catch (cause) {
+        if (cause instanceof CrotError)
+          throw new CrotError(
+            cause.code,
+            `Windows lease guard ${String(cause.details?.stage)}:${String(cause.details?.nativeCode)} (${o.role}; ${p})`,
+            cause.details,
+            { cause },
+          );
+        throw cause;
+      }
+    }
     return o;
   };
   try {

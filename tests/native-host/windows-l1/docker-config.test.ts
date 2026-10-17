@@ -5,13 +5,15 @@ import { describe, expect, it } from "vitest";
 import { makeTempDirs } from "../../helpers.js";
 import { windowsDockerConfiguration } from "../../../src/native-host/windows-l1/docker-config.js";
 describe("Windows Docker endpoint selection", () => {
-  it("pins the actual context and rejects unqualified TCP instead of misclassifying it as a protected pipe", async () => {
+  it("pins the actual context and reports unauthenticated TCP as the AD-20.14 residual risk", async () => {
     const dirs = await makeTempDirs();
     try {
       expect((await windowsDockerConfiguration({}, dirs.outside)).host).toBe("npipe:////./pipe/docker_engine");
-      await expect(
-        windowsDockerConfiguration({ DOCKER_HOST: "tcp://localhost:2375" }, dirs.outside),
-      ).rejects.toMatchObject({ reason: "self_test_failed" });
+      expect(await windowsDockerConfiguration({ DOCKER_HOST: "tcp://localhost:2375" }, dirs.outside)).toMatchObject({
+        host: "tcp://localhost:2375",
+        unauthenticatedNetwork: true,
+        tls: false,
+      });
       const context = "desktop-linux",
         id = createHash("sha256").update(context).digest("hex");
       const meta = path.join(dirs.outside, "contexts", "meta", id);
@@ -25,7 +27,7 @@ describe("Windows Docker endpoint selection", () => {
         dirs.outside,
       );
       expect(result.host).toBe("npipe:////./pipe/dockerDesktopLinuxEngine");
-      expect(result.env.DOCKER_CONTEXT).toBeUndefined();
+      expect(result.env.DOCKER_CONTEXT).toBe(context);
       expect(result.env.DOCKER_HOST).toBe(result.host);
     } finally {
       await dirs.cleanup();

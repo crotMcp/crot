@@ -61,6 +61,15 @@ describe.skipIf(!cc)("exact CROT private state native ABI", () => {
       expect(invalid()).toBe(0);
     },
   );
+  it("keeps executable runtime read-down separate from NR-protected service secrets", () => {
+    fault(0);
+    expect(api(file, owner, false, true, [], true)).toBe(true);
+    expect(lastDescriptor()).toBe(`D:P(A;;FA;;;${owner})S:(ML;;NW;;;ME)`);
+    expect(api(file, owner, false, true)).toBe(true);
+    expect(lastDescriptor()).toBe(`D:P(A;;FA;;;${owner})S:(ML;;NWNR;;;ME)`);
+    expect(handles()).toBe(0);
+    expect(memory()).toBe(0);
+  });
   it("installs explicit deny for the exact AppContainer SID without an Everyone/Users deny", () => {
     fault(0);
     expect(api(file, owner, false, true, ["S-1-15-2-1-2-3-4-5-6-7"])).toBe(true);
