@@ -227,11 +227,16 @@ class Endpoint {
 }
 /** A duplex server instance owns both directions until both cancellations drain. */
 class LocalDuplex extends Duplex {
+  private flushing?: Promise<void>;
+  private flushPending = false;
   private reading = false;
   private readonly input: Endpoint;
   private readonly output: Endpoint;
   private closing?: Promise<void>;
-  constructor(pipe: BytePipe) {
+  constructor(
+    pipe: BytePipe,
+    private readonly flush: () => Promise<void>,
+  ) {
     super({ allowHalfOpen: true, highWaterMark: 32768 });
     let directions = 0;
     const side = () => {
@@ -276,14 +281,31 @@ class LocalDuplex extends Duplex {
     );
   }
   override _final(done: (error?: Error | null) => void): void {
-    // Named byte pipes have no independent write FIN. The protocol ends the
-    // request with HTTP framing, and the completed reply closes the instance.
-    done();
-    this.destroy();
+    // NPFS CloseHandle discards unread replies. Flush on a native worker,
+    // never the JS event loop, and retain the handle until that worker returns.
+    this.flushPending = true;
+    this.flushing = this.flush().finally(() => {
+      this.flushPending = false;
+    });
+    void this.flushing.then(
+      () => {
+        done();
+        this.destroy();
+      },
+      (error: Error) => {
+        done(error);
+        this.destroy(error);
+      },
+    );
   }
   closeNative(): Promise<void> {
     if (!this.closing)
       this.closing = (async () => {
+        if (this.flushing) {
+          // The owner kills the lease actors before closing the transport, so
+          // even a peer that refuses to read cannot retain a flush indefinitely.
+          await this.flushing.catch(() => undefined);
+        }
         const results = await Promise.allSettled([this.input.close(), this.output.close()]);
         const failed = results.find((r) => r.status === "rejected");
         if (failed?.status === "rejected") throw failed.reason;
@@ -296,6 +318,10 @@ class LocalDuplex extends Duplex {
     return this.closing;
   }
   closeNativeSync(): void {
+    if (this.flushPending) {
+      failedLocalSockets.add(this);
+      throw failure("LOCAL flush still owns handle");
+    }
     let error: unknown;
     for (const end of [this.input, this.output])
       try {
@@ -504,6 +530,9 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
     "void * __stdcall CreateFileW(str16 name, uint32_t access, uint32_t share, void *security, uint32_t creation, uint32_t flags, void *template)",
   );
   const connect = k.func("int __stdcall ConnectNamedPipe(void *pipe, void *overlapped)");
+  const flush = k.func("int __stdcall FlushFileBuffers(void *handle)") as unknown as {
+    async(handle: NativeHandle, callback: (error: Error | null, result: unknown) => void): void;
+  };
   const read = k.func(
     `int __stdcall ReadFile(void *file, void *buffer, uint32_t length, void *count, void *overlapped)`,
   );
@@ -622,12 +651,15 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
         while (end + 1 < text.length && text.readUInt16LE(end) !== 0) end += 2;
         if (end === 0 || end >= text.length || count < 0) throw failure("LOCAL named-object path length");
         const prefix = text.subarray(0, end).toString("utf16le").replace(/\\+$/, "");
-        if (
-          !/^\\Sessions\\[0-9]+\\AppContainerNamedObjects\\S-1-15-2-/.test(prefix) ||
-          !prefix.endsWith(`\\${options.packageSid}`)
-        )
-          throw failure(`LOCAL named-object namespace ${JSON.stringify(prefix)}`);
-        physical = `\\\\.\\pipe${prefix}\\${name.slice(name.lastIndexOf("\\") + 1)}`;
+        // The API returns a session-relative object path (observed on the
+        // qualified Server 2025 host), not an absolute \Sessions path.
+        if (prefix !== `AppContainerNamedObjects\\${options.packageSid}`) throw failure("LOCAL named-object namespace");
+        const processId = k.func("uint32_t __stdcall GetCurrentProcessId()");
+        const sessionId = k.func(`int __stdcall ProcessIdToSessionId(uint32_t pid, _Out_ ${COUNT} *session)`);
+        const session: { value?: number } = {};
+        if (!ok(sessionId(processId(), session)) || !Number.isSafeInteger(session.value) || session.value! < 0)
+          throw failure("LOCAL caller session", errorCode());
+        physical = `\\\\.\\pipe\\Sessions\\${session.value}\\${prefix}\\${name.slice(name.lastIndexOf("\\") + 1)}`;
       } finally {
         if (valid(packageSid.value))
           releaseSetup(() => {
@@ -715,21 +747,31 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
             const handle = listener;
             listener = undefined;
             let closed = false;
-            const socket = new LocalDuplex({
-              parent: handle,
-              child: undefined,
-              read: (buffer) =>
-                operation(handle, buffer, (overlap) => read(handle, buffer, buffer.length, null, overlap)),
-              write: (buffer) =>
-                operation(handle, buffer, (overlap) => write(handle, buffer, buffer.length, null, overlap)),
-              closeChild: () => undefined,
-              closeParent: () => {
-                if (!closed) {
-                  release(handle);
-                  closed = true;
-                }
+            const socket = new LocalDuplex(
+              {
+                parent: handle,
+                child: undefined,
+                read: (buffer) =>
+                  operation(handle, buffer, (overlap) => read(handle, buffer, buffer.length, null, overlap)),
+                write: (buffer) =>
+                  operation(handle, buffer, (overlap) => write(handle, buffer, buffer.length, null, overlap)),
+                closeChild: () => undefined,
+                closeParent: () => {
+                  if (!closed) {
+                    release(handle);
+                    closed = true;
+                  }
+                },
               },
-            });
+              () =>
+                new Promise<void>((resolve, reject) => {
+                  flush.async(handle, (error, result) => {
+                    if (error) reject(error);
+                    else if (!ok(result)) reject(failure("LOCAL flush"));
+                    else resolve();
+                  });
+                }),
+            );
             sockets.add(socket);
             socket.once("close", () => sockets.delete(socket));
             // Keep an owned instance alive while opening the next one: no

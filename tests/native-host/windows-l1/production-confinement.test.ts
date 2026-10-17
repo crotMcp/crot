@@ -59,7 +59,7 @@ describe.runIf(isWindows)("production Windows AppContainer CommandConfinement", 
       native = await NativeHost.start({ startupPath: "inherited", stateDir, log: (line) => logs.push(line) });
       for (const network of ["off", "on"] as const) {
         const status = await native.platform.confinement!.probe(network);
-        expect({ status, logs, release: os.release(), version: os.version() }).toMatchObject({
+        expect({ status, release: os.release(), version: os.version() }, logs.join("\n")).toMatchObject({
           status: { mechanism: "windows-appcontainer", available: true, reason: null, network },
         });
       }

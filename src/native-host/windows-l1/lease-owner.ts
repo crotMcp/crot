@@ -13,6 +13,7 @@ import { loadAppContainerNetworkNative } from "./network-native.js";
 import { openAppContainerNetwork, type AppContainerNetworkLease } from "./network.js";
 import { openDurableProfiles, type DurableProfiles } from "./profile-receipts.js";
 import { loadProfileReceiptNative } from "./profile-receipts-native.js";
+import { openMachineAdmission, type MachineAdmission } from "./machine-admission.js";
 const fail = (stage: string) => new CrotError("CONFINEMENT_FAILED", `Windows lease owner: ${stage} failed.`, { stage });
 export interface LeaseRuntime {
   /** Disable admissions synchronously before awaiting actor/stdio drain. */
@@ -44,6 +45,7 @@ export class WindowsNativeLeases {
     private readonly networkNative: Awaited<ReturnType<typeof loadAppContainerNetworkNative>>,
     private readonly recovery: WindowsLeaseRecovery,
     private readonly live: Map<string, Live>,
+    private readonly admission: MachineAdmission,
   ) {}
   static async open(options: {
     directory: string;
@@ -53,11 +55,18 @@ export class WindowsNativeLeases {
     const journalDirectory = path.join(options.directory, "journals"),
       receiptDirectory = path.join(options.directory, "profiles");
     await options.privateFiles.ensureDirectory(options.directory);
-    const store = await openLeaseJournalStore({
-      directory: journalDirectory,
-      privateFiles: options.privateFiles,
-      lock: await loadWindowsLeaseLock(),
-    });
+    const admission = await openMachineAdmission(options);
+    let store: LeaseJournalStore;
+    try {
+      store = await openLeaseJournalStore({
+        directory: journalDirectory,
+        privateFiles: options.privateFiles,
+        lock: await loadWindowsLeaseLock(),
+      });
+    } catch (cause) {
+      await admission.close(false);
+      throw cause;
+    }
     try {
       const acl = await loadLeaseAclObjects(),
         network = await loadAppContainerNetworkNative(),
@@ -96,9 +105,10 @@ export class WindowsNativeLeases {
           if (await network.contains(r.sid)) throw fail("unplanned profile network cleanup");
           await profiles.remove(r);
         }
-      return new WindowsNativeLeases(store, profiles, acl, network, recovery, live);
+      return new WindowsNativeLeases(store, profiles, acl, network, recovery, live, admission);
     } catch (cause) {
       await store.close();
+      await admission.close(false);
       throw cause;
     }
   }
@@ -209,6 +219,7 @@ export class WindowsNativeLeases {
         await this.recovery.release(owner.profile.name.slice(8));
       }
       await this.store.close();
+      await this.admission.close(true);
       this.closed = true;
     });
   }

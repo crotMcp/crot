@@ -22,6 +22,7 @@ import { bindAppContainerProcessIdentity } from "./appcontainer-process.js";
 import { loadBytePipeApi } from "./byte-stdio.js";
 import { verifyWindowsComponents, WindowsPreparationError, type WindowsComponents } from "./components.js";
 import { openWindowsDockerEndpoint } from "./docker-endpoint.js";
+import { windowsDockerConfiguration } from "./docker-config.js";
 import { canonicalWindowsDockerPath } from "./docker-paths.js";
 import { WindowsLaunchEnvironment } from "./launch-environment.js";
 import { loadLeaseAclObjects } from "./lease-acl.js";
@@ -152,11 +153,12 @@ export class WindowsConfinement implements CommandConfinement {
     } catch (cause) {
       if (!(cause instanceof CrotError) || cause.code !== "NOT_FOUND") throw cause;
     }
+    const dockerConfig = await windowsDockerConfiguration({ ...hostEnvironment, ...scope.dockerEnvironment }, home);
     const upstream = dockerExecutable
       ? createUpstream({
-          host: scope.dockerEnvironment.DOCKER_HOST ?? "npipe:////./pipe/docker_engine",
-          tls: !!scope.dockerEnvironment.DOCKER_TLS_VERIFY,
-          env: { ...hostEnvironment, ...scope.dockerEnvironment },
+          host: dockerConfig.host,
+          tls: false,
+          env: dockerConfig.env,
           docker: dockerExecutable,
         })
       : {
@@ -303,6 +305,9 @@ export class WindowsConfinement implements CommandConfinement {
       };
     } catch (cause) {
       this.fault = cause;
+      this.options.log?.(
+        `Windows L1 runtime: ${cause instanceof Error ? cause.message.split(/\r?\n/)[0]!.slice(0, 180) : "native resource failure"}`,
+      );
       throw failed(cause);
     }
   }
@@ -371,11 +376,15 @@ const req=http.get('http://127.0.0.1:${address.port}',r=>{r.resume();r.on('end',
     let status = await this.probe(scope.network),
       runtime: Promise<Runtime> | undefined,
       current: Runtime | undefined,
-      closed = false;
+      closed = false,
+      admitted = status.available;
     const requireRuntime = async () => {
       if (closed) throw failed("Core is closed");
-      if (!status.available) throw confinementUnavailableError(status);
       if (this.fault) throw failed(this.fault);
+      if (!status.available) {
+        if (admitted) throw failed("readiness lost after admission");
+        throw confinementUnavailableError(status);
+      }
       runtime ??= this.components()
         .then((c) => this.runtime(c, scope))
         .then((r) => {
@@ -403,6 +412,11 @@ const req=http.get('http://127.0.0.1:${address.port}',r=>{r.resume();r.on('end',
       status: () => status,
       refresh: async () => {
         status = await this.probe(scope.network);
+        // A local principal may fall back only before L1 was ever ready.
+        // Losing readiness after admission is a fatal confinement failure,
+        // never a new opportunity to launch through the unconfined provider.
+        if (admitted && !status.available) throw failed("readiness lost after admission");
+        admitted ||= status.available;
         return status;
       },
       launcher,
