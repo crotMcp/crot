@@ -91,8 +91,15 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
     mutate: boolean,
     sandboxSids: readonly string[] = [],
     runtime: boolean | "writable" = false,
+    writableRoot?: string,
   ): boolean => {
     validateSid(owner);
+    if (runtime === "writable") {
+      if (!writableRoot) throw fail("writable root missing");
+      validateWindowsPath(writableRoot);
+      if (writableRoot.length <= 3 || !isSameOrAncestorWindowsPath(writableRoot, target))
+        throw fail("writable root scope");
+    }
     if (sandboxSids.length > 64 || new Set(sandboxSids).size !== sandboxSids.length) throw fail("sandbox SID set");
     for (const sid of sandboxSids) {
       validateSid(sid);
@@ -113,7 +120,7 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
       owned.push(out);
       return out;
     };
-    const inspect = (handle: unknown, isDir: boolean) => {
+    const inspect = (handle: unknown, isDir: boolean, objectPath: string) => {
       const b = Buffer.alloc(52);
       if (
         !ok(info(handle, b)) ||
@@ -157,7 +164,12 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
                           : -1;
           const noWriteUp =
             rights.includes("NW") || (/^0X[0-9A-F]+$/.test(rights) && (Number.parseInt(rights.slice(2), 16) & 1) !== 0);
-          if (rid < 8192 || !noWriteUp) throw fail("unsafe private state parent");
+          const ownedWritable =
+            runtime === "writable" &&
+            writableRoot !== undefined &&
+            isSameOrAncestorWindowsPath(writableRoot, objectPath);
+          if ((!ownedWritable && rid < 8192) || (ownedWritable && rid < 4096) || !noWriteUp)
+            throw fail("unsafe private state parent");
         }
       }
     };
@@ -178,7 +190,7 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
       const root = allocation("handle");
       root.value = file(target.slice(0, 3), 0x1200a0, 3, null, 3, 0x02200000, null);
       if (!valid(root.value)) throw fail("drive pin");
-      inspect(root.value, true);
+      inspect(root.value, true, target.slice(0, 3));
       let parent = root.value;
       for (let i = 0; i < parts.length; i++) {
         const isLast = i === parts.length - 1,
@@ -212,17 +224,15 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
             ),
           );
         if (status < 0 || !valid(out.value)) throw fail("handle-relative state pin");
-        inspect(out.value, isDir);
+        inspect(out.value, isDir, target.slice(0, 3) + parts.slice(0, i + 1).join("\\"));
         parent = out.value;
       }
       const expected = allocation("memory"),
         inherit = directory ? "OICI" : "";
-      // An explicit Medium/NW label denies Low AppContainer writes even with
-      // a package ACE. Disposable actor-writable trees instead keep the NTFS
-      // implicit Medium policy (no explicit ML ACE), just like an ordinary
-      // workspace. The exact owner-only DACL is unchanged until the WAL lease
-      // adds its fresh package SID; service secrets always retain NWNR.
-      const label = runtime === "writable" ? "S:" : `S:(ML;${inherit};${runtime ? "NW" : "NWNR"};;;ME)`;
+      // Only the explicitly bounded disposable CROT runtime is Low/NW.
+      // Ancestors outside that root remain Medium/NW, and service state stays
+      // Medium/NWNR. An owner-only DACL precedes the WAL's fresh package ACE.
+      const label = `S:(ML;${inherit};${runtime ? "NW" : "NWNR"};;;${runtime === "writable" ? "LW" : "ME"})`;
       if (
         !ok(
           sd(
@@ -241,12 +251,13 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
         throw fail("kernel descriptor read-back");
       const actualText = canonical(actual.value),
         expectedText = canonical(expected.value);
-      // Windows can omit the empty label-only SACL when serializing it.
-      result =
-        runtime === "writable"
-          ? actualText.replace(/S:$/, "") === expectedText.replace(/S:$/, "")
-          : actualText === expectedText;
-      if (mutate && !result) throw fail("kernel descriptor mismatch");
+      result = actualText === expectedText;
+      if (mutate && !result)
+        throw new CrotError("OPERATION_FAILED", "Windows private state: kernel descriptor mismatch failed.", {
+          stage: "kernel descriptor mismatch",
+          expected: expectedText,
+          actual: actualText,
+        });
     } catch (cause) {
       error = cause;
     } finally {
@@ -278,9 +289,12 @@ export function bindWindowsPrivateState(ffi: StateFfi, libraries: TokenLibraries
 export async function loadWindowsPrivateState(
   owner: string,
   sandboxSids: readonly string[] = [],
-  mode: "private" | "runtime" | "writable-runtime" = "private",
+  mode: "private" | "runtime" | { readonly writableRoot: string } = "private",
 ): Promise<PrivateFileProtection> {
   sandboxSids = Object.freeze([...sandboxSids]);
+  const writableRoot = typeof mode === "object" ? validateWindowsPath(mode.writableRoot) : undefined;
+  const runtimePolicy = (file: string): boolean | "writable" =>
+    writableRoot && isSameOrAncestorWindowsPath(writableRoot, file) ? "writable" : mode !== "private";
   if (process.platform !== "win32" || !["x64", "arm64"].includes(process.arch)) throw fail("native platform");
   const name: string = "koffi",
     module = await import(name),
@@ -295,31 +309,17 @@ export async function loadWindowsPrivateState(
       if (created !== undefined) {
         const first = fromWin32NamespacedPath(created);
         if (!isSameOrAncestorWindowsPath(first, target)) throw fail("created directory scope");
-        protect(first, owner, true, true, sandboxSids, mode === "writable-runtime" ? "writable" : mode === "runtime");
+        protect(first, owner, true, true, sandboxSids, runtimePolicy(first), writableRoot);
         let createdPath = first;
         for (const part of target.slice(first.length).replace(/^\\/, "").split("\\").filter(Boolean)) {
           createdPath += "\\" + part;
-          protect(
-            createdPath,
-            owner,
-            true,
-            true,
-            sandboxSids,
-            mode === "writable-runtime" ? "writable" : mode === "runtime",
-          );
+          protect(createdPath, owner, true, true, sandboxSids, runtimePolicy(createdPath), writableRoot);
         }
       }
     },
     protectFile: async (file) => {
       const item = await lstat(file);
-      protect(
-        file,
-        owner,
-        item.isDirectory(),
-        true,
-        sandboxSids,
-        mode === "writable-runtime" ? "writable" : mode === "runtime",
-      );
+      protect(file, owner, item.isDirectory(), true, sandboxSids, runtimePolicy(file), writableRoot);
     },
     inspect: async (file) => {
       const item = await lstat(file).catch((e) => {
@@ -332,20 +332,13 @@ export async function loadWindowsPrivateState(
           ownerOnly: true,
           detail: "will be created owner-only, Medium no-read-up before content",
         };
-      const checked = protect(
-        file,
-        owner,
-        item.isDirectory(),
-        false,
-        sandboxSids,
-        mode === "writable-runtime" ? "writable" : mode === "runtime",
-      );
+      const checked = protect(file, owner, item.isDirectory(), false, sandboxSids, runtimePolicy(file), writableRoot);
       return {
         mechanism: "windows-acl",
         ownerOnly: checked,
         detail: checked
-          ? mode === "writable-runtime"
-            ? "owner-only disposable runtime DACL and implicit Medium label verified"
+          ? runtimePolicy(file) === "writable"
+            ? "owner-only disposable runtime DACL and Low no-write-up label verified"
             : mode === "runtime"
               ? "owner-only runtime DACL and Medium no-write-up label verified"
               : "owner-only DACL and Medium no-read-up label verified"

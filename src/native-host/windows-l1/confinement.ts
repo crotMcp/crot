@@ -1,4 +1,5 @@
 /** Production Windows L1: no authorization, elevation or unconfined retry. */
+import { loadWindowsPrivateState } from "../windows-state.js";
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -62,7 +63,6 @@ export interface WindowsConfinementOptions {
   readonly ownerSid: string | undefined;
   readonly privateFiles: PrivateFileProtection;
   readonly runtimeFiles: PrivateFileProtection;
-  readonly writableRuntimeFiles: PrivateFileProtection;
   readonly lifecycle: WindowsLeaseServiceLifecycle | undefined;
   readonly base: ProcessLauncher;
   readonly environment: EnvironmentPolicy;
@@ -113,7 +113,7 @@ export class WindowsConfinement implements CommandConfinement {
         this.healthy.set(network, status);
       } catch (cause) {
         this.options.log?.(
-          `Windows L1 readiness failure: ${cause instanceof Error ? cause.message.split(/\r?\n/)[0]!.slice(0, 180) : "native error"}`,
+          `Windows L1 readiness failure: ${cause instanceof Error ? cause.message.split(/\r?\n/)[0]!.slice(0, 180) : "native error"}${cause instanceof CrotError && cause.details?.stage === "kernel descriptor mismatch" ? `; ${JSON.stringify(cause.details)}` : ""}`,
         );
         status = unavailable(
           network,
@@ -133,9 +133,10 @@ export class WindowsConfinement implements CommandConfinement {
     return pending;
   }
   private async runtime(c: WindowsComponents, scope: ConfinementScope): Promise<Runtime> {
-    const { writableRuntimeFiles: privateFiles, ownerSid, lifecycle, environment, base } = this.options;
+    const { ownerSid, lifecycle, environment, base } = this.options;
     if (!ownerSid || !lifecycle) throw failed("lease owner unavailable");
     const directory = path.join(this.options.stateDir, "windows-l1", "runtime", randomUUID());
+    const privateFiles = await loadWindowsPrivateState(ownerSid, [], { writableRoot: directory });
     await privateFiles.ensureDirectory(directory);
     const home = this.options.env.USERPROFILE ?? "C:\\Users\\Default";
     const contextPaths = [
@@ -356,8 +357,11 @@ export class WindowsConfinement implements CommandConfinement {
     const root = path.join(this.options.stateDir, "windows-l1", "self-test", randomUUID()),
       workspace = path.join(root, "workspace"),
       secret = path.join(root, "private-canary");
-    await this.options.writableRuntimeFiles.ensureDirectory(root);
-    await mkdir(workspace);
+    if (!this.options.ownerSid) throw failed("self-test owner SID");
+    // The protected canary is a sibling of the Low workspace, never below it.
+    await this.options.runtimeFiles.ensureDirectory(root);
+    const writableFiles = await loadWindowsPrivateState(this.options.ownerSid, [], { writableRoot: workspace });
+    await writableFiles.ensureDirectory(workspace);
     await writeFile(secret, "self-test-canary");
     await this.options.privateFiles.protectFile!(secret);
     const server = createServer((_request, response) => response.end("ok"));

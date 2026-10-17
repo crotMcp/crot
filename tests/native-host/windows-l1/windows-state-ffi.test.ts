@@ -70,12 +70,17 @@ describe.skipIf(!cc)("exact CROT private state native ABI", () => {
     expect(handles()).toBe(0);
     expect(memory()).toBe(0);
   });
-  it("keeps actor-writable trees owner-only without an explicit Medium write-up denial", () => {
+  it("labels only the bounded actor-writable root Low, never service storage or foreign ancestors", () => {
     fault(0);
-    expect(api(file, owner, true, true, [], "writable")).toBe(true);
-    expect(lastDescriptor()).toBe(`D:P(A;OICI;FA;;;${owner})S:`);
-    expect(api(file, owner, false, true, [], "writable")).toBe(true);
-    expect(lastDescriptor()).toBe(`D:P(A;;FA;;;${owner})S:`);
+    expect(api(file, owner, true, true, [], "writable", "C:\\fixture\\state")).toBe(true);
+    expect(lastDescriptor()).toBe(`D:P(A;OICI;FA;;;${owner})S:(ML;OICI;NW;;;LW)`);
+    expect(api(file, owner, false, true, [], "writable", "C:\\fixture\\state")).toBe(true);
+    expect(lastDescriptor()).toBe(`D:P(A;;FA;;;${owner})S:(ML;;NW;;;LW)`);
+    const before = sets();
+    expect(() => api(file, owner, false, true, [], "writable")).toThrow("writable root missing");
+    expect(() => api(file, owner, false, true, [], "writable", "C:\\foreign")).toThrow("writable root scope");
+    expect(() => api(file, owner, false, true, [], "writable", "C:\\")).toThrow("writable root scope");
+    expect(sets()).toBe(before);
     expect(api(file, owner, false, true)).toBe(true);
     expect(lastDescriptor()).toContain("NWNR;;;ME");
     expect(handles()).toBe(0);
