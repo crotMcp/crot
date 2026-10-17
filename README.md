@@ -99,9 +99,15 @@ Implemented components (not a whole-product acceptance or commercial-release cla
   are merged and tested. Owner runs 1–5/follow-up are recorded; final manual
   acceptance (timeout signalling, C1, owner review) remains open.
 
-Not implemented / not accepted yet: browser WP-25/26/27
-(dialog/file chooser/background screenshot/tab group, upload/download and
-remote multi-agent rules); OD-8 download hand-over; dedicated Docker commands
+WP-25 implements dialogs/file chooser interception, background/ref/fullPage
+screenshots, CDP lifecycle/status and CROT groups; `browser_dialog_handle` is
+protected by the same Core permissions/approvals. See
+[qualification and manual gaps](docs/design/browser-wp25.md). Browser target:
+Chrome/Edge/Brave Chromium ≥120 (AD-32); this is not a fully tested branded/OS matrix.
+
+Not implemented / not accepted yet: browser WP-24 final manual acceptance,
+WP-25 headed/branded qualification, WP-26 upload/download and WP-27 remote
+multi-agent rules; OD-8 download hand-over; dedicated Docker commands
 beyond docker.use and Git network tools (still usable via shell); general
 per-host/process/container egress policy beyond the existing L1 network on/off;
 public staging/production deployment, account/entitlement service, signed

@@ -170,6 +170,7 @@ from the extensions page) with the prefix `CROT: `.
 | `browser_tabs_list` | `browser.read` | `tabs.list` |
 | `browser_page_read` | `browser.read` | `page.read` |
 | `browser_screenshot` | `browser.read` | `page.screenshot` |
+| `browser_dialog_handle` | `browser.control` | `dialog.handle` |
 | `browser_tab_open` | `browser.control` | `tabs.open` |
 | `browser_navigate` | `browser.control` | `tabs.navigate` |
 | `browser_tab_activate` | `browser.control` | `tabs.activate` |
@@ -204,11 +205,10 @@ Behaviour:
   (doctype + `outerHTML`). `maxBytes` may not exceed `limits.maxReadBytes`
   (default 10 MiB); Core truncates the content. **Page content is untrusted
   input** — the tool description tells the agent so.
-- `browser_screenshot` captures the visible area of the active tab only. It
-  never activates a tab: for any other tab it returns `INVALID_INPUT` and asks
-  for `browser_tab_activate` first. The browser's capture rate limit returns
-  `RESOURCE_BUSY`. Images are limited to 16 MiB and are returned as MCP image
-  content followed by metadata.
+- `browser_screenshot` captures the requested HTTP(S) tab through CDP without
+  activating it; background tabs, `ref` clipping and `fullPage` are supported
+  (details below). Images are limited to 16 MiB and are returned as MCP image
+  content followed by viewport/devicePixelRatio metadata.
 - **Legacy form.** `browser_click` with only `tabId` / `selector` scrolls the
   element into view and calls `element.click()` (a synthetic event).
   `browser_type` with only `tabId` / `selector` / `text` / `clear` sets the value through the native setter and dispatches
@@ -225,7 +225,7 @@ Behaviour:
 
 Errors the extension may report are limited to `NOT_FOUND`, `INVALID_INPUT`,
 `TIMEOUT`, `LIMIT_EXCEEDED`, `RESOURCE_BUSY`, `OPERATION_FAILED`,
-`BROWSER_PAGE_RESTRICTED` and `BROWSER_STALE_REF`. `BROWSER_NOT_CONNECTED` and `BROWSER_BRIDGE_IN_USE`
+`BROWSER_PAGE_RESTRICTED`, `BROWSER_STALE_REF` and `BROWSER_DIALOG_OPEN`. `BROWSER_NOT_CONNECTED` and `BROWSER_BRIDGE_IN_USE`
 are decided by Core from the bridge state; the extension cannot claim them or
 any authorization error, with one exception: `PERMISSION_DENIED` answers a
 command of an approved operation whose expected browser subject no longer
@@ -239,7 +239,7 @@ through a fixed, extension-built command surface (AD-16 point 3):
 
 - **Fixed CDP allowlist** (`CDP_ALLOWED_METHODS` in `extension/src/cdp.ts`):
   Accessibility, DOM (read, box model, focus, scroll, hit test), DOMSnapshot,
-  Input, Page (lifecycle, frame tree, history, reload), `Target.setAutoAttach`
+  Input, Page (lifecycle, frame tree, history, reload, dialogs, chooser interception, screenshot), `Target.setAutoAttach`
   event-only `Network.enable` and `Emulation.setFocusEmulationEnabled` (so
   keys and focus reach the page while the user works in another window). No
   `Runtime.*`, `Debugger.*`, `Fetch.*`, storage, cookie, other emulation or
@@ -328,19 +328,45 @@ through a fixed, extension-built command surface (AD-16 point 3):
     its initial non-http document. Observe the same tab in browser_tabs_list
     until loading finishes, then take a fresh snapshot; do not blindly open
     replacement tabs or bypass page restrictions.
-- **Screenshots never hang.** `browser_screenshot` of a window the browser
-  reports as minimized fails at once and a capture the browser does not
-  answer within 10 s fails with `TIMEOUT` (both say to show the browser
-  window). On Linux a minimized window is often still rendered and the
-  browser does not always report it as minimized: the capture then simply
-  succeeds.
-- **JavaScript dialogs.** `alert`, `confirm`, `prompt` and `beforeunload`
-  block the page until they are answered, and Browser v1 does not answer
-  them. A command that opens one fails at once with `OPERATION_FAILED`
-  ("The action opened a JavaScript alert dialog…"; the action itself was
-  performed), and every following command on that tab fails at once ("A
-  JavaScript … dialog is open in the tab") until the user closes it in the
-  browser; then commands work again. Nothing waits for its timeout.
+- **Screenshots (WP-25).** `browser_screenshot` uses `Page.captureScreenshot`,
+  including background tabs, without activating a tab or focusing its window.
+  `format` is `png` (default) or `jpeg`; JPEG `quality` is 0–100. `ref` clips
+  one current snapshot element (stale → `BROWSER_STALE_REF`); `fullPage` captures
+  the document. These two options are mutually exclusive. Results include
+  `viewport` in CSS pixels and `devicePixelRatio`; image bytes are bounded at
+  16 MiB, the capture area at 64 million CSS pixels, capture timeout at 10 s.
+  Oversized captures fail, never silently truncate. Discarded tabs fail with
+  `INVALID_INPUT`, without a hidden reload. No emulation override is used.
+- **Dialogs (WP-25).** Attached tabs track one `alert`, `confirm`, `prompt`,
+  `beforeunload` or intercepted `file_chooser`. Commands that open a dialog
+  return `dialog: { type }` only. Other page commands fail immediately with
+  `BROWSER_DIALOG_OPEN`; snapshot, tabs list, dialog handling and tab close
+  still work. Snapshot returns empty frame/element arrays plus the pending
+  dialog, without trying to read a blocked page. Only snapshot / tabs list
+  expose the bounded message/default prompt (10,000 characters each).
+  `browser_dialog_handle({tabId, accept, promptText?})` passes the normal
+  `browser.control` guard and tab/origin/connection approval binding.
+  `promptText` applies only to prompts and is never audited. At 60 s, an
+  unanswered dialog is dismissed (`accept:false`; beforeunload stays) and a
+  content-free `browser.dialog_auto_dismissed` record is audited, stamped by
+  the host with the current connection. Notices cannot initiate operations,
+  carry page content or select an actor; the bridge limits them to 120/min.
+  File choosers never open the OS picker while intercepted; only dismissal
+  is available until file upload in WP-26. Closing a tab safely dismisses its
+  pending alert/chooser. If closing itself opens beforeunload, the result is
+  `closed:false, dialog:{type:"beforeunload"}`: it never silently confirms.
+- **Debugger status (WP-25).** External detach invalidates references and
+  fails in-flight work with `OPERATION_FAILED`; the next command may attach
+  afresh, without retrying the failed action. If a caller detached through
+  the extension API (which emits no onDetach), the next CDP refusal invalidates
+  the cached session too. `browser_status.cdp`, `overview.browser.cdp` and
+  `overview.cdp` report availability: initially false / `not_probed`, after
+  successful attachment true / null, after refused attachment false /
+  `debugger_unavailable`. Status never attaches to an untargeted tab merely
+  to probe. There is no synthetic-input or alternate-tab fallback.
+- **CROT groups (WP-25).** `browser_tab_open` groups the tab under `CROT` in
+  its own window; popups from that group are grouped when the browser permits.
+  `browser_tabs_list` includes `groupedByCrot` and `discarded`.
 - **Settle and waits.** After an action the extension observes the tab for a
   short quiet period (300 ms); a navigation started by the action is awaited
   until `waitUntil` (`commit`, `domcontentloaded`, `load` (default),
@@ -499,7 +525,8 @@ Manifest V3, `minimum_chrome_version` 120:
 | `tabs` | list, open, navigate, activate and close tabs; tab URLs and titles |
 | `scripting` | run the built-in page functions (read, click, type) |
 | `alarms` | wake the service worker to reconnect |
-| `debugger` | the Browser v1 CDP backend with its fixed method allowlist (snapshot, refs, trusted input, frames, waits, history) |
+| `debugger` | the fixed CDP backend (snapshot, input, frames, waits, history, dialogs, chooser interception, background screenshots) |
+| `tabGroups` | visible CROT tab groups and grouping of their popups |
 | host permissions `<all_urls>` | read and control pages and capture screenshots on any site the agent is asked to use |
 
 The extension has no UI, no content scripts, no `externally_connectable` and no
@@ -510,7 +537,7 @@ incognito windows (`"incognito": "not_allowed"`).
 
 Every browser operation is audited like any other Core operation, as
 `browser.status`, `browser.tabs_list`, `browser.page_read`,
-`browser.screenshot`, `browser.tab_open`, `browser.navigate`,
+`browser.screenshot`, `browser.dialog_handle`, `browser.tab_open`, `browser.navigate`,
 `browser.tab_activate`, `browser.tab_close`, `browser.click`, `browser.type`,
 `browser.snapshot`, `browser.wait`, `browser.hover`, `browser.scroll`,
 `browser.drag`, `browser.press_key`, `browser.select_option`,
@@ -562,12 +589,10 @@ CROT again.
   service worker console and CROT's own log.
 - Browser v1 is implemented in part (WP-24: CDP backend, snapshot and refs,
   trusted input, frames including out-of-process frames, open shadow roots,
-  waits, history). Not yet: answering JavaScript dialogs (they fail commands
-  at once, see above), file chooser, background-tab
-  screenshots, the CROT tab group and debugger lifecycle UX (WP-25), file
-  upload and download (WP-26), explicit `tabId` for remote principals and
-  `openedBy` (WP-27); the permissions `downloads` and `tabGroups` come with
-  them. Arbitrary JavaScript and OS-level input stay excluded.
+  waits, history), plus WP-25 dialogs, chooser interception, background/ref/
+  full-page screenshots, debugger status and CROT groups. Not yet: file upload
+  and download (WP-26, `downloads` permission), explicit remote `tabId` and
+  `openedBy` (WP-27). `tabGroups` is now requested. Arbitrary JavaScript and OS-level input stay excluded.
 - Elements in closed shadow roots may appear (the snapshot follows the
   accessibility tree) but are not guaranteed. A frame-limited snapshot of an
   out-of-process frame and `browser_wait` text conditions cover that frame's
@@ -592,10 +617,30 @@ CROT again.
   away when the extension detaches: when the tab is closed, when the
   connection ends, or after 5 minutes without commands on a tab.
 - Input needs a visible page: CROT activates the tab (and restores or, last,
-  focuses its window) for every control command, which the user sees. Two
+  focuses its window) for page input commands, which the user sees. Dialog handling, screenshots and grouping do not activate tabs. Two
   agents driving different tabs of one window take turns.
 - Native `<select>` on macOS: selection uses keys on the focused select;
   where the platform opens the pop-up instead, the command fails (the
   post-condition) rather than reporting a selection. Not verified on macOS.
 - Setup is manual. A one-click installer for the extension and the host is a
   later step (ARCHITECTURE.md §16, step 13; work package WP-34).
+
+## WP-25 qualification and limits
+
+The browser matrix decision (AD-32 / OD-9 browser part) is Chrome, Edge and
+Brave based on Chromium 120+ on the supported Linux/macOS/Windows platforms;
+`minimum_chrome_version` is 120. A support target is not evidence of testing
+all branded browsers or the minimum build itself. Automated real-browser
+coverage is Linux Chromium (`tests-e2e/browser/wp25.e2e.test.ts`), including
+real 60 s timeout and host audit, actual debugger API detach, file chooser,
+beforeunload, background/ref/fullPage captures and popup grouping. Enterprise
+attach refusal is injected in the test witness, **not** a real managed-policy
+installation. The native-picker claim is checked by actual CDP interception
+and pending chooser state; no OS accessibility automation is claimed.
+
+Remaining manual qualification: headed debugger infobar / user-cancel UX in
+Chrome, Edge and Brave on Linux, macOS and Windows; actual enterprise policies;
+minimum-version / HiDPI / occluded-window variants; WP-24 final owner acceptance.
+None is reported as passed merely because CI is green. Store acceptance and
+signed distribution remain WP-35 / WP-34. See
+[`design/browser-wp25.md`](design/browser-wp25.md) for the evidence map.

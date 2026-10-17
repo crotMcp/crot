@@ -5,13 +5,25 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
+## WP-25 — Browser lifecycle
+
+Реализованы диалоги и `browser_dialog_handle`, 60-секундное безопасное
+автоотклонение с аудитом, перехват file chooser, фоновые/ref/fullPage снимки,
+отмена при detach и отчётность CDP, группы CROT. Квалификация и границы:
+[`docs/design/browser-wp25.md`](docs/design/browser-wp25.md).
+База этой ветки — merge PR #30 `e072e61`; это не SHA будущего merge WP-25.
+Автоматическая готовность и ручная приёмка различаются: WP-24 owner acceptance,
+headed-матрица Chrome/Edge/Brave на трёх ОС и настоящие корпоративные политики
+не объявлены пройденными. OD-9 browser **decision closed by AD-32** (Chromium ≥120),
+но это не полная квалификация матрицы и не коммерческий релиз.
+
 ## macOS L1 — WP-23b / AD-31
 
-В этой ветке PR #30 реализован производственный `macos-seatbelt`; пакет
-**WP-23b: Done** для описанной ниже квалификации реализации. База ветки —
-`main` `0590c31` (merge документационного PR #28), а не `e23b7b9`.
-PR #27 уже слит как `e23b7b9`; это историческая Windows-база, не текущий main.
-Этот текст не утверждает, что PR #30 уже слит или весь продукт принят.
+PR #30 слит в `main` как `e072e61` (проверенная база ветки WP-25).
+Производственный `macos-seatbelt`, **WP-23b: Done**, принят куратором.
+`0590c31` — прежняя база ветки macOS, `e23b7b9` — исторический merge Windows
+PR #27; ни один из них не выдаётся за текущий main. Приёмка пакета не означает
+готовность всего продукта.
 
 Нативная квалификация и точные SHA/CI/ограничения:
 [отчёт macOS L1](docs/design/macos-l1-production.md).
@@ -66,7 +78,7 @@ manual confirmation and acceptance remain open. User docs: [`docs/BROWSER_EXTENS
 changed).
 
 - **Implemented:** `chrome.debugger` backend with the fixed CDP allowlist
-  (29 methods, no `Runtime.*`; one Emulation method: focus emulation), attach on demand, idle detach after 5 min,
+  (WP-24 baseline: 29 methods, no `Runtime.*`; one Emulation method: focus emulation), attach on demand, idle detach after 5 min,
   detach of every session when the CROT connection ends; `browser_snapshot`
   (exposure source) with document-bound refs and frame refs,
   `BROWSER_STALE_REF` without re-resolution; frames up to depth 8 / 100,
@@ -76,9 +88,9 @@ changed).
   drag, type, keys, select, checked by ref or selector (`frameRef` names the
   frame of a selector) with actionability checks (`INVALID_INPUT`, no
   `force`; hit test in document coordinates, a covered element is scrolled
-  towards the centre once); JavaScript dialogs fail commands at once; settle with `waitUntil`, `navigated`,
+  towards the centre once); WP-25 now handles dialogs; other page commands fail at once while pending; settle with `waitUntil`, `navigated`,
   `newTabs`; `browser_wait`, `browser_history`; `openerTabId`; per-tab queue
-  (16); 19 MCP tools. Approval subject and audit of ref targets (AD-16
+  (16); WP-24 baseline had 19 MCP tools (20 with WP-25). Approval subject and audit of ref targets (AD-16
   points 10, 16): element role and page-supplied accessible name, and the
   frame origin for a target in a child frame, from the last snapshot of that
   tab and connection (Core cache, reset per connection); the audit records
@@ -131,8 +143,8 @@ changed).
 - **Not done — WP-24 acceptance still open:** manual timeout-signal confirmation,
   C1's partial/unreproduced incident and final owner review. ARCHITECTURE.md
   §7.1 / AD-16 markers are unchanged (only an approved owner AD edit).
-- **Out of scope (own packages):** dialogs, file chooser, background
-  screenshots, tab group (WP-25); upload and download (WP-26, OD-8);
+- **Outside WP-24, implemented in WP-25:** dialogs, file chooser interception,
+  background/ref/fullPage screenshots and tab groups; upload and download (WP-26, OD-8);
   remote explicit `tabId`, `openedBy`, two-agent ordering tests (WP-27).
 
 ## Другие реализованные компоненты и оставшиеся задачи
@@ -465,7 +477,7 @@ WP-25/26/27. Это приоритизация существующих зада
 | --- | --- | --- |
 | **WP-29 follow-up — следующий исполнительный WP** | WP-28 и OD-3/4/5 решены; relay и WP-30 уже в main | WP-29 Partial: per-client/device rate/concurrency, per-source connections/handshakes, registration rate, deregistration/key rotation/orphan registration, load/backpressure. До публичного WP-38 — выполнить либо явно переназначить допустимые пункты в WP-39; этим docs PR ничего не переназначается |
 | **WP-24 — ближайшая незакрытая браузерная приёмка, параллельно** | WP-18 решён; PR #22–#26 уже в main | Код и автоматические тесты есть; PR #26 (`289f500`) исправляет default-load timeout. Ручная проверка сигнала, C1 partial/unreproduced и итоговая приёмка владельца открыты; G5/H и B4/E5/windows не обнуляются |
-| WP-25 / WP-27 | Завершённая база WP-24; WP-27 также WP-19 (Done) | Разработка может опираться на слитый код, но зависимость приёмки WP-24 не считается закрытой. Собственные E2E: dialogs/file chooser/background screenshot/debugger/tab group; remote tabId/openedBy/two-agent ordering — ещё не выполнены |
+| WP-25 / WP-27 | Завершённая база WP-24; WP-27 также WP-19 (Done) | Разработка может опираться на слитый код, но зависимость приёмки WP-24 не считается закрытой. WP-25: код и автоматическая квалификация — docs/design/browser-wp25.md; ручная headed/branded-матрица остаётся открытой. WP-27: remote tabId/openedBy/two-agent ordering ещё не выполнены |
 | WP-26 | WP-24 и **OD-8** | OD-8 download hand-over ещё не решён; нужны upload/download и реальные AD-23.8 approval gates. Нельзя объявить gate проверенным по WP-31 rule-set тестам |
 | WP-23b | WP-21 Done; платформенное решение OD-9 принято AD-29 | Done: macOS Seatbelt/Keychain, AD-31 и зафиксированная Node20/22 CI-квалификация; более широкая матрица не объявляется проверенной |
 | WP-38 | WP-28, завершение/явное согласование открытого WP-29; WP-36 hook может быть stub по карточке | Подготовку TLS/IdP/deployment можно вести; публичный staging блокируют перечисленные WP-29 задачи. Live WorkOS, pin identity environment, payload-free logs, external OAuth/tool run ещё не подтверждены; RFC 9207 — условие G4 или отдельный принятый AD |
