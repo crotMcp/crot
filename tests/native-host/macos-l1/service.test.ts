@@ -134,6 +134,35 @@ const s=n.connect(${JSON.stringify(path.join(state, "control.sock"))});s.on('con
 });
 
 describe.runIf(process.platform === "darwin")("macOS admission contracts", () => {
+  it("keeps local full_control unconfined even with the real registered macOS backend ready", async () => {
+    const { NativeHost } = await import("../../../src/native-host/native-host.js");
+    const { createTestCore } = await import("../../helpers.js");
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "crot-mac-full-"))),
+      workspace = path.join(root, "w");
+    await mkdir(workspace);
+    const native = await NativeHost.start({ startupPath: "inherited", stateDir: path.join(root, "s") });
+    let core: import("../../../src/core/crot-core.js").CrotCore | undefined;
+    try {
+      core = await createTestCore(
+        { workspace: { root: workspace }, permissions: { mode: "full_control" } },
+        undefined,
+        { platform: native.platform },
+      );
+      expect(core.status().confinement).toMatchObject({ mechanism: "macos-seatbelt", available: true, reason: null });
+      const r = await core.processes.exec(testContext, {
+        command: process.execPath,
+        cwd: root,
+        args: ["-e", "require('fs').writeFileSync('real-full-control','ok')"],
+      });
+      expect(r.exitCode, r.stderr).toBe(0);
+      expect(await readFile(path.join(root, "real-full-control"), "utf8")).toBe("ok");
+    } finally {
+      await core?.shutdown();
+      await native.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60000);
+
   it("keeps full_control unrestricted and refuses remote execution when L1 is absent", async () => {
     const { NativeHost } = await import("../../../src/native-host/native-host.js");
     const { createTestCore } = await import("../../helpers.js");

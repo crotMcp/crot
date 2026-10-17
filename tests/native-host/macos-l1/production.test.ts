@@ -348,6 +348,24 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
     if (!p.stdout.readableEnded) await new Promise<void>((resolve) => p.stdout.once("end", resolve));
     expect(out).toContain("GRACEFUL-DONE");
   });
+  it("fails closed and drains existing actors if guardian acknowledgement hits a broken output pipe", async () => {
+    const core = await open("on");
+    const p = await core.launcher.launch(
+      {
+        file: process.execPath,
+        args: ["-e", "console.log('READY');setInterval(()=>{},1000)"],
+        display: "guardian EPIPE qualification",
+      },
+      { cwd: workspace, env: process.env as Record<string, string>, stdin: false },
+    );
+    await new Promise<void>((resolve) => p.stdout.once("data", () => resolve()));
+    // Trusted test-only access to a private object, not a sandbox API or env override.
+    const owner = core as unknown as { watchdog: { child: { stdout: { destroy(): void } } } };
+    owner.watchdog.child.stdout.destroy();
+    await expect(run(core, "console.log('must-not-run')")).rejects.toMatchObject({ code: "CONFINEMENT_FAILED" });
+    await p.exited;
+    expect(core.status().available).toBe(false);
+  });
   it("never drains another admitted Core's actors", async () => {
     const a = await open("on"),
       b = await open("on");

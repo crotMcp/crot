@@ -46,8 +46,9 @@ const ffi=createRequire(${JSON.stringify(import.meta.url)})('koffi');
 const p=ffi.load('/usr/lib/libproc.dylib'),s=ffi.load('/usr/lib/libsandbox.1.dylib');
 const actors=new Actors(p.func('int proc_listpids(uint32_t,uint32_t,void *,int)'),p.func('int proc_pidinfo(int,int,uint64_t,void *,int)'),s.func('int sandbox_check(int,const char *,int,...)'));
 const root=${JSON.stringify(root)},ids=new Map();let ended=false;
-const drain=()=>{if(ended)return;ended=true;let failed=false;for(const id of ids.values()){try{actors.signal(id,'force')}catch{failed=true}}if(!failed)fs.rmSync(root,{recursive:true,force:true});process.exit(failed?1:0)};
+const drain=()=>{if(ended)return;ended=true;let failed=false;for(const id of ids.values()){try{actors.signal(id,'force')}catch{failed=true}}if(!failed){try{fs.rmSync(root,{recursive:true,force:true})}catch{failed=true}}process.exit(failed?1:0)};
 process.on('SIGTERM',drain);process.on('SIGINT',drain);
+process.stdout.on('error',drain);process.stderr.on('error',drain);process.on('uncaughtException',drain);process.on('unhandledRejection',drain);
 const lines=createInterface({input:process.stdin});lines.on('line',line=>{try{const m=JSON.parse(line);const id=m.id;if(!id||path.dirname(id.denied)!==root||path.dirname(id.allowed)!==root||!/^[-0-9a-f]{36}$/.test(path.basename(id.denied))||!/^[-0-9a-f]{36}$/.test(path.basename(id.allowed)))throw Error('invalid identity');if(m.kind==='add'){ids.set(id.denied,id);console.log(id.denied)}else if(m.kind==='forget'){ids.delete(id.denied)}else throw Error('invalid command')}catch{drain()}});lines.on('close',drain);console.log('READY');`;
     const child = spawn(process.execPath, ["-e", source], {
       env: { PATH: process.env.PATH ?? "" },
