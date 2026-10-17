@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 /** macOS Seatbelt L1. Core authorization stays in ProcessService; no unconfined retry. */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -170,6 +171,7 @@ async function privateRoot(): Promise<string> {
 class MacosCore implements CoreConfinement {
   private closed = false;
   private broken = false;
+  private refreshing: Promise<ConfinementStatus> | undefined;
   private readonly children = new Set<ManagedProcess>();
   readonly launcher: ProcessLauncher;
   constructor(
@@ -192,13 +194,21 @@ class MacosCore implements CoreConfinement {
     return statusOf(this.scope.network, this.broken || this.closed ? "self_test_failed" : null);
   }
   async refresh(): Promise<ConfinementStatus> {
-    try {
-      this.assertAdmission();
-      await this.selfTest();
-    } catch {
-      this.broken = true;
-    }
-    return this.status();
+    // Status is shared by concurrent stdio clients and tray polling: one live
+    // self_test per Core, never bind the same control canary twice.
+    if (!this.refreshing)
+      this.refreshing = (async () => {
+        try {
+          this.assertAdmission();
+          await this.selfTest();
+        } catch {
+          this.broken = true;
+        }
+        return this.status();
+      })().finally(() => {
+        this.refreshing = undefined;
+      });
+    return this.refreshing;
   }
   assertAdmission(): void {
     if (this.closed || this.broken) throw failed();
@@ -249,6 +259,7 @@ class MacosCore implements CoreConfinement {
     }
   }
   async selfTest(): Promise<void> {
+    const probeName = `.crot-l1-check-${randomUUID()}`;
     const canary = path.join(this.root, "canary");
     await writeFile(canary, "not-a-secret", { mode: 0o600 });
     const control = path.join(this.root, "c.sock");
@@ -266,8 +277,8 @@ class MacosCore implements CoreConfinement {
 const denied=f=>{try{f();throw Error('escape')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}};
 denied(()=>fs.readFileSync(${JSON.stringify(canary)}));
 denied(()=>fs.writeFileSync(${JSON.stringify(path.join(this.root, "outside"))},'x'));
-fs.writeFileSync(${JSON.stringify(path.join(this.scope.workspace, ".crot-l1-self-test"))},'ok');
-fs.unlinkSync(${JSON.stringify(path.join(this.scope.workspace, ".crot-l1-self-test"))});
+fs.writeFileSync(${JSON.stringify(path.join(this.scope.workspace, probeName))},'ok',{flag:'wx'});
+fs.unlinkSync(${JSON.stringify(path.join(this.scope.workspace, probeName))});
 fs.writeFileSync(${JSON.stringify(path.join(this.temp, "self-test"))},'ok');
 const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(42));s.on('error',e=>{if(!['EPERM','EACCES'].includes(e.code))process.exit(43);else console.log('CROT-SEATBELT-READY')});`;
       const result = await execute(SANDBOX_EXEC, ["-p", profile, process.execPath, "-e", script], {

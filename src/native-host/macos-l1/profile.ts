@@ -36,6 +36,11 @@ export interface SeatbeltLayout {
 
 export function seatbeltProfile(layout: SeatbeltLayout): string {
   const subpaths = (paths: readonly string[]) => paths.map((p) => `(subpath ${sbplString(p)})`).join("\n");
+  const guards = new Set<string>();
+  for (const root of [...layout.writable, ...layout.protectedPaths]) {
+    for (let p = root; p !== "/"; p = path.posix.dirname(p)) guards.add(p);
+  }
+  const guardedNames = [...guards].map((p) => `(literal ${sbplString(p)})`).join("\n");
   return `(version 1)
 (deny default)
 (allow file-read*)
@@ -54,11 +59,13 @@ export function seatbeltProfile(layout: SeatbeltLayout): string {
 (allow file-write-data file-ioctl
   (literal "/dev/null") (literal "/dev/tty") (literal "/dev/zero")
   (literal "/dev/random") (literal "/dev/urandom"))
+; Do not rename/unlink the policy roots or protected ancestors to evade path rules.
+(deny file-write-unlink file-write-mode file-write-owner file-write-flags ${guardedNames})
 ; Denial wins over broad host reads and writable workspace roots.
 (deny file-read* file-write* ${subpaths(layout.protectedPaths)})
 ; No arbitrary AF_UNIX: control, Docker, SSH agents and user daemons stay outside.
 (allow network* (local unix-socket (literal ${sbplString(layout.dockerSocket)})))
 (allow network-outbound (remote unix-socket (literal ${sbplString(layout.dockerSocket)})))
-${layout.network === "on" ? "(allow network* (local ip) (remote ip))" : '(allow network* (local ip "localhost:*"))\n(allow network-outbound (remote ip "localhost:*"))'}
+${layout.network === "on" ? "(allow network* (local ip) (remote ip))" : '(allow network-bind network-inbound (local ip "localhost:*"))\n(allow network-outbound (remote ip "localhost:*"))'}
 `;
 }

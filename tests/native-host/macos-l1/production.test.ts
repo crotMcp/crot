@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { seatbeltProfile } from "../../../src/native-host/macos-l1/profile.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, readFile, writeFile, symlink, realpath } from "node:fs/promises";
 import os from "node:os";
@@ -58,6 +60,17 @@ describe.runIf(mac)("macOS production Seatbelt qualification", () => {
     for (const c of sandboxes.splice(0)) await c.close();
     for (const s of servers.splice(0)) s.close();
     await rm(root, { recursive: true, force: true });
+  });
+  it("compiles the fixed SBPL on the real system", () => {
+    const profile = seatbeltProfile({
+      writable: [workspace],
+      protectedPaths: [state],
+      dockerSocket: path.join(root, "d.sock"),
+      network: "on",
+    });
+    expect(
+      execFileSync("/usr/bin/sandbox-exec", ["-p", profile, "/bin/sh", "-c", "printf COMPILED"], { encoding: "utf8" }),
+    ).toBe("COMPILED");
   });
   it("runs node, sh, git and descendants with private HOME and caches", async () => {
     const core = await open("on");
@@ -125,6 +138,58 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
       );
       expect(r, r.err).toMatchObject({ code: 0 });
     }
+  });
+  it("returns audited Docker 403 without reaching a daemon", async () => {
+    const core = await open("on");
+    const r = await run(
+      core,
+      `const net=require('net');const body=JSON.stringify({Image:'alpine',HostConfig:{Privileged:true}});const s=net.connect(process.env.DOCKER_HOST.slice(7));let out='';s.on('connect',()=>s.write('POST /containers/create HTTP/1.1\\r\\nHost: docker\\r\\nContent-Length: '+Buffer.byteLength(body)+'\\r\\nConnection: close\\r\\n\\r\\n'+body));s.on('data',c=>out+=c);s.on('end',()=>{console.log(out);process.exit(out.includes('403 Forbidden')?0:1)});s.on('error',e=>{console.error(e);process.exit(2)});`,
+    );
+    expect(r, r.err).toMatchObject({ code: 0 });
+    expect(r.out).toContain("403 Forbidden");
+  });
+  it("blocks security CLI access to CROT Keychain secrets", async () => {
+    const core = await open("on");
+    const r = await run(
+      core,
+      `const cp=require('child_process');const r=cp.spawnSync('/usr/bin/security',['find-generic-password','-s','crot-mcp','-w'],{encoding:'utf8'});console.log(JSON.stringify({status:r.status,stdout:r.stdout}));if(r.status===0)process.exit(1);`,
+    );
+    expect(r, r.err).toMatchObject({ code: 0 });
+    expect(r.out).toContain('"stdout":""');
+  });
+  it("kills ordinary descendants and refuses detached process-group escape", async () => {
+    const core = await open("on");
+    const r = await run(
+      core,
+      `const cp=require('child_process');const p=cp.spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true});p.on('error',e=>{console.log(e.code);process.exit(['EPERM','EACCES'].includes(e.code)?0:2)});p.on('spawn',()=>{p.kill('SIGKILL');process.exit(1)});`,
+    );
+    expect(r, r.err).toMatchObject({ code: 0 });
+    const p = await core.launcher.launch(
+      {
+        file: process.execPath,
+        args: [
+          "-e",
+          `const p=require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});console.log(p.pid);setInterval(()=>{},1000);`,
+        ],
+        display: "tree qualification",
+      },
+      { cwd: workspace, env: process.env as Record<string, string>, stdin: false },
+    );
+    const pid = await new Promise<number>((resolve) => p.stdout.once("data", (c) => resolve(Number(String(c).trim()))));
+    expect(pid).toBeGreaterThan(0);
+    await p.terminate("force");
+    await p.exited;
+    let alive = true;
+    for (let i = 0; i < 50; i++) {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        alive = false;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(alive).toBe(false);
   });
   it("remains fail-closed after close", async () => {
     const core = await open("on");
