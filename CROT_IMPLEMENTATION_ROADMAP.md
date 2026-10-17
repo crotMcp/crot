@@ -1199,10 +1199,12 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
 
 ### 8.4 Next-WP selection rule
 
-Сверка целевой ветки перед разрешением конфликта: remote `main` —
-`6f98e5d` (merge PR #29); `0590c31` — предшествующий merge PR #28,
-а `e23b7b9` — историческая Windows-база аудита. WP-23b реализован в PR #30
-по AD-31; AD-30/WP-23c Done и порядок следующих работ ниже сохраняются.
+Проверенная база ветки WP-25: `main` на `e072e61` (merge PR #30).
+Предыдущая сверка при разрешении конфликта PR #30 фиксировала `6f98e5d`
+(merge PR #29); `0590c31` — более ранний merge PR #28, а `e23b7b9` —
+историческая Windows-база аудита. Эти SHA не являются указателями на текущий
+HEAD `main`. WP-23b принят куратором и слит по AD-31; AD-30/WP-23c Done
+и зависимости следующих работ ниже сохраняются.
 
 1. If any OD that blocks an unblocked WP is undecided, the next task is that
    decision (docs-only PR or first commit of the WP).

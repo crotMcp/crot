@@ -144,7 +144,8 @@ changed).
   C1's partial/unreproduced incident and final owner review. ARCHITECTURE.md
   §7.1 / AD-16 markers are unchanged (only an approved owner AD edit).
 - **Outside WP-24, implemented in WP-25:** dialogs, file chooser interception,
-  background/ref/fullPage screenshots and tab groups; upload and download (WP-26, OD-8);
+  background/ref/fullPage screenshots and tab groups.
+- **Still planned, not implemented by WP-25:** upload and download (WP-26, OD-8);
   remote explicit `tabId`, `openedBy`, two-agent ordering tests (WP-27).
 
 ## Другие реализованные компоненты и оставшиеся задачи
