@@ -15,6 +15,8 @@ export interface WindowsLaunchLayout {
   readonly privateRoot: string;
   /** Explicit approved runtime directories; never the entire inherited PATH. */
   readonly runtimeBins: readonly string[];
+  /** Owned LOCAL policy proxy, never an inherited Docker configuration. */
+  readonly dockerHost?: string;
 }
 export class WindowsLaunchEnvironment {
   readonly directories: Readonly<{ home: string; temp: string; cache: string; roaming: string; local: string }>;
@@ -53,7 +55,13 @@ export class WindowsLaunchEnvironment {
         return true;
       })
       .join(";");
+    if (
+      layout.dockerHost !== undefined &&
+      !/^npipe:\/\/\/\/\.\/pipe\/LOCAL\/crot-l1-docker-[a-f0-9]{48}$/.test(layout.dockerHost)
+    )
+      throw new CrotError("INVALID_INPUT", "Windows Docker endpoint must be an owned LOCAL pipe.");
     this.fixed = Object.freeze({
+      ...(layout.dockerHost === undefined ? {} : { DOCKER_HOST: layout.dockerHost }),
       SystemRoot: root,
       WINDIR: root,
       SystemDrive: path.win32.parse(root).root.slice(0, 2),

@@ -9,7 +9,7 @@ import { createServicePrivateFiles } from "../../../src/service/private-files.js
 const sid = "S-1-15-2-1-2-3-4-5-6-7",
   ownerSid = "S-1-5-21-1-2-3-1001";
 describe("durable fresh profile receipts", () => {
-  let directory: string, creates: string[], removed: string[], status: number;
+  let root: string, directory: string, creates: string[], removed: string[], status: number;
   const privateFiles = createServicePrivateFiles(process.platform === "win32");
   const native = {
     derive: () => sid,
@@ -33,13 +33,14 @@ describe("durable fresh profile receipts", () => {
     });
   const open = () => openDurableProfiles({ directory, ownerSid, privateFiles, native, profiles: profiles() });
   beforeEach(async () => {
-    directory = await mkdtemp(path.join(os.tmpdir(), "crot-profile-receipt-"));
+    root = await mkdtemp(path.join(os.tmpdir(), "crot-profile-receipt-"));
+    directory = path.join(root, "receipts");
     creates = [];
     removed = [];
     status = 0;
   });
   afterEach(async () => {
-    await rm(directory, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
   });
   it("flushes an intent before native creation and validates the fresh receipt after reopen", async () => {
     const o = await open(),

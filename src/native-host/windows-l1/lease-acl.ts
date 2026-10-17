@@ -326,6 +326,33 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
           0x02200000,
         );
         if (!valid(handle)) throw nativeFail("guard by ID open");
+        if (denyRename) {
+          // OpenFileById is the identity anchor, not a qualified sharing guard:
+          // NTFS permits rename through that open on Server 2025. Acquire a
+          // data-bearing Win32 open of its observed current name, then verify
+          // the SAME identity before releasing the anchor. No saved-path fallback.
+          const buffer = Buffer.alloc(65536);
+          const length = Number(finalPath(handle, buffer, buffer.length / 2, 0));
+          if (length < 1 || length >= buffer.length / 2) throw fail("guard current path");
+          const guarded = file(
+            buffer.subarray(0, length * 2).toString("utf16le"),
+            0x80060000,
+            3,
+            null,
+            3,
+            0x02200000,
+            null,
+          );
+          if (!valid(guarded)) throw nativeFail("guard current-name data open");
+          const anchored = handle;
+          handle = guarded;
+          try {
+            release(anchored);
+          } catch (cause) {
+            pendingHandles.add(anchored);
+            throw cause;
+          }
+        }
         const observed = inspect(handle);
         if (
           observed.fileId !== identity.fileId ||

@@ -123,12 +123,17 @@ async function upstreamGetJson(upstream: DockerUpstream, target: string): Promis
   });
 }
 
+export interface DockerEndpointTransport {
+  close(): Promise<void>;
+  closeSync(): void;
+}
+
 export class DockerEndpoint {
-  private readonly connections = new Set<net.Socket>();
+  private readonly connections = new Set<Duplex>();
   private apparmorDaemon: boolean | undefined;
 
   private constructor(
-    private readonly server: net.Server,
+    private readonly transport: DockerEndpointTransport,
     private readonly options: DockerEndpointOptions,
   ) {}
 
@@ -137,7 +142,18 @@ export class DockerEndpoint {
     // Half-open: the Docker CLI closes its write side of a hijacked attach/exec stream once its stdin
     // is done (at once without -i) and keeps reading the output; Node would otherwise end our side too.
     const server = net.createServer({ allowHalfOpen: true });
-    const endpoint = new DockerEndpoint(server, options);
+    const endpoint = new DockerEndpoint(
+      {
+        close: async () => {
+          await new Promise<void>((resolve) => server.close(() => resolve()));
+          await rm(options.socketPath, { force: true });
+        },
+        closeSync: () => {
+          server.close();
+        },
+      },
+      options,
+    );
     server.on("connection", (socket) => endpoint.handle(socket));
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
@@ -150,19 +166,38 @@ export class DockerEndpoint {
     return endpoint;
   }
 
+  /** Attach an already-owned transport. This never removes/chmods its address. */
+  static async startOwned(
+    options: DockerEndpointOptions,
+    listen: (accept: (connection: Duplex) => void) => Promise<DockerEndpointTransport>,
+  ): Promise<DockerEndpoint> {
+    const waiting: Duplex[] = [];
+    let accept = (stream: Duplex) => {
+      stream.pause();
+      waiting.push(stream);
+    };
+    const transport = await listen((stream) => accept(stream));
+    const endpoint = new DockerEndpoint(transport, options);
+    accept = (stream) => endpoint.handle(stream);
+    for (const stream of waiting) {
+      endpoint.handle(stream);
+      stream.resume();
+    }
+    return endpoint;
+  }
+
   get socketPath(): string {
     return this.options.socketPath;
   }
 
   async close(): Promise<void> {
     for (const c of this.connections) c.destroy();
-    await new Promise<void>((resolve) => this.server.close(() => resolve()));
-    await rm(this.options.socketPath, { force: true });
+    await this.transport.close();
   }
 
   closeSync(): void {
     for (const c of this.connections) c.destroy();
-    this.server.close();
+    this.transport.closeSync();
   }
 
   /** Whether the daemon reports AppArmor support (cached after the first answer). */
@@ -180,7 +215,7 @@ export class DockerEndpoint {
     }
   }
 
-  private refuse(socket: net.Socket, kind: string, reason: string): void {
+  private refuse(socket: Duplex, kind: string, reason: string): void {
     this.options.onRefusal(kind, reason);
     socket.end(forbidden(reason));
   }
@@ -197,7 +232,7 @@ export class DockerEndpoint {
     checkInspectedMounts(this.options.boundary, c.Mounts, where);
   }
 
-  private handle(socket: net.Socket): void {
+  private handle(socket: Duplex): void {
     this.connections.add(socket);
     socket.on("close", () => this.connections.delete(socket));
     socket.on("error", () => socket.destroy());
@@ -310,7 +345,11 @@ export class DockerEndpoint {
               if (request.kind === "container.create") {
                 const { volumesFrom } = checkContainerCreate(this.options.boundary, json);
                 for (const other of volumesFrom) await this.checkExisting(other, `volumes from ${other}`);
-                if (this.options.upstream.local && (await this.daemonSupportsAppArmor())) {
+                if (
+                  this.options.containerProfile &&
+                  this.options.upstream.local &&
+                  (await this.daemonSupportsAppArmor())
+                ) {
                   body = Buffer.from(JSON.stringify(withContainerProfile(json, this.options.containerProfile)), "utf8");
                 }
               } else if (request.kind === "container.exec") checkExecCreate(json);

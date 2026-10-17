@@ -757,3 +757,19 @@ CrotService для проверки акторов, loopback, новых workspa
 пока не включена. Неоднозначный intent без S_OK receipt не разрешает удалять
 профиль. Неподдержанные reparse/case-sensitive/multilink/пересекающиеся аренды
 отказывают явно; они не обходят проверку границ.
+
+WP-23c continuation: `365a475` qualified the real service-start recovery path
+on Windows Server 2025 / Node 20 and 22: owner death, token-SID actor drain,
+13 independent file snapshots plus all plan objects restored by NTFS ID,
+new workspace ACE revocation, loopback removal, closed profile receipt and
+idempotent reopen. That revision was NOT green overall: the portable receipt
+fixture reused an unprepared existing Windows directory, and the new sharing
+probe showed that an OpenFileById handle alone is not a rename guard. Follow-up
+uses a by-ID anchored, identity-checked current-name data open and provisions
+a fresh private fixture directory; both are requalified, not waived.
+
+The LOCAL Docker endpoint now has an owned OVERLAPPED transport (explicit
+owner/package DACL, Low label, remote clients refused), the shared policy and
+trusted DOCKER_HOST environment. Its native test uses a mock upstream and checks
+real AppContainer requests/403/audit, not a real Docker daemon. Production
+backend readiness and native bind-path TOCTOU admission are not claimed yet.

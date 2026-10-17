@@ -46,6 +46,20 @@ describe("Windows native bounded launch environment", () => {
     expect(env.npm_config_cache).toBe("C:\\CROT\\private\\cache\\npm");
     expect(env.PIP_CACHE_DIR).toBe("C:\\CROT\\private\\cache\\pip");
   });
+  it("overrides all incoming Docker settings with the trusted LOCAL endpoint only", () => {
+    const dockerHost = "npipe:////./pipe/LOCAL/crot-l1-docker-" + "a".repeat(48);
+    const policy = new WindowsLaunchEnvironment({ ...layout, dockerHost });
+    const env = policy.prepare({
+      Docker_Host: "npipe:////./pipe/docker_engine",
+      DOCKER_CONTEXT: "host",
+      DOCKER_TLS_VERIFY: "1",
+    });
+    expect(env.DOCKER_HOST).toBe(dockerHost);
+    expect(env.Docker_Host).toBeUndefined();
+    expect(env.DOCKER_CONTEXT).toBeUndefined();
+    expect(env.DOCKER_TLS_VERIFY).toBeUndefined();
+    expect(() => new WindowsLaunchEnvironment({ ...layout, dockerHost: "npipe:////./pipe/docker_engine" })).toThrow();
+  });
   it.each(["relative", "\\\\server\\share", "C:\\a;%PATH%", "C:\\bad\u0000name"])(
     "rejects ambiguous or nonlocal trusted layout %j",
     (privateRoot) => {

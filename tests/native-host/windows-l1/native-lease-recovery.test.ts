@@ -71,7 +71,13 @@ describe.runIf(isWindows)("full native Windows lease recovery after owner death"
         errors += b.toString();
       });
       const ready = await Promise.race([
-        new Promise<{ ready: true; plan: LeasePlan; actors: { pid: number; child: number } }>((resolve, reject) => {
+        new Promise<{
+          ready: true;
+          plan: LeasePlan;
+          actors: { pid: number; child: number; docker: number[]; dockerHost: string };
+          refusals: { event: string; request: string; reason: string }[];
+          forwarded: string[];
+        }>((resolve, reject) => {
           child!.once("message", (v) => resolve(v as never));
           child!.once("exit", () => reject(new Error(errors)));
         }),
@@ -80,6 +86,11 @@ describe.runIf(isWindows)("full native Windows lease recovery after owner death"
         ),
       ]);
       expect(ready.ready).toBe(true);
+      expect(ready.actors.docker).toEqual([200, 403, 403, 403]);
+      expect(ready.actors.dockerHost).toMatch(/^npipe:\/\/\/\/\.\/pipe\/LOCAL\/crot-l1-docker-/);
+      expect(ready.forwarded).toEqual(["GET /_ping HTTP/1.1"]);
+      expect(ready.refusals).toHaveLength(3);
+      expect(ready.refusals.every((r) => r.event === "confinement.docker_refused")).toBe(true);
       const network = await loadAppContainerNetworkNative();
       expect(await network.contains(ready.plan.profile.sid)).toBe(true);
       expect(isAlive(ready.actors.pid)).toBe(true);
@@ -139,6 +150,10 @@ describe.runIf(isWindows)("full native Windows lease recovery after owner death"
         profileReceiptClosed: true,
         startupIdempotent: true,
         serviceLifecycleTested: true,
+        dockerLocalTransport: true,
+        dockerResponses: ready.actors.docker,
+        dockerRefusalsAudited: ready.refusals.length,
+        dockerUpstream: "mock-byte-stream-not-real-daemon",
         checkout: process.env.GITHUB_SHA,
         node: process.version,
       };

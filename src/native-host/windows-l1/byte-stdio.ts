@@ -4,7 +4,7 @@
  * This module is a launcher component, not a confinement availability proof.
  */
 import { randomBytes } from "node:crypto";
-import { Readable, Writable } from "node:stream";
+import { Duplex, Readable, Writable } from "node:stream";
 import { CrotError } from "../../core/errors.js";
 import { validateSid } from "../validation.js";
 import type { TokenFfi, TokenLibraries } from "./restricted-token.js";
@@ -25,7 +25,20 @@ export interface BytePipe {
   closeParent(): void;
   closeChild(): void;
 }
+export interface LocalByteServer {
+  readonly path: string;
+  close(): Promise<void>;
+  closeSync(): void;
+}
+export interface LocalByteServerOptions {
+  readonly ownerSid: string;
+  readonly packageSid: string;
+  readonly accept: (connection: Duplex) => void;
+  readonly failed: (error: Error) => void;
+}
 export interface BytePipeApi {
+  /** Trusted service transport. Never a relaxation of host pipe DACLs. */
+  listenLocal?(options: LocalByteServerOptions): Promise<LocalByteServer>;
   create(direction: "input" | "output", ownerSid: string): Promise<BytePipe>;
 }
 const failure = (stage: string, code?: number) =>
@@ -49,6 +62,7 @@ const failedCompletedReleases = new Set<PipeOperation>();
 // Failed setup never returns an owner to the caller. Retain its exact,
 // idempotent release actions and refuse more allocation until all recover.
 const failedSetupReleases = new Set<() => void>();
+const failedLocalSockets = new Set<LocalDuplex>();
 function releaseSetup(action: () => void): void {
   const retry = () => {
     action();
@@ -72,6 +86,13 @@ function retryStdioReleases(): void {
   for (const release of failedSetupReleases) {
     try {
       release();
+    } catch (cause) {
+      error ??= cause;
+    }
+  }
+  for (const socket of failedLocalSockets) {
+    try {
+      socket.closeNativeSync();
     } catch (cause) {
       error ??= cause;
     }
@@ -204,6 +225,98 @@ class Endpoint {
     this.releaseParent();
   }
 }
+/** A duplex server instance owns both directions until both cancellations drain. */
+class LocalDuplex extends Duplex {
+  private reading = false;
+  private readonly input: Endpoint;
+  private readonly output: Endpoint;
+  private closing?: Promise<void>;
+  constructor(pipe: BytePipe) {
+    super({ allowHalfOpen: true, highWaterMark: 32768 });
+    let directions = 0;
+    const side = () => {
+      let counted = false;
+      return () => {
+        if (!counted) {
+          counted = true;
+          directions++;
+        }
+        if (directions === 2) pipe.closeParent();
+      };
+    };
+    this.input = new Endpoint({ ...pipe, closeParent: side() });
+    this.output = new Endpoint({ ...pipe, closeParent: side() });
+    this.on("error", () => undefined);
+  }
+  override _read(): void {
+    if (this.reading || this.destroyed) return;
+    this.reading = true;
+    const data = Buffer.alloc(32768);
+    void this.input.transfer(data, false).then(
+      (bytes) => {
+        this.reading = false;
+        if (this.destroyed) return;
+        if (bytes === null || bytes === 0) this.push(null);
+        else if (this.push(data.subarray(0, bytes))) this._read();
+      },
+      (error: Error) => this.destroy(error),
+    );
+  }
+  override _write(data: Buffer, _encoding: BufferEncoding, done: (error?: Error | null) => void): void {
+    void (async () => {
+      let offset = 0;
+      while (offset < data.length) {
+        const bytes = await this.output.transfer(data.subarray(offset), true);
+        if (!bytes) throw failure("LOCAL write EOF");
+        offset += bytes;
+      }
+    })().then(
+      () => done(),
+      (error: Error) => done(error),
+    );
+  }
+  override _final(done: (error?: Error | null) => void): void {
+    // Named byte pipes have no independent write FIN. The protocol ends the
+    // request with HTTP framing, and the completed reply closes the instance.
+    done();
+    this.destroy();
+  }
+  closeNative(): Promise<void> {
+    if (!this.closing)
+      this.closing = (async () => {
+        const results = await Promise.allSettled([this.input.close(), this.output.close()]);
+        const failed = results.find((r) => r.status === "rejected");
+        if (failed?.status === "rejected") throw failed.reason;
+        failedLocalSockets.delete(this);
+      })().catch((cause: unknown) => {
+        failedLocalSockets.add(this);
+        this.closing = undefined;
+        throw cause;
+      });
+    return this.closing;
+  }
+  closeNativeSync(): void {
+    let error: unknown;
+    for (const end of [this.input, this.output])
+      try {
+        end.closeSync();
+      } catch (cause) {
+        error ??= cause;
+      }
+    if (error) {
+      failedLocalSockets.add(this);
+      throw error;
+    }
+    failedLocalSockets.delete(this);
+  }
+  override _destroy(error: Error | null, done: (error?: Error | null) => void): void {
+    void this.closeNative().then(
+      () => done(error),
+      (cause: Error) => done(cause),
+    );
+  }
+}
+
 class PipeReadable extends Readable {
   private busy = false;
   constructor(private readonly endpoint: Endpoint) {
@@ -481,6 +594,169 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
     return ownedOperation;
   };
   return {
+    listenLocal: async (options) => {
+      validateSid(options.ownerSid);
+      if (!/^S-1-15-2-(?:\d+-){6}\d+$/.test(options.packageSid)) throw failure("LOCAL package SID");
+      retryStdioReleases();
+      if (quarantined.size) throw failure("previous incomplete cancellation");
+      const name = `\\\\.\\pipe\\LOCAL\\crot-l1-docker-${randomBytes(24).toString("hex")}`;
+      const descriptor: { value?: NativeHandle } = {};
+      const sockets = new Set<LocalDuplex>();
+      let listener: NativeHandle,
+        connection: PipeOperation | undefined,
+        stopping = false,
+        first = true;
+      let accepting: Promise<void> = Promise.resolve();
+      let closing: Promise<void> | undefined;
+      const releaseDescriptor = () => {
+        if (valid(descriptor.value)) {
+          if (valid(free(descriptor.value))) throw failure("LOCAL descriptor LocalFree", errorCode());
+          descriptor.value = undefined;
+        }
+      };
+      const closeListener = () => {
+        if (valid(listener)) {
+          release(listener);
+          listener = undefined;
+        }
+      };
+      const cancelConnectionSync = () => {
+        if (!connection) return;
+        connection.cancel();
+        const deadline = Date.now() + 5000;
+        while (!connection.completed) {
+          try {
+            connection.poll();
+          } catch (cause) {
+            if (!connection.completed) throw cause;
+          }
+          if (Date.now() >= deadline && !connection.completed) {
+            quarantined.add(connection);
+            throw failure("LOCAL accept cancellation deadline");
+          }
+        }
+        connection.release();
+        connection = undefined;
+      };
+      const prepare = () => {
+        listener = server(name, 3 | 0x40000000 | (first ? 0x80000 : 0), 8, 255, 65536, 65536, 0, {
+          length: 24,
+          descriptor: descriptor.value,
+          inherit: 0,
+        });
+        if (!valid(listener)) throw failure("LOCAL CreateNamedPipeW", errorCode());
+        first = false;
+        if (!ok(inherit(listener, 1, 0))) throw failure("LOCAL noninheritance", errorCode());
+        connection = operation(listener, Buffer.alloc(0), (overlap) => connect(listener, overlap));
+      };
+      try {
+        // No SYSTEM/ALL APPLICATION PACKAGES/Everyone grant. Generic write
+        // necessarily includes bit 4 (CREATE_PIPE_INSTANCE); only clients in
+        // this same disposable lease can use it. The service never connects to
+        // or trusts this child-facing address. Host daemon credentials stay host-side.
+        if (
+          !ok(
+            sd(
+              `D:P(A;;GA;;;${options.ownerSid})(A;;0x12019f;;;${options.packageSid})S:(ML;;NW;;;LW)`,
+              1,
+              descriptor,
+              null,
+            ),
+          )
+        )
+          throw failure("LOCAL descriptor", errorCode());
+        if (!valid(descriptor.value)) throw failure("LOCAL descriptor output");
+        prepare();
+        accepting = (async () => {
+          while (!stopping) {
+            const status = connection!.poll();
+            if (status.state === "pending") {
+              await delay();
+              continue;
+            }
+            if (status.state !== "complete") throw failure("LOCAL accept EOF");
+            connection!.release();
+            connection = undefined;
+            const handle = listener;
+            listener = undefined;
+            let closed = false;
+            const socket = new LocalDuplex({
+              parent: handle,
+              child: undefined,
+              read: (buffer) =>
+                operation(handle, buffer, (overlap) => read(handle, buffer, buffer.length, null, overlap)),
+              write: (buffer) =>
+                operation(handle, buffer, (overlap) => write(handle, buffer, buffer.length, null, overlap)),
+              closeChild: () => undefined,
+              closeParent: () => {
+                if (!closed) {
+                  release(handle);
+                  closed = true;
+                }
+              },
+            });
+            sockets.add(socket);
+            socket.once("close", () => sockets.delete(socket));
+            // Keep an owned instance alive while opening the next one: no
+            // moment exists at which another process can squat the name.
+            prepare();
+            options.accept(socket);
+          }
+        })().catch((cause: unknown) => {
+          if (!stopping) options.failed(cause instanceof Error ? cause : failure("LOCAL accept"));
+        });
+      } catch (cause) {
+        stopping = true;
+        try {
+          cancelConnectionSync();
+          closeListener();
+        } catch {
+          /* retained native operations fail closed */
+        }
+        releaseSetup(releaseDescriptor);
+        throw cause;
+      }
+      return Object.freeze({
+        path: name,
+        close: () => {
+          if (!closing)
+            closing = (async () => {
+              stopping = true;
+              cancelConnectionSync();
+              await accepting;
+              closeListener();
+              const results = await Promise.allSettled(
+                [...sockets].map(async (socket) => {
+                  socket.destroy();
+                  await socket.closeNative();
+                }),
+              );
+              const failed = results.find((r) => r.status === "rejected");
+              if (failed?.status === "rejected") throw failed.reason;
+              releaseDescriptor();
+            })().catch((cause: unknown) => {
+              closing = undefined;
+              throw cause;
+            });
+          return closing;
+        },
+        closeSync: () => {
+          stopping = true;
+          cancelConnectionSync();
+          closeListener();
+          let error: unknown;
+          for (const socket of sockets)
+            try {
+              socket.closeNativeSync();
+              socket.destroy();
+            } catch (cause) {
+              error ??= cause;
+            }
+          if (error) throw error;
+          releaseDescriptor();
+        },
+      });
+    },
     create: async (direction, ownerSid) => {
       validateSid(ownerSid);
       retryStdioReleases();
