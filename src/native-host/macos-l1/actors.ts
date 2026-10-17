@@ -38,7 +38,7 @@ export class MacosActors {
     const imported = (await import(name)) as { default?: Ffi } & Partial<Ffi>;
     const ffi = (imported.default ?? imported) as Ffi;
     const proc = ffi.load("/usr/lib/libproc.dylib");
-    const sandbox = ffi.load("/usr/lib/system/libsystem_sandbox.dylib");
+    const sandbox = ffi.load("/usr/lib/libsandbox.1.dylib");
     return new MacosActors(
       proc.func("int proc_listpids(uint32_t, uint32_t, void *, int)"),
       proc.func("int proc_pidinfo(int, int, uint64_t, void *, int)"),
