@@ -1175,7 +1175,9 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
    decision (docs-only PR or first commit of the WP).
 2. Otherwise choose, in order: an unblocked WP on chain A or B; then WP-23x;
    then WP-24…WP-27; then phase-4 WPs whose dependencies are done.
-3. **Right now: main e23b7b9, PR #27 merged; WP-23c Done.**
+3. **Историческая база аудита: `e23b7b9` (merge PR #27); WP-23c Done.**
+   Это зафиксированный срез и источник результатов CI, а не указатель на текущий
+   HEAD `main`; последующие документационные merge не меняют эту базу доказательств.
 
 По существующему правилу roadmap §8.4 сначала выбирается незавершённая,
 разблокированная задача цепочки B: **WP-29 follow-up**, а не WP-32 напрямую.
