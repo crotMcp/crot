@@ -108,7 +108,13 @@ console.log(JSON.stringify({home:process.env.HOME, cache:process.env.npm_config_
       core,
       `const cp=require('child_process'),fs=require('fs');
 for(const [tool,args] of [['npm',['--version']],['python3',['-m','pip','--version']],['cargo',['--version']],['rustc',['--version']],['go',['version']]]) {
-const r=cp.spawnSync(tool,args,{encoding:'utf8'}); if(r.error||r.status!==0)throw Error(tool+': '+r.stderr+' '+r.error); console.log(tool+': '+r.stdout.trim());
+let command=tool;let r=cp.spawnSync(command,args,{encoding:'utf8'});
+if(tool==='go'&&r.error?.code==='ENOENT'&&process.env.RUNNER_TOOL_CACHE){const root=process.env.RUNNER_TOOL_CACHE+'/go';for(const version of fs.readdirSync(root).sort().reverse()){const candidate=root+'/'+version+'/'+process.arch+'/bin/go';if(fs.existsSync(candidate)){command=candidate;break}}r=cp.spawnSync(command,args,{encoding:'utf8'})}
+if(r.error||r.status!==0)throw Error(tool+': '+r.stderr+' '+r.error); console.log(tool+': '+r.stdout.trim());
+if(tool==='python3'){cp.execFileSync(command,['-c',"import zipfile\\nwith zipfile.ZipFile('crot_smoke-1.0-py3-none-any.whl','w') as z:\\n z.writestr('crot_smoke.py','answer = 42\\\\n')\\n z.writestr('crot_smoke-1.0.dist-info/METADATA','Metadata-Version: 2.1\\\\nName: crot-smoke\\\\nVersion: 1.0\\\\n')\\n z.writestr('crot_smoke-1.0.dist-info/WHEEL','Wheel-Version: 1.0\\\\nGenerator: crot\\\\nRoot-Is-Purelib: true\\\\nTag: py3-none-any\\\\n')\\n z.writestr('crot_smoke-1.0.dist-info/RECORD','crot_smoke.py,,\\\\ncrot_smoke-1.0.dist-info/METADATA,,\\\\ncrot_smoke-1.0.dist-info/WHEEL,,\\\\ncrot_smoke-1.0.dist-info/RECORD,,\\\\n')\\n"]);cp.execFileSync(command,['-m','pip','install','--no-index','--no-deps','--target','pip-smoke','crot_smoke-1.0-py3-none-any.whl']);cp.execFileSync(command,['-c',"import sys;sys.path.insert(0,'pip-smoke');import crot_smoke;assert crot_smoke.answer==42"])}
+if(tool==='go'){fs.writeFileSync('main.go','package main\\nfunc main() {}\\n');cp.execFileSync(command,['build','-o','go-smoke','main.go'],{env:{...process.env,CGO_ENABLED:'0',GOTOOLCHAIN:'local'}});cp.execFileSync('./go-smoke',[])}
+if(tool==='cargo'){cp.execFileSync(command,['new','--offline','--vcs','none','rust-smoke']);cp.execFileSync(command,['build','--offline','--manifest-path','rust-smoke/Cargo.toml']);cp.execFileSync('./rust-smoke/target/debug/rust-smoke',[])}
+if(tool==='npm'){fs.writeFileSync('package.json',JSON.stringify({name:'crot-mac-smoke',version:'1.0.0',scripts:{test:'node -p 42'}}));cp.execFileSync(command,['install','--ignore-scripts','--offline','--no-audit','--no-fund']);cp.execFileSync(command,['test','--offline'])}
 }
 const cache=cp.execFileSync('npm',['config','get','cache'],{encoding:'utf8'}).trim();if(cache!==process.env.npm_config_cache)throw Error('npm cache is not private');
 for(const name of ['npm_config_cache','PIP_CACHE_DIR','CARGO_HOME','RUSTUP_HOME','GOPATH','GOCACHE'])if(!process.env[name].startsWith(process.env.HOME+'/'))throw Error(name+' escaped private HOME');
@@ -116,7 +122,7 @@ console.log('PRIVATE-TOOL-CACHES');`,
     );
     expect(r, r.err).toMatchObject({ code: 0 });
     expect(r.out).toContain("PRIVATE-TOOL-CACHES");
-  });
+  }, 120000);
   it("does not grant write handles to the owner/guardian Node and CROT runtime", async () => {
     const core = await open("on");
     // No truncation or writes even if the gate regresses: open/close only.
@@ -221,10 +227,28 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
     const core = await open("on");
     const r = await run(
       core,
-      `const fs=require('fs');try{fs.writeFileSync('preexisting-alias','BAD');throw Error('hardlink escaped')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}console.log('PREEXISTING-LINK-DENIED');`,
+      `const fs=require('fs');for(const name of ['preexisting-alias','PREEXISTING-ALIAS']){if(!fs.existsSync(name))continue;try{fs.writeFileSync(name,'BAD');throw Error('hardlink escaped')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}}try{fs.renameSync('preexisting-alias','renamed-alias');throw Error('hardlink guard renamed')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}console.log('PREEXISTING-LINK-DENIED');`,
     );
     expect(r, r.err).toMatchObject({ code: 0 });
     expect(await readFile(external, "utf8")).toBe("ORIGINAL");
+  });
+  it("refuses admission when a protected secret already has another name outside CROT", async () => {
+    await link(path.join(state, "secret"), path.join(root, "secret-alias"));
+    const provider = new MacosConfinement({ base: createPosixLauncher(), stateDir: state, env: process.env });
+    const c = await provider.open({
+      workspace,
+      protectedPaths: [state],
+      network: "on",
+      dockerEnvironment: process.env as Record<string, string>,
+      audit: () => {},
+    });
+    try {
+      expect(c.status()).toMatchObject({ available: false, reason: "self_test_failed" });
+      await expect(run(c, "console.log(1)")).rejects.toMatchObject({ code: "CONFINEMENT_UNAVAILABLE" });
+    } finally {
+      await c.close();
+      await provider.close();
+    }
   });
   it("cannot turn a new external hardlink into an outside write", async () => {
     const external = path.join(root, "outside-hardlink");
@@ -292,6 +316,15 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
       await new Promise((r) => setTimeout(r, 20));
     }
     expect(alive).toBe(false);
+  });
+  it("blocks changing even the current UID/GID before an actor can hide ownership", async () => {
+    const core = await open("on");
+    const r = await run(
+      core,
+      `for(const [set,get] of [['setuid','getuid'],['seteuid','geteuid'],['setgid','getgid'],['setegid','getegid']]){try{process[set](process[get]());throw Error(set+' admitted')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}}console.log('UID-STABLE');`,
+    );
+    expect(r, r.err).toMatchObject({ code: 0 });
+    expect(r.out).toContain("UID-STABLE");
   });
   it("never drains another admitted Core's actors", async () => {
     const a = await open("on"),

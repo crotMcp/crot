@@ -54,7 +54,12 @@ export function seatbeltProfile(layout: SeatbeltLayout): string {
 ; __mac_syscall: dyld needs AMFI checks through that shared syscall.
 ; posix_spawn(SETSID) is covered separately by inherited kernel policy identity.
 ; Darwin syscalls.master: setpgid=82, setsid=147 (both supported architectures).
-(deny syscall-unix (syscall-number 82) (syscall-number 147))
+; Keep real/effective identity stable even across a setuid executable. A
+; privileged descendant must not change real UID and escape owner-only drain.
+(deny syscall-unix (syscall-number 82) (syscall-number 147)
+  (syscall-number 23) (syscall-number 80) (syscall-number 126)
+  (syscall-number 127) (syscall-number 181) (syscall-number 182)
+  (syscall-number 183) (syscall-number 243) (syscall-number 285) (syscall-number 311))
 (allow mach-lookup
   (global-name "com.apple.system.logger")
   (global-name "com.apple.system.notification_center")

@@ -1,4 +1,5 @@
 import { macosPlatformSupported } from "./platform.js";
+import { inspectProtected, writableHardlinks } from "./hardlinks.js";
 import { runtimeProtectedPaths } from "./runtime.js";
 import { prepareRustup } from "./toolchains.js";
 import { reinitializationProbe } from "./reinitialization.js";
@@ -173,7 +174,11 @@ export class MacosConfinement implements CommandConfinement {
           .map(canonicalPath),
       ),
     ];
-    const readOnlyPaths = runtimeProtectedPaths().map(canonicalPath);
+    protectedPaths.push(...(await inspectProtected(protectedPaths)));
+    const readOnlyPaths = [
+      ...runtimeProtectedPaths().map(canonicalPath),
+      ...(await writableHardlinks([canonicalPath(scope.workspace), home, temp])),
+    ];
     const layout: SeatbeltLayout = {
       writable: [canonicalPath(scope.workspace), home, temp],
       protectedPaths,
@@ -316,19 +321,28 @@ class MacosCore implements CoreConfinement {
       DOCKER_CONFIG: path.join(this.home, "docker"),
     };
   }
+  private async checkedLayout(): Promise<SeatbeltLayout> {
+    const targets = await inspectProtected(this.layout.protectedPaths);
+    if (targets.some((p) => !this.layout.protectedPaths.includes(p))) throw failed();
+    return {
+      ...this.layout,
+      readOnlyPaths: [...(this.layout.readOnlyPaths ?? []), ...(await writableHardlinks(this.layout.writable))],
+    };
+  }
   private async launch(spec: CommandSpec, options: LaunchOptions): Promise<ManagedProcess> {
     this.assertAdmission();
     try {
       // Re-resolve every policy path before launch: a moved/replaced protected root is not silently admitted.
       for (const p of [...this.layout.writable, ...this.layout.protectedPaths, ...(this.layout.readOnlyPaths ?? [])])
         if (canonicalPath(p) !== p) throw failed();
+      const policy = await this.checkedLayout();
       const id = await this.actors.identity(this.root);
       await this.watchdog.register(id);
       const child = await launchSeatbelt(
         this.base,
         this.actors,
         id,
-        this.layout,
+        policy,
         spec,
         {
           ...options,
@@ -355,6 +369,7 @@ class MacosCore implements CoreConfinement {
     }
   }
   async selfTest(): Promise<void> {
+    const policy = await this.checkedLayout();
     const probeName = `.crot-l1-check-${randomUUID()}`;
     const canary = path.join(this.root, "canary");
     await writeFile(canary, "not-a-secret", { mode: 0o600 });
@@ -380,7 +395,7 @@ const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(
         this.base,
         this.actors,
         id,
-        { ...this.layout, protectedPaths: [...this.layout.protectedPaths, canary, control] },
+        { ...policy, protectedPaths: [...policy.protectedPaths, canary, control] },
         { file: process.execPath, args: ["-e", script], display: "macOS L1 self_test" },
         { cwd: this.scope.workspace, env: this.environment(process.env as Record<string, string>), stdin: false },
         () => this.assertAdmission(),

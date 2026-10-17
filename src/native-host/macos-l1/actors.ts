@@ -106,6 +106,7 @@ export class MacosActors {
       if (size === b.length) continue;
       const pids: number[] = [];
       for (let i = 0; i < size; i += 4) if (b.readInt32LE(i) > 1) pids.push(b.readInt32LE(i));
+      if (!pids.includes(process.pid)) throw new Error("libproc omitted the live owner");
       return pids;
     }
     throw new Error("libproc enumeration did not converge");
