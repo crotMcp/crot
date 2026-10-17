@@ -530,9 +530,6 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
     "void * __stdcall CreateFileW(str16 name, uint32_t access, uint32_t share, void *security, uint32_t creation, uint32_t flags, void *template)",
   );
   const connect = k.func("int __stdcall ConnectNamedPipe(void *pipe, void *overlapped)");
-  const flush = k.func("int __stdcall FlushFileBuffers(void *handle)") as unknown as {
-    async(handle: NativeHandle, callback: (error: Error | null, result: unknown) => void): void;
-  };
   const read = k.func(
     `int __stdcall ReadFile(void *file, void *buffer, uint32_t length, void *count, void *overlapped)`,
   );
@@ -624,6 +621,10 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
   };
   return {
     listenLocal: async (options) => {
+      const flush = k.func("int __stdcall FlushFileBuffers(void *handle)") as unknown as {
+        async(handle: NativeHandle, callback: (error: Error | null, result: unknown) => void): void;
+      };
+
       validateSid(options.ownerSid);
       if (!/^S-1-15-2-(?:\d+-){6}\d+$/.test(options.packageSid)) throw failure("LOCAL package SID");
       retryStdioReleases();

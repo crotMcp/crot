@@ -4,6 +4,9 @@ export default defineConfig({
   test: {
     ...(process.platform === "win32"
       ? {
+          // Native qualification changes real shared ancestor descriptors.
+          // Run files serially; production has its own durable machine owner.
+          fileParallelism: false,
           reporters: [
             "default",
             ...(process.env.GITHUB_ACTIONS === "true" ? ["github-actions"] : []),

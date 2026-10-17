@@ -75,6 +75,7 @@ interface Harness {
   scopes: ConfinementScope[];
   setStatus(status: ConfinementStatus): void;
   refreshes: () => number;
+  failAdmission(): void;
 }
 
 let dirs: TempDirs;
@@ -109,10 +110,14 @@ async function setup(
   const base: ProcessLauncher = { ...node.launcher, launch: baseLaunch as ProcessLauncher["launch"] };
   let status = initial;
   let refreshes = 0;
+  let admissionFailed = false;
   const scopes: ConfinementScope[] = [];
   const confinedLaunch = vi.fn(confined(node.launcher));
   const coreConfinement: CoreConfinement = {
     status: () => status,
+    assertAdmission: () => {
+      if (admissionFailed) throw new CrotError("CONFINEMENT_FAILED", "post-admission failure");
+    },
     refresh: async () => {
       refreshes++;
       return status;
@@ -145,6 +150,9 @@ async function setup(
     scopes,
     setStatus: (s) => (status = s),
     refreshes: () => refreshes,
+    failAdmission: () => {
+      admissionFailed = true;
+    },
   };
   return harness;
 }
@@ -220,6 +228,24 @@ describe("ProcessService and L1 (mocked platform confinement)", () => {
       expect(h.baseLaunch).not.toHaveBeenCalled();
       expect(h.confinedLaunch).toHaveBeenCalledTimes(2);
       expect(h.core.processes.runningCount()).toBe(0);
+    });
+
+    it(`${name}: truthful unavailable status after admission cannot enable local fallback`, async () => {
+      const h = await setup(available, (b) => b.launch.bind(b));
+      h.failAdmission();
+      h.setStatus(unavailable);
+      for (const ctx of [local, remote])
+        await expect(run(h.core, ctx)).rejects.toMatchObject({ code: "CONFINEMENT_FAILED" });
+      expect(h.baseLaunch).not.toHaveBeenCalled();
+      expect(h.confinedLaunch).not.toHaveBeenCalled();
+    });
+    it(`${name}: local full control is not restricted by an L1 admission failure`, async () => {
+      const h = await setup(available, (b) => b.launch.bind(b), "full_control");
+      h.failAdmission();
+      h.setStatus(unavailable);
+      await run(h.core, local);
+      expect(h.baseLaunch).toHaveBeenCalledTimes(1);
+      await expect(run(h.core, remote)).rejects.toMatchObject({ code: "CONFINEMENT_FAILED" });
     });
 
     it(`${name}: local full_control → local runs unconfined, remote runs only through L1 (WP-31)`, async () => {

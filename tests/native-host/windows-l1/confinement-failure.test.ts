@@ -15,7 +15,8 @@ describe("Windows post-admission failure", () => {
       }) as ConfinementStatus;
     const confined = await provider.open({ network: "off" } as ConfinementScope);
     available = false;
-    await expect(confined.refresh()).rejects.toMatchObject({ code: "CONFINEMENT_FAILED" });
+    expect((await confined.refresh()).available).toBe(false);
+    expect(() => confined.assertAdmission!()).toThrow(expect.objectContaining({ code: "CONFINEMENT_FAILED" }));
     expect(confined.status().available).toBe(false);
     await expect(confined.launcher.resolveCommand("node", [], {} as never)).rejects.toMatchObject({
       code: "CONFINEMENT_FAILED",

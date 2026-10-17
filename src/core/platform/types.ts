@@ -342,6 +342,8 @@ export interface ConfinementScope {
  * operation.
  */
 export interface CoreConfinement {
+  /** Optional sticky post-admission failure guard. Does not run readiness checks. */
+  assertAdmission?(): void;
   /** Last reported state (no checks run). */
   status(): ConfinementStatus;
   /** Run the availability checks (AD-20 point 12) and report the result. */

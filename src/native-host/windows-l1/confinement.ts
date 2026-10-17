@@ -153,6 +153,14 @@ export class WindowsConfinement implements CommandConfinement {
     } catch (cause) {
       if (!(cause instanceof CrotError) || cause.code !== "NOT_FOUND") throw cause;
     }
+    let dockerBin: string | undefined;
+    if (dockerExecutable) {
+      const executable = canonicalWindowsDockerPath(dockerExecutable),
+        workspace = canonicalWindowsDockerPath(scope.workspace);
+      if (executable === workspace || executable.startsWith(workspace + "\\"))
+        throw failed("Docker CLI resolves inside actor-writable workspace");
+      dockerBin = path.dirname(dockerExecutable);
+    }
     const dockerConfig = await windowsDockerConfiguration({ ...hostEnvironment, ...scope.dockerEnvironment }, home);
     const upstream = dockerExecutable
       ? createUpstream({
@@ -175,7 +183,7 @@ export class WindowsConfinement implements CommandConfinement {
         workspace: scope.workspace,
         network: scope.network,
         writableRuntime: [directory],
-        readOnlyRuntime: [c.root],
+        readOnlyRuntime: dockerBin ? [c.root, dockerBin] : [c.root],
         protectedPaths,
         start: async (profile, network) => {
           const moduleName: string = "koffi";
@@ -270,7 +278,7 @@ export class WindowsConfinement implements CommandConfinement {
               childEnvironment: new WindowsLaunchEnvironment({
                 systemRoot: this.options.env.SystemRoot ?? "C:\\Windows",
                 privateRoot: directory,
-                runtimeBins: [c.root],
+                runtimeBins: dockerBin ? [c.root, dockerBin] : [c.root],
                 dockerHost: docker.dockerHost,
               }),
             });
@@ -410,12 +418,13 @@ const req=http.get('http://127.0.0.1:${address.port}',r=>{r.resume();r.on('end',
     };
     return {
       status: () => status,
+      assertAdmission: () => {
+        if (admitted && (!status.available || this.fault)) throw failed("readiness lost after admission");
+      },
       refresh: async () => {
         status = await this.probe(scope.network);
-        // A local principal may fall back only before L1 was ever ready.
-        // Losing readiness after admission is a fatal confinement failure,
-        // never a new opportunity to launch through the unconfined provider.
-        if (admitted && !status.available) throw failed("readiness lost after admission");
+        // Keep reporting truthful status; the ProcessService admission guard
+        // prevents both local and remote post-admission fallback.
         admitted ||= status.available;
         return status;
       },

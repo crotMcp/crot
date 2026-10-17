@@ -353,6 +353,9 @@ export class ProcessService {
     const confinement = this.deps.confinement;
     const status = confinement?.status();
     const mode = this.deps.modeFor?.(context) ?? (confinement ? "sandbox" : "full_control");
+    // Status can honestly become unavailable after a native failure. That is
+    // not permission to fall back after this Core was admitted into L1.
+    if (context.principal.kind === "remote" || mode !== "full_control") confinement?.assertAdmission?.();
     if (context.principal.kind === "remote") {
       if (!confinement || !status) {
         throw new CrotError(
