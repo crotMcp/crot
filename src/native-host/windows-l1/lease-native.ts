@@ -12,11 +12,28 @@ const fail = (stage: string) =>
   new CrotError("CONFINEMENT_FAILED", `Windows native recovery: ${stage} failed.`, { stage });
 export type LeaseAclApi = Awaited<ReturnType<typeof loadLeaseAclObjects>>;
 type Hold = ReturnType<LeaseAclApi["hold"]>;
-const missingWorkspaceNode = (o: LeaseObject, cause: unknown) =>
-  o.role === "workspace-node" &&
-  cause instanceof CrotError &&
-  cause.details?.nativeCode === 2 &&
-  ["guard by ID open", "open saved file ID"].includes(String(cause.details?.stage));
+/** NTFS returns ERROR_INVALID_PARAMETER for a deleted 64-bit file reference.
+ * That code alone is NEVER absence: require a same-volume live by-ID control,
+ * an original single-link ordinary node, and the exact by-ID open stage.
+ */
+export function originalWorkspaceIdUnavailable(o: LeaseObject, cause: unknown, control?: LeaseObject): boolean {
+  if (
+    o.role !== "workspace-node" ||
+    !(cause instanceof CrotError) ||
+    !["guard by ID open", "open saved file ID"].includes(String(cause.details?.stage))
+  )
+    return false;
+  if (cause.details?.nativeCode === 2) return true;
+  return (
+    cause.details?.nativeCode === 87 &&
+    o.identity.links === 1 &&
+    !o.identity.directory &&
+    control?.role === "workspace" &&
+    control.identity.directory &&
+    control.identity.volume === o.identity.volume &&
+    control.identity.fileId !== o.identity.fileId
+  );
+}
 const key = (o: LeaseObject) => `${o.identity.volume}:${o.identity.fileId}`;
 const dos = (p: string) =>
   p
@@ -111,6 +128,7 @@ export function createNativeLeaseAdapter(options: {
   live: Map<string, { profile: AppContainerProfile; network?: AppContainerNetworkLease; stop(): Promise<void> }>;
 }): LeaseRecoveryNative {
   const { acl, profiles, live } = options;
+  const controls = new Map<string, LeaseObject>();
   const observe = (o: LeaseObject) => {
     const h = acl.hold(o, false);
     try {
@@ -119,8 +137,16 @@ export function createNativeLeaseAdapter(options: {
       close([h]);
     }
   };
+  const missingWorkspaceNode = (o: LeaseObject, cause: unknown) => {
+    const control = controls.get(key(o));
+    if (!control || !originalWorkspaceIdUnavailable(o, cause, control)) return false;
+    // A successful SAME API/volume/file-ID control distinguishes a stale saved
+    // NTFS reference from bad ABI, bad volume handles or unavailable storage.
+    observe(control);
+    return true;
+  };
   return {
-    validatePlan: async (plan) => {
+    validatePlan: async (plan, phase) => {
       close([...pending]);
       await profiles.validate(plan.profile);
       const root = plan.objects.find((o) => o.role === "workspace");
@@ -143,11 +169,12 @@ export function createNativeLeaseAdapter(options: {
       }
       for (const object of plan.objects) {
         validateNativeLeaseDelta(object, plan.profile.sid);
+        controls.set(key(object), root);
         let current: ReturnType<typeof observe>;
         try {
           current = observe(object);
         } catch (cause) {
-          if (missingWorkspaceNode(object, cause)) continue;
+          if (phase === "recover" && missingWorkspaceNode(object, cause)) continue;
           throw cause;
         }
         if (object.role === "workspace-node" && !inside(workspace.volumePath, current.volumePath))

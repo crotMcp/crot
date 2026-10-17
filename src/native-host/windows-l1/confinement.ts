@@ -403,11 +403,12 @@ const req=http.get('http://127.0.0.1:${address.port}',r=>{r.resume();r.on('end',
             if (diagnostic.length < 2048) diagnostic += String(bytes).slice(0, 2048 - diagnostic.length);
         })();
       const exit = await Promise.race([
-        process_.exited,
+        // Drain genuine EOF before terminate() closes the read handles. Killing
+        // first races Node's async iterator and produces ERR_STREAM_PREMATURE_CLOSE.
+        Promise.all([process_.exited, output, errors]).then(([status]) => status),
         new Promise<never>((_, reject) => setTimeout(() => reject(failed("self-test deadline")), 15000).unref()),
       ]);
       await process_.terminate("force");
-      await Promise.all([output, errors]);
       if (exit.code !== 0 || (await readFile(secret, "utf8")) !== "self-test-canary") {
         this.options.log?.(
           `Windows L1 self-test exit: ${exit.code}; ${diagnostic.replace(/\s+/g, " ").slice(0, 1600)}`,
