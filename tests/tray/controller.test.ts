@@ -157,9 +157,12 @@ describe("WP-22: tray controller", () => {
     const writing = service.core.filesystem.writeFile(testContext, { path: "c.txt", content: "x" });
     await waitFor(() => tray.state.pending.length === 1);
 
+    // Attach before shutdown: a native L1 close can await OS cleanup after
+    // cancelling approvals. The rejection must not become unhandled meanwhile.
+    const rejected = expect(writing).rejects.toBeTruthy();
     await service.shutdown("restart");
     services.splice(services.indexOf(service), 1);
-    await expect(writing).rejects.toBeTruthy();
+    await rejected;
     await waitFor(() => tray.state.connection !== "connected");
     expect(tray.state.pending).toEqual([]);
     expect(tray.state.overview).toBeUndefined();

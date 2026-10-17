@@ -1,3 +1,4 @@
+import { MacosConfinement } from "./macos-l1/confinement.js";
 import { loadWindowsPrivateState } from "./windows-state.js";
 import { WindowsConfinement } from "./windows-l1/confinement.js";
 import { WindowsLeaseServiceLifecycle } from "./windows-l1/service-lifecycle.js";
@@ -32,7 +33,7 @@ export type NativeHostOptions = NodePlatformOptions & {
   readonly stateDir?: string;
   /** Service log, for changes of L1 availability (AD-20 point 13). */
   readonly log?: (line: string) => void;
-  /** Linux command confinement L1 (default true). Test seam: options for the L1 implementation. */
+  /** Native command confinement L1 (default true). Object options are a Linux-only test seam. */
   readonly confinement?: boolean | Partial<Omit<LinuxConfinementOptions, "base" | "stateDir">>;
 };
 
@@ -66,7 +67,8 @@ const describe = (error: unknown) =>
  *   only output is a Platform handed to CrotCore, whose PermissionEngine
  *   authorizes every operation before a platform method runs.
  * - Windows: kill-on-close Job Object per command; owner-only ACLs.
- * - Linux/macOS: the Core mechanisms (process groups, 0600/0700) are kept.
+ * - Linux: bubblewrap/AppArmor L1; macOS: Seatbelt + per-command kernel identity
+ *   and a private owner-death guardian. Full-control keeps the Core launcher.
  * - Lifecycle: start() before CrotCore.create; close() after core.shutdown();
  *   closeSync() after core.terminateProcessesSync() in emergencies. The CLI
  *   lifecycle remains the only shutdown authority.
@@ -82,6 +84,7 @@ export class NativeHost {
     private readonly nativeAcl: boolean,
     private readonly notes: readonly string[],
     readonly windowsLeases?: WindowsLeaseServiceLifecycle,
+    private readonly macosLeases?: MacosConfinement,
   ) {}
 
   static async start(options: NativeHostOptions): Promise<NativeHost> {
@@ -150,6 +153,7 @@ export class NativeHost {
       }
     }
 
+    let macosLeases: MacosConfinement | undefined;
     // Command confinement L1: qualified native backends only, no launch fallback.
     let confinement: CommandConfinement | undefined;
     if (base.info.os === "linux" && confinementOption !== false) {
@@ -176,6 +180,16 @@ export class NativeHost {
       });
     }
 
+    if (base.info.os === "macos" && confinementOption !== false) {
+      macosLeases = new MacosConfinement({
+        base: launcher,
+        stateDir: stateDir ?? base.info.directories.state,
+        env: base.baseEnvironment,
+        ...(log ? { log } : {}),
+      });
+      confinement = macosLeases;
+    }
+
     const platform: Platform = {
       info: {
         ...base.info,
@@ -192,7 +206,7 @@ export class NativeHost {
       probeCaseSensitivity: (directory) => base.probeCaseSensitivity(directory),
       ...(confinement ? { confinement } : {}),
     };
-    return new NativeHost(platform, lifecycle, jobs, nativeAcl, notes, windowsLeases);
+    return new NativeHost(platform, lifecycle, jobs, nativeAcl, notes, windowsLeases, macosLeases);
   }
 
   get running(): boolean {
@@ -218,6 +232,7 @@ export class NativeHost {
   /** Stop accepting launches and release native resources (terminating any job still open). Idempotent. */
   async close(): Promise<void> {
     this.lifecycle.open = false;
+    await this.macosLeases?.close();
     await this.windowsLeases?.close();
     this.closeSync();
   }
@@ -228,6 +243,11 @@ export class NativeHost {
     // A previous CloseHandle failure must remain retryable even after launches
     // have been permanently disabled.
     let failure: unknown;
+    try {
+      this.macosLeases?.closeSync();
+    } catch (cause) {
+      failure = cause;
+    }
     try {
       this.windowsLeases?.closeSync();
     } catch (cause) {

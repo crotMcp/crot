@@ -57,6 +57,12 @@ remote — CONFINEMENT_UNAVAILABLE; post-admission failure — CONFINEMENT_FAILE
 [production](../tests/native-host/windows-l1/production-confinement.test.ts),
 [recovery](../tests/native-host/windows-l1/native-lease-recovery.test.ts).
 
+## macOS L1 — WP-23b / AD-31
+
+NativeHost регистрирует `macos-seatbelt`: системный Seatbelt, обязательный self_test и kernel sandbox identity для управления акторами вместо предположения о неразрывной process group. Отдельный guardian завершает акторов при гибели владельца. Это не fallback базового launcher: после admission ошибка даёт `CONFINEMENT_FAILED`, не неизолированный повтор. `full_control` сохраняет обычный launcher.
+
+Границы записи/чтения, host loopback, Docker-медиация, компоненты, hardlink preflight и остаточные риски описаны в [L1](L1.md#macos-l1--seatbelt-wp-23b--ad-31). [Квалификация](design/macos-l1-production.md) отделяет реальные macOS 26 arm64 Node 20/22 испытания от целевой матрицы и упаковки WP-34. Windows AD-30 не изменяется.
+
 ## Базовые механизмы вне квалифицированного L1
 
 Следующие Job/PowerShell ACL описания относятся к базовому launcher и

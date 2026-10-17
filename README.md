@@ -7,9 +7,24 @@ standard MCP interface.
 **`ARCHITECTURE.md` is the source of truth for the product architecture.** This
 README describes the current implementation and how to run it.
 
+## macOS L1 — WP-23b / AD-31
+
+В этой ветке PR #30 реализован производственный `macos-seatbelt`; пакет
+**WP-23b: Done** для описанной ниже квалификации реализации. База ветки —
+`main` `0590c31` (merge документационного PR #28), а не `e23b7b9`.
+PR #27 уже слит как `e23b7b9`; это историческая Windows-база, не текущий main.
+Этот текст не утверждает, что PR #30 уже слит или весь продукт принят.
+
+Нативная квалификация и точные SHA/CI/ограничения:
+[отчёт macOS L1](docs/design/macos-l1-production.md).
+macOS-решение OD-9 закрыто AD-31; целевая матрица и фактически проверенные
+macOS 26.6.2 arm64 / Node 20/22 различаются. Другие Apple-shipped комбинации
+не выдаются за пройденные CI; подписанная поставка WP-34, расширенная
+кроссплатформенная/ручная приёмка и продуктовые gates остаются открытыми.
+
 ## Status
 
-Срез проверки реализации: `main` `e23b7b9c29c5e3e1758b9ad2703bbd827648426f` (merge PR #27). PR #27 слит, не Draft;
+Исторический Windows-срез реализации: `e23b7b9c29c5e3e1758b9ad2703bbd827648426f` (merge PR #27). PR #27 слит, не Draft;
 WP-23c **Done**, AD-30 действует, OD-6 и Windows-часть OD-9 закрыты.
 Дерево merge совпадает с квалифицированным `f916a6b`; `8fe6ba5` — более
 ранний квалификационный источник, не текущий HEAD. На самом `e23b7b9`
@@ -69,6 +84,9 @@ Implemented components (not a whole-product acceptance or commercial-release cla
   builds pin no identity environment yet (staging WP-38), development uses
   `CROT_IDENTITY_DEV_ENVIRONMENT`; see [`docs/IDENTITY.md`](docs/IDENTITY.md)
 
+- macOS L1 (WP-23b Done, AD-31): Seatbelt, private ephemeral HOME/temp/cache,
+  per-command kernel identity and owner-death guardian; mediated Docker. Real
+  readiness/self_test is mandatory. Qualification and limits: [L1](docs/L1.md).
 - Windows L1 (WP-23c Done, AD-30): AppContainer + Job, LOCAL libuv and
   Docker mediation, full durable service recovery; qualified Server2025 x64,
   Node20/22 only. Explicit host/component preparation and self_test required;
@@ -81,7 +99,7 @@ Implemented components (not a whole-product acceptance or commercial-release cla
   are merged and tested. Owner runs 1–5/follow-up are recorded; final manual
   acceptance (timeout signalling, C1, owner review) remains open.
 
-Not implemented / not accepted yet: macOS L1 WP-23b; browser WP-25/26/27
+Not implemented / not accepted yet: browser WP-25/26/27
 (dialog/file chooser/background screenshot/tab group, upload/download and
 remote multi-agent rules); OD-8 download hand-over; dedicated Docker commands
 beyond docker.use and Git network tools (still usable via shell); general
@@ -387,7 +405,7 @@ audit log. Idle sessions are closed after `http.sessionIdleTimeoutMs`.
 - No TLS: traffic is plaintext on the loopback interface.
 - CROT tools cannot read the token in any mode (secret paths are denied, see
   [Security properties](#security-properties)). OS-unconfined commands can reach the OS store/fallback as the user:
-  local full_control, macOS pending WP-23b, or local use before initial L1
+  local full_control or local use before initial L1
   admission. Qualified Linux/Windows sandbox commands are confined by AD-20/30;
   remote commands without L1 are refused. See [L1](docs/L1.md).
 - `http.auth.storage: "token-file"` keeps the token in a plaintext owner-only
@@ -433,7 +451,7 @@ browser). The extension and its bridge never authorize anything themselves
 
 **Sandbox limits.** Core path/cwd checks are not themselves OS isolation.
 With available L1, Linux AD-20 / qualified Windows AD-30 commands are OS-confined.
-Local full_control, macOS without L1 and local use before initial L1 admission
+Local full_control and local use before initial L1 admission
 remain OS-unconfined; remote commands without ready L1 are refused, and an
 admitted sandbox failure is never retried unconfined. General same-user host
 processes/administrators are outside L1. To prevent command execution, leave `shell.execute` and
@@ -827,7 +845,7 @@ its limitations). Not yet implemented:
 
 - Graceful termination of Windows console programs (`GenerateConsoleCtrlEvent`);
   graceful termination requests escalate to forced termination.
-- macOS L1 WP-23b and qualification of other Windows configurations. Linux
+- Wider macOS target-matrix qualification beyond the recorded CI host and other Windows configurations. Linux
   AD-20 and qualified Windows AD-30 are implemented, not just path checks.
   General traffic policy is distinct from their implemented network on/off.
 - Live identity environment and public relay deployment/acceptance (WP-38/32),
@@ -882,8 +900,8 @@ ship them (WP-34); details in [`docs/L1.md`](docs/L1.md).
   denied to every CROT tool in every mode, and `docker_*` refuses mounts that
   contain them. Not covered: a command started by CROT runs as the user and
   can use the OS secret store itself (`full_control` is unconfined by
-  definition; initially-unavailable local L1 and macOS remain unconfined;
-  qualified Linux/Windows use AD-20/30); administrators and unrelated host
+  definition; initially-unavailable local L1 remains unconfined;
+  admitted Linux/Windows/macOS use AD-20/30/31); administrators and unrelated host
   processes of the same user are not contained by L1.
 - Child environment: `shell_run`, `process_exec` and `process_start` children
   get only an allowlist of the CROT environment (paths, home, user, shell,
