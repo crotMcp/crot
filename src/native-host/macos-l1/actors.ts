@@ -1,8 +1,8 @@
 /** Kernel policy identity, not parent PID / process-group membership.
  * posix_spawn(SETSID) can bypass a setsid syscall filter on Darwin. Each
  * command therefore has two unpredictable policy probes, inherited by every
- * descendant. __mac_syscall is denied inside L1: actors cannot replace/stack
- * a policy to hide their identity. No signal is based on a pathname or PPID.
+ * descendant. Admission self_test requires the inherited kernel sandbox to
+ * reject sandbox_init reinitialization before any caller code is released. No signal is based on a pathname or PPID.
  */
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
@@ -15,6 +15,7 @@ export interface ActorIdentity {
 interface Snapshot {
   readonly pid: number;
   readonly uid: number;
+  readonly ruid: number;
   readonly birth: string;
   readonly zombie: boolean;
   readonly stopped: boolean;
@@ -59,6 +60,7 @@ export class MacosActors {
     return {
       pid,
       uid: b.readUInt32LE(20),
+      ruid: b.readUInt32LE(28),
       birth: `${b.readBigUInt64LE(120)}:${b.readBigUInt64LE(128)}`,
       zombie: b.readUInt32LE(4) === 5,
       stopped: b.readUInt32LE(4) === 4,
@@ -78,7 +80,8 @@ export class MacosActors {
   owns(pid: number, id: ActorIdentity): boolean {
     if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return false;
     const before = this.snapshot(pid);
-    if (!before || before.zombie || before.uid !== process.getuid?.()) return false;
+    if (!before || before.zombie || (before.uid !== process.getuid?.() && before.ruid !== process.getuid?.()))
+      return false;
     if (Number(this.check(pid, null, 0)) !== 1) return false;
     // Koffi variadic type/value pairs are required on Apple Silicon (not fixed-arg ABI).
     const denied = Number(this.check(pid, "file-read-data", 0x40000001, "const char *", id.denied));
@@ -90,6 +93,7 @@ export class MacosActors {
       !!after &&
       !after.zombie &&
       after.uid === before.uid &&
+      after.ruid === before.ruid &&
       after.birth === before.birth
     );
   }

@@ -48,10 +48,12 @@ export function seatbeltProfile(layout: SeatbeltLayout): string {
 (allow sysctl-read)
 (allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
-; Block direct group/session changes and policy replacement (__mac_syscall).
+; Block direct group/session changes. Readiness separately proves that the
+; inherited kernel sandbox rejects policy reinitialization. Do not blanket-block
+; __mac_syscall: dyld needs AMFI checks through that shared syscall.
 ; posix_spawn(SETSID) is covered separately by inherited kernel policy identity.
 ; Darwin syscalls.master: setpgid=82, setsid=147 (both supported architectures).
-(deny syscall-unix (syscall-number 82) (syscall-number 147) (syscall-number 381))
+(deny syscall-unix (syscall-number 82) (syscall-number 147))
 (allow mach-lookup
   (global-name "com.apple.system.logger")
   (global-name "com.apple.system.notification_center")

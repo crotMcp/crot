@@ -1,3 +1,5 @@
+import { macosPlatformSupported } from "./platform.js";
+import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
 import { MacosActors } from "./actors.js";
 import { MacosWatchdog } from "./watchdog.js";
@@ -69,8 +71,9 @@ export class MacosConfinement implements CommandConfinement {
   constructor(private readonly options: MacosConfinementOptions) {}
 
   async probe(network: ConfinementNetwork): Promise<ConfinementStatus> {
-    if (this.closed || process.platform !== "darwin" || !["x64", "arm64"].includes(process.arch))
-      return statusOf(network, "components_missing");
+    if (this.closed || process.platform !== "darwin") return statusOf(network, "components_missing");
+    if (!macosPlatformSupported(process.arch, os.release()) || process.getuid?.() === 0)
+      return statusOf(network, "components_mismatch");
     try {
       const st = await lstat(SANDBOX_EXEC);
       if (!st.isFile() || st.uid !== 0 || (st.mode & 0o022) !== 0) return statusOf(network, "components_mismatch");
@@ -334,6 +337,10 @@ class MacosCore implements CoreConfinement {
     });
     try {
       const script = `const fs=require('fs'),net=require('net');
+// A successful reinitialization could hide the ownership fingerprint. Fail admission.
+const ffi=require(${JSON.stringify(createRequire(import.meta.url).resolve("koffi"))});
+const init=ffi.load('/usr/lib/libsandbox.1.dylib').func('int sandbox_init(const char *, uint64_t, void *)');
+if(init('(version 1)(deny default)',0,Buffer.alloc(8))===0)process.exit(44);
 const denied=f=>{try{f();throw Error('escape')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}};
 denied(()=>fs.readFileSync(${JSON.stringify(canary)}));
 denied(()=>fs.writeFileSync(${JSON.stringify(path.join(this.root, "outside"))},'x'));

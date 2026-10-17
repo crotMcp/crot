@@ -1,3 +1,4 @@
+import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import { seatbeltProfile } from "../../../src/native-host/macos-l1/profile.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -256,7 +257,7 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
     const core = await open("on");
     const r = await run(
       core,
-      `const p=require('child_process').spawnSync('/usr/bin/sandbox-exec',['-p','(version 1)(deny default)','/usr/bin/true'],{encoding:'utf8'});console.log(p.status,p.stderr);process.exit(p.status===0?1:0);`,
+      `const ffi=require(${JSON.stringify(createRequire(import.meta.url).resolve("koffi"))});const init=ffi.load('/usr/lib/libsandbox.1.dylib').func('int sandbox_init(const char *, uint64_t, void *)');const r=init('(version 1)(deny default)',0,Buffer.alloc(8));console.log('REINIT',r);process.exit(r===0?1:0);`,
     );
     expect(r, r.err).toMatchObject({ code: 0 });
   });
