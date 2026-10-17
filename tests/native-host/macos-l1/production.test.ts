@@ -101,6 +101,21 @@ console.log(JSON.stringify({home:process.env.HOME, cache:process.env.npm_config_
     expect(await readFile(path.join(workspace, "workspace-output"), "utf8")).toBe("ok");
     expect(r.out).toContain("crot-l1-");
   });
+  it("runs installed npm, pip, cargo, rustc and go using private caches", async () => {
+    const core = await open("on");
+    const r = await run(
+      core,
+      `const cp=require('child_process'),fs=require('fs');
+for(const [tool,args] of [['npm',['--version']],['python3',['-m','pip','--version']],['cargo',['--version']],['rustc',['--version']],['go',['version']]]) {
+const r=cp.spawnSync(tool,args,{encoding:'utf8'}); if(r.error||r.status!==0)throw Error(tool+': '+r.stderr+' '+r.error); console.log(tool+': '+r.stdout.trim());
+}
+const cache=cp.execFileSync('npm',['config','get','cache'],{encoding:'utf8'}).trim();if(cache!==process.env.npm_config_cache)throw Error('npm cache is not private');
+for(const name of ['npm_config_cache','PIP_CACHE_DIR','CARGO_HOME','RUSTUP_HOME','GOPATH','GOCACHE'])if(!process.env[name].startsWith(process.env.HOME+'/'))throw Error(name+' escaped private HOME');
+console.log('PRIVATE-TOOL-CACHES');`,
+    );
+    expect(r, r.err).toMatchObject({ code: 0 });
+    expect(r.out).toContain("PRIVATE-TOOL-CACHES");
+  });
   it("rejects protected reads/writes, outside writes and symlink escape", async () => {
     const core = await open("on");
     await symlink(root, path.join(workspace, "escape"));
@@ -252,6 +267,33 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
       await new Promise((r) => setTimeout(r, 20));
     }
     expect(alive).toBe(false);
+  });
+  it("never drains another admitted Core's actors", async () => {
+    const a = await open("on"),
+      b = await open("on");
+    const launch = async (c: CoreConfinement) => {
+      const p = await c.launcher.launch(
+        {
+          file: process.execPath,
+          args: ["-e", "console.log(process.pid);setInterval(()=>{},1000)"],
+          display: "parallel Core",
+        },
+        { cwd: workspace, env: process.env as Record<string, string>, stdin: false },
+      );
+      const pid = await new Promise<number>((resolve) =>
+        p.stdout.once("data", (b) => resolve(Number(String(b).trim()))),
+      );
+      return { p, pid };
+    };
+    const one = await launch(a),
+      two = await launch(b);
+    expect(one.pid).toBeGreaterThan(1);
+    expect(two.pid).toBeGreaterThan(1);
+    await one.p.terminate("force");
+    await one.p.exited;
+    expect(() => process.kill(two.pid, 0)).not.toThrow();
+    await two.p.terminate("force");
+    await two.p.exited;
   });
   it("does not allow actors to replace or stack their inherited sandbox identity", async () => {
     const core = await open("on");

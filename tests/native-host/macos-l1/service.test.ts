@@ -4,7 +4,7 @@ import { appendFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, inject, it } from "vitest";
 import type { ServeCommand } from "../../../src/cli/options.js";
 import { createPrivateFileProtection } from "../../../src/core/platform/private-files.js";
 import { CrotService } from "../../../src/service/service.js";
@@ -87,8 +87,7 @@ const s=n.connect(${JSON.stringify(path.join(state, "control.sock"))});s.on('con
         },
       };
       console.log(`::notice title=CROT-macOS-L1-production::${JSON.stringify(proof)}`);
-      if (process.env.CROT_6A_EVIDENCE_FILE)
-        appendFileSync(process.env.CROT_6A_EVIDENCE_FILE, JSON.stringify(proof) + "\n");
+      appendFileSync(inject("stage6aEvidence"), JSON.stringify(proof) + "\n");
     } finally {
       await service?.shutdown("macOS qualification");
       await rm(root, { recursive: true, force: true });

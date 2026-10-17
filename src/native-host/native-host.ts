@@ -33,7 +33,7 @@ export type NativeHostOptions = NodePlatformOptions & {
   readonly stateDir?: string;
   /** Service log, for changes of L1 availability (AD-20 point 13). */
   readonly log?: (line: string) => void;
-  /** Linux command confinement L1 (default true). Test seam: options for the L1 implementation. */
+  /** Native command confinement L1 (default true). Object options are a Linux-only test seam. */
   readonly confinement?: boolean | Partial<Omit<LinuxConfinementOptions, "base" | "stateDir">>;
 };
 
@@ -67,7 +67,8 @@ const describe = (error: unknown) =>
  *   only output is a Platform handed to CrotCore, whose PermissionEngine
  *   authorizes every operation before a platform method runs.
  * - Windows: kill-on-close Job Object per command; owner-only ACLs.
- * - Linux/macOS: the Core mechanisms (process groups, 0600/0700) are kept.
+ * - Linux: bubblewrap/AppArmor L1; macOS: Seatbelt + per-command kernel identity
+ *   and a private owner-death guardian. Full-control keeps the Core launcher.
  * - Lifecycle: start() before CrotCore.create; close() after core.shutdown();
  *   closeSync() after core.terminateProcessesSync() in emergencies. The CLI
  *   lifecycle remains the only shutdown authority.

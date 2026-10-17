@@ -1,4 +1,5 @@
 import { macosPlatformSupported } from "./platform.js";
+import { prepareRustup } from "./toolchains.js";
 import { reinitializationProbe } from "./reinitialization.js";
 import { randomUUID } from "node:crypto";
 import { MacosActors } from "./actors.js";
@@ -145,6 +146,7 @@ export class MacosConfinement implements CommandConfinement {
     await mkdir(home, { mode: 0o700 });
     await mkdir(temp, { mode: 0o700 });
     const realHome = canonicalPath(this.options.env.HOME ?? os.homedir());
+    await prepareRustup(home, realHome, this.options.env);
     const host =
       this.options.env.DOCKER_HOST ??
       (await currentContextHost(this.options.env, realHome)) ??

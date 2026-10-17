@@ -1,4 +1,5 @@
 /** Real SIGKILL of the owner: no owner cleanup callback, no fake actor PID. */
+import { appendFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, realpath, rm, lstat } from "node:fs/promises";
 import os from "node:os";
@@ -91,19 +92,20 @@ describe.runIf(process.platform === "darwin")("macOS full lease owner crash reco
       expect(live(detached), "detached actor survived owner death").toBe(false);
       expect(removed, "private lease remains after watchdog recovery").toBe(true);
       expect(live(unrelated.pid!), "watchdog touched an unrelated same-user process").toBe(true);
-      console.log(
-        "::notice title=CROT-macOS-L1-crash::" +
-          JSON.stringify({
-            checkout: process.env.GITHUB_SHA,
-            node: process.version,
-            arch: process.arch,
-            owner: "SIGKILL",
-            actorsDead: true,
-            detachedDead: true,
-            tempRemoved: true,
-            unrelatedUntouched: true,
-          }),
-      );
+      const proof = {
+        title: "CROT-macOS-L1-crash",
+        value: {
+          checkout: process.env.GITHUB_SHA,
+          node: process.version,
+          arch: process.arch,
+          owner: "SIGKILL",
+          actorsDead: true,
+          detachedDead: true,
+          tempRemoved: true,
+          unrelatedUntouched: true,
+        },
+      };
+      appendFileSync(inject("stage6aEvidence"), JSON.stringify(proof) + "\n");
     } finally {
       owner.kill("SIGKILL");
       await ownerExit;
