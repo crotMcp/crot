@@ -83,6 +83,7 @@ export class NativeHost {
     private readonly nativeAcl: boolean,
     private readonly notes: readonly string[],
     readonly windowsLeases?: WindowsLeaseServiceLifecycle,
+    private readonly macosLeases?: MacosConfinement,
   ) {}
 
   static async start(options: NativeHostOptions): Promise<NativeHost> {
@@ -151,6 +152,7 @@ export class NativeHost {
       }
     }
 
+    let macosLeases: MacosConfinement | undefined;
     // Command confinement L1: qualified native backends only, no launch fallback.
     let confinement: CommandConfinement | undefined;
     if (base.info.os === "linux" && confinementOption !== false) {
@@ -178,12 +180,13 @@ export class NativeHost {
     }
 
     if (base.info.os === "macos" && confinementOption !== false) {
-      confinement = new MacosConfinement({
+      macosLeases = new MacosConfinement({
         base: launcher,
         stateDir: stateDir ?? base.info.directories.state,
         env: base.baseEnvironment,
         ...(log ? { log } : {}),
       });
+      confinement = macosLeases;
     }
 
     const platform: Platform = {
@@ -202,7 +205,7 @@ export class NativeHost {
       probeCaseSensitivity: (directory) => base.probeCaseSensitivity(directory),
       ...(confinement ? { confinement } : {}),
     };
-    return new NativeHost(platform, lifecycle, jobs, nativeAcl, notes, windowsLeases);
+    return new NativeHost(platform, lifecycle, jobs, nativeAcl, notes, windowsLeases, macosLeases);
   }
 
   get running(): boolean {
@@ -228,6 +231,7 @@ export class NativeHost {
   /** Stop accepting launches and release native resources (terminating any job still open). Idempotent. */
   async close(): Promise<void> {
     this.lifecycle.open = false;
+    await this.macosLeases?.close();
     await this.windowsLeases?.close();
     this.closeSync();
   }
@@ -238,6 +242,11 @@ export class NativeHost {
     // A previous CloseHandle failure must remain retryable even after launches
     // have been permanently disabled.
     let failure: unknown;
+    try {
+      this.macosLeases?.closeSync();
+    } catch (cause) {
+      failure = cause;
+    }
     try {
       this.windowsLeases?.closeSync();
     } catch (cause) {

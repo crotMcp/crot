@@ -17,6 +17,7 @@ interface Snapshot {
   readonly uid: number;
   readonly birth: string;
   readonly zombie: boolean;
+  readonly stopped: boolean;
 }
 type Fn = (...args: unknown[]) => unknown;
 interface Library {
@@ -60,7 +61,19 @@ export class MacosActors {
       uid: b.readUInt32LE(20),
       birth: `${b.readBigUInt64LE(120)}:${b.readBigUInt64LE(128)}`,
       zombie: b.readUInt32LE(4) === 5,
+      stopped: b.readUInt32LE(4) === 4,
     };
+  }
+  /** Raw kernel answers for readiness diagnostics; no content or secret values. */
+  identityStatus(
+    pid: number,
+    id: ActorIdentity,
+  ): { sandboxed: number; denied: number; allowed: number; before: Snapshot | undefined; after: Snapshot | undefined } {
+    const before = this.snapshot(pid);
+    const sandboxed = Number(this.check(pid, null, 0));
+    const denied = Number(this.check(pid, "file-read-data", 0x10001, "const char *", id.denied));
+    const allowed = Number(this.check(pid, "file-read-data", 0x10001, "const char *", id.allowed));
+    return { sandboxed, denied, allowed, before, after: this.snapshot(pid) };
   }
   owns(pid: number, id: ActorIdentity): boolean {
     if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) return false;
@@ -115,10 +128,12 @@ export class MacosActors {
     for (let pass = 0; pass < 32 && stable < 2; pass++) {
       let added = false;
       for (const pid of this.pids())
-        if (!stopped.has(pid) && this.owns(pid, id)) {
-          signal(pid, "SIGSTOP");
+        if (this.owns(pid, id)) {
           stopped.add(pid);
-          added = true;
+          if (!this.snapshot(pid)?.stopped) {
+            signal(pid, "SIGSTOP");
+            added = true;
+          }
         }
       stable = added ? 0 : stable + 1;
     }

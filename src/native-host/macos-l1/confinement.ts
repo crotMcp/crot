@@ -44,10 +44,31 @@ export interface MacosConfinementOptions {
 
 export class MacosConfinement implements CommandConfinement {
   private actors: Promise<MacosActors> | undefined;
+  private readonly active = new Set<MacosCore>();
+  private closed = false;
+  async close(): Promise<void> {
+    this.closed = true;
+    const results = await Promise.allSettled([...this.active].map((c) => c.close()));
+    const failure = results.find((r) => r.status === "rejected");
+    if (failure?.status === "rejected") throw failure.reason;
+    this.active.clear();
+  }
+  closeSync(): void {
+    this.closed = true;
+    let failure: unknown;
+    for (const core of this.active) {
+      try {
+        core.closeSync();
+      } catch (e) {
+        failure ??= e;
+      }
+    }
+    if (failure) throw failure;
+  }
   constructor(private readonly options: MacosConfinementOptions) {}
 
   async probe(network: ConfinementNetwork): Promise<ConfinementStatus> {
-    if (process.platform !== "darwin" || !["x64", "arm64"].includes(process.arch))
+    if (this.closed || process.platform !== "darwin" || !["x64", "arm64"].includes(process.arch))
       return statusOf(network, "components_missing");
     try {
       const st = await lstat(SANDBOX_EXEC);
@@ -55,9 +76,18 @@ export class MacosConfinement implements CommandConfinement {
     } catch {
       return statusOf(network, "components_missing");
     }
+    try {
+      await (this.actors ??= MacosActors.load());
+    } catch {
+      return statusOf(network, "components_missing");
+    }
     let root: string | undefined;
     try {
       root = await privateRoot();
+    } catch {
+      return statusOf(network, "private_storage_unavailable");
+    }
+    try {
       const workspace = path.join(root, "workspace");
       await mkdir(workspace, { mode: 0o700 });
       const sandbox = await this.openPrepared(
@@ -80,8 +110,14 @@ export class MacosConfinement implements CommandConfinement {
     if (!ready.available) return unavailableCore(ready);
     let root: string | undefined;
     try {
-      root = await privateRoot();
-      return await this.openPrepared(scope, root);
+      try {
+        root = await privateRoot();
+      } catch {
+        return unavailableCore(statusOf(scope.network, "private_storage_unavailable"));
+      }
+      const core = await this.openPrepared(scope, root);
+      this.active.add(core);
+      return core;
     } catch {
       if (root) await rm(root, { recursive: true, force: true });
       return unavailableCore(statusOf(scope.network, "self_test_failed"));
@@ -171,6 +207,7 @@ async function privateRoot(): Promise<string> {
 
 class MacosCore implements CoreConfinement {
   private closed = false;
+  private cleaned = false;
   private broken = false;
   private refreshing: Promise<ConfinementStatus> | undefined;
   private readonly children = new Set<ManagedProcess>();
@@ -294,6 +331,7 @@ const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(
         { file: process.execPath, args: ["-e", script], display: "macOS L1 self_test" },
         { cwd: this.scope.workspace, env: this.environment(process.env as Record<string, string>), stdin: false },
       );
+      this.children.add(child);
       let stdout = "";
       child.stdout.on("data", (b) => {
         stdout += String(b);
@@ -303,6 +341,7 @@ const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(
       const exit = await child.exited;
       clearTimeout(timer);
       child.terminateSync();
+      this.children.delete(child);
       if (!child.stdout.readableEnded) await new Promise<void>((resolve) => child.stdout.once("end", resolve));
       const result = { stdout };
       if (exit.code !== 0) throw failed();
@@ -318,16 +357,27 @@ const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(
     }
   }
   async close(): Promise<void> {
-    if (this.closed) return;
+    if (this.cleaned) return;
+    this.closed = true;
+    await this.refreshing;
     this.closeSync();
     await this.endpoint.close();
     await rm(this.root, { recursive: true, force: true });
+    this.cleaned = true;
   }
   closeSync(): void {
     this.closed = true;
-    for (const child of this.children) child.terminateSync();
-    this.children.clear();
+    let failure: unknown;
+    for (const child of this.children) {
+      try {
+        child.terminateSync();
+        this.children.delete(child);
+      } catch (e) {
+        failure ??= e;
+      }
+    }
     this.endpoint.closeSync();
+    if (failure) throw failure;
   }
 }
 
