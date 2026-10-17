@@ -10,6 +10,7 @@ export class MacosWatchdog {
   private readonly pending = new Map<string, { resolve: () => void; reject: (e: Error) => void }>();
   private alive = true;
   private closing = false;
+  private failureHandler: (() => void) | undefined;
   private readonly exited: Promise<number | null>;
   private constructor(private readonly child: ChildProcessWithoutNullStreams) {
     const lines = createInterface({ input: child.stdout });
@@ -20,6 +21,7 @@ export class MacosWatchdog {
     this.exited = new Promise((resolve) =>
       child.once("exit", (code) => {
         this.alive = false;
+        if (!this.closing) this.failureHandler?.();
         for (const p of this.pending.values()) p.reject(Error("macOS guardian exited"));
         this.pending.clear();
         resolve(code);
@@ -27,6 +29,7 @@ export class MacosWatchdog {
     );
     child.on("error", () => {
       this.alive = false;
+      if (!this.closing) this.failureHandler?.();
       for (const p of this.pending.values()) p.reject(Error("macOS guardian failed"));
       this.pending.clear();
     });
@@ -60,6 +63,10 @@ const lines=createInterface({input:process.stdin});lines.on('line',line=>{try{co
       child.kill("SIGKILL");
       throw error;
     }
+  }
+  onFailure(handler: () => void): void {
+    this.failureHandler = handler;
+    if (!this.running) handler();
   }
   get running(): boolean {
     return this.alive && !this.closing;

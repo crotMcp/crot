@@ -1,5 +1,5 @@
 import { macosPlatformSupported } from "./platform.js";
-import { createRequire } from "node:module";
+import { reinitializationProbe } from "./reinitialization.js";
 import { randomUUID } from "node:crypto";
 import { MacosActors } from "./actors.js";
 import { MacosWatchdog } from "./watchdog.js";
@@ -49,6 +49,16 @@ export class MacosConfinement implements CommandConfinement {
   private actors: Promise<MacosActors> | undefined;
   private readonly active = new Set<MacosCore>();
   private closed = false;
+  private readonly reported = new Map<ConfinementNetwork, string>();
+  private report(network: ConfinementNetwork, reason: ConfinementReason | null): ConfinementStatus {
+    const status = statusOf(network, reason);
+    const key = reason ?? "available";
+    if (this.reported.get(network) !== key) {
+      this.reported.set(network, key);
+      this.options.log?.(`macOS L1 ${network}: ${key}`);
+    }
+    return status;
+  }
   async close(): Promise<void> {
     this.closed = true;
     const results = await Promise.allSettled([...this.active].map((c) => c.close()));
@@ -71,25 +81,25 @@ export class MacosConfinement implements CommandConfinement {
   constructor(private readonly options: MacosConfinementOptions) {}
 
   async probe(network: ConfinementNetwork): Promise<ConfinementStatus> {
-    if (this.closed || process.platform !== "darwin") return statusOf(network, "components_missing");
+    if (this.closed || process.platform !== "darwin") return this.report(network, "components_missing");
     if (!macosPlatformSupported(process.arch, os.release()) || process.getuid?.() === 0)
-      return statusOf(network, "components_mismatch");
+      return this.report(network, "components_mismatch");
     try {
       const st = await lstat(SANDBOX_EXEC);
-      if (!st.isFile() || st.uid !== 0 || (st.mode & 0o022) !== 0) return statusOf(network, "components_mismatch");
+      if (!st.isFile() || st.uid !== 0 || (st.mode & 0o022) !== 0) return this.report(network, "components_mismatch");
     } catch {
-      return statusOf(network, "components_missing");
+      return this.report(network, "components_missing");
     }
     try {
       await (this.actors ??= MacosActors.load());
     } catch {
-      return statusOf(network, "components_missing");
+      return this.report(network, "components_missing");
     }
     let root: string | undefined;
     try {
       root = await privateRoot();
     } catch {
-      return statusOf(network, "private_storage_unavailable");
+      return this.report(network, "private_storage_unavailable");
     }
     try {
       const workspace = path.join(root, "workspace");
@@ -101,9 +111,9 @@ export class MacosConfinement implements CommandConfinement {
       const status = sandbox.status();
       await sandbox.close();
       root = undefined;
-      return status;
+      return this.report(network, status.reason);
     } catch {
-      return statusOf(network, "self_test_failed");
+      return this.report(network, "self_test_failed");
     } finally {
       if (root) await rm(root, { recursive: true, force: true });
     }
@@ -117,14 +127,15 @@ export class MacosConfinement implements CommandConfinement {
       try {
         root = await privateRoot();
       } catch {
-        return unavailableCore(statusOf(scope.network, "private_storage_unavailable"));
+        return unavailableCore(this.report(scope.network, "private_storage_unavailable"));
       }
       const core = await this.openPrepared(scope, root);
+      core.onClosed = () => this.active.delete(core);
       this.active.add(core);
       return core;
     } catch {
       if (root) await rm(root, { recursive: true, force: true });
-      return unavailableCore(statusOf(scope.network, "self_test_failed"));
+      return unavailableCore(this.report(scope.network, "self_test_failed"));
     }
   }
 
@@ -198,6 +209,7 @@ export class MacosConfinement implements CommandConfinement {
       throw error;
     }
     const core = new MacosCore(this.options.base, actors, watchdog, scope, root, home, temp, layout, endpoint);
+    watchdog.onFailure(() => core.invalidate());
     try {
       await core.selfTest();
       return core;
@@ -217,6 +229,18 @@ async function privateRoot(): Promise<string> {
 }
 
 class MacosCore implements CoreConfinement {
+  onClosed: (() => void) | undefined;
+  invalidate(): void {
+    this.broken = true;
+    for (const child of this.children) {
+      try {
+        child.terminateSync();
+      } catch {
+        /* retain failed actor records */
+      }
+    }
+    this.endpoint.closeSync();
+  }
   private closed = false;
   private cleaned = false;
   private broken = false;
@@ -337,10 +361,7 @@ class MacosCore implements CoreConfinement {
     });
     try {
       const script = `const fs=require('fs'),net=require('net');
-// A successful reinitialization could hide the ownership fingerprint. Fail admission.
-const ffi=require(${JSON.stringify(createRequire(import.meta.url).resolve("koffi"))});
-const init=ffi.load('/usr/lib/libsandbox.1.dylib').func('int sandbox_init(const char *, uint64_t, void *)');
-if(init('(version 1)(deny default)',0,Buffer.alloc(8))===0)process.exit(44);
+${await reinitializationProbe()}
 const denied=f=>{try{f();throw Error('escape')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}};
 denied(()=>fs.readFileSync(${JSON.stringify(canary)}));
 denied(()=>fs.writeFileSync(${JSON.stringify(path.join(this.root, "outside"))},'x'));
@@ -394,6 +415,7 @@ const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(
     await this.watchdog.close();
     await rm(this.root, { recursive: true, force: true });
     this.cleaned = true;
+    this.onClosed?.();
   }
   closeSync(): void {
     this.closed = true;

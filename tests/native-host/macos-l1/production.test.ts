@@ -1,4 +1,4 @@
-import { createRequire } from "node:module";
+import { reinitializationProbe } from "../../../src/native-host/macos-l1/reinitialization.js";
 import { execFileSync } from "node:child_process";
 import { seatbeltProfile } from "../../../src/native-host/macos-l1/profile.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -255,10 +255,7 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
   });
   it("does not allow actors to replace or stack their inherited sandbox identity", async () => {
     const core = await open("on");
-    const r = await run(
-      core,
-      `const ffi=require(${JSON.stringify(createRequire(import.meta.url).resolve("koffi"))});const init=ffi.load('/usr/lib/libsandbox.1.dylib').func('int sandbox_init(const char *, uint64_t, void *)');const r=init('(version 1)(deny default)',0,Buffer.alloc(8));console.log('REINIT',r);process.exit(r===0?1:0);`,
-    );
+    const r = await run(core, `${await reinitializationProbe()} console.log('REINIT-DENIED');`);
     expect(r, r.err).toMatchObject({ code: 0 });
   });
   it("remains fail-closed after close", async () => {
