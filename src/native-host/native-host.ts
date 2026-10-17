@@ -1,3 +1,4 @@
+import { loadWindowsPrivateState } from "./windows-state.js";
 import { WindowsConfinement } from "./windows-l1/confinement.js";
 import { WindowsLeaseServiceLifecycle } from "./windows-l1/service-lifecycle.js";
 import { createNodePlatform } from "../core/platform/node-platform.js";
@@ -130,9 +131,19 @@ export class NativeHost {
     }
 
     let windowsLeases: WindowsLeaseServiceLifecycle | undefined;
+    let leasePrivateFiles = privateFiles,
+      runtimePrivateFiles = privateFiles;
     if (base.info.os === "windows" && stateDir && windowsOwnerSid && nativeAcl) {
-      windowsLeases = new WindowsLeaseServiceLifecycle({ stateDir, ownerSid: windowsOwnerSid, privateFiles });
       try {
+        // WAL/profile/admission records are NR secrets; executable/runtime
+        // trees deliberately are not NR, so a granted AppContainer can read.
+        leasePrivateFiles = await loadWindowsPrivateState(windowsOwnerSid);
+        runtimePrivateFiles = await loadWindowsPrivateState(windowsOwnerSid, [], "runtime");
+        windowsLeases = new WindowsLeaseServiceLifecycle({
+          stateDir,
+          ownerSid: windowsOwnerSid,
+          privateFiles: leasePrivateFiles,
+        });
         await windowsLeases.recoverExisting();
       } catch (cause) {
         notes.push(`Windows L1 startup recovery failed (${describe(cause)}); confinement remains unavailable`);
@@ -155,7 +166,8 @@ export class NativeHost {
       confinement = new WindowsConfinement({
         stateDir: stateDir ?? base.info.directories.state,
         ownerSid: windowsOwnerSid,
-        privateFiles,
+        privateFiles: leasePrivateFiles,
+        runtimeFiles: runtimePrivateFiles,
         lifecycle: windowsLeases,
         base: launcher,
         environment: base.environment,

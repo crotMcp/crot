@@ -18,10 +18,11 @@ public static class CrotComponentSecurity {
  [DllImport("kernel32.dll")] public static extern IntPtr LocalFree(IntPtr memory);
 }
 '@
-function PrivateObject([string]$p,[bool]$directory) {
+function PrivateObject([string]$p,[bool]$directory,[bool]$runtime=$false) {
  if(([IO.File]::GetAttributes($p) -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'Reparse component object is forbidden'}
  $inherit=if($directory){'OICI'}else{''}
- $text="D:P(A;$inherit;FA;;;$($owner.Value))S:(ML;$inherit;NWNR;;;ME)"
+ $rights=if($runtime){'NW'}else{'NWNR'}
+ $text="D:P(A;$inherit;FA;;;$($owner.Value))S:(ML;$inherit;$rights;;;ME)"
  $descriptor=[IntPtr]::Zero
  if(-not [CrotComponentSecurity]::ConvertStringSecurityDescriptorToSecurityDescriptor($text,1,[ref]$descriptor,[IntPtr]::Zero)){throw 'Component descriptor conversion failed'}
  try {
@@ -29,14 +30,14 @@ function PrivateObject([string]$p,[bool]$directory) {
   if(-not [CrotComponentSecurity]::SetFileSecurity($p,[uint32]2147483668,$descriptor)){throw "Component descriptor install failed: $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"}
  } finally {if([CrotComponentSecurity]::LocalFree($descriptor) -ne [IntPtr]::Zero){throw 'Component descriptor release failed'}}
 }
-function PrivateDirectory([string]$p) {
+function PrivateDirectory([string]$p,[bool]$runtime=$false) {
  [IO.Directory]::CreateDirectory($p) | Out-Null
- PrivateObject $p $true
+ PrivateObject $p $true $runtime
 }
 # An existing parent is inspected, not silently re-ACL'd over active leases.
 if(-not (Test-Path -LiteralPath $parent)){PrivateDirectory $parent}
 if(([IO.File]::GetAttributes($parent) -band [IO.FileAttributes]::ReparsePoint) -ne 0){throw 'Reparse L1 parent is forbidden'}
-PrivateDirectory $target
+PrivateDirectory $target $true
 try {
  if($Library) {[IO.File]::Copy([IO.Path]::GetFullPath($Library),(Join-Path $target 'crot-local-shim.dll'),$false)}
  else { & (Join-Path $PSScriptRoot 'build-windows-local-shim.ps1') -OutputDirectory $target -Architecture x64 }
@@ -47,6 +48,6 @@ try {
  foreach($name in @('crot-local-shim.dll','node.exe')) {$files[$name]=(Get-FileHash -LiteralPath (Join-Path $target $name) -Algorithm SHA256).Hash.ToLowerInvariant()}
  $manifest=[ordered]@{version='windows-l1-v1';arch='x64';files=$files} | ConvertTo-Json -Depth 4 -Compress
  [IO.File]::WriteAllText((Join-Path $target 'manifest.json'),$manifest,[Text.UTF8Encoding]::new($false))
- foreach($name in @('crot-local-shim.dll','node.exe','manifest.json')) {PrivateObject (Join-Path $target $name) $false}
+ foreach($name in @('crot-local-shim.dll','node.exe','manifest.json')) {PrivateObject (Join-Path $target $name) $false $true}
  Write-Output '{"componentsProvisioned":true,"version":"windows-l1-v1"}'
 } catch { throw }

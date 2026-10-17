@@ -90,6 +90,7 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
     directory: boolean,
     mutate: boolean,
     sandboxSids: readonly string[] = [],
+    runtime = false,
   ): boolean => {
     validateSid(owner);
     if (sandboxSids.length > 64 || new Set(sandboxSids).size !== sandboxSids.length) throw fail("sandbox SID set");
@@ -219,7 +220,7 @@ function bind(ffi: StateFfi, libraries: TokenLibraries) {
       if (
         !ok(
           sd(
-            `D:P${sandboxSids.map((sid) => `(D;${inherit};FA;;;${sid})`).join("")}(A;${inherit};FA;;;${owner})S:(ML;${inherit};NWNR;;;ME)`,
+            `D:P${sandboxSids.map((sid) => `(D;${inherit};FA;;;${sid})`).join("")}(A;${inherit};FA;;;${owner})S:(ML;${inherit};${runtime ? "NW" : "NWNR"};;;ME)`,
             1,
             expected,
             null,
@@ -265,6 +266,7 @@ export function bindWindowsPrivateState(ffi: StateFfi, libraries: TokenLibraries
 export async function loadWindowsPrivateState(
   owner: string,
   sandboxSids: readonly string[] = [],
+  mode: "private" | "runtime" = "private",
 ): Promise<PrivateFileProtection> {
   sandboxSids = Object.freeze([...sandboxSids]);
   if (process.platform !== "win32" || !["x64", "arm64"].includes(process.arch)) throw fail("native platform");
@@ -281,17 +283,17 @@ export async function loadWindowsPrivateState(
       if (created !== undefined) {
         const first = fromWin32NamespacedPath(created);
         if (!isSameOrAncestorWindowsPath(first, target)) throw fail("created directory scope");
-        protect(first, owner, true, true, sandboxSids);
+        protect(first, owner, true, true, sandboxSids, mode === "runtime");
         let createdPath = first;
         for (const part of target.slice(first.length).replace(/^\\/, "").split("\\").filter(Boolean)) {
           createdPath += "\\" + part;
-          protect(createdPath, owner, true, true, sandboxSids);
+          protect(createdPath, owner, true, true, sandboxSids, mode === "runtime");
         }
       }
     },
     protectFile: async (file) => {
       const item = await lstat(file);
-      protect(file, owner, item.isDirectory(), true, sandboxSids);
+      protect(file, owner, item.isDirectory(), true, sandboxSids, mode === "runtime");
     },
     inspect: async (file) => {
       const item = await lstat(file).catch((e) => {
@@ -304,12 +306,14 @@ export async function loadWindowsPrivateState(
           ownerOnly: true,
           detail: "will be created owner-only, Medium no-read-up before content",
         };
-      const checked = protect(file, owner, item.isDirectory(), false, sandboxSids);
+      const checked = protect(file, owner, item.isDirectory(), false, sandboxSids, mode === "runtime");
       return {
         mechanism: "windows-acl",
         ownerOnly: checked,
         detail: checked
-          ? "owner-only DACL and Medium no-read-up label verified"
+          ? mode === "runtime"
+            ? "owner-only runtime DACL and Medium no-write-up label verified"
+            : "owner-only DACL and Medium no-read-up label verified"
           : "private state descriptor does not match required policy",
       };
     },

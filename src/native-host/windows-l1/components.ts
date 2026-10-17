@@ -37,6 +37,7 @@ const bad = (reason: ConfinementReason, message: string): never => {
 export async function verifyWindowsComponents(
   stateDir: string,
   privateFiles: PrivateFileProtection,
+  parentProtection: PrivateFileProtection = privateFiles,
 ): Promise<WindowsComponents> {
   const root = path.join(stateDir, "windows-l1", "components"),
     manifest = path.join(root, "manifest.json");
@@ -55,7 +56,7 @@ export async function verifyWindowsComponents(
       if (
         s.isSymbolicLink() ||
         (p === manifest ? !s.isFile() || s.nlink !== 1 : !s.isDirectory()) ||
-        !(await privateFiles.inspect(p)).ownerOnly
+        !(await (p === path.dirname(root) ? parentProtection : privateFiles).inspect(p)).ownerOnly
       )
         return bad("private_storage_unavailable", "Windows L1 component storage is not private.");
     }

@@ -61,6 +61,7 @@ export interface WindowsConfinementOptions {
   readonly stateDir: string;
   readonly ownerSid: string | undefined;
   readonly privateFiles: PrivateFileProtection;
+  readonly runtimeFiles: PrivateFileProtection;
   readonly lifecycle: WindowsLeaseServiceLifecycle | undefined;
   readonly base: ProcessLauncher;
   readonly environment: EnvironmentPolicy;
@@ -75,7 +76,11 @@ export class WindowsConfinement implements CommandConfinement {
   private probeTail: Promise<unknown> = Promise.resolve();
   constructor(private readonly options: WindowsConfinementOptions) {}
   private async components(): Promise<WindowsComponents> {
-    const c = await verifyWindowsComponents(this.options.stateDir, this.options.privateFiles);
+    const c = await verifyWindowsComponents(
+      this.options.stateDir,
+      this.options.runtimeFiles,
+      this.options.privateFiles,
+    );
     if (!this.options.ownerSid || !this.options.lifecycle || this.options.lifecycle.failure)
       throw new WindowsPreparationError(
         "private_storage_unavailable",
@@ -118,7 +123,7 @@ export class WindowsConfinement implements CommandConfinement {
     return pending;
   }
   private async runtime(c: WindowsComponents, scope: ConfinementScope): Promise<Runtime> {
-    const { privateFiles, ownerSid, lifecycle, environment, base } = this.options;
+    const { runtimeFiles: privateFiles, ownerSid, lifecycle, environment, base } = this.options;
     if (!ownerSid || !lifecycle) throw failed("lease owner unavailable");
     const directory = path.join(this.options.stateDir, "windows-l1", "runtime", randomUUID());
     await privateFiles.ensureDirectory(directory);
@@ -323,7 +328,7 @@ export class WindowsConfinement implements CommandConfinement {
     const root = path.join(this.options.stateDir, "windows-l1", "self-test", randomUUID()),
       workspace = path.join(root, "workspace"),
       secret = path.join(root, "private-canary");
-    await this.options.privateFiles.ensureDirectory(root);
+    await this.options.runtimeFiles.ensureDirectory(root);
     await mkdir(workspace);
     await writeFile(secret, "self-test-canary");
     await this.options.privateFiles.protectFile!(secret);
@@ -352,8 +357,12 @@ const req=http.get('http://127.0.0.1:${address.port}',r=>{r.resume();r.on('end',
         { file: c.executable, args: ["-e", code], display: "Windows L1 native startup self-test" },
         { cwd: workspace, env: {}, stdin: false },
       );
+      let diagnostic = "";
       const output = consume(process_.stdout),
-        errors = consume(process_.stderr);
+        errors = (async () => {
+          for await (const bytes of process_.stderr)
+            if (diagnostic.length < 2048) diagnostic += String(bytes).slice(0, 2048 - diagnostic.length);
+        })();
       const exit = await Promise.race([
         process_.exited,
         new Promise<never>((_, reject) => setTimeout(() => reject(failed("self-test deadline")), 15000).unref()),
@@ -361,7 +370,9 @@ const req=http.get('http://127.0.0.1:${address.port}',r=>{r.resume();r.on('end',
       await process_.terminate("force");
       await Promise.all([output, errors]);
       if (exit.code !== 0 || (await readFile(secret, "utf8")) !== "self-test-canary") {
-        this.options.log?.(`Windows L1 self-test exit: ${exit.code}`);
+        this.options.log?.(
+          `Windows L1 self-test exit: ${exit.code}; ${diagnostic.split(/\r?\n/).slice(0, 4).join(" ").slice(0, 700)}`,
+        );
         throw failed("self-test result");
       }
     } catch (cause) {

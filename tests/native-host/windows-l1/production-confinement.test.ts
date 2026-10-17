@@ -6,7 +6,8 @@ import path from "node:path";
 import { describe, expect, inject, it } from "vitest";
 import type { CrotCore } from "../../../src/core/crot-core.js";
 import { NativeHost } from "../../../src/native-host/native-host.js";
-import { runTool, windowsTools } from "../../../src/native-host/windows-acl.js";
+import { loadWindowsPrivateState } from "../../../src/native-host/windows-state.js";
+import { currentUserSid, runTool, windowsTools } from "../../../src/native-host/windows-acl.js";
 import { createServicePrivateFiles } from "../../../src/service/private-files.js";
 import { verifyWindowsComponents } from "../../../src/native-host/windows-l1/components.js";
 import { createTestCore, isWindows, makeTempDirs, testContext } from "../../helpers.js";
@@ -55,7 +56,8 @@ describe.runIf(isWindows)("production Windows AppContainer CommandConfinement", 
         "-Library",
         build.library,
       ]);
-      const components = await verifyWindowsComponents(stateDir, privateFiles);
+      const runtimeFiles = await loadWindowsPrivateState(await currentUserSid(tools), [], "runtime");
+      const components = await verifyWindowsComponents(stateDir, runtimeFiles, privateFiles);
       native = await NativeHost.start({ startupPath: "inherited", stateDir, log: (line) => logs.push(line) });
       for (const network of ["off", "on"] as const) {
         const status = await native.platform.confinement!.probe(network);
