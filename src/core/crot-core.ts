@@ -354,6 +354,17 @@ export class CrotCore {
       secretPaths,
     });
     const browser = new BrowserService({
+      onDialogDismissed: (event) => {
+        void audit
+          .record({
+            kind: "browser",
+            id: newAuditEventId(),
+            timestamp: new Date().toISOString(),
+            event: "browser.dialog_auto_dismissed",
+            ...event,
+          })
+          .catch(() => undefined);
+      },
       guard,
       limits: config.limits,
       ...(options.browser ? { connection: options.browser } : {}),

@@ -272,26 +272,20 @@ describe.runIf(linux)("browser v1 E2E: layout and frames (manual run 2)", () => 
     expect(cut.elements.map((e) => e.name)).toContain("Dialog button");
   });
 
-  it("a JavaScript dialog fails commands at once (not after their timeout) until the user answers it", async () => {
+  it("reports a dialog without content in controls, exposes it only in snapshots, and handles it", async () => {
     const snap = await openLayout();
-    const dialogs = await witness!.watchDialogs(server.origin + "/layout.html");
     const started = Date.now();
-    const opened = await h.fails(client(), "browser_click", { tabId, ref: find(snap, "button", "Open alert").ref });
-    expect(opened.code).toBe("OPERATION_FAILED");
-    expect(opened.message).toContain("opened a JavaScript alert dialog");
-    const blocked = await h.fails(client(), "browser_snapshot", { tabId });
-    expect(blocked.message).toContain("JavaScript alert dialog is open");
-    expect(Date.now() - started).toBeLessThan(10_000);
-    await dialogs.answer();
-    const after = await h.waitFor(
-      async () => {
-        const outcome = await h.callTool(client(), "browser_snapshot", { tabId });
-        return outcome.isError ? undefined : outcome;
-      },
-      10_000,
-      "commands to work again after the dialog was answered",
-    );
-    expect(after.isError).toBe(false);
+    const opened = await h.ok<{ dialog: { type: string } }>(client(), "browser_click", {
+      tabId,
+      ref: find(snap, "button", "Open alert").ref,
+    });
+    expect(opened.dialog).toEqual({ type: "alert" });
+    const exposed = await h.ok<{ dialog: { type: string; message: string } }>(client(), "browser_snapshot", { tabId });
+    expect(exposed.dialog).toEqual({ type: "alert", message: "CROT E2E alert", defaultPrompt: "" });
+    expect((await h.fails(client(), "browser_page_read", { tabId })).code).toBe("BROWSER_DIALOG_OPEN");
+    expect(Date.now() - started).toBeLessThan(10000);
+    await h.ok(client(), "browser_dialog_handle", { tabId, accept: false });
+    await snapshot();
   });
   it("clicks own and descendant pseudo-elements with trusted input", async () => {
     const snap = await openLayout();

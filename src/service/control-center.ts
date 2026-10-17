@@ -60,7 +60,7 @@ export const FULL_CONTROL_NOTE =
   "operations run only with command confinement L1. Local clients and other devices are not affected. " +
   "Unpairing or pairing again turns it off.";
 export const TUNNEL_NOTE = "The relay tunnel is not available yet (WP-30); no remote request can reach this device.";
-export const CDP_REASON = "The CDP browser backend is implemented by WP-24.";
+export const CDP_REASON = "not_probed";
 export const PROVIDER_REVOCATION_NOTE =
   "The authorization at the identity provider is not revoked from this device (that needs the CROT account service, WP-36). " +
   "The client is refused on this device now; tokens it already holds expire within 15 minutes and cannot be used here.";
@@ -955,7 +955,7 @@ export class ControlCenter implements RemoteAdmission {
       browser: browserView(browser, core.browser.state),
       approvals: { trays: this.provider.subscriberCount, pending: this.provider.pendingCount },
       confinement: core.confinement,
-      cdp: { available: false, reason: CDP_REASON },
+      cdp: browser?.kind === "connected" && browser.cdp ? browser.cdp : { available: false, reason: CDP_REASON },
       pairing: this.pairingView(),
     };
   }
@@ -991,6 +991,7 @@ function browserView(state: BrowserConnectionState | undefined, fallback: string
       ...(typeof b.version === "string" ? { version: b.version } : {}),
       ...(typeof b.extensionVersion === "string" ? { extensionVersion: b.extensionVersion } : {}),
       connectionId: state.connectionId,
+      ...(state.cdp ? { cdp: state.cdp } : {}),
     };
   }
   return { state: state?.kind ?? fallback };

@@ -28,6 +28,8 @@ export interface ChromeTab {
   readonly pendingUrl?: string;
   readonly title?: string;
   readonly active: boolean;
+  readonly discarded?: boolean;
+  readonly groupId?: number;
   readonly status?: string;
   /** The tab that opened this one (window.open, target=_blank), when the browser knows it. */
   readonly openerTabId?: number;
@@ -94,6 +96,7 @@ export interface ChromeApi {
       properties: { readonly url?: string; readonly active?: boolean },
     ): Promise<ChromeTab | undefined>;
     remove(tabId: number): Promise<void>;
+    group(properties: { tabIds: number[]; groupId?: number; createProperties?: { windowId: number } }): Promise<number>;
     captureVisibleTab(windowId: number, options: ChromeCaptureOptions): Promise<string>;
     readonly onUpdated: ChromeEvent<(tabId: number, changeInfo: ChromeTabChangeInfo, tab: ChromeTab) => void>;
     readonly onRemoved: ChromeEvent<(tabId: number) => void>;
@@ -101,6 +104,10 @@ export interface ChromeApi {
     goBack(tabId: number): Promise<void>;
     goForward(tabId: number): Promise<void>;
     reload(tabId: number, properties?: { readonly bypassCache?: boolean }): Promise<void>;
+  };
+  readonly tabGroups: {
+    query(query: { title: string; windowId: number }): Promise<{ id: number; title?: string }[]>;
+    update(id: number, properties: { title: string }): Promise<unknown>;
   };
   readonly windows: {
     get(windowId: number): Promise<ChromeWindow>;

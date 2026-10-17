@@ -105,11 +105,22 @@ export interface ConfinementAuditRecord {
   readonly reason: string;
 }
 
+/** Host-stamped, content-free browser telemetry (not a user control action). */
+export interface BrowserAuditRecord {
+  readonly kind: "browser";
+  readonly id: string;
+  readonly timestamp: string;
+  readonly event: "browser.dialog_auto_dismissed";
+  readonly tabId: number;
+  readonly dialogType: string;
+  readonly connectionId: string;
+}
+
 /** Records of operations (an operation's event or its mandatory approval record). */
 export type AuditRecord = AuditEvent | ApprovalAuditRecord;
 
 /** Everything an audit sink receives. */
-export type AuditEntry = AuditRecord | ControlAuditRecord | ConfinementAuditRecord;
+export type AuditEntry = AuditRecord | ControlAuditRecord | ConfinementAuditRecord | BrowserAuditRecord;
 
 /**
  * Whether an audit entry is an operation record (an operation's event or its
@@ -137,6 +148,7 @@ export class NullAuditSink implements AuditSink {
 /** In-memory sink, useful for tests and embedding. */
 export class MemoryAuditSink implements AuditSink {
   readonly events: AuditRecord[] = [];
+  readonly browserEvents: BrowserAuditRecord[] = [];
   /** Control actions (AD-19 point 9), kept apart from operation records. */
   readonly controlEvents: ControlAuditRecord[] = [];
   /** Refusals of the L1 Docker endpoint (AD-20 point 13). */
@@ -144,6 +156,7 @@ export class MemoryAuditSink implements AuditSink {
   async record(event: AuditEntry): Promise<void> {
     if ("kind" in event && event.kind === "control") this.controlEvents.push(event);
     else if ("kind" in event && event.kind === "confinement") this.confinementEvents.push(event);
+    else if ("kind" in event && event.kind === "browser") this.browserEvents.push(event);
     else this.events.push(event);
   }
 }

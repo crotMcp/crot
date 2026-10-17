@@ -33,6 +33,7 @@ const READ_TOOLS: Record<string, Record<string, unknown>> = {
   browser_wait: { tabId: 7, text: "Ready" },
 };
 const CONTROL_TOOLS: Record<string, Record<string, unknown>> = {
+  browser_dialog_handle: { tabId: 7, accept: false },
   browser_tab_open: { url: PAGE_URL },
   browser_navigate: { tabId: 7, url: PAGE_URL },
   browser_tab_activate: { tabId: 7 },
@@ -49,6 +50,7 @@ const CONTROL_TOOLS: Record<string, Record<string, unknown>> = {
 };
 const ALL_TOOLS: Record<string, Record<string, unknown>> = { ...READ_TOOLS, ...CONTROL_TOOLS };
 const OPERATIONS: Record<string, string> = {
+  browser_dialog_handle: "browser.dialog_handle",
   browser_status: "browser.status",
   browser_tabs_list: "browser.tabs_list",
   browser_page_read: "browser.page_read",
@@ -165,7 +167,7 @@ describe("MCP browser tools", () => {
     const { tools } = await client!.listTools();
     const names = tools.map((t) => t.name).filter((n) => n.startsWith("browser_"));
     expect(names.sort()).toEqual(Object.keys(ALL_TOOLS).sort());
-    expect(TOOLS.filter((t) => t.name.startsWith("browser_"))).toHaveLength(19);
+    expect(TOOLS.filter((t) => t.name.startsWith("browser_"))).toHaveLength(20);
     for (const t of tools.filter((x) => x.name.startsWith("browser_"))) {
       expect(t.inputSchema.type).toBe("object");
       expect(t.description).toContain(t.name in READ_TOOLS ? "browser.read" : "browser.control");

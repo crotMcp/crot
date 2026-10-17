@@ -16,6 +16,8 @@ import type {
 } from "./connection.js";
 import {
   BROWSER_SCREENSHOT_MAX_BYTES,
+  BrowserDialogHandleInputSchema,
+  type BrowserDialogHandleInput,
   BrowserClickInputSchema,
   BrowserNavigateInputSchema,
   BrowserPageReadInputSchema,
@@ -103,6 +105,7 @@ const PASS_THROUGH_CODES: ReadonlySet<CrotErrorCode> = new Set<CrotErrorCode>([
   "BROWSER_BRIDGE_IN_USE",
   "BROWSER_PAGE_RESTRICTED",
   "BROWSER_STALE_REF",
+  "BROWSER_DIALOG_OPEN",
 ]);
 
 const DISABLED_DETAIL =
@@ -118,6 +121,7 @@ export interface BrowserServiceDeps {
   readonly connection?: BrowserConnection;
   /** Per-request timeout (default BROWSER_DEFAULT_TIMEOUT_MS). */
   readonly timeoutMs?: number;
+  readonly onDialogDismissed?: (event: { tabId: number; dialogType: string; connectionId: string }) => void;
 }
 
 /**
@@ -148,9 +152,13 @@ export class BrowserService {
   /** Role, name and frame of the refs of the last snapshots (AD-16 points 10, 16). */
   private readonly refs = new RefDescriptions();
   private closed = false;
+  private readonly unsubscribe: (() => void) | undefined;
 
   constructor(private readonly deps: BrowserServiceDeps) {
     this.timeoutMs = deps.timeoutMs ?? BROWSER_DEFAULT_TIMEOUT_MS;
+    this.unsubscribe = deps.onDialogDismissed
+      ? deps.connection?.onDialogDismissed?.(deps.onDialogDismissed)
+      : undefined;
   }
 
   /** Bridge state for crot_status. Contains no browser data, so it needs no authorization. */
@@ -230,6 +238,7 @@ export class BrowserService {
       { tabId: tabRef(args.tabId), format: args.format },
       {
         summary: "Take a screenshot of a browser tab",
+        elements: args.ref ? [{ ref: args.ref, prefix: "", description: this.describeRef(args.ref, args.tabId) }] : [],
         effects: [{ label: "format", value: args.format }],
         target: { tabId: args.tabId },
       },
@@ -241,6 +250,8 @@ export class BrowserService {
               ...tab(args.tabId),
               format: args.format,
               ...(args.quality !== undefined ? { quality: args.quality } : {}),
+              ...(args.ref === undefined ? {} : { ref: args.ref }),
+              ...(args.fullPage === undefined ? {} : { fullPage: args.fullPage }),
             },
             bound,
           ),
@@ -252,6 +263,30 @@ export class BrowserService {
         if (Buffer.byteLength(result.data, "base64") > BROWSER_SCREENSHOT_MAX_BYTES) {
           throw new CrotError("LIMIT_EXCEEDED", `Screenshot exceeds ${BROWSER_SCREENSHOT_MAX_BYTES} bytes.`);
         }
+        return result;
+      },
+    );
+  }
+
+  async handleDialog(context: AuthContext, input: BrowserDialogHandleInput): Promise<BrowserControlResult> {
+    const args = parseInput(BrowserDialogHandleInputSchema, input);
+    return this.run(
+      context,
+      "browser.dialog_handle",
+      "browser.control",
+      { tabId: tabRef(args.tabId), accept: args.accept },
+      {
+        summary: "Answer a browser dialog",
+        effects: [{ label: "accept", value: String(args.accept) }],
+        target: { tabId: args.tabId },
+      },
+      async (bound) => {
+        const result = validate(
+          BrowserControlResultSchema,
+          await this.send("dialog.handle", bindParams(args, bound), bound),
+          "dialog.handle",
+        );
+        expectTab("dialog.handle", bound?.tabId ?? args.tabId, result.tabId);
         return result;
       },
     );
@@ -657,6 +692,7 @@ export class BrowserService {
 
   /** Refuse new browser operations and cancel the ones waiting for the browser. Idempotent. */
   shutdown(): void {
+    this.unsubscribe?.();
     this.closed = true;
     for (const controller of this.pending) controller.abort();
     this.pending.clear();
@@ -847,6 +883,7 @@ function describeState(state: BrowserConnectionState | undefined): BrowserStatus
       return {
         state: "connected",
         browser: state.browser,
+        ...(state.cdp ? { cdp: state.cdp } : {}),
         detail: `Connected to ${state.browser.name} ${state.browser.version} (CROT Browser Extension ${state.browser.extensionVersion}).`,
       };
     case "waiting":

@@ -161,6 +161,7 @@ export class FakeChrome {
   readonly restored: number[] = [];
   readonly windowStates = new Map<number, string>();
   readonly injections: ChromeScriptInjection<unknown[], unknown>[] = [];
+  readonly groups = new Map<number, { id: number; title: string; windowId: number }>();
   readonly captures: { windowId: number; options: ChromeCaptureOptions }[] = [];
   /** What executeScript returns for the main frame; defaults to running the function locally. */
   scriptResult: ((injection: ChromeScriptInjection<unknown[], unknown>) => unknown) | undefined;
@@ -266,7 +267,24 @@ export class FakeChrome {
     const self = this;
     return {
       runtime: this.runtime,
+      tabGroups: {
+        async query(query) {
+          return [...self.groups.values()].filter((g) => g.windowId === query.windowId && g.title === query.title);
+        },
+        async update(id, props) {
+          const group = self.groups.get(id);
+          if (group) Object.assign(group, props);
+          return group;
+        },
+      },
       tabs: {
+        async group(props) {
+          const id = props.groupId ?? self.groups.size + 1;
+          if (!self.groups.has(id))
+            self.groups.set(id, { id, title: "", windowId: props.createProperties?.windowId ?? 1 });
+          for (const tabId of props.tabIds) self.tab(tabId).groupId = id;
+          return id;
+        },
         async query(query: ChromeTabQuery): Promise<ChromeTab[]> {
           return [...self.tabsById.values()]
             .filter((t) => query.active === undefined || t.active === query.active)

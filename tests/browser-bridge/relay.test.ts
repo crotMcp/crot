@@ -234,6 +234,7 @@ describe("crot-browser-relay with the BrowserBridge", () => {
     expect(bridge.state()).toEqual({
       kind: "connected",
       browser: BROWSER,
+      cdp: { available: false, reason: "not_probed" },
       connectionId: expect.stringMatching(/^[0-9a-f]{32}$/),
     });
 

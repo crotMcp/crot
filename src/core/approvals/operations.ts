@@ -6,6 +6,7 @@
  */
 export const KNOWN_OPERATIONS: readonly string[] = [
   "browser.click",
+  "browser.dialog_handle",
   "browser.drag",
   "browser.history",
   "browser.hover",

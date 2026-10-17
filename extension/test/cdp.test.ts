@@ -95,7 +95,12 @@ describe("CDP attach lifecycle", () => {
     await cdp.send(1, "DOM.getDocument");
     await cdp.send(1, "Page.getFrameTree");
     expect(chrome.debugger.attachCalls).toEqual([1]);
-    expect(chrome.debugger.sent.map((s) => s.method)).toEqual(["DOM.getDocument", "Page.getFrameTree"]);
+    expect(chrome.debugger.sent.map((s) => s.method)).toEqual([
+      "Page.enable",
+      "Page.setInterceptFileChooserDialog",
+      "DOM.getDocument",
+      "Page.getFrameTree",
+    ]);
     expect(cdp.isAttached(1)).toBe(true);
     expect(cdp.isAttached(2)).toBe(false);
   });
@@ -181,9 +186,9 @@ describe("JavaScript dialogs", () => {
       return {};
     };
     const opened = await failure(cdp.send(1, "Input.dispatchMouseEvent", { type: "mouseReleased" }));
-    expect(opened.message).toContain("The action opened a JavaScript alert dialog");
+    expect(opened.code).toBe("BROWSER_DIALOG_OPEN");
     const blocked = await failure(cdp.send(1, "DOM.getDocument"));
-    expect(blocked.message).toContain("A JavaScript alert dialog is open in the tab");
+    expect(blocked.code).toBe("BROWSER_DIALOG_OPEN");
     expect(() => cdp.assertNoDialog(1)).toThrow(ExtensionError);
     // Page.enable still answers; another tab is not affected.
     await cdp.send(1, "Page.enable");

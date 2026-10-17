@@ -32,6 +32,7 @@ interface Expect {
 
 /** Parameters of each command Core sends to the extension. */
 export interface BrowserCommandParams {
+  "dialog.handle": { readonly tabId?: number; readonly accept: boolean; readonly promptText?: string } & Expect;
   "tabs.list": Record<string, never>;
   /**
    * AD-8: the concrete tab a gated, tab-targeting operation would act on (the
@@ -48,6 +49,8 @@ export interface BrowserCommandParams {
     readonly tabId?: number;
     readonly format: BrowserImageFormat;
     readonly quality?: number;
+    readonly ref?: string;
+    readonly fullPage?: boolean;
   } & Expect;
   /** Legacy form: selector only (page function). Browser v1 form: ref or selector plus options, trusted CDP input. */
   "page.click": Partial<Target> & {
@@ -109,6 +112,7 @@ interface Settle {
 export type BrowserCommand = keyof BrowserCommandParams;
 
 export const BROWSER_COMMANDS: readonly BrowserCommand[] = [
+  "dialog.handle",
   "tabs.list",
   "tabs.resolve",
   "tabs.open",
@@ -142,6 +146,7 @@ export type BrowserConnectionState =
       readonly browser: BrowserInfo;
       /** Random id (>= 128 bits) of this accepted connection; new for every hello, never reused (AD-9). Not shown to agents. */
       readonly connectionId: string;
+      readonly cdp?: { readonly available: boolean; readonly reason: string | null };
     }
   | { readonly kind: "in_use" };
 
@@ -159,6 +164,9 @@ export interface BrowserRequestOptions {
 
 export interface BrowserConnection {
   state(): BrowserConnectionState;
+  onDialogDismissed?(
+    listener: (event: { tabId: number; dialogType: string; connectionId: string }) => void,
+  ): () => void;
   /**
    * Send one command and resolve with the extension's raw (unvalidated)
    * result, or reject with a CrotError reported by the extension.

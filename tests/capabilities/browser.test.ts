@@ -32,6 +32,7 @@ function defaultResponse(command: BrowserCommand, p: Record<string, unknown>): u
       return { tabId: 7, url: p.url };
     case "tabs.navigate":
       return { tabId, url: p.url };
+    case "dialog.handle":
     case "tabs.activate":
     case "page.click":
     case "page.type":
@@ -114,6 +115,7 @@ const READ_OPS: readonly Op[] = [
   ["browser.screenshot", "page.screenshot", (s) => s.screenshot(ctx, {})],
 ];
 const CONTROL_OPS: readonly Op[] = [
+  ["browser.dialog_handle", "dialog.handle", (s) => s.handleDialog(ctx, { tabId: 1, accept: false })],
   ["browser.tab_open", "tabs.open", (s) => s.openTab(ctx, { url: "https://example.com/" })],
   ["browser.navigate", "tabs.navigate", (s) => s.navigate(ctx, { tabId: 1, url: "https://example.com/next" })],
   ["browser.tab_activate", "tabs.activate", (s) => s.activateTab(ctx, { tabId: 1 })],
@@ -178,7 +180,7 @@ describe("BrowserService bridge state", () => {
     expect(service.state()).toBe("in_use");
     await expect(service.status(ctx)).resolves.toMatchObject({ state: "in_use" });
     const errors = audit.events.filter((e) => e.outcome === "error");
-    expect(errors).toHaveLength(9);
+    expect(errors).toHaveLength(ALL_OPS.length - 1);
     expect(errors.every((e) => e.error?.code === "BROWSER_BRIDGE_IN_USE")).toBe(true);
   });
 
@@ -570,5 +572,20 @@ describe("BrowserService ref descriptions (AD-16 points 10, 16)", () => {
     expect(refs.lookup(CONNECTION_ID, "e1")).toBeUndefined();
     refs.record(CONNECTION_ID, snap(3, [element("e7", "f9")]), true);
     expect(refs.lookup(CONNECTION_ID, "e7")).toMatchObject({ childFrame: true, frameOrigin: null });
+  });
+});
+
+describe("WP-25 Core dialog boundary", () => {
+  it("never exposes dialog message or prompt text in control output or audit", async () => {
+    const { service, fake, audit } = setup({ capabilities: ["browser.control"] });
+    fake.handlers.set("dialog.handle", () => ({
+      tabId: 1,
+      url: PAGE_URL,
+      dialog: { type: "prompt", message: "private message", defaultPrompt: "secret" },
+    }));
+    const result = await service.handleDialog(ctx, { tabId: 1, accept: true, promptText: "secret answer" });
+    expect(result.dialog).toEqual({ type: "prompt" });
+    expect(JSON.stringify(audit.events)).not.toMatch(/secret answer|private message|defaultPrompt/);
+    expect(fake.calls[0]?.params).toMatchObject({ tabId: 1, accept: true, promptText: "secret answer" });
   });
 });

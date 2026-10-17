@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>WP-25 lifecycle fixture</title>
+<style>body{margin:20px}button{margin:6px;padding:12px}#clip{width:120px;height:80px;background:#ff0000}#bottom{margin-top:1800px}</style>
+<button onclick="alert('private alert text')">Alert</button>
+<button onclick="document.querySelector('#result').textContent=String(confirm('private confirm text'))">Confirm</button>
+<button onclick="document.querySelector('#result').textContent=String(prompt('private prompt text','initial value'))">Prompt</button>
+<button onclick="window.addEventListener('beforeunload',e=>{e.preventDefault();e.returnValue=''})">Arm beforeunload</button>
+<button onclick="window.open('/wp25.html?popup=1','_blank')">Popup</button>
+<label>Upload<input type="file"></label>
+<div id="clip" role="button" aria-label="Red clip"></div>
+<p id="result" role="status">Untouched</p>
+<button id="bottom">Bottom</button>
+</html>

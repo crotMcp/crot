@@ -66,6 +66,16 @@ const Selector = z
   .regex(/^[^\0]*$/, "Selectors must not contain NUL.")
   .describe("CSS selector of the target element.");
 
+export const BrowserDialogTypeSchema = z.enum(["alert", "confirm", "prompt", "beforeunload", "file_chooser"]);
+export const BrowserDialogSchema = z.object({
+  type: BrowserDialogTypeSchema,
+  message: z.string().max(10_000),
+  defaultPrompt: z.string().max(10_000).optional(),
+});
+export const BrowserDialogHandleInputSchema = z
+  .object({ tabId: OptionalTabId, accept: z.boolean(), promptText: z.string().max(10_000).optional() })
+  .strict();
+export type BrowserDialogHandleInput = z.input<typeof BrowserDialogHandleInputSchema>;
 // ---------------------------------------------------------------- inputs
 
 export const BrowserStatusInputSchema = z.object({}).strict();
@@ -92,12 +102,18 @@ export const BrowserScreenshotInputSchema = z
   .object({
     tabId: OptionalTabId,
     format: z.enum(BROWSER_IMAGE_FORMATS).default("png"),
+    ref: z
+      .string()
+      .regex(/^e[1-9][0-9]{0,8}$/)
+      .optional(),
+    fullPage: z.boolean().optional(),
     quality: z.number().int().min(0).max(100).optional().describe("JPEG quality (0-100). Only valid with format jpeg."),
   })
   .strict()
   .refine((v) => v.quality === undefined || v.format === "jpeg", {
     message: "'quality' is only valid with format 'jpeg'.",
-  });
+  })
+  .refine((v) => !(v.ref && v.fullPage), { message: "ref and fullPage are mutually exclusive." });
 
 export const BROWSER_WAIT_UNTIL = ["commit", "domcontentloaded", "load", "networkidle"] as const;
 export const BROWSER_WAIT_TIMEOUT_MAX_MS = 60_000;
@@ -388,6 +404,9 @@ export const BrowserTabInfoSchema = z.object({
   url: ResultUrl,
   title: Title,
   active: z.boolean(),
+  discarded: z.boolean().optional(),
+  groupedByCrot: z.boolean().optional(),
+  dialog: BrowserDialogSchema.optional(),
   status: z.enum(["loading", "complete", "unloaded"]).optional(),
   /** The tab that opened this one (popups, target=_blank). */
   openerTabId: TabId.optional(),
@@ -408,6 +427,8 @@ export const BrowserScreenshotResultSchema = z.object({
   tabId: TabId,
   url: ResultUrl,
   mimeType: z.enum(["image/png", "image/jpeg"]),
+  viewport: z.object({ width: z.number().positive(), height: z.number().positive() }).optional(),
+  devicePixelRatio: z.number().positive().optional(),
   /** Base64-encoded image. */
   data: Base64,
 });
@@ -416,6 +437,7 @@ export const BrowserTabActionResultSchema = z.object({ tabId: TabId, url: Result
 
 /** Result of a control action (AD-16 point 7): navigation started by it and tabs it opened. */
 export const BrowserControlResultSchema = BrowserTabActionResultSchema.extend({
+  dialog: z.object({ type: BrowserDialogTypeSchema }).optional(),
   navigated: z.boolean().optional(),
   newTabs: z.array(TabId).max(BROWSER_NEW_TABS_MAX).optional(),
   /** The page did not reach waitUntil within timeoutMs; it goes on loading (nothing is retried). */
@@ -424,14 +446,19 @@ export const BrowserControlResultSchema = BrowserTabActionResultSchema.extend({
   activated: z.literal(true).optional(),
 });
 
-export const BrowserSelectOptionResultSchema = BrowserControlResultSchema.extend({
-  selected: z.array(z.string().max(BROWSER_WAIT_TEXT_MAX_LENGTH)).max(BROWSER_SELECT_VALUES_MAX),
+const InterruptedControlResult = BrowserControlResultSchema.extend({
+  dialog: z.object({ type: BrowserDialogTypeSchema }),
 });
-
-export const BrowserSetCheckedResultSchema = BrowserControlResultSchema.extend({
-  checked: z.boolean(),
-  changed: z.boolean(),
-});
+export const BrowserSelectOptionResultSchema = z.union([
+  BrowserControlResultSchema.extend({
+    selected: z.array(z.string().max(BROWSER_WAIT_TEXT_MAX_LENGTH)).max(BROWSER_SELECT_VALUES_MAX),
+  }),
+  InterruptedControlResult,
+]);
+export const BrowserSetCheckedResultSchema = z.union([
+  BrowserControlResultSchema.extend({ checked: z.boolean(), changed: z.boolean() }),
+  InterruptedControlResult,
+]);
 
 export const BrowserWaitResultSchema = z.object({
   satisfied: z.literal(true),
@@ -441,6 +468,7 @@ export const BrowserWaitResultSchema = z.object({
 
 const Bounds = z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() });
 export const BrowserSnapshotResultSchema = z.object({
+  dialog: BrowserDialogSchema.optional(),
   tabId: TabId,
   url: ResultUrl,
   title: Title,
@@ -476,7 +504,9 @@ export const BrowserSnapshotResultSchema = z.object({
   truncated: z.boolean(),
 });
 
-export const BrowserTabCloseResultSchema = z.object({ tabId: TabId, closed: z.literal(true) });
+export const BrowserTabCloseResultSchema = z
+  .object({ tabId: TabId, closed: z.boolean(), dialog: z.object({ type: BrowserDialogTypeSchema }).optional() })
+  .refine((value) => value.closed || value.dialog !== undefined, "An unclosed tab must report the pending dialog.");
 
 export type BrowserInfo = z.output<typeof BrowserInfoSchema>;
 export type BrowserTabInfo = z.output<typeof BrowserTabInfoSchema>;
@@ -505,6 +535,7 @@ export type BrowserBridgeState = "disabled" | "waiting" | "connected" | "in_use"
 
 export interface BrowserStatus {
   readonly state: BrowserBridgeState;
+  readonly cdp?: { readonly available: boolean; readonly reason: string | null };
   readonly browser?: BrowserInfo;
   readonly detail: string;
 }

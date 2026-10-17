@@ -204,6 +204,7 @@ describe("BrowserBridge", () => {
     expect(bridge.state()).toEqual({
       kind: "connected",
       browser: BROWSER,
+      cdp: { available: false, reason: "not_probed" },
       connectionId: expect.stringMatching(/^[0-9a-f]{32}$/),
     });
     expect(bridge.status()).toMatchObject({ state: "connected", browser: BROWSER });
@@ -361,6 +362,7 @@ describe("BrowserBridge", () => {
     expect(bridge.state()).toEqual({
       kind: "connected",
       browser: BROWSER,
+      cdp: { available: false, reason: "not_probed" },
       connectionId: expect.stringMatching(/^[0-9a-f]{32}$/),
     });
     await roundTrip(bridge, first);
@@ -527,5 +529,40 @@ describe("BrowserBridge", () => {
     expect((await stat(socketPath)).isFile()).toBe(true);
     // The takeover lock was released.
     expect(await stat(socketPath + ".lock").catch(() => undefined)).toBeUndefined();
+  });
+});
+
+describe("WP-25 passive browser notices", () => {
+  it("binds auto-dismiss audit telemetry to the current connection and exposes CDP availability", async () => {
+    const { bridge, token } = await startBridge();
+    const client = await connectExtension(bridge, token);
+    const events: unknown[] = [];
+    const stop = bridge.onDialogDismissed((e) => events.push(e));
+    client.send({ type: "browser_notice", event: "cdp_status", available: false });
+    client.send({ type: "browser_notice", event: "dialog_auto_dismissed", tabId: 7, dialogType: "confirm" });
+    await waitFor(() => events.length === 1);
+    expect(events).toEqual([{ tabId: 7, dialogType: "confirm", connectionId: client.connectionId }]);
+    expect(bridge.state()).toMatchObject({ cdp: { available: false, reason: "debugger_unavailable" } });
+    client.send({ type: "browser_notice", event: "cdp_status", available: true });
+    await waitFor(() => {
+      const s = bridge.state();
+      return s.kind === "connected" && s.cdp?.available === true;
+    });
+    stop();
+    await roundTrip(bridge, client);
+  });
+  it("rejects page text / operation fields in telemetry and rate-limits notices", async () => {
+    for (const extra of [{ message: "page content" }, { operation: "shell.execute" }, { actor: "user" }]) {
+      const { bridge, token } = await startBridge();
+      const client = await connectExtension(bridge, token);
+      client.send({ type: "browser_notice", event: "dialog_auto_dismissed", tabId: 7, dialogType: "alert", ...extra });
+      await client.closed;
+      expect(bridge.state().kind).toBe("waiting");
+    }
+    const { bridge, token } = await startBridge();
+    const client = await connectExtension(bridge, token);
+    for (let i = 0; i < 121; i++) client.send({ type: "browser_notice", event: "cdp_status", available: true });
+    await client.closed;
+    expect(bridge.state().kind).toBe("waiting");
   });
 });
