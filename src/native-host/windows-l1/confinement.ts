@@ -220,6 +220,13 @@ export class WindowsConfinement implements CommandConfinement {
         readOnlyRuntime: [c.root],
         protectedPaths,
         start: async (profile, network) => {
+          // Windows rewrites TEMP/TMP for an AppContainer to its package AC
+          // directory below the supplied LOCALAPPDATA. Provision that path
+          // inside this disposable Low runtime, never in the host profile.
+          // The active lease's inherited package ACE covers these new nodes.
+          await mkdir(path.join(layout.directories.local, "Packages", profile.name, "AC", "Temp"), {
+            recursive: true,
+          });
           const moduleName: string = "koffi";
           const imported = await import(moduleName),
             ffi = imported.default ?? imported;
