@@ -157,13 +157,26 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
     expect(r, r.err).toMatchObject({ code: 0 });
     expect(r.out).toContain('"stdout":""');
   });
-  it("kills ordinary descendants and refuses detached process-group escape", async () => {
+  it("kills detached/reparented and ordinary descendants by immutable Seatbelt identity", async () => {
     const core = await open("on");
     const r = await run(
       core,
-      `const cp=require('child_process');const p=cp.spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true});p.on('error',e=>{console.log(e.code);process.exit(['EPERM','EACCES'].includes(e.code)?0:2)});p.on('spawn',()=>{p.kill('SIGKILL');process.exit(1)});`,
+      `const cp=require('child_process');const p=cp.spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});console.log(p.pid);p.unref();`,
     );
     expect(r, r.err).toMatchObject({ code: 0 });
+    const detachedPid = Number(r.out.trim());
+    expect(detachedPid).toBeGreaterThan(1);
+    let detachedAlive = true;
+    for (let i = 0; i < 50; i++) {
+      try {
+        process.kill(detachedPid, 0);
+      } catch {
+        detachedAlive = false;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(detachedAlive).toBe(false);
     const p = await core.launcher.launch(
       {
         file: process.execPath,
@@ -190,6 +203,14 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
       await new Promise((r) => setTimeout(r, 20));
     }
     expect(alive).toBe(false);
+  });
+  it("does not allow actors to replace or stack their inherited sandbox identity", async () => {
+    const core = await open("on");
+    const r = await run(
+      core,
+      `const p=require('child_process').spawnSync('/usr/bin/sandbox-exec',['-p','(version 1)(deny default)','/usr/bin/true'],{encoding:'utf8'});console.log(p.status,p.stderr);process.exit(p.status===0?1:0);`,
+    );
+    expect(r, r.err).toMatchObject({ code: 0 });
   });
   it("remains fail-closed after close", async () => {
     const core = await open("on");

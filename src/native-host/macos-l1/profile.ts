@@ -48,9 +48,10 @@ export function seatbeltProfile(layout: SeatbeltLayout): string {
 (allow sysctl-read)
 (allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
-; Retain the launcher's process group, including detached and double-fork attempts.
+; Block direct group/session changes and policy replacement (__mac_syscall).
+; posix_spawn(SETSID) is covered separately by inherited kernel policy identity.
 ; Darwin syscalls.master: setpgid=82, setsid=147 (both supported architectures).
-(deny syscall-unix (syscall-number 82) (syscall-number 147))
+(deny syscall-unix (syscall-number 82) (syscall-number 147) (syscall-number 381))
 (allow mach-lookup
   (global-name "com.apple.system.logger")
   (global-name "com.apple.system.notification_center")

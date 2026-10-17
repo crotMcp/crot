@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { MacosActors } from "./actors.js";
+import { launchSeatbelt } from "./launch.js";
 /** macOS Seatbelt L1. Core authorization stays in ProcessService; no unconfined retry. */
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { lstat, mkdir, mkdtemp, realpath, rm, writeFile, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -21,9 +21,8 @@ import type {
 } from "../../core/platform/types.js";
 import { DockerEndpoint, createUpstream, type DockerUpstream } from "../linux-l1/docker-endpoint.js";
 import { currentContextHost, unixSocketOf } from "../linux-l1/layout.js";
-import { canonicalPath, seatbeltProfile, type SeatbeltLayout } from "./profile.js";
+import { canonicalPath, type SeatbeltLayout } from "./profile.js";
 
-const execute = promisify(execFile);
 const SANDBOX_EXEC = "/usr/bin/sandbox-exec";
 const failed = () =>
   new CrotError("CONFINEMENT_FAILED", "macOS Seatbelt confinement failed; command was not retried outside L1");
@@ -44,6 +43,7 @@ export interface MacosConfinementOptions {
 }
 
 export class MacosConfinement implements CommandConfinement {
+  private actors: Promise<MacosActors> | undefined;
   constructor(private readonly options: MacosConfinementOptions) {}
 
   async probe(network: ConfinementNetwork): Promise<ConfinementStatus> {
@@ -149,7 +149,8 @@ export class MacosConfinement implements CommandConfinement {
       containerProfile: "",
       onRefusal: (request, reason) => scope.audit({ event: "confinement.docker_refused", request, reason }),
     });
-    const core = new MacosCore(this.options.base, scope, root, home, temp, layout, endpoint);
+    const actors = await (this.actors ??= MacosActors.load());
+    const core = new MacosCore(this.options.base, actors, scope, root, home, temp, layout, endpoint);
     try {
       await core.selfTest();
       return core;
@@ -176,6 +177,7 @@ class MacosCore implements CoreConfinement {
   readonly launcher: ProcessLauncher;
   constructor(
     private readonly base: ProcessLauncher,
+    private readonly actors: MacosActors,
     private readonly scope: ConfinementScope,
     private readonly root: string,
     private readonly home: string,
@@ -242,16 +244,22 @@ class MacosCore implements CoreConfinement {
       // Re-resolve every policy path before launch: a moved/replaced protected root is not silently admitted.
       for (const p of [...this.layout.writable, ...this.layout.protectedPaths])
         if (canonicalPath(p) !== p) throw failed();
-      const child = await this.base.launch(
-        {
-          file: SANDBOX_EXEC,
-          args: ["-p", seatbeltProfile(this.layout), spec.file, ...spec.args],
-          display: spec.display,
-        },
-        { ...options, env: this.environment({ ...options.env, ...spec.env }) },
-      );
+      const id = await this.actors.identity(this.root);
+      const child = await launchSeatbelt(this.base, this.actors, id, this.layout, spec, {
+        ...options,
+        env: this.environment({ ...options.env, ...spec.env }),
+      });
       this.children.add(child);
-      // A shell may leave grandchildren after its own exit. Retain the group until close.
+      // Drain detached/reparented descendants as soon as the direct command
+      // exits; retain the record until the drain, not an indefinitely reusable PID.
+      void child.exited.then(() => {
+        try {
+          child.terminateSync();
+          this.children.delete(child);
+        } catch {
+          this.broken = true;
+        }
+      });
       return child;
     } catch {
       this.broken = true;
@@ -269,10 +277,6 @@ class MacosCore implements CoreConfinement {
       server.listen(control, resolve);
     });
     try {
-      const profile = seatbeltProfile({
-        ...this.layout,
-        protectedPaths: [...this.layout.protectedPaths, canary, control],
-      });
       const script = `const fs=require('fs'),net=require('net');
 const denied=f=>{try{f();throw Error('escape')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}};
 denied(()=>fs.readFileSync(${JSON.stringify(canary)}));
@@ -281,12 +285,27 @@ fs.writeFileSync(${JSON.stringify(path.join(this.scope.workspace, probeName))},'
 fs.unlinkSync(${JSON.stringify(path.join(this.scope.workspace, probeName))});
 fs.writeFileSync(${JSON.stringify(path.join(this.temp, "self-test"))},'ok');
 const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(42));s.on('error',e=>{if(!['EPERM','EACCES'].includes(e.code))process.exit(43);else console.log('CROT-SEATBELT-READY')});`;
-      const result = await execute(SANDBOX_EXEC, ["-p", profile, process.execPath, "-e", script], {
-        cwd: this.scope.workspace,
-        env: this.environment(process.env as Record<string, string>),
-        timeout: 10_000,
-        maxBuffer: 64 * 1024,
+      const id = await this.actors.identity(this.root);
+      const child = await launchSeatbelt(
+        this.base,
+        this.actors,
+        id,
+        { ...this.layout, protectedPaths: [...this.layout.protectedPaths, canary, control] },
+        { file: process.execPath, args: ["-e", script], display: "macOS L1 self_test" },
+        { cwd: this.scope.workspace, env: this.environment(process.env as Record<string, string>), stdin: false },
+      );
+      let stdout = "";
+      child.stdout.on("data", (b) => {
+        stdout += String(b);
       });
+      child.stderr.resume();
+      const timer = setTimeout(() => child.terminateSync(), 10_000);
+      const exit = await child.exited;
+      clearTimeout(timer);
+      child.terminateSync();
+      if (!child.stdout.readableEnded) await new Promise<void>((resolve) => child.stdout.once("end", resolve));
+      const result = { stdout };
+      if (exit.code !== 0) throw failed();
       if (
         result.stdout.trim() !== "CROT-SEATBELT-READY" ||
         (await readFile(path.join(this.temp, "self-test"), "utf8")) !== "ok"
