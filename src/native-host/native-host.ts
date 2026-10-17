@@ -1,3 +1,4 @@
+import { MacosConfinement } from "./macos-l1/confinement.js";
 import { loadWindowsPrivateState } from "./windows-state.js";
 import { WindowsConfinement } from "./windows-l1/confinement.js";
 import { WindowsLeaseServiceLifecycle } from "./windows-l1/service-lifecycle.js";
@@ -171,6 +172,15 @@ export class NativeHost {
         lifecycle: windowsLeases,
         base: launcher,
         environment: base.environment,
+        env: base.baseEnvironment,
+        ...(log ? { log } : {}),
+      });
+    }
+
+    if (base.info.os === "macos" && confinementOption !== false) {
+      confinement = new MacosConfinement({
+        base: launcher,
+        stateDir: stateDir ?? base.info.directories.state,
         env: base.baseEnvironment,
         ...(log ? { log } : {}),
       });

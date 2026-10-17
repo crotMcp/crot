@@ -2,6 +2,9 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    ...(process.platform === "darwin"
+      ? { reporters: ["default", ...(process.env.GITHUB_ACTIONS === "true" ? ["github-actions"] : [])] }
+      : {}),
     ...(process.platform === "win32"
       ? {
           // Native qualification changes real shared ancestor descriptors.
