@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { MacosActors } from "./actors.js";
+import { MacosWatchdog } from "./watchdog.js";
 import { launchSeatbelt } from "./launch.js";
 /** macOS Seatbelt L1. Core authorization stays in ProcessService; no unconfined retry. */
 import { lstat, mkdir, mkdtemp, realpath, rm, writeFile, readFile } from "node:fs/promises";
@@ -186,7 +187,14 @@ export class MacosConfinement implements CommandConfinement {
       onRefusal: (request, reason) => scope.audit({ event: "confinement.docker_refused", request, reason }),
     });
     const actors = await (this.actors ??= MacosActors.load());
-    const core = new MacosCore(this.options.base, actors, scope, root, home, temp, layout, endpoint);
+    let watchdog: MacosWatchdog;
+    try {
+      watchdog = await MacosWatchdog.start(root);
+    } catch (error) {
+      await endpoint.close();
+      throw error;
+    }
+    const core = new MacosCore(this.options.base, actors, watchdog, scope, root, home, temp, layout, endpoint);
     try {
       await core.selfTest();
       return core;
@@ -215,6 +223,7 @@ class MacosCore implements CoreConfinement {
   constructor(
     private readonly base: ProcessLauncher,
     private readonly actors: MacosActors,
+    private readonly watchdog: MacosWatchdog,
     private readonly scope: ConfinementScope,
     private readonly root: string,
     private readonly home: string,
@@ -250,7 +259,7 @@ class MacosCore implements CoreConfinement {
     return this.refreshing;
   }
   assertAdmission(): void {
-    if (this.closed || this.broken) throw failed();
+    if (this.closed || this.broken || !this.watchdog.running) throw failed();
   }
   private environment(env: Readonly<Record<string, string>>): Record<string, string> {
     const out = { ...env };
@@ -282,10 +291,19 @@ class MacosCore implements CoreConfinement {
       for (const p of [...this.layout.writable, ...this.layout.protectedPaths])
         if (canonicalPath(p) !== p) throw failed();
       const id = await this.actors.identity(this.root);
-      const child = await launchSeatbelt(this.base, this.actors, id, this.layout, spec, {
-        ...options,
-        env: this.environment({ ...options.env, ...spec.env }),
-      });
+      await this.watchdog.register(id);
+      const child = await launchSeatbelt(
+        this.base,
+        this.actors,
+        id,
+        this.layout,
+        spec,
+        {
+          ...options,
+          env: this.environment({ ...options.env, ...spec.env }),
+        },
+        () => this.assertAdmission(),
+      );
       this.children.add(child);
       // Drain detached/reparented descendants as soon as the direct command
       // exits; retain the record until the drain, not an indefinitely reusable PID.
@@ -293,6 +311,7 @@ class MacosCore implements CoreConfinement {
         try {
           child.terminateSync();
           this.children.delete(child);
+          this.watchdog.forget(id);
         } catch {
           this.broken = true;
         }
@@ -323,6 +342,7 @@ fs.unlinkSync(${JSON.stringify(path.join(this.scope.workspace, probeName))});
 fs.writeFileSync(${JSON.stringify(path.join(this.temp, "self-test"))},'ok');
 const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(42));s.on('error',e=>{if(!['EPERM','EACCES'].includes(e.code))process.exit(43);else console.log('CROT-SEATBELT-READY')});`;
       const id = await this.actors.identity(this.root);
+      await this.watchdog.register(id);
       const child = await launchSeatbelt(
         this.base,
         this.actors,
@@ -330,6 +350,7 @@ const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(
         { ...this.layout, protectedPaths: [...this.layout.protectedPaths, canary, control] },
         { file: process.execPath, args: ["-e", script], display: "macOS L1 self_test" },
         { cwd: this.scope.workspace, env: this.environment(process.env as Record<string, string>), stdin: false },
+        () => this.assertAdmission(),
       );
       this.children.add(child);
       let stdout = "";
@@ -342,6 +363,7 @@ const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(
       clearTimeout(timer);
       child.terminateSync();
       this.children.delete(child);
+      this.watchdog.forget(id);
       if (!child.stdout.readableEnded) await new Promise<void>((resolve) => child.stdout.once("end", resolve));
       const result = { stdout };
       if (exit.code !== 0) throw failed();
@@ -362,6 +384,7 @@ const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(
     await this.refreshing;
     this.closeSync();
     await this.endpoint.close();
+    await this.watchdog.close();
     await rm(this.root, { recursive: true, force: true });
     this.cleaned = true;
   }
@@ -377,6 +400,7 @@ const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(
       }
     }
     this.endpoint.closeSync();
+    this.watchdog.closeSync();
     if (failure) throw failure;
   }
 }

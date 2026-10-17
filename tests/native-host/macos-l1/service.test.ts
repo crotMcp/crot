@@ -133,3 +133,59 @@ const s=n.connect(${JSON.stringify(path.join(state, "control.sock"))});s.on('con
     }
   }, 60000);
 });
+
+describe.runIf(process.platform === "darwin")("macOS admission contracts", () => {
+  it("keeps full_control unrestricted and refuses remote execution when L1 is absent", async () => {
+    const { NativeHost } = await import("../../../src/native-host/native-host.js");
+    const { createTestCore } = await import("../../helpers.js");
+    const { remotePrincipal } = await import("../../../src/core/auth/principal.js");
+    const { RemoteExposureStore } = await import("../../../src/core/approvals/remote-exposure.js");
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "crot-mac-contract-")));
+    const workspace = path.join(root, "w");
+    await mkdir(workspace);
+    const native = await NativeHost.start({
+      startupPath: "inherited",
+      stateDir: path.join(root, "s"),
+      confinement: false,
+    });
+    let core: import("../../../src/core/crot-core.js").CrotCore | undefined;
+    try {
+      core = await createTestCore({ workspace: { root: workspace }, permissions: { mode: "sandbox" } }, undefined, {
+        platform: native.platform,
+        remoteExposure: RemoteExposureStore.inMemory(),
+      });
+      expect(core.status().confinement.available).toBe(false);
+      const remote = {
+        principal: remotePrincipal({
+          id: "mac-l1-test",
+          transport: "relay",
+          authMethod: "test",
+          accountId: "test",
+          deviceId: "test",
+          clientId: "test",
+        }),
+      };
+      await expect(core.processes.exec(remote, { command: process.execPath, args: ["-v"] })).rejects.toMatchObject({
+        code: "CONFINEMENT_UNAVAILABLE",
+      });
+      await core.shutdown();
+      core = undefined;
+      core = await createTestCore(
+        { workspace: { root: workspace }, permissions: { mode: "full_control" } },
+        undefined,
+        { platform: native.platform },
+      );
+      const r = await core.processes.exec(testContext, {
+        command: process.execPath,
+        cwd: root,
+        args: ["-e", "require('fs').writeFileSync('full-control','ok')"],
+      });
+      expect(r.exitCode).toBe(0);
+      expect(await readFile(path.join(root, "full-control"), "utf8")).toBe("ok");
+    } finally {
+      await core?.shutdown();
+      await native.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  }, 60000);
+});

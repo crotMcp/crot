@@ -22,7 +22,9 @@ export async function launchSeatbelt(
   layout: SeatbeltLayout,
   spec: CommandSpec,
   options: LaunchOptions,
+  assertOpen: () => void,
 ): Promise<ManagedProcess> {
+  assertOpen();
   const ack = `CROT-L1-${randomUUID()}\n`;
   const profile = seatbeltProfile({ ...layout, protectedPaths: [...layout.protectedPaths, id.denied] });
   const proc = await base.launch(
@@ -76,6 +78,7 @@ export async function launchSeatbelt(
         if (!admitted) finish(new Error("Seatbelt bootstrap exited"));
       });
     });
+    assertOpen();
     proc.stdin!.write(ack);
     if (!options.stdin) proc.stdin!.end();
     return {

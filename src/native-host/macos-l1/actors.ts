@@ -71,8 +71,8 @@ export class MacosActors {
   ): { sandboxed: number; denied: number; allowed: number; before: Snapshot | undefined; after: Snapshot | undefined } {
     const before = this.snapshot(pid);
     const sandboxed = Number(this.check(pid, null, 0));
-    const denied = Number(this.check(pid, "file-read-data", 0x10001, "const char *", id.denied));
-    const allowed = Number(this.check(pid, "file-read-data", 0x10001, "const char *", id.allowed));
+    const denied = Number(this.check(pid, "file-read-data", 0x40000001, "const char *", id.denied));
+    const allowed = Number(this.check(pid, "file-read-data", 0x40000001, "const char *", id.allowed));
     return { sandboxed, denied, allowed, before, after: this.snapshot(pid) };
   }
   owns(pid: number, id: ActorIdentity): boolean {
@@ -81,8 +81,8 @@ export class MacosActors {
     if (!before || before.zombie || before.uid !== process.getuid?.()) return false;
     if (Number(this.check(pid, null, 0)) !== 1) return false;
     // Koffi variadic type/value pairs are required on Apple Silicon (not fixed-arg ABI).
-    const denied = Number(this.check(pid, "file-read-data", 0x10001, "const char *", id.denied));
-    const allowed = Number(this.check(pid, "file-read-data", 0x10001, "const char *", id.allowed));
+    const denied = Number(this.check(pid, "file-read-data", 0x40000001, "const char *", id.denied));
+    const allowed = Number(this.check(pid, "file-read-data", 0x40000001, "const char *", id.allowed));
     const after = this.snapshot(pid);
     return (
       denied === 1 &&

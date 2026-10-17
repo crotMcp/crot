@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, rm, readFile, writeFile, symlink, realpath } from "node
 import os from "node:os";
 import path from "node:path";
 import net from "node:net";
+import type { DockerUpstream } from "../../../src/native-host/linux-l1/docker-endpoint.js";
 import { createPosixLauncher } from "../../../src/core/platform/node-launcher.js";
 import { MacosConfinement } from "../../../src/native-host/macos-l1/confinement.js";
 import type { CoreConfinement, ManagedProcess } from "../../../src/core/platform/types.js";
@@ -13,6 +14,7 @@ const mac = process.platform === "darwin";
 let root: string, workspace: string, state: string;
 const sandboxes: CoreConfinement[] = [];
 const servers: net.Server[] = [];
+const refusals: { request: string; reason: string }[] = [];
 async function run(core: CoreConfinement, code: string): Promise<{ out: string; err: string; code: number | null }> {
   const p = await core.launcher.launch(
     { file: process.execPath, args: ["-e", code], display: "macOS native qualification" },
@@ -34,14 +36,21 @@ async function collect(p: ManagedProcess) {
   if (!p.stdout.readableEnded) await new Promise<void>((resolve) => p.stdout.once("end", resolve));
   return { out, err, code: result.code };
 }
-async function open(network: "on" | "off") {
-  const provider = new MacosConfinement({ base: createPosixLauncher(), stateDir: state, env: process.env });
+async function open(network: "on" | "off", upstream?: DockerUpstream) {
+  const provider = new MacosConfinement({
+    base: createPosixLauncher(),
+    stateDir: state,
+    env: process.env,
+    ...(upstream ? { upstream } : {}),
+  });
   const core = await provider.open({
     workspace,
     protectedPaths: [state],
     network,
     dockerEnvironment: process.env as Record<string, string>,
-    audit: () => undefined,
+    audit: (e) => {
+      refusals.push(e);
+    },
   });
   sandboxes.push(core);
   expect(core.status()).toMatchObject({ mechanism: "macos-seatbelt", available: true, reason: null });
@@ -49,6 +58,7 @@ async function open(network: "on" | "off") {
 }
 describe.runIf(mac)("macOS production Seatbelt qualification", () => {
   beforeEach(async () => {
+    refusals.length = 0;
     root = await realpath(await mkdtemp(path.join(os.tmpdir(), "crot-mac-test-")));
     workspace = path.join(root, "workspace");
     state = path.join(root, "state");
@@ -147,6 +157,44 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
     );
     expect(r, r.err).toMatchObject({ code: 0 });
     expect(r.out).toContain("403 Forbidden");
+    expect(refusals).toHaveLength(1);
+    expect(refusals[0]!.request).toBe("container.create");
+  });
+  it("mediates a positive Docker byte stream and refuses protected/writable host binds", async () => {
+    const daemon = path.join(root, "mock-daemon.sock");
+    const server = net.createServer((s) =>
+      s.once("data", () => s.end("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK")),
+    );
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(daemon, resolve));
+    const core = await open("on", {
+      local: true,
+      transport: "unix",
+      connect: () =>
+        new Promise((resolve, reject) => {
+          const s = net.connect(daemon);
+          s.once("connect", () => resolve(s));
+          s.once("error", reject);
+        }),
+    });
+    const r = await run(
+      core,
+      `const net=require('net');async function req(target,body){return new Promise((resolve,reject)=>{const s=net.connect(process.env.DOCKER_HOST.slice(7));let out='';s.on('connect',()=>s.write((body?'POST':'GET')+' '+target+' HTTP/1.1\\r\\nHost: docker\\r\\nConnection: close\\r\\n'+(body?'Content-Length: '+Buffer.byteLength(body)+'\\r\\n':'')+'\\r\\n'+(body||'')));s.on('data',b=>out+=b);s.on('end',()=>resolve(out));s.on('error',reject)})};(async()=>{const a=await req('/_ping');if(!a.includes('200 OK'))throw Error(a);for(const bind of ${JSON.stringify([state + ":/state:ro", root + ":/host:rw"])}){const b=await req('/containers/create',JSON.stringify({Image:'test',HostConfig:{Binds:[bind]}}));if(!b.includes('403 Forbidden'))throw Error(b)}console.log('DOCKER-200-403-403')})().catch(e=>{console.error(e);process.exit(1)});`,
+    );
+    expect(r, r.err).toMatchObject({ code: 0 });
+    expect(r.out).toContain("DOCKER-200-403-403");
+    expect(refusals).toHaveLength(2);
+  });
+  it("cannot turn a new external hardlink into an outside write", async () => {
+    const external = path.join(root, "outside-hardlink");
+    await writeFile(external, "ORIGINAL");
+    const core = await open("on");
+    const r = await run(
+      core,
+      `const fs=require('fs');try{fs.linkSync(${JSON.stringify(external)},'alias');fs.writeFileSync('alias','BAD');console.log('ESCAPED');process.exit(1)}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e;console.log('LINK-DENIED')}`,
+    );
+    expect(r, r.err).toMatchObject({ code: 0 });
+    expect(await readFile(external, "utf8")).toBe("ORIGINAL");
   });
   it("blocks security CLI access to CROT Keychain secrets", async () => {
     const core = await open("on");
