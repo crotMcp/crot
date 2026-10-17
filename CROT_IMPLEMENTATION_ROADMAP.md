@@ -1193,13 +1193,18 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
 
 ### 8.4 Next-WP selection rule
 
+Сверка целевой ветки перед разрешением конфликта: remote `main` —
+`6f98e5d` (merge PR #29); `0590c31` — предшествующий merge PR #28,
+а `e23b7b9` — историческая Windows-база аудита. WP-23b реализован в PR #30
+по AD-31; AD-30/WP-23c Done и порядок следующих работ ниже сохраняются.
+
 1. If any OD that blocks an unblocked WP is undecided, the next task is that
    decision (docs-only PR or first commit of the WP).
 2. Otherwise choose, in order: an unblocked WP on chain A or B; then WP-23x;
    then WP-24…WP-27; then phase-4 WPs whose dependencies are done.
-3. **Historical audit baseline: `e23b7b9`, PR #27 merged, WP-23c Done.**
-   PR #28 moved main to `0590c31`; WP-23b is implemented in PR #30 (AD-31).
-   The pinned audit/CI results remain historical evidence, not a moving HEAD.
+3. **Историческая база аудита: `e23b7b9` (merge PR #27); WP-23c Done.**
+   Это зафиксированный срез и источник результатов CI, а не указатель на текущий
+   HEAD `main`; последующие документационные merge не меняют эту базу доказательств.
 
 По существующему правилу roadmap §8.4 сначала выбирается незавершённая,
 разблокированная задача цепочки B: **WP-29 follow-up**, а не WP-32 напрямую.
