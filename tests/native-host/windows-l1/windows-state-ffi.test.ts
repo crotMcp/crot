@@ -70,6 +70,18 @@ describe.skipIf(!cc)("exact CROT private state native ABI", () => {
     expect(handles()).toBe(0);
     expect(memory()).toBe(0);
   });
+  it("keeps actor-writable trees owner-only without an explicit Medium write-up denial", () => {
+    fault(0);
+    expect(api(file, owner, true, true, [], "writable")).toBe(true);
+    expect(lastDescriptor()).toBe(`D:P(A;OICI;FA;;;${owner})S:`);
+    expect(api(file, owner, false, true, [], "writable")).toBe(true);
+    expect(lastDescriptor()).toBe(`D:P(A;;FA;;;${owner})S:`);
+    expect(api(file, owner, false, true)).toBe(true);
+    expect(lastDescriptor()).toContain("NWNR;;;ME");
+    expect(handles()).toBe(0);
+    expect(memory()).toBe(0);
+    expect(invalid()).toBe(0);
+  });
   it("installs explicit deny for the exact AppContainer SID without an Everyone/Users deny", () => {
     fault(0);
     expect(api(file, owner, false, true, ["S-1-15-2-1-2-3-4-5-6-7"])).toBe(true);

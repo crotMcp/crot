@@ -132,13 +132,15 @@ export class NativeHost {
 
     let windowsLeases: WindowsLeaseServiceLifecycle | undefined;
     let leasePrivateFiles = privateFiles,
-      runtimePrivateFiles = privateFiles;
+      runtimePrivateFiles = privateFiles,
+      writableRuntimeFiles = privateFiles;
     if (base.info.os === "windows" && stateDir && windowsOwnerSid && nativeAcl) {
       try {
         // WAL/profile/admission records are NR secrets; executable/runtime
         // trees deliberately are not NR, so a granted AppContainer can read.
         leasePrivateFiles = await loadWindowsPrivateState(windowsOwnerSid);
         runtimePrivateFiles = await loadWindowsPrivateState(windowsOwnerSid, [], "runtime");
+        writableRuntimeFiles = await loadWindowsPrivateState(windowsOwnerSid, [], "writable-runtime");
         windowsLeases = new WindowsLeaseServiceLifecycle({
           stateDir,
           ownerSid: windowsOwnerSid,
@@ -168,6 +170,7 @@ export class NativeHost {
         ownerSid: windowsOwnerSid,
         privateFiles: leasePrivateFiles,
         runtimeFiles: runtimePrivateFiles,
+        writableRuntimeFiles,
         lifecycle: windowsLeases,
         base: launcher,
         environment: base.environment,

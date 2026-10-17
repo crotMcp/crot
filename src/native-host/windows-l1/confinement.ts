@@ -62,6 +62,7 @@ export interface WindowsConfinementOptions {
   readonly ownerSid: string | undefined;
   readonly privateFiles: PrivateFileProtection;
   readonly runtimeFiles: PrivateFileProtection;
+  readonly writableRuntimeFiles: PrivateFileProtection;
   readonly lifecycle: WindowsLeaseServiceLifecycle | undefined;
   readonly base: ProcessLauncher;
   readonly environment: EnvironmentPolicy;
@@ -132,7 +133,7 @@ export class WindowsConfinement implements CommandConfinement {
     return pending;
   }
   private async runtime(c: WindowsComponents, scope: ConfinementScope): Promise<Runtime> {
-    const { runtimeFiles: privateFiles, ownerSid, lifecycle, environment, base } = this.options;
+    const { writableRuntimeFiles: privateFiles, ownerSid, lifecycle, environment, base } = this.options;
     if (!ownerSid || !lifecycle) throw failed("lease owner unavailable");
     const directory = path.join(this.options.stateDir, "windows-l1", "runtime", randomUUID());
     await privateFiles.ensureDirectory(directory);
@@ -355,7 +356,7 @@ export class WindowsConfinement implements CommandConfinement {
     const root = path.join(this.options.stateDir, "windows-l1", "self-test", randomUUID()),
       workspace = path.join(root, "workspace"),
       secret = path.join(root, "private-canary");
-    await this.options.runtimeFiles.ensureDirectory(root);
+    await this.options.writableRuntimeFiles.ensureDirectory(root);
     await mkdir(workspace);
     await writeFile(secret, "self-test-canary");
     await this.options.privateFiles.protectFile!(secret);
@@ -377,7 +378,7 @@ export class WindowsConfinement implements CommandConfinement {
       });
       const code = `const f=require('fs'),cp=require('child_process'),http=require('http');
 const secret=${JSON.stringify(secret)};for(const fn of [()=>f.readFileSync(secret),()=>f.writeFileSync(secret,'bad')]){try{fn();process.exit(91)}catch(e){if(e.code!=='EPERM')process.exit(92)}}
-f.writeFileSync('a','ok');f.renameSync('a','b');
+f.writeFileSync('a','ok');f.renameSync('a','b');f.writeFileSync(require('path').join(process.env.TEMP,'runtime-canary'),'ok');
 const child=cp.spawnSync(process.execPath,['-e',"require('child_process').spawnSync(process.execPath,['-e','process.exit(0)'],{stdio:'ignore'});process.exit(0)"],{stdio:'ignore'});if(child.error||child.status!==0)process.exit(93);
 const req=http.get('http://127.0.0.1:${address.port}',r=>{r.resume();r.on('end',()=>process.exit(${network === "on" ? "r.statusCode===200?0:94" : "95"}))});req.on('error',()=>process.exit(${network === "off" ? "0" : "96"}));req.setTimeout(4000,()=>process.exit(${network === "off" ? "0" : "97"}));`;
       const process_ = await runtime.launcher.launch(
@@ -398,7 +399,7 @@ const req=http.get('http://127.0.0.1:${address.port}',r=>{r.resume();r.on('end',
       await Promise.all([output, errors]);
       if (exit.code !== 0 || (await readFile(secret, "utf8")) !== "self-test-canary") {
         this.options.log?.(
-          `Windows L1 self-test exit: ${exit.code}; ${diagnostic.split(/\r?\n/).slice(0, 4).join(" ").slice(0, 700)}`,
+          `Windows L1 self-test exit: ${exit.code}; ${diagnostic.replace(/\s+/g, " ").slice(0, 1600)}`,
         );
         throw failed("self-test result");
       }
