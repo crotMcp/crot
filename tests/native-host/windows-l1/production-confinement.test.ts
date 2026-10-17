@@ -197,9 +197,22 @@ f.unlinkSync('delete-original.txt');try{f.writeFileSync('host-link','bad');proce
           },
         }) + "\n",
       );
+    } catch (cause) {
+      appendFileSync(
+        inject("stage6aEvidence"),
+        JSON.stringify({
+          title: "CROT-6A-production-windows-failure",
+          value: { logs, message: cause instanceof Error ? cause.message : String(cause) },
+        }) + "\n",
+      );
+      throw cause;
     } finally {
-      await core?.shutdown();
-      await native?.close();
+      // Do not strand the native owner when Core shutdown reports a failure.
+      try {
+        await core?.shutdown();
+      } finally {
+        await native?.close();
+      }
       await build.cleanup();
       await dirs.cleanup();
     }

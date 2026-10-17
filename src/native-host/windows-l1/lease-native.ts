@@ -50,7 +50,7 @@ const aces = (b: Buffer) => {
   }
   return result;
 };
-function validateDelta(object: LeaseObject, sid: string): void {
+export function validateNativeLeaseDelta(object: LeaseObject, sid: string): void {
   const before = leaseDescriptor(Buffer.from(object.original, "base64")),
     after = leaseDescriptor(Buffer.from(object.planned, "base64"));
   if (
@@ -70,6 +70,35 @@ function validateDelta(object: LeaseObject, sid: string): void {
       JSON.stringify(aces(Buffer.from(object.original, "base64")))
   )
     throw fail("foreign ACE plan mutation");
+  if (object.role === "workspace-link") {
+    // A by-ID NTFS open can report ANY hardlink name, including the original
+    // outside name. Only this exact file-global read-only delta may bypass the
+    // single-name containment check; no writable outside object is admitted.
+    if (object.identity.directory || (object.identity.links ?? 0) < 2) throw fail("read-only hardlink identity");
+    const values = sid.split("-").slice(3).map(Number),
+      binarySid = Buffer.alloc(8 + values.length * 4);
+    binarySid[0] = 1;
+    binarySid[1] = values.length;
+    binarySid[7] = 15;
+    values.forEach((value, i) => binarySid.writeUInt32LE(value, 8 + i * 4));
+    const ace = (type: number, mask: number) => {
+      const b = Buffer.alloc(8 + binarySid.length);
+      b[0] = type;
+      b.writeUInt16LE(b.length, 2);
+      b.writeUInt32LE(mask, 4);
+      binarySid.copy(b, 8);
+      return b.toString("hex");
+    };
+    const originalAces = aces(Buffer.from(object.original, "base64")),
+      plannedAces = aces(Buffer.from(object.planned, "base64"));
+    if (
+      plannedAces.length !== originalAces.length + 2 ||
+      ![ace(1, 0x000d0156), ace(0, 0x1200a9)].every(
+        (expected) => plannedAces.filter((a) => a === expected).length === 1,
+      )
+    )
+      throw fail("read-only hardlink ACE delta");
+  }
 }
 export function createNativeLeaseAdapter(options: {
   acl: LeaseAclApi;
@@ -113,7 +142,7 @@ export function createNativeLeaseAdapter(options: {
           throw fail("journal inside actor tree");
       }
       for (const object of plan.objects) {
-        validateDelta(object, plan.profile.sid);
+        validateNativeLeaseDelta(object, plan.profile.sid);
         let current: ReturnType<typeof observe>;
         try {
           current = observe(object);
@@ -121,10 +150,7 @@ export function createNativeLeaseAdapter(options: {
           if (missingWorkspaceNode(object, cause)) continue;
           throw cause;
         }
-        if (
-          ["workspace-node", "workspace-link"].includes(object.role) &&
-          !inside(workspace.volumePath, current.volumePath)
-        )
+        if (object.role === "workspace-node" && !inside(workspace.volumePath, current.volumePath))
           throw fail("workspace node escaped");
         if (object.role === "runtime-node" && !runtime.some((r) => inside(r, current.dosPath)))
           throw fail("runtime node escaped");

@@ -188,8 +188,16 @@ export class WindowsNativeLeases {
         this.failed = true;
         prepared?.close();
         if (acquired) await this.recovery.release(profile.name.slice(8));
-        else if (planned) await this.recovery.recoverAll();
-        else {
+        else if (planned) {
+          await this.recovery.recoverAll();
+          // Validation may refuse before store.create: then no WAL owns this
+          // fresh receipt. List strictly (never guess a corrupt WAL is absent)
+          // and retire only the unstarted profile this controller still owns.
+          if (!(await this.store.list()).some((r) => r.plan.id === profile.name.slice(8))) {
+            await this.profiles.remove(profile, profile);
+            this.live.delete(profile.name);
+          }
+        } else {
           await this.profiles.remove(profile, profile);
           this.live.delete(profile.name);
         }
