@@ -1,7 +1,7 @@
 /**
- * Restricted-token ProcessLauncher component. It supplies the existing Core
- * contract; it is deliberately NOT registered as CommandConfinement. Filesystem,
- * protected-state and IPC boundaries must qualify before any availability claim.
+ * Native Win32 ProcessLauncher shared by production AppContainer confinement
+ * and explicit research fixtures. The controller owns the filesystem, protected
+ * state, IPC and readiness boundaries; this launcher alone never claims L1.
  */
 import { bnoIsolationAttribute, type BnoIsolation } from "./bno-isolation.js";
 import { CrotError } from "../../core/errors.js";

@@ -117,6 +117,37 @@ export function validateNativeLeaseDelta(object: LeaseObject, sid: string): void
       throw fail("read-only hardlink ACE delta");
   }
 }
+/** No cleanup write is allowed through an outside hardlink alias. Only a
+ * previously admitted read-only original, already exactly restored, qualifies. */
+export function restoredWorkspaceLinkAlias(
+  saved: LeaseObject | undefined,
+  object: LeaseObject,
+  descriptor: string,
+  links: number,
+): boolean {
+  if (
+    !saved ||
+    saved.role !== "workspace-link" ||
+    saved.identity.directory ||
+    object.identity.directory ||
+    key(saved) !== key(object) ||
+    saved.identity.creationTime !== object.identity.creationTime ||
+    (saved.identity.links ?? 0) < 2 ||
+    links !== saved.identity.links ||
+    object.identity.links !== links
+  )
+    return false;
+  const a = leaseDescriptor(Buffer.from(saved.original, "base64")),
+    b = leaseDescriptor(Buffer.from(descriptor, "base64"));
+  return (
+    a.control === b.control &&
+    a.rmControl === b.rmControl &&
+    a.owner.equals(b.owner) &&
+    a.group.equals(b.group) &&
+    a.sacl.equals(b.sacl) &&
+    a.dacl.equals(b.dacl)
+  );
+}
 export function createNativeLeaseAdapter(options: {
   acl: LeaseAclApi;
   profiles: DurableProfiles;
@@ -235,6 +266,7 @@ export function createNativeLeaseAdapter(options: {
     stripNewWorkspaceObjects: async (plan) => {
       const root = plan.objects.find((o) => o.role === "workspace")!,
         original = new Set(plan.objects.map(key)),
+        savedObjects = new Map(plan.objects.map((o) => [key(o), o])),
         held: Hold[] = [];
       let count = 0;
       const visit = async (object: LeaseObject, depth: number) => {
@@ -243,7 +275,11 @@ export function createNativeLeaseAdapter(options: {
         held.push(hold);
         const info = hold.snapshot();
         const rootPath = held[0]!.snapshot().volumePath;
-        if (!inside(rootPath, info.volumePath)) throw fail("workspace walk escaped");
+        if (
+          !inside(rootPath, info.volumePath) &&
+          !restoredWorkspaceLinkAlias(savedObjects.get(key(object)), object, info.descriptor, info.links)
+        )
+          throw fail("workspace walk escaped");
         // Strip parent before enumeration: concurrently created descendants
         // can no longer inherit the transient SID from this directory.
         if (!original.has(key(object))) hold.stripOwnSid(plan.profile.sid);

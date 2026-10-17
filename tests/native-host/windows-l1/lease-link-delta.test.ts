@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { LeaseObject } from "../../../src/native-host/windows-l1/lease-journal.js";
-import { validateNativeLeaseDelta } from "../../../src/native-host/windows-l1/lease-native.js";
+import {
+  restoredWorkspaceLinkAlias,
+  validateNativeLeaseDelta,
+} from "../../../src/native-host/windows-l1/lease-native.js";
 const sid = "S-1-15-2-1-2-3-4-5-6-7";
 function object(deny = 0x000d0156, allow = 0x1200a9, flags = 0): LeaseObject {
   const base = Buffer.alloc(52);
@@ -62,5 +65,22 @@ describe("identity-only external hardlink recovery is strictly read-only", () =>
         "read-only hardlink identity",
       );
     }
+  });
+  it("permits an outside alias only for an unchanged, exactly restored read-only original", () => {
+    const saved = object(),
+      current = { ...saved, role: "workspace-node" as const };
+    expect(restoredWorkspaceLinkAlias(saved, current, saved.original, 2)).toBe(true);
+    expect(restoredWorkspaceLinkAlias(undefined, current, saved.original, 2)).toBe(false);
+    expect(restoredWorkspaceLinkAlias(saved, current, saved.planned, 2)).toBe(false);
+    expect(restoredWorkspaceLinkAlias(saved, current, saved.original, 3)).toBe(false);
+    expect(restoredWorkspaceLinkAlias({ ...saved, role: "workspace-node" }, current, saved.original, 2)).toBe(false);
+    expect(
+      restoredWorkspaceLinkAlias(
+        saved,
+        { ...current, identity: { ...current.identity, creationTime: "0000000000000009" } },
+        saved.original,
+        2,
+      ),
+    ).toBe(false);
   });
 });

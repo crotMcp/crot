@@ -390,7 +390,7 @@ export class WindowsConfinement implements CommandConfinement {
       const code = `const f=require('fs'),cp=require('child_process'),http=require('http');
 const secret=${JSON.stringify(secret)};for(const fn of [()=>f.readFileSync(secret),()=>f.writeFileSync(secret,'bad')]){try{fn();process.exit(91)}catch(e){if(e.code!=='EPERM')process.exit(92)}}
 f.writeFileSync('a','ok');f.renameSync('a','b');f.writeFileSync(require('path').join(process.env.TEMP,'runtime-canary'),'ok');
-const child=cp.spawnSync(process.execPath,['-e',"require('child_process').spawnSync(process.execPath,['-e','process.exit(0)'],{stdio:'ignore'});process.exit(0)"],{stdio:'ignore'});if(child.error||child.status!==0)process.exit(93);
+const child=cp.spawnSync(process.execPath,['-e',"const r=require('child_process').spawnSync(process.execPath,['-e','process.exit(0)'],{stdio:'ignore'});if(r.error||r.status!==0)process.exit(98);process.exit(0)"],{stdio:'ignore'});if(child.error||child.status!==0)process.exit(93);
 const req=http.get('http://127.0.0.1:${address.port}',r=>{r.resume();r.on('end',()=>process.exit(${network === "on" ? "r.statusCode===200?0:94" : "95"}))});req.on('error',()=>process.exit(${network === "off" ? "0" : "96"}));req.setTimeout(4000,()=>process.exit(${network === "off" ? "0" : "97"}));`;
       const process_ = await runtime.launcher.launch(
         { file: c.executable, args: ["-e", code], display: "Windows L1 native startup self-test" },
