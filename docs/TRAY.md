@@ -71,9 +71,11 @@ npx electron dist/tray/main.js --state-dir=<state directory>
   cannot be written; changes that narrow access are applied even then.
 - The status section shows the service, mode, workspace, connected agents,
   the browser connection, command confinement L1 with its reason code (Linux:
-  WP-23a, [`L1.md`](L1.md); macOS and Windows: not available until WP-23b/c,
-  so remote shell and process operations are refused there), and the
-  components that are not available yet: the CDP browser backend (WP-24).
+  WP-23a, [`L1.md`](L1.md); qualified Windows: WP-23c Done, AD-30 (Server2025 x64 Node20/22;
+  preparation/self_test required); macOS: unavailable pending WP-23b,
+  so remote shell/process are refused where L1 is unavailable), and
+  unavailable-component reasons. WP-24 CDP is implemented on main; its final
+  manual acceptance is still open, not a missing backend.
 - The profile lines (WP-31) show the effective preset and where it comes
   from (chosen on this device, the configuration, or unreadable device
   settings), the remote profile (mode, untrusted-content protection,

@@ -1,0 +1,161 @@
+{
+  "main": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+  "pr": 27,
+  "merged": true,
+  "treeMatchesQualifiedHead": "f916a6b67d0404fce621e84fadd8caeb5a3dd92d",
+  "source": "Public GitHub job annotations; selected event summaries, not replacement of full logs or original qualification.json",
+  "jobs": [
+    {
+      "name": "real-chromium",
+      "head": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180363/job/117449911212"
+    },
+    {
+      "name": "L1 / ubuntu-24.04",
+      "head": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180333/job/117449911120"
+    },
+    {
+      "name": "L1 / ubuntu-22.04",
+      "head": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180333/job/117449911264"
+    },
+    {
+      "name": "L1 / ubuntu-24.04-arm",
+      "head": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180333/job/117449911297"
+    },
+    {
+      "name": "L1 / ubuntu-22.04-arm",
+      "head": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180333/job/117449911322"
+    },
+    {
+      "name": "Node 22 / ubuntu-latest",
+      "head": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180293/job/117449910861"
+    },
+    {
+      "name": "Node 20 / ubuntu-latest",
+      "head": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180293/job/117449911107"
+    },
+    {
+      "name": "Node 20 / macos-latest",
+      "head": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180293/job/117449911114"
+    },
+    {
+      "name": "Node 22 / macos-latest",
+      "head": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180293/job/117449911205"
+    },
+    {
+      "name": "Node 20 / windows-latest",
+      "head": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180293/job/117449911210"
+    },
+    {
+      "name": "Node 22 / windows-latest",
+      "head": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180293/job/117449911225"
+    }
+  ],
+  "windows": [
+    {
+      "job": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180293/job/117449911210",
+      "production": {
+        "networkOn": true,
+        "networkOff": true,
+        "deliveryVerified": true,
+        "coreShell": true,
+        "coreProcessExit": 23,
+        "workspaceOperations": "7/7",
+        "restoredFileSnapshots": "13/13",
+        "hardlinkWrite": "EPERM",
+        "deletedOriginalRecovered": true,
+        "mismatchRefused": true,
+        "remoteUnavailable": true,
+        "mechanism": "windows-appcontainer",
+        "checkout": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+        "node": "v20.20.2",
+        "logs": [
+          "Windows L1 readiness failure: Windows L1 components have not been provisioned.",
+          "Windows L1 on: components_missing",
+          "Windows L1 off: available",
+          "Windows L1 on: available",
+          "Windows L1 on: available"
+        ]
+      },
+      "fullLeaseRecovery": {
+        "restoredOriginals": 30,
+        "independentFileSnapshots": 13,
+        "actorsDead": true,
+        "newNodesStripped": 3,
+        "loopbackRemoved": true,
+        "profileReceiptClosed": true,
+        "startupIdempotent": true,
+        "serviceLifecycleTested": true,
+        "dockerLocalTransport": true,
+        "dockerResponses": [200, 403, 403, 403],
+        "dockerRefusalsAudited": 3,
+        "dockerUpstream": "mock-byte-stream-not-real-daemon",
+        "checkout": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+        "node": "v20.20.2"
+      }
+    },
+    {
+      "job": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180293/job/117449911225",
+      "production": {
+        "networkOn": true,
+        "networkOff": true,
+        "deliveryVerified": true,
+        "coreShell": true,
+        "coreProcessExit": 23,
+        "workspaceOperations": "7/7",
+        "restoredFileSnapshots": "13/13",
+        "hardlinkWrite": "EPERM",
+        "deletedOriginalRecovered": true,
+        "mismatchRefused": true,
+        "remoteUnavailable": true,
+        "mechanism": "windows-appcontainer",
+        "checkout": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+        "node": "v22.23.3",
+        "logs": [
+          "Windows L1 readiness failure: Windows L1 components have not been provisioned.",
+          "Windows L1 on: components_missing",
+          "Windows L1 off: available",
+          "Windows L1 on: available",
+          "Windows L1 on: available"
+        ]
+      },
+      "fullLeaseRecovery": {
+        "restoredOriginals": 30,
+        "independentFileSnapshots": 13,
+        "actorsDead": true,
+        "newNodesStripped": 3,
+        "loopbackRemoved": true,
+        "profileReceiptClosed": true,
+        "startupIdempotent": true,
+        "serviceLifecycleTested": true,
+        "dockerLocalTransport": true,
+        "dockerResponses": [200, 403, 403, 403],
+        "dockerRefusalsAudited": 3,
+        "dockerUpstream": "mock-byte-stream-not-real-daemon",
+        "checkout": "e23b7b9c29c5e3e1758b9ad2703bbd827648426f",
+        "node": "v22.23.3"
+      }
+    }
+  ]
+}

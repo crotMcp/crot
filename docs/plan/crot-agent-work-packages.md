@@ -178,7 +178,16 @@ own requests. Profile: AD-13 point 4.
 ### WP-23b — L1 for macOS (Seatbelt, Keychain)
 - **Size:** M. **Depends on:** WP-21.
 
-### WP-23c — L1 for Windows (spike, then restricted / low-IL token + Job Object)
+### WP-23c — Windows L1: Done (AD-30)
+
+**Текущий статус:** merged PR #27 `e23b7b9`; OD-6 / Windows OD-9 closed.
+Qualified Server2025 x64 Node20/22 only; full recovery and production backend
+are verified. See [L1](../L1.md) and [acceptance](../design/windows-l1-curator-appcontainer.md).
+Historical evidence below is retained verbatim: Draft/open/unavailable and
+failed tests refer only to those source-pinned experiments, not current main.
+
+#### История WP-23c — отвергнутые/компонентные этапы
+
 - **AD-28, $0 license-fee qualification:** Dokan MIT/LGPL permits commercial use subject to release compliance/relinking obligations, not automatic LGPL exemption for security pins.75ce0f2 implements effective LPAC and separate literal-zero raw probes; failed class46 queries at4804e32 remain failed prerequisites, not denial. Fresh exact-owned profiles have normal cleanup; abrupt recovery unqualified. Actual results/8 criteria remain partial/NOT MET; no device grants, READY bypass, CROT relicensing or accepted backend. Full local1732+147; 75ce0f2 macOS20 concurrent-start failure retained; unchanged-code20808e8 follow-up all9 non-Windows PASS,2 Windows FAIL; root cause not claimed fixed. See [source-pinned report](../design/windows-l1-continuation.md) and [zero-fee decision](../design/windows-l1-zero-license.md).
 - **AD-27 component, not acceptance:** ca04414 really compiles/verifies pinned signed driver, reads Medium-before descriptor snapshots and mounts20/22, but actor CRUD fails.0eb1519 adds pre-READY native raw-control isolation self-test: Low unique profile opens exact owned raw endpoint with zero access; helper refuses READY/unmounts, actor not launched, no sensitive IOCTL. Do not lower raw label or select unsafe backend. Node22 independent10s setup-hook timeout retained;43ff402 fixes composite setup deadlines/ownership without actor gate changes and confirms control-zero-open both20/22 with13 ready fixtures each. c6a1c45 fixes registry flake with verified same-digest fallback and5 portable tests, not weaker Docker assertions. Full local1711+147;all9 non-Windows CI green/2 Windows red; native process11/diagnostics10/RPC7 PASS both, actual ready Node22 state5+5/control denial preserved. Eight mandatory criteria remain partial/NOT MET; full control/data, runtime/filesystem, state/Docker/network/matrix/backend required. PR27 Draft/open; no merge.
 - **Active continuation (not accepted):** Native9ced362:8 successful /2 Windows failures /1 Ubuntu24 ECR rate-limit. AD-26 actual service-state provider e0cdb06 and native SACL serialization fix9ced362: owner controls/legacy credential/5 private descriptors work both runtimes; ready Node22 denies5 actual secret/key/settings/audit reads and5 writes plus actual control connection, test passes; Node20 pre-JS fails, not denial. Full local1683+147. Native process11/11, stage6a10/10, workspace RPC7/7 pass both. AD-24 label comparison now truly serializes SACL, no weaker query/ACL fallback. BNO does not solve startup/NUL/descendants/shells. No transparent filesystem, full Docker/self-approval/external config suite, supported matrix or accepted production backend; OD-6/OD-9 remain OPEN.
@@ -212,7 +221,7 @@ own requests. Profile: AD-13 point 4.
   owner authorization; x64 and ARM64 remain in the target. See
   `docs/design/windows-l1-spike.md`. No production L1 availability is claimed;
   OD-6 and the full remote shell/process acceptance remain open.
-- **Size:** L. **Depends on:** WP-21.
+- **Size:** L. **Depends on:** WP-21; OD-6 / Windows OD-9 now closed by AD-30.
 
 - **Done when (each):** the AD-13 point 4 profile passes tests — no access to
   tokens, configuration, audit log, Docker socket or the tray control channel;
@@ -258,7 +267,7 @@ tests point 19). The cards below implement it and must not weaken it.
   interruption/deadline of blocked wait polls. Runs 4 and 5/follow-up recorded
   in `docs/acceptance/WP-24-manual-run-4.md` and `WP-24-manual-run-5.md`:
   B4/E5/windows and G5/H passed by owner; C1 partial. Default-load timeout
-  signalling in `wp-24-load-timeout-and-acceptance`; manual confirmation and
+  signalling merged in PR #26 (`289f500`); manual confirmation and
   final acceptance remain open.
 
 ### WP-25 — Dialogs, file choosers, background screenshots, debugger lifecycle
@@ -366,7 +375,7 @@ tests point 19). The cards below implement it and must not weaken it.
   `crot_status` and the tray show them.
 
 ### WP-32 — Remote E2E acceptance suite and client compatibility
-- **Size:** L. **Depends on:** WP-30, WP-31, WP-24…WP-26.
+- **Size:** L. **Depends on:** WP-30, WP-31, WP-24…WP-27, WP-38 (roadmap §6.6).
 - **Scope:** ARCHITECTURE.md §14. Automated: SDK client -> relay -> CROT ->
   fixture project (files, commands under L1, Git, Docker) -> real Chromium
   (multi-step scenario across tabs, form, dialog, upload, download). Manual:

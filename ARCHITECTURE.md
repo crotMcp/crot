@@ -22,6 +22,26 @@
 > (WP-17…WP-37) are in `docs/plan/crot-agent-work-packages.md`. `AGENTS.md`
 > lists what a new contributor or agent reads first.
 
+## Проверяемый статус реализации (не новое решение)
+
+Срез проверки реализации: `main` `e23b7b9c29c5e3e1758b9ad2703bbd827648426f` (merge PR #27). PR #27 слит, не Draft;
+WP-23c **Done**, AD-30 действует, OD-6 и Windows-часть OD-9 закрыты.
+Дерево merge совпадает с квалифицированным `f916a6b`; `8fe6ba5` — более
+ранний квалификационный источник, не текущий HEAD. На самом `e23b7b9`
+подтверждены все 11 заданий: [основной CI 6/6](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180293), [Linux L1 4/4](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180333), [Chromium 1/1](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180363).
+Это фиксированная база кода для документационной сверки, не SHA будущего docs PR.
+
+**Как читать статусы.** «Реализовано» означает наличие кода; «проверено» —
+конкретный тест/CI на указанном SHA; «ручная приёмка» — отдельная запись владельца;
+«Done» требует критериев пакета, не одного merge. «Запланировано» и
+«не подтверждено» не означают доступность. Ни merge PR #27, ни зелёный CI
+не означают готовность всего CROT к коммерческому релизу.
+
+Сверка функций, источников и зависимостей: [аудит документации](docs/design/post-merge-e23b7b9-doc-audit.md).
+Нормативные тексты AD-1…AD-30 ниже сохранены; исторические AD-24…29
+не являются перечнем текущих блокеров. Статус WP-24: код и тесты в main,
+ручная приёмка ещё открыта. Следующие работы — roadmap §8.4.
+
 ## 1. Product
 
 **CROT** is an installable, commercial, local AI-agent bridge and MCP gateway.
@@ -219,16 +239,16 @@ All paths end in the same Core pipeline; no path bypasses it.
 | Native Host (OS platform layer) | device, inside `crot-mcp` | OS-specific Platform implementations (Windows AppContainer + Job, ACLs, AD-30) | **[Implemented]** |
 | Browser bridge | device, inside `crot-mcp` | local IPC endpoint, handshake, request/response | **[Implemented]** |
 | `crot-browser-relay` | device, started by the browser | native-messaging host; forwards frames only | **[Implemented]** |
-| CROT Browser Extension | user's browser | fixed browser commands | **[Implemented]** (Chromium), basic command set; browser contract v1 decided (§27 AD-16), implementation **[Target, v1]** (§7.1) |
+| CROT Browser Extension | user's browser | fixed browser commands | **[Partial]** v1: WP-24 CDP implementation/tested on main, manual acceptance open; WP-25/26/27 pending |
 | MCP client connectors / external MCP gateway | device, outside Core | connections to external MCP servers | **[Target]**, post-v1 (AD-13) |
-| Confirmation mechanism | Core interface + UI provider | explicit user approval of sensitive operations | **[Partial]**: mechanism implemented (WP-15); tray provider **[Target, v1]** |
+| Confirmation mechanism | Core interface + Tray UI | explicit approval and presets | **[Implemented]** mechanism WP-15, Tray WP-22, per-principal presets WP-31; real upload/download gates await WP-26 |
 | CROT local service (sidecar) | device, background | one long-running `crot-mcp` service per user; stdio clients attach through a thin shim; authenticated local control channel | **[Implemented]** (WP-20, §27 AD-17); autostart/installer registration **[Target]** (WP-34) |
-| CROT Tray app | device | user UI | **[Target]**, v1 |
+| CROT Tray app | device | approvals and device controls | **[Implemented]** WP-22; packaging/autostart **[Target]** WP-34 |
 | Installer / packages | device | Linux, Windows, macOS installation | **[Target]**, v1 |
-| CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Partial]**: relay v1 implemented (WP-29, §27 AD-22, [`docs/RELAY.md`](docs/RELAY.md)); device side of the tunnel implemented (WP-30, [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)); remote profile WP-31, acceptance suite WP-32, deployment WP-38/WP-39 |
-| Identity provider (third party) | cloud | user authentication, tokens | **[Target]**, v1 |
+| CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Partial]** WP-29 code/tested, limits/load/registration follow-ups open; WP-30 device tunnel and WP-31 remote profile implemented; staging WP-38 and acceptance WP-32 pending |
+| Identity provider (third party) | cloud | token issuer, behind the verifier seam | **[Partial]** WorkOS selected AD-21, device verifier/pairing WP-28 implemented with emulated tests; live staging/production unverified (WP-38/39) |
 | Account & Commercial service | cloud | accounts, subscriptions, plans, licensing, entitlements, device limits | **[Target]** (v1: entitlements checked at the relay only, AD-13) |
-| User / device / account | identities | see §20 | **[Partial]**: only a local principal and a static local token exist |
+| User / device / account | identities | see §20 | **[Partial]** local and verified remote principals, device binding implemented WP-28; cloud account service WP-36 pending |
 
 ## 3. CROT Core
 
@@ -659,14 +679,14 @@ Approximate order (status in brackets):
 4. Local filesystem capabilities                  [Implemented]
 5. Shell/process capabilities                     [Implemented]
 6. MCP interface                                  [Implemented]
-7. Local MCP connectivity                         [Partial: stdio + loopback HTTP; no remote]
+7. Local MCP connectivity                         [Implemented: stdio + loopback HTTP; remote path tracked in item 18]
 8. (withdrawn) client-specific first integration  [Superseded by §14 / WP-32, AD-14]
 9. (withdrawn) project-specific first workflow    [Superseded by §14 / WP-32, AD-14]
 10. Native Host                                   [Implemented]
 11. Browser Extension                             [Implemented]
 12. Unified browser + PC workflows                [Partial: building blocks implemented]
 13. Installer                                     [Target, §24]
-14. Authentication/authorization hardening        [Target, §20]
+14. Authentication/authorization hardening        [Partial: device verifier/pairing WP-28; live IdP/account service pending, §20]
 15. Commercial account/licensing layer            [Target, §23]
 ```
 
@@ -678,16 +698,16 @@ packages, their order and dependencies are in
 `CROT_IMPLEMENTATION_ROADMAP.md`.
 
 ```text
-16. User confirmations                            [Partial: mechanism WP-15; tray provider v1, §21]
-17. Identity, accounts and device binding         [Target, v1, §20]
-18. Remote mode and CROT Cloud Relay              [Partial: relay v1 (WP-29) and the device side of the tunnel (WP-30) implemented, §27 AD-22; remote profile (WP-31), acceptance suite (WP-32) and deployment (WP-38/WP-39) Target, v1 (mandatory), §22]
+16. User confirmations                            [Implemented: mechanism WP-15, Tray WP-22, presets WP-31; upload/download E2E WP-26]
+17. Identity, accounts and device binding         [Partial: WP-28 device side implemented; live cloud environments/accounts pending, §20]
+18. Remote mode and CROT Cloud Relay              [Partial: relay v1 (WP-29) and the device side of the tunnel (WP-30) implemented, §27 AD-22; remote profile (WP-31) implemented; WP-29 follow-ups, acceptance (WP-32) and deployment (WP-38/WP-39) pending, v1 (mandatory), §22]
 19. External MCP gateway (CROT as MCP client)     [Target, post-v1, §18]
-20. Tray app and supervised local service         [Partial: service, shim and control channel implemented (WP-20, §27 AD-17); tray and autostart Target, v1, §24]
+20. Tray app and supervised local service         [Partial: service WP-20 and Tray WP-22 implemented; packaging/autostart WP-34 pending, §24]
 21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
 24. Command confinement L1 (Linux, macOS, Windows) [Partial: Linux implemented (WP-23a, §27 AD-20); Windows implemented (WP-23c, AD-30); macOS Target, v1, §27 AD-13]
-25. Browser contract v1                           [Target, v1, §7.1, §27 AD-14; contract AD-16]
+25. Browser contract v1                           [Partial: WP-24 implementation/tested, manual acceptance open; WP-25/26/27 pending; contract AD-16 unchanged]
 26. Jobs, artifacts, optional components          [Target, post-v1 foundation, §26 q16–17]
 27. Media operations and rendering                [Target, post-v1, §26 q18–19]
 28. External service connections                 [Target, post-v1, §26 q20–21]
@@ -767,11 +787,11 @@ Boundaries:
 | Local transports | Core | other local programs | stdio parent only; loopback HTTP with bearer token, Host/Origin checks | **[Implemented]** |
 | Browser | Core | bridge, relay, extension, browser, web pages | token-authenticated IPC, browser cannot initiate, fixed commands, result validation; page content untrusted | **[Implemented]** (basic commands; the browser contract v1, §7.1, keeps the same enforcement) |
 | External MCP | Core | external servers, their tools and data | §18 | **[Target]** (post-v1, AD-13) |
-| Remote access | local CROT | relay, remote clients, network | §22, §27 AD-13 (incl. command confinement L1) | **[Target]** (mandatory in v1) |
-| User tokens | identity provider + local verifier | token holders | short-lived, revocable, audience-bound tokens; Core sees only a Principal | **[Target]** (today: static local token) |
-| Device | device credential | other devices, cloned installs | device identity and binding, revocation (§20) | **[Target]** |
+| Remote access | local CROT | relay, remote clients, network | §22, AD-15/22/23; qualified L1 AD-20/30 | **[Partial]** WP-29 code, WP-30/31 implemented; WP-29 follow-ups, WP-38/32 and full v1 gates pending |
+| User tokens | identity provider + local verifier | token holders | audience/account/device-bound verifier (AD-21), unchanged Principal boundary | **[Partial]** WP-28 device side tested with emulated IdP; live environment/RFC 9207 condition open |
+| Device | device credential | other devices, cloned installs | device identity/binding, local revocation (§20) | **[Partial]** WP-28 device side implemented; relay deregistration/key rotation WP-29 open |
 | Commercial | local execution | commercial service | entitlements never enter local authorization (§23) | **[Target]** |
-| User confirmation | user via UI provider | agent, page/tool content | §21, §27 AD-5…AD-11 (mechanism; no provider yet) | **[Partial]** |
+| User confirmation | user via Tray provider | agent, page/tool content | §21, AD-5…11/19/23 | **[Implemented]** mechanism, UI and presets; upload/download E2E pending WP-26 |
 | Untrusted content (prompt injection) | Core (session exposure) | web pages, HTTP responses, later external MCP results | §27 AD-12: session exposure from source operations; effectful operations in an exposed session need approval | **[Implemented]** (WP-16b) |
 
 Cross-cutting rule: **untrusted content never becomes a local command by
@@ -792,7 +812,8 @@ identity (device id and Ed25519 device credential), pairing from the tray,
 unpairing and re-grant of revoked clients. **[Target]**: the staging and
 production identity environments (WP-38, WP-39), provider-side revocation
 from the tray (needs the CROT account service, WP-36), accounts, plans and
-device management in the cloud (WP-36), the device tunnel (WP-30). The Cloud
+device management in the cloud (WP-36). The device tunnel is **[Implemented]**
+(WP-30); its public deployment/acceptance is not. The Cloud
 Relay v1 (WP-29, §27 AD-22) checks the same tokens at its entry point.
 
 Target model:
@@ -1001,10 +1022,10 @@ The tray app is a UI; control logic stays in Core/service.
 | Streamable HTTP, loopback, local token | **[Implemented]** |
 | Native Host (OS platform layer) | **[Implemented]** |
 | Browser bridge, relay, extension (Chromium), basic commands | **[Implemented]** |
-| Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | Contract decided (AD-16, WP-18: CDP); implementation **[Target]** (v1: WP-24…WP-27) |
+| Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | **[Partial]** AD-16 unchanged; WP-24 implementation/tested including PR #26, manual acceptance open; WP-25/26/27 pending |
 | Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); request pipeline **[Implemented]** (WP-19: sessionless 2026-07-28, supported versions, principal kinds by entry point, exposure scopes, persisted remote exposure); verifier **[Implemented]** (WP-28); relay **[Partial]** (WP-29, AD-22: relay side of the tunnel implemented; per-client rate limits and the load test open); device tunnel: device side **[Implemented]** (WP-30, AD-22 device side: registration at pairing, handshake, streams, limits, deadline and cancellation) |
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
-| User confirmations | **[Implemented]** (mechanism: WP-15, §27 AD-5…AD-11; tray provider and preset selection: WP-22, §27 AD-19); *Autonomous browser* preset and remote profile **[Target]** (WP-31) |
+| User confirmations | **[Implemented]** (mechanism: WP-15, §27 AD-5…AD-11; tray provider and preset selection: WP-22, §27 AD-19); *Autonomous browser* preset and remote profile **[Implemented]** (WP-31); actual upload/download gate E2E remains WP-26 |
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | Provider, claim model, revocation model and device resource URI decided (§27 AD-21: WorkOS AuthKit); device side **[Implemented]** (WP-28: verifier, pairing, device id and credential, unpair, re-grant; development environment only); staging/production environments **[Target]** (WP-38, WP-39); provider-side revocation and accounts **[Target]** (WP-36) |
 | Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); Cloud Relay v1 and the relay side of the tunnel **[Partial]** (WP-29, §27 AD-22; per-client rate limits and the load test open); device tunnel: device side **[Implemented]** (WP-30, §27 AD-22, [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)); deployment WP-38/WP-39 **[Target]** |
@@ -3333,6 +3354,11 @@ tunnel (WP-30) and the installer (WP-34) build on this decision.
   authentication for everything else. Secret storage and the child-process
   environment allowlist were added by WP-21 (AD-18).
 
+> **Текущее применение исторического риска.** Неограниченные процессы пользователя
+> по-прежнему вне границы; для confined Linux/квалифицированных Windows детей
+> действуют AD-20/AD-30. macOS WP-23b и local full_control не объявлены защищёнными.
+> Текст принятого решения ниже не переписан.
+
 ### AD-18. CROT secrets live in an OS secret store behind one interface; children of process tools get an allowlisted environment; WP-21 closes leaks through CROT itself, not OS-level access by children (WP-21)
 
 **Context.** After WP-20 the service, control, HTTP and browser-bridge
@@ -3437,6 +3463,11 @@ needs an explicit boundary.
   - The allowlist is a default, not a sandbox: values on it (for example
     proxy URLs with credentials) are passed, and `environment.allow` is the
     owner's choice.
+
+> **Текущее применение исторического риска.** Неограниченные процессы пользователя
+> по-прежнему вне границы; для confined Linux/квалифицированных Windows детей
+> действуют AD-20/AD-30. macOS WP-23b и local full_control не объявлены защищёнными.
+> Текст принятого решения ниже не переписан.
 
 ### AD-19. Tray v1: a separate UI process on the control channel; the service holds the approval provider and the device-side controls (preset, remote mode, remote full-control opt-in, exposure reset, client revocation) (WP-22, roadmap OD-7)
 
@@ -5130,9 +5161,13 @@ point 6 against the same OS user, see AD-19 residual risk D).
 **Residual risk.** AD-19 residual risk D, including direct writes of the
 protected state files by an unconfined process of the same OS user.
 
-**Implementation (WP-31).** **[Partial]** — PR #21, not merged. Points 1–7
-and 9–12 are implemented and covered by tests. Point 8: the gate exists,
-but no upload operation exists and the real upload path is not tested.
+**Implementation status (documentation reconciliation at e23b7b9).** WP-31
+**Done, merged** as PR #21 (`9ce0574`). Points 1–7 and 9–12 are implemented
+and covered by tests. Point 8: the defensive gate exists, but actual
+upload/download execution paths and their end-to-end acceptance remain WP-26.
+No numbered decision clause is changed by this status correction.
+
+> **Контекст истории.** AD-24…AD-28 — исторические эксперименты, не production backend. Отрицательные результаты и ограничения ниже сохранены; действующее Windows L1 — AD-30.
 
 ### AD-24. Owned noninteractive Win32 desktop for the Windows unique write-filter implementation slice (WP-23c; not OD-6/OD-9 acceptance)
 
@@ -5280,6 +5315,8 @@ using the Windows implicit Medium/NW policy; do not serialize an empty selection
 or treat a failed encoding as absence. Target descriptor comparisons always
 include DACL+SACL. Native requalification is required; no weaker fallback.
 
+> **Контекст истории.** AD-24…AD-28 — исторические эксперименты, не production backend. Отрицательные результаты и ограничения ниже сохранены; действующее Windows L1 — AD-30.
+
 ### AD-27. Native same-backing workspace projection component (WP-23c; not L1 acceptance)
 
 **Decision before code.** Implement an actual Windows filesystem projection,
@@ -5344,6 +5381,8 @@ identity is mandatory; inability to revert terminates the helper fail-closed.
 Secure atomic separation of raw control from Low data and concurrent/other-Job
 attacks remains a critical acceptance blocker until native proof exists. This
 component is not an approved OD-6 mechanism or production confinement backend.
+
+> **Контекст истории.** AD-24…AD-28 — исторические эксперименты, не production backend. Отрицательные результаты и ограничения ниже сохранены; действующее Windows L1 — AD-30.
 
 ### AD-28. Zero-fee commercial Windows L1 candidate qualification (WP-23c)
 
@@ -5472,6 +5511,8 @@ to any token or granted on any filesystem/device object. Private duplicated
 impersonation tokens are closed; failures remain prerequisites, never denials.
 Reference: Microsoft TOKEN_INFORMATION_CLASS LPAC semantics, AccessCheck and
 DuplicateTokenEx. Original raw-device gate and all eight criteria remain mandatory.
+
+> **Контекст истории.** AD-29 — история выбора и компонентных этапов. Его старые open/unavailable статусы и первоначальная матрица не заменяют текущую квалификацию AD-30; принятые ограничения не снимаются.
 
 ### AD-29 — Windows L1 без сторонних драйверов; решения OD-6 и OD-9
 
