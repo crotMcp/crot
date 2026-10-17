@@ -1,0 +1,351 @@
+{
+  "scope": "Native macOS qualification only; full final-head CI is checked separately before PR ready",
+  "sourceHead": "6be7d2b4ed6b4857ba8a16e7cf94a5181a0cbb11",
+  "baseMain": "0590c310ad4be2cfcd226e2b16c8332022f6dd3a",
+  "workflowRunUrl": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39063295121",
+  "pullRequest": "https://github.com/mysteriumpersonae/crot-mcp/pull/30",
+  "jobs": [
+    {
+      "job": "Node 20 / macos-latest",
+      "jobUrl": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39063295121/job/117485580880",
+      "conclusion": "success",
+      "checkoutSha": "076d7ec3c7334f7c8a07753af63e889e3e5ec285",
+      "runtime": {
+        "checkout": "076d7ec3c7334f7c8a07753af63e889e3e5ec285",
+        "node": "v20.20.2",
+        "platform": "darwin",
+        "arch": "arm64",
+        "release": "25.6.0",
+        "macOS": "26.6.2",
+        "mechanism": "macos-seatbelt",
+        "available": true,
+        "protectedReads": "5/5",
+        "protectedWrites": "5/5",
+        "control": "EPERM/EACCES",
+        "httpWithoutToken": 401
+      },
+      "crash": {
+        "checkout": "076d7ec3c7334f7c8a07753af63e889e3e5ec285",
+        "node": "v20.20.2",
+        "arch": "arm64",
+        "owner": "SIGKILL",
+        "actorsDead": true,
+        "detachedDead": true,
+        "tempRemoved": true,
+        "unrelatedUntouched": true
+      },
+      "tests": [
+        {
+          "name": "recognizes only its owned process policy using the real Darwin ABI",
+          "state": "pass"
+        },
+        {
+          "name": "kills detached/reparented actors and removes private temp after owner SIGKILL without touching an unrelated process",
+          "state": "pass"
+        },
+        {
+          "name": "keeps workspace multilinks read-only and refuses multiply named secrets",
+          "state": "pass"
+        },
+        {
+          "name": "resolves nested protected symlinks without following workspace symlinks",
+          "state": "pass"
+        },
+        {
+          "name": "does not invent unsupported OS/architecture combinations",
+          "state": "pass"
+        },
+        {
+          "name": "compiles the fixed SBPL on the real system",
+          "state": "pass"
+        },
+        {
+          "name": "runs node, sh, git and descendants with private HOME and caches",
+          "state": "pass"
+        },
+        {
+          "name": "runs installed npm, pip, cargo, rustc and go using private caches",
+          "state": "pass"
+        },
+        {
+          "name": "does not grant write handles to the owner/guardian Node and CROT runtime",
+          "state": "pass"
+        },
+        {
+          "name": "rejects protected reads/writes, outside writes and symlink escape",
+          "state": "pass"
+        },
+        {
+          "name": "denies real control and direct Docker sockets, allows only the mediated socket",
+          "state": "pass"
+        },
+        {
+          "name": "network=on permits host loopback; off refuses non-loopback",
+          "state": "pass"
+        },
+        {
+          "name": "network=off permits host loopback; off refuses non-loopback",
+          "state": "pass"
+        },
+        {
+          "name": "returns audited Docker 403 without reaching a daemon",
+          "state": "pass"
+        },
+        {
+          "name": "mediates a positive Docker byte stream and refuses protected/writable host binds",
+          "state": "pass"
+        },
+        {
+          "name": "does not modify an external file through a pre-existing workspace hardlink",
+          "state": "pass"
+        },
+        {
+          "name": "refuses admission when a protected secret already has another name outside CROT",
+          "state": "pass"
+        },
+        {
+          "name": "cannot turn a new external hardlink into an outside write",
+          "state": "pass"
+        },
+        {
+          "name": "blocks security CLI access to CROT Keychain secrets",
+          "state": "pass"
+        },
+        {
+          "name": "kills detached/reparented and ordinary descendants by immutable Seatbelt identity",
+          "state": "pass"
+        },
+        {
+          "name": "blocks changing even the current UID/GID before an actor can hide ownership",
+          "state": "pass"
+        },
+        {
+          "name": "lets the real command finish its graceful SIGTERM handler before draining",
+          "state": "pass"
+        },
+        {
+          "name": "fails closed and drains existing actors if guardian acknowledgement hits a broken output pipe",
+          "state": "pass"
+        },
+        {
+          "name": "never drains another admitted Core's actors",
+          "state": "pass"
+        },
+        {
+          "name": "does not allow actors to replace or stack their inherited sandbox identity",
+          "state": "pass"
+        },
+        {
+          "name": "remains fail-closed after close",
+          "state": "pass"
+        },
+        {
+          "name": "canonicalizes existing aliases and absent leaves",
+          "state": "pass"
+        },
+        {
+          "name": "escapes Scheme literals, rejects controls, never interpolates raw policy",
+          "state": "pass"
+        },
+        {
+          "name": "denies by default, confines writes, keychain IPC and process-group escape",
+          "state": "pass"
+        },
+        {
+          "name": "protects real service state/control and http-token, reports ready; full_control stays unrestricted",
+          "state": "pass"
+        },
+        {
+          "name": "denies the security CLI access to an existing CROT Keychain item (not a missing-item test)",
+          "state": "pass"
+        },
+        {
+          "name": "keeps local full_control unconfined even with the real registered macOS backend ready",
+          "state": "pass"
+        },
+        {
+          "name": "keeps full_control unrestricted and refuses remote execution when L1 is absent",
+          "state": "pass"
+        },
+        {
+          "name": "reuses only toolchain links and default selection, not host credentials or other settings",
+          "state": "pass"
+        }
+      ]
+    },
+    {
+      "job": "Node 22 / macos-latest",
+      "jobUrl": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39063295121/job/117485580920",
+      "conclusion": "success",
+      "checkoutSha": "076d7ec3c7334f7c8a07753af63e889e3e5ec285",
+      "runtime": {
+        "checkout": "076d7ec3c7334f7c8a07753af63e889e3e5ec285",
+        "node": "v22.23.2",
+        "platform": "darwin",
+        "arch": "arm64",
+        "release": "25.6.0",
+        "macOS": "26.6.2",
+        "mechanism": "macos-seatbelt",
+        "available": true,
+        "protectedReads": "5/5",
+        "protectedWrites": "5/5",
+        "control": "EPERM/EACCES",
+        "httpWithoutToken": 401
+      },
+      "crash": {
+        "checkout": "076d7ec3c7334f7c8a07753af63e889e3e5ec285",
+        "node": "v22.23.2",
+        "arch": "arm64",
+        "owner": "SIGKILL",
+        "actorsDead": true,
+        "detachedDead": true,
+        "tempRemoved": true,
+        "unrelatedUntouched": true
+      },
+      "tests": [
+        {
+          "name": "recognizes only its owned process policy using the real Darwin ABI",
+          "state": "pass"
+        },
+        {
+          "name": "kills detached/reparented actors and removes private temp after owner SIGKILL without touching an unrelated process",
+          "state": "pass"
+        },
+        {
+          "name": "keeps workspace multilinks read-only and refuses multiply named secrets",
+          "state": "pass"
+        },
+        {
+          "name": "resolves nested protected symlinks without following workspace symlinks",
+          "state": "pass"
+        },
+        {
+          "name": "does not invent unsupported OS/architecture combinations",
+          "state": "pass"
+        },
+        {
+          "name": "compiles the fixed SBPL on the real system",
+          "state": "pass"
+        },
+        {
+          "name": "runs node, sh, git and descendants with private HOME and caches",
+          "state": "pass"
+        },
+        {
+          "name": "runs installed npm, pip, cargo, rustc and go using private caches",
+          "state": "pass"
+        },
+        {
+          "name": "does not grant write handles to the owner/guardian Node and CROT runtime",
+          "state": "pass"
+        },
+        {
+          "name": "rejects protected reads/writes, outside writes and symlink escape",
+          "state": "pass"
+        },
+        {
+          "name": "denies real control and direct Docker sockets, allows only the mediated socket",
+          "state": "pass"
+        },
+        {
+          "name": "network=on permits host loopback; off refuses non-loopback",
+          "state": "pass"
+        },
+        {
+          "name": "network=off permits host loopback; off refuses non-loopback",
+          "state": "pass"
+        },
+        {
+          "name": "returns audited Docker 403 without reaching a daemon",
+          "state": "pass"
+        },
+        {
+          "name": "mediates a positive Docker byte stream and refuses protected/writable host binds",
+          "state": "pass"
+        },
+        {
+          "name": "does not modify an external file through a pre-existing workspace hardlink",
+          "state": "pass"
+        },
+        {
+          "name": "refuses admission when a protected secret already has another name outside CROT",
+          "state": "pass"
+        },
+        {
+          "name": "cannot turn a new external hardlink into an outside write",
+          "state": "pass"
+        },
+        {
+          "name": "blocks security CLI access to CROT Keychain secrets",
+          "state": "pass"
+        },
+        {
+          "name": "kills detached/reparented and ordinary descendants by immutable Seatbelt identity",
+          "state": "pass"
+        },
+        {
+          "name": "blocks changing even the current UID/GID before an actor can hide ownership",
+          "state": "pass"
+        },
+        {
+          "name": "lets the real command finish its graceful SIGTERM handler before draining",
+          "state": "pass"
+        },
+        {
+          "name": "fails closed and drains existing actors if guardian acknowledgement hits a broken output pipe",
+          "state": "pass"
+        },
+        {
+          "name": "never drains another admitted Core's actors",
+          "state": "pass"
+        },
+        {
+          "name": "does not allow actors to replace or stack their inherited sandbox identity",
+          "state": "pass"
+        },
+        {
+          "name": "remains fail-closed after close",
+          "state": "pass"
+        },
+        {
+          "name": "canonicalizes existing aliases and absent leaves",
+          "state": "pass"
+        },
+        {
+          "name": "escapes Scheme literals, rejects controls, never interpolates raw policy",
+          "state": "pass"
+        },
+        {
+          "name": "denies by default, confines writes, keychain IPC and process-group escape",
+          "state": "pass"
+        },
+        {
+          "name": "protects real service state/control and http-token, reports ready; full_control stays unrestricted",
+          "state": "pass"
+        },
+        {
+          "name": "denies the security CLI access to an existing CROT Keychain item (not a missing-item test)",
+          "state": "pass"
+        },
+        {
+          "name": "keeps local full_control unconfined even with the real registered macOS backend ready",
+          "state": "pass"
+        },
+        {
+          "name": "keeps full_control unrestricted and refuses remote execution when L1 is absent",
+          "state": "pass"
+        },
+        {
+          "name": "reuses only toolchain links and default selection, not host credentials or other settings",
+          "state": "pass"
+        }
+      ]
+    }
+  ],
+  "unqualifiedTargets": ["macOS15 arm64/x64", "macOS26 x64", "macOS27 arm64"],
+  "notClaimed": [
+    "real Docker daemon/Compose/TLS/SSH integration matrix",
+    "signed packages/notarization/autostart WP-34",
+    "whole-product commercial readiness"
+  ]
+}

@@ -32,9 +32,24 @@
 > files named, the CI workflows and the merged history, not taken from earlier
 > plans.
 
-## Текущая база документационной сверки
+## macOS L1 — WP-23b / AD-31
 
-Срез проверки реализации: `main` `e23b7b9c29c5e3e1758b9ad2703bbd827648426f` (merge PR #27). PR #27 слит, не Draft;
+В этой ветке PR #30 реализован производственный `macos-seatbelt`; пакет
+**WP-23b: Done** для описанной ниже квалификации реализации. База ветки —
+`main` `0590c31` (merge документационного PR #28), а не `e23b7b9`.
+PR #27 уже слит как `e23b7b9`; это историческая Windows-база, не текущий main.
+Этот текст не утверждает, что PR #30 уже слит или весь продукт принят.
+
+Нативная квалификация и точные SHA/CI/ограничения:
+[отчёт macOS L1](docs/design/macos-l1-production.md).
+macOS-решение OD-9 закрыто AD-31; целевая матрица и фактически проверенные
+macOS 26.6.2 arm64 / Node 20/22 различаются. Другие Apple-shipped комбинации
+не выдаются за пройденные CI; подписанная поставка WP-34, расширенная
+кроссплатформенная/ручная приёмка и продуктовые gates остаются открытыми.
+
+## Историческая база документационной сверки Windows
+
+Исторический Windows-срез реализации: `e23b7b9c29c5e3e1758b9ad2703bbd827648426f` (merge PR #27). PR #27 слит, не Draft;
 WP-23c **Done**, AD-30 действует, OD-6 и Windows-часть OD-9 закрыты.
 Дерево merge совпадает с квалифицированным `f916a6b`; `8fe6ba5` — более
 ранний квалификационный источник, не текущий HEAD. На самом `e23b7b9`
@@ -133,7 +148,7 @@ of OD-9 and OD-14), merged in PR #6 (`e1d1f61`). In the tree:
   mediated Docker endpoint on every transport (`docker-endpoint.ts`,
   `docker-policy.ts`, `http-framing.ts`) and `detail` notes (`notes.ts`);
   `src/core/platform/confinement.ts`: `CONFINEMENT_UNAVAILABLE` /
-  `CONFINEMENT_FAILED`, reason codes; macOS reports `not_implemented`; qualified Windows follows AD-30.
+  `CONFINEMENT_FAILED`, reason codes; macOS follows AD-31; qualified Windows follows AD-30.
 - `scripts/l1-install.sh`, `scripts/l1-host-exec.py`: CROT-owned
   `crot-bwrap` / `crot-l1-init` and the AppArmor policy (ABI 3.0 / 4.0,
   stacked payload transition, host exec `ix` rules of the AD-20 point 3
@@ -217,25 +232,25 @@ mcp-crot PR #14 (`8169b1f`). Verified in the tree:
 | Area | What exists | Gap to v1 |
 | --- | --- | --- |
 | Browser | 19 tools; allowlisted chrome.debugger CDP, snapshot/document-bound refs, trusted input, frames/OOPIF, open shadow DOM, waits/history and local per-tab queue; WP-24 code/tests incl. PR #26 | Final manual WP-24 acceptance (timeout/C1/owner review); WP-25 dialogs/chooser/background screenshot/tab group; WP-26 files + OD-8; WP-27 remote tabId/openedBy/two-agent ordering |
-| User confirmations | Mechanism complete; product provider `tray` in the service, CROT tray on the control channel (WP-22, AD-19) | Same-user processes can act like the tray (AD-19 residual risk): closed for confined Linux WP-23a and qualified Windows WP-23c/AD-30 children; open on macOS, in local `full_control` and for unrelated host processes; tray packaging/autostart (WP-34) |
+| User confirmations | Mechanism complete; product provider `tray` in the service, CROT tray on the control channel (WP-22, AD-19) | Same-user processes can act like the tray (AD-19 residual risk): closed for confined Linux WP-23a and qualified Windows WP-23c/AD-30 children; closed for admitted macOS children by AD-31; open in local `full_control` and for unrelated host processes; tray packaging/autostart (WP-34) |
 | Identity | Device side complete (WP-28, AD-21): OAuth verifier, device id and credential, pairing, unpair, re-grant; tested against an emulated AuthKit environment | No staging/production identity environment (WP-38, WP-39) and no live WorkOS environment exercised yet; provider-side revocation from the tray needs the CROT account service (WP-36); RFC 9207 open condition before G4 |
 | Relay entry point and device tunnel | HTTP pipeline accepts a `relay` entry point; Cloud Relay v1 with the relay side of the AD-22 tunnel, device registration, PRM, token/entitlement admission and outcomes (WP-29, [`docs/RELAY.md`](docs/RELAY.md)); device side complete with registration at pairing (WP-30 **Done**, merged in PR #20; [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)) | Not WP-30: no relay-side deregistration or key rotation and the orphaned-registration risk (AD-22 open question 3, WP-29); client timeouts of the OD-5 margin measured in WP-32; not deployed (WP-38, WP-39); single relay instance (AD-22 open question 8); entitlement hook stubbed (WP-36); no client rate/concurrency limits and no load test yet (open WP-29 items) |
 | Remote exposure lifecycle | Persisted, fail-closed; per-client reset, revocation and re-grant in the tray, audited, fail closed (WP-22, AD-19; re-grant WP-28) | No revocation at the identity provider from the tray (WP-36; provider-side revocation reaches the device within the AD-21 point 4 bound) |
 | Process lifecycle | One per-user service (on demand from the shim, or managed by an OS supervisor), shim, control channel (WP-20, AD-17) | No autostart registration / supervisor files (WP-34); background processes are owned by the service, not by the client that started them (follow-up) |
 | Child-process environment | Allowlist for `shell.execute` / `process.manage` plus `environment.allow`; overrides cannot copy withheld variables; Docker and Git keep their rules (WP-21, AD-18) | — |
-| Secrets | OS secret store (Keychain, DPAPI, Secret Service) with owner-only file fallback; verified migration; denied to all CROT tools (WP-21, AD-18) | Unconfined commands can still use the OS store as the user (AD-18 residual risk): closed for Linux WP-23a and qualified Windows WP-23c (AD-30) workspace mode; open on macOS (WP-23b) and in `full_control` |
-| Command confinement L1 | Linux WP-23a (AD-20); Windows WP-23c **Done** (AD-30, Server2025 x64 Node20/22, explicit host/component preparation) | macOS WP-23b remains unavailable; packaging/signing WP-34 |
+| Secrets | OS secret store (Keychain, DPAPI, Secret Service) with owner-only file fallback; verified migration; denied to all CROT tools (WP-21, AD-18) | Unconfined commands can still use the OS store as the user (AD-18 residual risk): closed for Linux WP-23a and qualified Windows WP-23c (AD-30) workspace mode; closed for admitted macOS (WP-23b/AD-31); open in `full_control` |
+| Command confinement L1 | Linux WP-23a (AD-20); Windows WP-23c **Done** (AD-30, Server2025 x64 Node20/22, explicit host/component preparation) | macOS WP-23b Done (AD-31; per-host self_test and recorded CI scope); packaging/signing WP-34 |
 | Cross-OS browser validation | Linux E2E only | macOS / Windows browser chain unverified end to end (WP-25, WP-40) |
 
 ### 2.4 Missing or not accepted for v1 (do not confuse with merged code)
 
-macOS L1 WP-23b; final WP-24 manual acceptance and remaining browser WP-25/26/27
+remaining platform qualification beyond AD-30/31 evidence; final WP-24 manual acceptance and remaining browser WP-25/26/27
 (including OD-8); open WP-29 security/load/registration follow-ups;
 live staging/production identity and relay environments WP-38/39; real remote
 acceptance WP-32; independent security review WP-33; signed installers, updates,
 autostart and extension publication WP-34/35; accounts, plans, billing,
 entitlements/device management WP-36; final privacy/security/legal docs WP-37
-and release process WP-40. Existing Linux/qualified Windows L1, WP-24 CDP,
+and release process WP-40. Existing Linux/qualified Windows/macOS L1 (AD-20/30/31), WP-24 CDP,
 WP-28 device identity, WP-30 tunnel and WP-31 profiles are not missing code.
 None of them proves the remaining live deployment/manual/release gates.
 
@@ -263,9 +278,9 @@ main facts. Current state is §2.1–2.4; post-merge corrections are recorded in
 
 No contradiction was found that requires changing an accepted AD.
 
-### 2.6 Architectural notes found by the audit (not resolved here)
+### 2.6 Historical audit notes and current follow-ups
 
-Recorded for the WP that owns them; this roadmap does not change any AD.
+Original observations N1/N2 below are retained as historical audit evidence, not current macOS status. AD-30/31 now supply Windows/macOS production decisions; WP-23b is implemented in the recorded qualification scope. macOS uses Apple Seatbelt plus the Node/Koffi runtime; installer packaging/signing remains WP-34. N3 and the release follow-ups remain open; this reconciliation does not replace architectural decisions.
 
 | # | Observation | Owner |
 | --- | --- | --- |
@@ -312,7 +327,7 @@ What changed in this roadmap and why:
 | --- | --- | --- |
 | 0 Contracts | Decide before code | WP-17, WP-18 — **Done** |
 | 1 Local foundation | Supervised product on one machine | WP-19, WP-20, WP-21, WP-22 **Done**, WP-19b (optional) |
-| 2 Confinement | L1 on all three OS | WP-23a **Done**; WP-23b unblocked by AD-29/OD-9; WP-23c **Done** (AD-30, OD-6 / Windows OD-9 closed) |
+| 2 Confinement | L1 on all three OS | WP-23a **Done**; WP-23b **Done** (AD-31; recorded qualification); WP-23c **Done** (AD-30, OD-6 / Windows OD-9 closed) |
 | 2B Browser v1 | AD-16 contract | WP-24, WP-25, WP-26, WP-27 |
 | 3 Remote | Identity → relay → tunnel → profile → acceptance → review | WP-28, WP-29, WP-30, WP-31, WP-38, WP-32, WP-33 |
 | 4 Commercial | Ship and operate | WP-34, WP-35, WP-36, WP-37, WP-39, WP-40 |
@@ -364,7 +379,7 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | OD-6 | Windows L1 | **Decided: AD-30**, AppContainer + Job + DACL, durable lease / LOCAL Docker | WP-34: упаковка/подпись | **Closed (WP-23c)** |
 | OD-7 | How a preset / remote-profile change is applied by the service (reload vs restart) | Policy immutability (AD-5, AD-10) vs usability | WP-22, WP-31 | **Decided by AD-19 point 5 (WP-22):** device state in `service-settings.json`; a new Core with the new policy, only while Core is idle; WP-31 adds the `autonomous-browser` rule set and the remote profile on the same mechanism |
 | OD-8 | Download hand-over mechanism (staging in download directory vs stream over bridge) | File-integrity guarantees of AD-16 p.12 | WP-26 | Start of WP-26 (already assigned by AD-16) |
-| OD-9 | Матрица v1 | Windows **Closed: AD-30**, Server2025 x64 Node20/22; неквалифицированные конфигурации unavailable. Linux AD-20; macOS/браузерная часть отдельно | WP-23b, WP-34, WP-37 | Windows part closed |
+| OD-9 | Матрица v1 | Windows **Closed: AD-30**, Server2025 x64 Node20/22; неквалифицированные конфигурации unavailable. Linux AD-20; macOS **Closed: AD-31** (target matrix separate from CI coverage); browser part open | WP-23b, WP-34, WP-37 | Windows/macOS decisions closed; browser part open |
 | OD-10 | Store extension IDs vs native-host `allowed_origins` (Chrome Web Store and Edge Add-ons may assign different IDs; current manifest pins `bllcepanlhojbddfbbpegmnokpaakool`) and custody of the extension signing key | The native host must allow exactly the published extensions and nothing else | WP-34, WP-35 | When store items are created (WP-35 start) |
 | OD-11 | Version-compatibility policy across extension (store auto-updates), local service, tray and relay/tunnel protocol; minimum supported versions; whether the relay may refuse outdated devices | Independent update channels can break the chain; refusing devices at the relay is admission, which must stay distinct from authorization (AD-15 p.10) | WP-29, WP-34, WP-39 | Before WP-34 — AD if the relay gains an admission rule |
 | OD-12 | Diagnostics and crash reporting under "no hidden telemetry" (§12): none, or explicit opt-in; scope of relay operational logs (metadata only) | Operability vs privacy promise; must be stated in the privacy policy | WP-39, WP-37 | Before WP-39 |
@@ -436,7 +451,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-21 | 1 | Secret storage, child-process environment allowlist | WP-20 | M | yes | with WP-22 | **Done** (AD-18) |
 | WP-22 | 1 | Tray v1 and approval provider | WP-20 | L | yes | with WP-21 | **Done** (AD-19) |
 | WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part and OD-14 decided) | M | yes | with 23b/c | **Done** (AD-20; PR #6, `e1d1f61`) |
-| WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | Разблокирован AD-29; реализация Seatbelt/Keychain ещё не начата |
+| WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | **Done** — AD-31; production Seatbelt, Keychain boundary, guardian, Docker; native Node20/22 evidence and limits in macOS report |
 | WP-23c | 2 | L1 Windows: AppContainer + Job | WP-21, OD-9 | L | yes | with 23a/b | **Done** — AD-30; production Core, whole-lease recovery, LOCAL Docker; все 8 критериев, CI 11/11 |
 | WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | **Merged** (PR #22–#25): implemented incl. out-of-process frames and element/frame-origin approval subjects; manual runs 1–5/follow-up recorded; B4/E5/windows and G5/H passed by owner; default-load timeout signalling merged in PR #26 (`289f500`); C1 partial, final acceptance open |
 | WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
@@ -678,12 +693,19 @@ See [continuation and full criterion status](docs/design/windows-l1-continuation
 
 **Действующая общая карточка L1 (конец исторического блока).**
 
+**WP-23b — Done (AD-31).** Производственный backend `macos-seatbelt`,
+private HOME/cache, проверяемая kernel identity с ACK до caller code, guardian
+на смерть владельца, CROT/Keychain/HTTP boundary и медиируемый Unix Docker.
+[Нативные критерии и ограничения](docs/design/macos-l1-production.md).
+Целевая матрица AD-29 не подменяется фактически проверенной CI-комбинацией.
+
+
 - **Objective:** children of `shell.execute` and `process.manage` in
   workspace mode run under the fixed AD-13 point 4 profile.
 - **Why:** a remote shell without confinement can read CROT's tokens and
   approve its own requests.
 - **Dependencies:** WP-21; OD-9. Windows OD-6 / OD-9 part are closed by AD-30;
-  macOS platform decision AD-29 is accepted, WP-23b implementation still pending.
+  macOS platform decision AD-29 and production mechanism AD-31 are accepted; WP-23b Done with recorded CI scope.
 - **WP-23a (Linux):** normative boundary is ARCHITECTURE.md §27 AD-20, which
   decides the Linux part of OD-9 (Ubuntu 22.04/24.04 LTS, x86_64/arm64) and
   makes this card concrete for Linux: CROT-owned bubblewrap and AppArmor
@@ -1088,7 +1110,7 @@ claimed by WP-31.
 ## 7. Release-blocking security work (summary)
 
 1. Secrets in secure storage, env allowlist (WP-21).
-2. L1 on Linux, macOS, Windows with escape tests (WP-23a/b/c; Linux done WP-23a, qualified Windows done WP-23c/AD-30; macOS pending WP-23b).
+2. L1 on Linux, macOS, Windows with escape tests (WP-23a/b/c; Linux done WP-23a, qualified Windows done WP-23c/AD-30; macOS implemented WP-23b/AD-31, broader platform qualification remains explicit).
 3. Approval provider authenticity: owner-only control channel unreachable from
    confined processes, agents, pages and relay (WP-20, WP-22, WP-23; confined
    Linux/qualified Windows children: done in WP-23a/WP-23c).
@@ -1145,7 +1167,7 @@ B: WP-28 (L) ─► WP-29 (XL) ────────────┴─► WP-
 ```
 
 The completed local pieces are WP-20/21/22/23a and now WP-23c (AD-30).
-WP-23b remains unimplemented and required before G4. On chain B WP-28/30/31
+WP-23b implementation is Done under AD-31; wider target-matrix evidence and other G4 conditions remain explicit. On chain B WP-28/30/31
 are Done/merged, **WP-29 remains Partial** despite merge. The executable next
 step is its follow-up, then qualified WP-38 staging. WP-32 → WP-33 → WP-40
 is the downstream path, not a claim these tasks are unblocked now.
@@ -1162,7 +1184,7 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
 | Class | WPs |
 | --- | --- |
 | Sequential on critical path | Done: WP-20…22, WP-28/30/31. Remaining: WP-29 follow-up → WP-38 → WP-32 → WP-33 → WP-40 (browser prerequisites required too) |
-| Parallelizable now | WP-24 acceptance; WP-23b implementation (AD-29); OD-8 decision; WP-38/35 preparation, WP-37 drafting, WP-19b. WP-23c Done |
+| Parallelizable now | WP-24 acceptance; macOS wider platform qualification (AD-31); OD-8 decision; WP-38/35 preparation, WP-37 drafting, WP-19b. WP-23c Done |
 | Parallel after prerequisites | WP-25 ∥ WP-26 ∥ WP-27 after accepted WP-24 (WP-26 also OD-8); WP-38 public staging after WP-29 blockers; WP-34/36/39/33 only with their stated prerequisites |
 | Release blockers | every WP except WP-19b |
 | Optional / non-blocking | WP-19b; §26 Q12 transport matcher; §26 Q14 tab-scope matcher |
@@ -1175,14 +1197,16 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
    decision (docs-only PR or first commit of the WP).
 2. Otherwise choose, in order: an unblocked WP on chain A or B; then WP-23x;
    then WP-24…WP-27; then phase-4 WPs whose dependencies are done.
-3. **Right now: main e23b7b9, PR #27 merged; WP-23c Done.**
+3. **Historical audit baseline: `e23b7b9`, PR #27 merged, WP-23c Done.**
+   PR #28 moved main to `0590c31`; WP-23b is implemented in PR #30 (AD-31).
+   The pinned audit/CI results remain historical evidence, not a moving HEAD.
 
 По существующему правилу roadmap §8.4 сначала выбирается незавершённая,
 разблокированная задача цепочки B: **WP-29 follow-up**, а не WP-32 напрямую.
 Это устраняет уже известные блокеры публичного staging. Параллельный ближайший
 браузерный шаг — завершить **приёмку WP-24**, прежде чем засчитывать зависимости
 WP-25/26/27. Это приоритизация существующих задач, не новое архитектурное решение
-и не перенос их критериев. WP-23b остаётся обязательной параллельной веткой G4.
+и не перенос их критериев. WP-23b реализован по AD-31; это не закрывает остальные условия G4.
 
 | Задача | Реальные зависимости | Текущее состояние / открытые блокеры |
 | --- | --- | --- |
@@ -1190,7 +1214,7 @@ WP-25/26/27. Это приоритизация существующих зада
 | **WP-24 — ближайшая незакрытая браузерная приёмка, параллельно** | WP-18 решён; PR #22–#26 уже в main | Код и автоматические тесты есть; PR #26 (`289f500`) исправляет default-load timeout. Ручная проверка сигнала, C1 partial/unreproduced и итоговая приёмка владельца открыты; G5/H и B4/E5/windows не обнуляются |
 | WP-25 / WP-27 | Завершённая база WP-24; WP-27 также WP-19 (Done) | Разработка может опираться на слитый код, но зависимость приёмки WP-24 не считается закрытой. Собственные E2E: dialogs/file chooser/background screenshot/debugger/tab group; remote tabId/openedBy/two-agent ordering — ещё не выполнены |
 | WP-26 | WP-24 и **OD-8** | OD-8 download hand-over ещё не решён; нужны upload/download и реальные AD-23.8 approval gates. Нельзя объявить gate проверенным по WP-31 rule-set тестам |
-| WP-23b | WP-21 Done; платформенное решение OD-9 принято AD-29 | macOS Seatbelt/Keychain не реализован и не квалифицирован. Технически разблокирован; обязателен для G4, но WP-23c больше не является незакрытым spike |
+| WP-23b | WP-21 Done; платформенное решение OD-9 принято AD-29 | Done: Seatbelt/Keychain, AD-31 и зафиксированная Node20/22 CI-квалификация; более широкая матрица не объявляется проверенной |
 | WP-38 | WP-28, завершение/явное согласование открытого WP-29; WP-36 hook может быть stub по карточке | Подготовку TLS/IdP/deployment можно вести; публичный staging блокируют перечисленные WP-29 задачи. Live WorkOS, pin identity environment, payload-free logs, external OAuth/tool run ещё не подтверждены; RFC 9207 — условие G4 или отдельный принятый AD |
 | WP-32 | **WP-24…WP-27, WP-30, WP-31, WP-38** | WP-30/31 Done, но browser acceptance и staging открыты. Нужны автоматический сквозной набор, ≥4 реальных remote клиентов × версии, macOS/Windows прогоны и измерение client timeouts; локальные тесты не подменяют staging |
 | WP-35 / WP-34 / WP-33 | WP-35: WP-24/25/26, OD-10 store IDs; WP-34: сервис/Tray/L1 и WP-35; WP-33: WP-32 + RC от WP-34 + WP-38 | Возможна подготовка, но publication, подписанная поставка/autostart и независимое security review не объявляются выполненными |
@@ -1398,7 +1422,7 @@ Windows host-path adapter (drive-aware Binds, bind/npipe/inspect/volume/Swarm,
 
 ## WP-23c — итоговая квалификация
 
-Срез проверки реализации: `main` `e23b7b9c29c5e3e1758b9ad2703bbd827648426f` (merge PR #27). PR #27 слит, не Draft;
+Исторический Windows-срез реализации: `e23b7b9c29c5e3e1758b9ad2703bbd827648426f` (merge PR #27). PR #27 слит, не Draft;
 WP-23c **Done**, AD-30 действует, OD-6 и Windows-часть OD-9 закрыты.
 Дерево merge совпадает с квалифицированным `f916a6b`; `8fe6ba5` — более
 ранний квалификационный источник, не текущий HEAD. На самом `e23b7b9`

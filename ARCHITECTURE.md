@@ -305,7 +305,7 @@ When the user grants them, CROT can provide:
 - Git — **[Partial]**: read operations (`status`, `diff`, `log`, `branch`, `show`) are a dedicated capability gated by `git.read` (§27 AD-1); local write operations (`add`, `commit`, branch create/rename/delete, checkout of a branch or a detached commit) are gated by `git.write` (§27 AD-2); network operations (fetch, pull, push) and destructive operations (amend, force, reset) are not implemented and remain usable only through `shell.execute`
 - Docker — **[Partial]**: dedicated operations gated by `docker.use` (§27 AD-3): list containers, read container logs, `compose up` and `compose down` with a reviewed Compose model; build, pull, push, run, exec and every other Docker command are not implemented and remain usable only through `shell.execute`
 - Network — **[Partial]**: HTTP(S) requests made by CROT itself, gated by `network.access` and the host policy `permissions.network` (§27 AD-4); no OS-level egress control for processes or containers
-- Python, Node.js, FFmpeg, project tools — **[Partial]**: usable through `shell.execute` / `process.manage` (not covered by tests; remote principals require ready L1: Linux AD-20 / qualified Windows AD-30; macOS pending). Dedicated media operations are **[Target]** (§26 question 18)
+- Python, Node.js, FFmpeg, project tools — **[Partial]**: usable through `shell.execute` / `process.manage` (macOS AD-31 qualifies Node/sh/git and offline npm/pip/Cargo/Go smoke tests on the recorded CI host, not every tool, FFmpeg, or the full platform matrix; remote principals require ready L1: Linux AD-20 / qualified Windows AD-30 / macOS AD-31). Dedicated media operations are **[Target]** (§26 question 18)
 
 New local capabilities are added as Core capability services that go through
 the ExecutionGuard, with their own capability names in the PermissionEngine.
@@ -706,7 +706,7 @@ packages, their order and dependencies are in
 21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
-24. Command confinement L1 (Linux, macOS, Windows) [Partial: Linux implemented (WP-23a, §27 AD-20); Windows implemented (WP-23c, AD-30); macOS Target, v1, §27 AD-13]
+24. Command confinement L1 (Linux, macOS, Windows) [Partial: Linux implemented (WP-23a, §27 AD-20); Windows implemented (WP-23c, AD-30); macOS implemented (WP-23b, AD-31; qualification scope recorded)]
 25. Browser contract v1                           [Partial: WP-24 implementation/tested, manual acceptance open; WP-25/26/27 pending; contract AD-16 unchanged]
 26. Jobs, artifacts, optional components          [Target, post-v1 foundation, §26 q16–17]
 27. Media operations and rendering                [Target, post-v1, §26 q18–19]
@@ -1005,6 +1005,10 @@ The tray app is a UI; control logic stays in Core/service.
 
 ## 25. Implementation Status Summary
 
+> Текущее macOS L1 решение — AD-31 (WP-23b); фактическая квалификация
+> ограничена указанными в отчёте host/Node. Это не закрывает прочие вопросы
+> раздела, product/release gates и риски full_control/чужих процессов.
+
 Актуальное решение Windows L1 — §27 AD-30 (WP-23c); прежние spike-статусы
 заменены квалифицированным backend, без изменения Linux AD-20 / full_control.
 
@@ -1029,11 +1033,11 @@ The tray app is a UI; control logic stays in Core/service.
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | Provider, claim model, revocation model and device resource URI decided (§27 AD-21: WorkOS AuthKit); device side **[Implemented]** (WP-28: verifier, pairing, device id and credential, unpair, re-grant; development environment only); staging/production environments **[Target]** (WP-38, WP-39); provider-side revocation and accounts **[Target]** (WP-36) |
 | Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); Cloud Relay v1 and the relay side of the tunnel **[Partial]** (WP-29, §27 AD-22; per-client rate limits and the load test open); device tunnel: device side **[Implemented]** (WP-30, §27 AD-22, [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)); deployment WP-38/WP-39 **[Target]** |
-| Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); Windows **[Implemented]** (WP-23c, AD-30; Server2025 x64 Node20/22); macOS **[Target]** (WP-23b) |
+| Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); Windows **[Implemented]** (WP-23c, AD-30; Server2025 x64 Node20/22); macOS **[Implemented]** (WP-23b, AD-31; exact CI scope in macOS report) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
 | Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
-| CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children: Linux **[Implemented]** (L1, WP-23a, §27 AD-20), Windows **[Implemented]** (WP-23c, AD-30); macOS **[Target]** (WP-23b) |
-| Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (Linux: closed for confined children by WP-23a; qualified Windows: closed by WP-23c, AD-30; macOS: WP-23b) |
+| CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children: Linux **[Implemented]** (L1, WP-23a, §27 AD-20), Windows **[Implemented]** (WP-23c, AD-30); macOS **[Implemented]** (WP-23b, AD-31; exact CI scope in macOS report) |
+| Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (Linux: closed for confined children by WP-23a; qualified Windows: closed by WP-23c, AD-30; macOS: closed for admitted children by WP-23b/AD-31) |
 | Installer, tray packaging, autostart of the service | **[Target]** (v1, AD-13; WP-34) |
 | Jobs and artifacts, optional-component availability | **[Target]** (post-v1 foundation; §26 q16–17; WP-43, WP-44) |
 | Media operations, edit description, render, verification | **[Target]** (post-v1; §26 q18–19; WP-49…WP-57) |
@@ -1041,6 +1045,10 @@ The tray app is a UI; control logic stays in Core/service.
 | Editor integrations, application bridges, scoped application control | **[Target]** / under reassessment (post-v1; §26 q22–23; WP-65…WP-70) |
 
 ## 26. Open Architectural Questions
+
+> Текущее macOS L1 решение — AD-31 (WP-23b); фактическая квалификация
+> ограничена указанными в отчёте host/Node. Это не закрывает прочие вопросы
+> раздела, product/release gates и риски full_control/чужих процессов.
 
 Актуальное решение Windows L1 — §27 AD-30 (WP-23c); прежние spike-статусы
 заменены квалифицированным backend, без изменения Linux AD-20 / full_control.
@@ -3356,7 +3364,8 @@ tunnel (WP-30) and the installer (WP-34) build on this decision.
 
 > **Текущее применение исторического риска.** Неограниченные процессы пользователя
 > по-прежнему вне границы; для confined Linux/квалифицированных Windows детей
-> действуют AD-20/AD-30. macOS WP-23b и local full_control не объявлены защищёнными.
+> действуют AD-20/AD-30/AD-31 для допущенных Linux/Windows/macOS детей.
+> Local full_control, недоступный до допуска L1 и чужие host-процессы остаются вне границы.
 > Текст принятого решения ниже не переписан.
 
 ### AD-18. CROT secrets live in an OS secret store behind one interface; children of process tools get an allowlisted environment; WP-21 closes leaks through CROT itself, not OS-level access by children (WP-21)
@@ -3466,7 +3475,8 @@ needs an explicit boundary.
 
 > **Текущее применение исторического риска.** Неограниченные процессы пользователя
 > по-прежнему вне границы; для confined Linux/квалифицированных Windows детей
-> действуют AD-20/AD-30. macOS WP-23b и local full_control не объявлены защищёнными.
+> действуют AD-20/AD-30/AD-31 для допущенных Linux/Windows/macOS детей.
+> Local full_control, недоступный до допуска L1 и чужие host-процессы остаются вне границы.
 > Текст принятого решения ниже не переписан.
 
 ### AD-19. Tray v1: a separate UI process on the control channel; the service holds the approval provider and the device-side controls (preset, remote mode, remote full-control opt-in, exposure reset, client revocation) (WP-22, roadmap OD-7)
@@ -5906,7 +5916,9 @@ AD-24…AD-29 сохраняются как история исследован�
 
 ### AD-31 — macOS L1: Seatbelt и медиируемый Docker (WP-23b)
 
-**Решение механизма по директиве куратора; квалификация реализации ещё не завершена.**
+**Действующее решение WP-23b.** Нативная квалификация и ограничения —
+[macOS report](docs/design/macos-l1-production.md). История отрицательных проб сохранена там;
+OD-6/Windows OD-9 и AD-30 этим не пересматриваются.
 
 1. Платформенная цель OD-9 остаётся по AD-29: актуальная и две предшествующие
    основные версии macOS на реально поставляемых Intel x64/Apple Silicon arm64,
@@ -5952,3 +5964,22 @@ AD-24…AD-29 сохраняются как история исследован�
 9. Завершённость WP-23b и фактическая матрица квалификации записываются только
    после native CI Node20/22. Поставка/подпись, неподтверждённые комбинации и
    остаточные риски не объявляются закрытыми из-за одного merge.
+
+10. Файловый preflight обязателен: до допуска и каждого запуска проверяются
+    protected paths и разрешённые корни. Защищённый regular file с nlink>1
+    делает границу недоказуемой (self_test_failed до допуска / FAILED после),
+    а workspace hardlink с неизвестным/внешним именем получает только чтение.
+    Если все имена inode учтены внутри writable-корней, обычные Cargo/git
+    артефакты остаются изменяемыми. Смена UID/GID запрещена; runtime владельца,
+    Node и зависимостей — только чтение. Нет мутаций пользовательских ACL.
+11. Реализация WP-23b Done; решение macOS-части OD-9 закрыто AD-31.
+    Подтверждённый native runner: macOS 26.6.2 arm64, Node20/22. macOS15/27 и
+    Intel не выдаются за реально пройденные CI: целевая матрица AD-29 сохранена,
+    обязательный per-host self_test и predicates не заменяются отметкой о merge.
+    Подпись/пакеты WP-34, расширенная release-квалификация и браузерная часть
+    OD-9 не закрываются этим пакетом.
+
+MacOS loopback при network=off также принадлежит хосту: неаутентифицированный
+localhost endpoint выполнения может стать обходным исполнителем вне Seatbelt.
+Это остаточный риск модели доступного localhost, а не доступ к CROT без токена;
+status.detail предупреждает об общей host IP/loopback authority.
