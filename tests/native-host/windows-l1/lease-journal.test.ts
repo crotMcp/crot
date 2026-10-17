@@ -69,6 +69,18 @@ describe("durable lease WAL (real filesystem; no native ACL recovery claim)", ()
     stores.length = 0;
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
+  it("prunes only a durable closed tombstone, never an active lease", async () => {
+    const store = await start(),
+      plan = leasePlan();
+    await store.create(plan);
+    await store.append(plan.id, { type: "closed" });
+    await store.pruneClosed!(plan.id);
+    expect(await store.list()).toEqual([]);
+    const next = leasePlan();
+    await store.create(next);
+    await expect(store.pruneClosed!(next.id)).rejects.toThrow("cannot prune an open lease");
+    expect((await readFile(path.join(root, `lease-${next.id}.wal`))).length).toBeGreaterThan(0);
+  });
   it("flushes plan/active/job/closed independently, survives reopen and preserves immutable plan", async () => {
     const sync = vi.fn(async (h) => {
       await h.sync();

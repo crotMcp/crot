@@ -12,7 +12,7 @@ export interface PinnedLeaseObject {
    * A changed owner, label, foreign ACE, file identity or reparse is CONFLICT,
    * never absence and never permission to restore by a saved pathname.
    */
-  state(): "original" | "planned" | "conflict";
+  state(): "original" | "planned" | "conflict" | "absent";
   /** Native compare-and-write on the SAME pinned object; no inheritance walk. */
   apply(): void;
   restore(): void;
@@ -117,6 +117,7 @@ export class WindowsLeaseRecovery {
       // Plan is topologically ordered (ancestor/root before leaves); restore
       // leaves first, with direct nonpropagating object-handle writes.
       for (const pin of [...pins].reverse()) {
+        if (pin.state() === "absent") continue;
         if (pin.state() === "conflict") throw fail("descriptor changed during recovery");
         if (pin.state() === "planned") pin.restore();
         if (pin.state() !== "original") throw fail("restored descriptor readback");

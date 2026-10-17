@@ -433,6 +433,7 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
       rights: number,
       deny = false,
       inherit = false,
+      linkPolicy: "reject" | "readonly" = "reject",
     ): LeaseObject {
       retry();
       validateWindowsPath(target);
@@ -453,7 +454,14 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
       try {
         admitVolume(handle);
         const observed = inspect(handle);
-        if (!observed.directory && observed.links !== 1 && rights !== 0) throw fail("unqualified multi-link capture");
+        const readOnlyLink =
+          !observed.directory &&
+          observed.links !== 1 &&
+          rights !== 0 &&
+          role === "workspace-node" &&
+          linkPolicy === "readonly";
+        if (!observed.directory && observed.links !== 1 && rights !== 0 && !readOnlyLink)
+          throw fail("unqualified multi-link capture");
         const original = query(handle),
           destination = Buffer.alloc(65536);
         const length = Number(finalPath(handle, destination, destination.length / 2, 1));
@@ -469,20 +477,28 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
               fileId: observed.fileId,
               creationTime: observed.creationTime,
               directory: observed.directory,
+              links: observed.links,
             },
             original: original.toString("base64"),
             planned: original.toString("base64"),
           };
         } else {
           if (!okay(convert(sid, allocatedSid)) || !valid(allocatedSid.value)) throw fail("package SID conversion");
-          const entries = Buffer.alloc(48);
+          const entries = Buffer.alloc(readOnlyLink ? 96 : 48);
           ffi.encode(entries, E, {
-            permissions: rights,
-            mode: deny ? 3 : 1,
+            permissions: readOnlyLink ? 0x000d0156 : rights,
+            mode: readOnlyLink || deny ? 3 : 1,
             inheritance: inherit ? 3 : 0,
             trustee: { multiple: null, operation: 0, form: 0, type: 0, name: allocatedSid.value },
           });
-          if (compose(1, entries, leaseDescriptor(original).dacl, next) !== 0 || !valid(next.value))
+          if (readOnlyLink)
+            ffi.encode(entries.subarray(48), E, {
+              permissions: 0x1200a9,
+              mode: 1,
+              inheritance: 0,
+              trustee: { multiple: null, operation: 0, form: 0, type: 0, name: allocatedSid.value },
+            });
+          if (compose(readOnlyLink ? 2 : 1, entries, leaseDescriptor(original).dacl, next) !== 0 || !valid(next.value))
             throw fail("planned ACL composition");
           const head = Buffer.from(ffi.decode(next.value, "uint8_t", 8) as Uint8Array),
             size = head.readUInt16LE(2);
@@ -490,12 +506,13 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
           const acl = Buffer.from(ffi.decode(next.value, "uint8_t", size) as Uint8Array),
             planned = repack(original, acl);
           result = {
-            role,
+            role: readOnlyLink ? "workspace-link" : role,
             identity: {
               volume: `\\\\?\\Volume{${match[1]!.toLowerCase()}}\\`,
               fileId: observed.fileId,
               creationTime: observed.creationTime,
               directory: observed.directory,
+              links: observed.links,
             },
             original: original.toString("base64"),
             planned: planned.toString("base64"),
@@ -548,7 +565,10 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
           observed.fileId !== identity.fileId ||
           observed.creationTime !== identity.creationTime ||
           observed.directory !== identity.directory ||
-          (!observed.directory && observed.links !== 1)
+          (!observed.directory &&
+            (object.role === "workspace-link"
+              ? !identity.links || observed.links !== identity.links
+              : observed.links !== 1))
         )
           throw fail("file identity/reparse/links changed");
       };

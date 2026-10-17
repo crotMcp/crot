@@ -120,6 +120,19 @@ export class WindowsNativeLeases {
       // Shared-ancestor ACL transactions are not silently stacked. Until a
       // shared-ancestor owner is qualified, only one active lease is admitted.
       if (this.live.size) throw fail("overlapping live lease");
+      // Keep recent evidence, not an ever-growing admission limit. Prune only
+      // fully closed WALs before their closed profile receipts. A crash between
+      // those deletes leaves a harmless closed receipt, never lost ACL proof.
+      const records = await this.store.list();
+      const closed = records.filter((r) => r.closed);
+      for (const record of closed.slice(0, Math.max(0, closed.length - 32))) {
+        if (!this.store.pruneClosed) throw fail("journal rotation unavailable");
+        await this.store.pruneClosed(record.plan.id);
+        await this.profiles.pruneClosed(record.plan.profile);
+      }
+      const retained = new Set((await this.store.list()).map((r) => r.plan.id));
+      for (const receipt of await this.profiles.receipts())
+        if (receipt.closed && !retained.has(receipt.id)) await this.profiles.pruneClosed(receipt);
       const profile = await this.profiles.create();
       const owner: Live = {
         profile,

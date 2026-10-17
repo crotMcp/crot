@@ -1,6 +1,6 @@
 /** Real NativeHost registration, delivery and Core commands; no fake availability. */
 import { appendFileSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, inject, it } from "vitest";
@@ -11,6 +11,7 @@ import { createServicePrivateFiles } from "../../../src/service/private-files.js
 import { verifyWindowsComponents } from "../../../src/native-host/windows-l1/components.js";
 import { createTestCore, isWindows, makeTempDirs, testContext } from "../../helpers.js";
 import { buildLocalShimFixture } from "./diagnostics/local-shim-build.js";
+import { loadLeaseAclObjects } from "../../../src/native-host/windows-l1/lease-acl.js";
 import { remotePrincipal } from "../../../src/core/auth/principal.js";
 describe.runIf(isWindows)("production Windows AppContainer CommandConfinement", () => {
   it("verifies delivery, self-tests both modes and runs Core shell/process without an unconfined retry", async () => {
@@ -64,6 +65,20 @@ describe.runIf(isWindows)("production Windows AppContainer CommandConfinement", 
       }
       // No caller-controlled launch implementation: this is the registered
       // NativeHost platform used by production CrotCore.
+      const acl = await loadLeaseAclObjects(),
+        snapshotSid = "S-1-15-2-1-2-3-4-5-6-7";
+      const snapshots = [];
+      for (let i = 0; i < 13; i++) {
+        const file = path.join(dirs.workspace, `original-${i}.txt`);
+        await writeFile(file, "original");
+        snapshots.push(acl.capture(file, "workspace-node", snapshotSid, 0));
+      }
+      const external = path.join(dirs.outside, "external-hardlink-target");
+      await writeFile(external, "outside-original");
+      await link(external, path.join(dirs.workspace, "host-link"));
+      await writeFile(path.join(dirs.workspace, "delete-original.txt"), "delete allowed");
+      await mkdir(path.join(dirs.workspace, "existing-dir"));
+      await writeFile(path.join(dirs.workspace, "existing-dir", "old.txt"), "old");
       core = await createTestCore(
         { workspace: { root: dirs.workspace }, permissions: { mode: "sandbox" }, confinement: { network: "on" } },
         undefined,
@@ -86,6 +101,19 @@ describe.runIf(isWindows)("production Windows AppContainer CommandConfinement", 
       });
       expect(result.exitCode).toBe(23);
       expect(JSON.parse(result.stdout).docker).toMatch(/^npipe:\/\/\/\/\.\/pipe\/LOCAL\/crot-l1-docker-/);
+      const fsResult = await core.processes.exec(testContext, {
+        cwd: dirs.workspace,
+        command: "node",
+        args: [
+          "-e",
+          `const f=require('fs');
+f.writeFileSync('original-0.txt','changed');f.renameSync('original-0.txt','renamed-0.txt');f.renameSync('existing-dir','renamed-dir');f.renameSync('renamed-dir/old.txt','renamed-dir/renamed.txt');f.writeFileSync('new.txt','new');f.mkdirSync('new-dir');f.renameSync('new-dir','renamed-new-dir');
+f.unlinkSync('delete-original.txt');try{f.writeFileSync('host-link','bad');process.exit(71)}catch(e){if(e.code!=='EPERM')throw e}console.log('7/7;hardlink=EPERM');`,
+        ],
+      });
+      expect(fsResult.exitCode).toBe(0);
+      expect(fsResult.stdout).toContain("7/7;hardlink=EPERM");
+      expect(await readFile(external, "utf8")).toBe("outside-original");
       expect(core.status().confinement).toMatchObject({
         available: true,
         mechanism: "windows-appcontainer",
@@ -93,6 +121,14 @@ describe.runIf(isWindows)("production Windows AppContainer CommandConfinement", 
       });
       await core.shutdown();
       core = undefined;
+      for (const object of snapshots) {
+        const pin = acl.pin(object);
+        try {
+          expect(pin.state()).toBe("original");
+        } finally {
+          pin.close();
+        }
+      }
       await native.close();
       native = undefined;
       const original = await readFile(components.library);
@@ -120,6 +156,20 @@ describe.runIf(isWindows)("production Windows AppContainer CommandConfinement", 
       await expect(
         core.processes.exec(remote, { cwd: dirs.workspace, command: "node", args: ["-v"] }),
       ).rejects.toMatchObject({ code: "CONFINEMENT_UNAVAILABLE" });
+      await core.shutdown();
+      core = undefined;
+      core = await createTestCore(
+        { workspace: { root: dirs.workspace }, permissions: { mode: "full_control" } },
+        undefined,
+        { platform: native.platform },
+      );
+      const unrestricted = await core.processes.exec(testContext, {
+        cwd: dirs.outside,
+        command: process.execPath,
+        args: ["-e", "console.log('full-control-local')"],
+      });
+      expect(unrestricted.exitCode).toBe(0);
+      expect(unrestricted.stdout).toContain("full-control-local");
       appendFileSync(
         inject("stage6aEvidence"),
         JSON.stringify({
@@ -130,6 +180,10 @@ describe.runIf(isWindows)("production Windows AppContainer CommandConfinement", 
             deliveryVerified: true,
             coreShell: true,
             coreProcessExit: 23,
+            workspaceOperations: "7/7",
+            restoredFileSnapshots: "13/13",
+            hardlinkWrite: "EPERM",
+            deletedOriginalRecovered: true,
             mismatchRefused: true,
             remoteUnavailable: true,
             mechanism: "windows-appcontainer",

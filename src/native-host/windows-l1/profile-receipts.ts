@@ -6,7 +6,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readdir, type FileHandle } from "node:fs/promises";
+import { lstat, open, readdir, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { CrotError } from "../../core/errors.js";
 import type { PrivateFileProtection } from "../../core/platform/types.js";
@@ -35,6 +35,8 @@ export interface DurableProfiles {
   receipts(): Promise<readonly ProfileReceipt[]>;
   validate(profile: { name: string; sid: string }): Promise<ProfileReceipt>;
   remove(profile: { name: string; sid: string }, live?: AppContainerProfile): Promise<void>;
+  /** Only after the matching closed ACL WAL is pruned under the service lock. */
+  pruneClosed(profile: { name: string; sid: string }): Promise<void>;
 }
 type Frame = { stage: "intent" | "created" | "closed"; id: string; name: string; sid: string; ownerSid: string };
 const digest = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -200,6 +202,20 @@ export async function openDurableProfiles(options: {
         return records;
       }),
     validate: (profile) => serial(() => validate(profile)),
+    pruneClosed: (profile) =>
+      serial(async () => {
+        const record = await validate(profile);
+        if (!record.closed) throw fail("cannot prune an open profile");
+        await unlink(fileFor(record.id));
+        if (process.platform !== "win32") {
+          const dir = await open(directory, "r");
+          try {
+            await dir.sync();
+          } finally {
+            await dir.close();
+          }
+        }
+      }),
     remove: (profile, live) =>
       serial(async () => {
         const record = await validate(profile);

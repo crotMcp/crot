@@ -55,6 +55,22 @@ describe("durable fresh profile receipts", () => {
     await (await open()).remove(profile);
     expect(removed).toHaveLength(1);
   });
+  it("removes only a closed receipt after native deletion was durably recorded", async () => {
+    const owner = await open(),
+      profile = await owner.create();
+    await owner.remove(profile, profile);
+    await owner.pruneClosed(profile);
+    expect(await owner.receipts()).toEqual([]);
+    expect(removed).toEqual([profile.name]);
+  });
+  it("retains a live receipt when tombstone pruning is requested early", async () => {
+    const owner = await open(),
+      profile = await owner.create();
+    await expect(owner.pruneClosed(profile)).rejects.toThrow("cannot prune an open profile");
+    expect(await readdir(directory)).toHaveLength(1);
+    expect(removed).toEqual([]);
+    profile.close();
+  });
   it("never adopts or deletes a pre-existing/native-failed profile", async () => {
     status = 183;
     const o = await open();

@@ -5,13 +5,18 @@ import { CrotError } from "../../core/errors.js";
 import type { AppContainerProfile } from "./appcontainer-profile.js";
 import { leaseDescriptor, loadLeaseAclObjects, prepareNewWorkspaceSidRemoval } from "./lease-acl.js";
 import type { LeaseObject, LeasePlan } from "./lease-journal.js";
-import type { LeaseRecoveryNative } from "./lease-recovery.js";
+import type { LeaseRecoveryNative, PinnedLeaseObject } from "./lease-recovery.js";
 import type { DurableProfiles } from "./profile-receipts.js";
 import type { AppContainerNetworkLease, AppContainerNetworkNative } from "./network.js";
 const fail = (stage: string) =>
   new CrotError("CONFINEMENT_FAILED", `Windows native recovery: ${stage} failed.`, { stage });
 export type LeaseAclApi = Awaited<ReturnType<typeof loadLeaseAclObjects>>;
 type Hold = ReturnType<LeaseAclApi["hold"]>;
+const missingWorkspaceNode = (o: LeaseObject, cause: unknown) =>
+  o.role === "workspace-node" &&
+  cause instanceof CrotError &&
+  cause.details?.nativeCode === 2 &&
+  ["guard by ID open", "open saved file ID"].includes(String(cause.details?.stage));
 const key = (o: LeaseObject) => `${o.identity.volume}:${o.identity.fileId}`;
 const dos = (p: string) =>
   p
@@ -109,8 +114,17 @@ export function createNativeLeaseAdapter(options: {
       }
       for (const object of plan.objects) {
         validateDelta(object, plan.profile.sid);
-        const current = observe(object);
-        if (object.role === "workspace-node" && !inside(workspace.volumePath, current.volumePath))
+        let current: ReturnType<typeof observe>;
+        try {
+          current = observe(object);
+        } catch (cause) {
+          if (missingWorkspaceNode(object, cause)) continue;
+          throw cause;
+        }
+        if (
+          ["workspace-node", "workspace-link"].includes(object.role) &&
+          !inside(workspace.volumePath, current.volumePath)
+        )
           throw fail("workspace node escaped");
         if (object.role === "runtime-node" && !runtime.some((r) => inside(r, current.dosPath)))
           throw fail("runtime node escaped");
@@ -138,7 +152,33 @@ export function createNativeLeaseAdapter(options: {
       await live.get(record.plan.profile.name)?.stop();
       await options.drain(options.ownerSid, record.plan.profile.sid);
     },
-    pin: (object) => acl.pin(object),
+    pin: (object): PinnedLeaseObject => {
+      try {
+        return acl.pin(object);
+      } catch (cause) {
+        if (!missingWorkspaceNode(object, cause)) throw cause;
+        // Absence is an NTFS-by-ID FILE_NOT_FOUND result, not an ENOENT
+        // pathname guess. Reuse, reparse, access denial and links never qualify.
+        return {
+          state: () => {
+            try {
+              observe(object);
+              return "conflict";
+            } catch (error) {
+              if (missingWorkspaceNode(object, error)) return "absent";
+              throw error;
+            }
+          },
+          apply: () => {
+            throw fail("apply deleted workspace identity");
+          },
+          restore: () => {
+            throw fail("restore deleted workspace identity");
+          },
+          close: () => undefined,
+        };
+      }
+    },
     stripNewWorkspaceObjects: async (plan) => {
       const root = plan.objects.find((o) => o.role === "workspace")!,
         original = new Set(plan.objects.map(key)),
@@ -201,12 +241,12 @@ export async function planNativeLease(options: {
     holds: Hold[] = [],
     seen = new Set<string>();
   const add = (p: string, role: LeaseObject["role"], rights: number, deny = false, inherit = false, guard = true) => {
-    const o = acl.capture(p, role, profile.sid, rights, deny, inherit),
+    const o = acl.capture(p, role, profile.sid, rights, deny, inherit, "readonly"),
       k = key(o);
     if (seen.has(k)) return undefined;
     seen.add(k);
     objects.push(o);
-    if (guard) holds.push(acl.hold(o));
+    if (guard || o.role === "workspace-link") holds.push(acl.hold(o));
     return o;
   };
   try {

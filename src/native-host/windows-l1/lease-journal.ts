@@ -5,7 +5,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, open, readdir, type FileHandle } from "node:fs/promises";
+import { lstat, open, readdir, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { CrotError } from "../../core/errors.js";
@@ -36,12 +36,13 @@ const identity = z
     fileId: z.string().regex(/^[0-9a-f]{16}$/),
     creationTime: z.string().regex(/^[0-9a-f]{16}$/),
     directory: z.boolean(),
+    links: z.number().int().min(1).max(0xffffffff).optional(),
   })
   .strict();
 const object = z
   .object({
     identity,
-    role: z.enum(["ancestor", "workspace", "workspace-node", "protected", "runtime", "runtime-node"]),
+    role: z.enum(["ancestor", "workspace", "workspace-node", "workspace-link", "protected", "runtime", "runtime-node"]),
     original: descriptor,
     planned: descriptor,
   })
@@ -177,6 +178,8 @@ export interface LeaseJournalStore {
   read(id: string): Promise<LeaseRecord>;
   list(): Promise<readonly LeaseRecord[]>;
   append(id: string, event: Exclude<Event, { type: "plan" }>): Promise<void>;
+  /** Under the lifetime lock, prune only a validated durable closed tombstone. */
+  pruneClosed?(id: string): Promise<void>;
   /** Release the OS lock, never unlink/age out another process's lock file. */
   close(): Promise<void>;
 }
@@ -319,6 +322,19 @@ export async function openLeaseJournalStore(options: LeaseStoreOptions): Promise
           records.push((await read(id)).record);
         }
         return records;
+      }),
+    pruneClosed: (id) =>
+      serialized(async () => {
+        if (!(await read(id)).record.closed) throw fail("cannot prune an open lease");
+        await unlink(filename(id));
+        if (process.platform !== "win32") {
+          const dir = await open(directory, "r");
+          try {
+            await dir.sync();
+          } finally {
+            await dir.close();
+          }
+        }
       }),
     append: (id, event) =>
       serialized(async () => {

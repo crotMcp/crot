@@ -101,6 +101,25 @@ describe.runIf(isWindows)("Windows native lease ACL transactions", () => {
     expect(() => api.pin(object)).toThrow("links changed");
     expect(() => api.capture(file, "workspace-node", sid, 0x1301bf)).toThrow("multi-link");
   });
+  it("snapshots existing multi-links with a guarded read-only SID deny and exact restoration", async () => {
+    const alias = path.join(dirs.outside, "host-alias");
+    await link(file, alias);
+    const object = api.capture(file, "workspace-node", sid, 0x1301bf, false, false, "readonly");
+    expect(object.role).toBe("workspace-link");
+    expect(object.identity.links).toBe(2);
+    const guard = api.hold(object),
+      pin = api.pin(object);
+    try {
+      pin.apply();
+      expect(pin.state()).toBe("planned");
+      pin.restore();
+      expect(pin.state()).toBe("original");
+    } finally {
+      pin.close();
+      guard.close();
+    }
+    expect(await readFile(alias, "utf8")).toBe("unchanged bytes");
+  });
   it("strips only the owned inherited SID on a new workspace node after parent restore", async () => {
     const root = api.capture(dirs.workspace, "workspace", sid, 0x1301bf, false, true),
       rootPin = api.pin(root);

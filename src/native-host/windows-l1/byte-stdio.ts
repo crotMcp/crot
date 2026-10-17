@@ -626,7 +626,7 @@ export function bindBytePipeApi(ffi: TokenFfi, libraries: TokenLibraries): ByteP
           !/^\\Sessions\\[0-9]+\\AppContainerNamedObjects\\S-1-15-2-/.test(prefix) ||
           !prefix.endsWith(`\\${options.packageSid}`)
         )
-          throw failure("LOCAL named-object namespace");
+          throw failure(`LOCAL named-object namespace ${JSON.stringify(prefix)}`);
         physical = `\\\\.\\pipe${prefix}\\${name.slice(name.lastIndexOf("\\") + 1)}`;
       } finally {
         if (valid(packageSid.value))
