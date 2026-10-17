@@ -33,6 +33,8 @@ export interface AppContainerProfileNative {
 }
 export interface AppContainerProfiles {
   create(): AppContainerProfile;
+  /** Trusted durable owner only; ID is reserved/flushed before this call. */
+  createReserved(id: string): AppContainerProfile;
   /** Retry only exact failed-setup resources retained by this owner. */
   recover(): void;
 }
@@ -77,71 +79,68 @@ export function createAppContainerProfiles(
   const recover = () => {
     for (const owned of pending) release(owned);
   };
-  return {
-    recover,
-    create: () => {
-      recover();
-      const id = nonce();
-      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id))
-        throw failure("fresh identity");
-      const owned: Owned = { name: `crot.l1.${id}`, created: false };
-      const output: { value?: unknown } = {};
-      try {
-        const status = native.create(owned.name, output);
-        owned.allocation = output.value;
-        // S_OK is the only ownership transfer. ERROR_ALREADY_EXISTS (including
-        // a non-null output) never permits deleting/adopting a foreign profile.
-        if (status !== 0) throw failure("profile creation", status);
-        owned.created = true;
-        if (missing(owned.allocation)) throw failure("profile SID allocation");
-        const sid = native.sidText(owned.allocation);
-        if (!validPackageSid(sid)) throw failure("profile SID validation");
-        let closing = false,
-          closed = false,
-          users = 0;
-        const profile: AppContainerProfile = {
-          name: owned.name,
-          sid,
-          get closed() {
-            return closed;
-          },
-          pin: () => {
-            if (closing) throw failure("closed profile use");
-            users++;
-            let released = false;
-            return {
-              sid,
-              release: () => {
-                if (released) return;
-                released = true;
-                users--;
-              },
-            };
-          },
-          close: () => {
-            if (closed) return;
-            closing = true;
-            if (users !== 0) throw failure("profile still owns actors");
-            release(owned);
-            closed = true;
-            ownedProfiles.delete(profile);
-          },
-        };
-        ownedProfiles.add(profile);
-        return Object.freeze(profile);
-      } catch (cause) {
-        // A binding may populate its output before throwing. Retain ownership
-        // of that allocation too, but never infer profile ownership from it.
-        owned.allocation ??= output.value;
-        try {
+  const createReserved = (id: string): AppContainerProfile => {
+    recover();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id))
+      throw failure("fresh identity");
+    const owned: Owned = { name: `crot.l1.${id}`, created: false };
+    const output: { value?: unknown } = {};
+    try {
+      const status = native.create(owned.name, output);
+      owned.allocation = output.value;
+      // S_OK is the only ownership transfer. ERROR_ALREADY_EXISTS (including
+      // a non-null output) never permits deleting/adopting a foreign profile.
+      if (status !== 0) throw failure("profile creation", status);
+      owned.created = true;
+      if (missing(owned.allocation)) throw failure("profile SID allocation");
+      const sid = native.sidText(owned.allocation);
+      if (!validPackageSid(sid)) throw failure("profile SID validation");
+      let closing = false,
+        closed = false,
+        users = 0;
+      const profile: AppContainerProfile = {
+        name: owned.name,
+        sid,
+        get closed() {
+          return closed;
+        },
+        pin: () => {
+          if (closing) throw failure("closed profile use");
+          users++;
+          let released = false;
+          return {
+            sid,
+            release: () => {
+              if (released) return;
+              released = true;
+              users--;
+            },
+          };
+        },
+        close: () => {
+          if (closed) return;
+          closing = true;
+          if (users !== 0) throw failure("profile still owns actors");
           release(owned);
-        } catch {
-          pending.add(owned);
-        }
-        throw cause instanceof CrotError ? cause : failure("profile setup");
+          closed = true;
+          ownedProfiles.delete(profile);
+        },
+      };
+      ownedProfiles.add(profile);
+      return Object.freeze(profile);
+    } catch (cause) {
+      // A binding may populate its output before throwing. Retain ownership
+      // of that allocation too, but never infer profile ownership from it.
+      owned.allocation ??= output.value;
+      try {
+        release(owned);
+      } catch {
+        pending.add(owned);
       }
-    },
+      throw cause instanceof CrotError ? cause : failure("profile setup");
+    }
   };
+  return { recover, create: () => createReserved(nonce()), createReserved };
 }
 
 interface ProfileFfi extends TokenFfi {

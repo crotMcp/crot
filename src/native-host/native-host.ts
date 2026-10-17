@@ -1,3 +1,4 @@
+import { WindowsLeaseServiceLifecycle } from "./windows-l1/service-lifecycle.js";
 import { createNodePlatform } from "../core/platform/node-platform.js";
 import type {
   CommandConfinement,
@@ -78,6 +79,7 @@ export class NativeHost {
     private readonly jobs: JobTracker | undefined,
     private readonly nativeAcl: boolean,
     private readonly notes: readonly string[],
+    readonly windowsLeases?: WindowsLeaseServiceLifecycle,
   ) {}
 
   static async start(options: NativeHostOptions): Promise<NativeHost> {
@@ -98,6 +100,7 @@ export class NativeHost {
     let privateFiles: PrivateFileProtection = base.privateFiles;
     let jobs: JobTracker | undefined;
     let nativeAcl = false;
+    let windowsOwnerSid: string | undefined;
 
     if (base.info.os === "windows") {
       if (jobObjects) {
@@ -114,13 +117,24 @@ export class NativeHost {
       if (windowsAcl) {
         try {
           const tools = windowsTools(base.environment.get(process.env, "SystemRoot") ?? "C:\\Windows");
-          privateFiles = createWindowsAclProtection({ tools, userSid: await currentUserSid(tools) });
+          windowsOwnerSid = await currentUserSid(tools);
+          privateFiles = createWindowsAclProtection({ tools, userSid: windowsOwnerSid });
           nativeAcl = true;
         } catch (error) {
           notes.push(`owner-only ACLs unavailable (${describe(error)}); private files use inherited ACLs`);
         }
       } else {
         notes.push("owner-only ACLs disabled; private files use inherited ACLs");
+      }
+    }
+
+    let windowsLeases: WindowsLeaseServiceLifecycle | undefined;
+    if (base.info.os === "windows" && stateDir && windowsOwnerSid && nativeAcl) {
+      windowsLeases = new WindowsLeaseServiceLifecycle({ stateDir, ownerSid: windowsOwnerSid, privateFiles });
+      try {
+        await windowsLeases.recoverExisting();
+      } catch (cause) {
+        notes.push(`Windows L1 startup recovery failed (${describe(cause)}); confinement remains unavailable`);
       }
     }
 
@@ -152,7 +166,7 @@ export class NativeHost {
       probeCaseSensitivity: (directory) => base.probeCaseSensitivity(directory),
       ...(confinement ? { confinement } : {}),
     };
-    return new NativeHost(platform, lifecycle, jobs, nativeAcl, notes);
+    return new NativeHost(platform, lifecycle, jobs, nativeAcl, notes, windowsLeases);
   }
 
   get running(): boolean {
@@ -177,6 +191,8 @@ export class NativeHost {
 
   /** Stop accepting launches and release native resources (terminating any job still open). Idempotent. */
   async close(): Promise<void> {
+    this.lifecycle.open = false;
+    await this.windowsLeases?.close();
     this.closeSync();
   }
 
@@ -185,6 +201,17 @@ export class NativeHost {
     this.lifecycle.open = false;
     // A previous CloseHandle failure must remain retryable even after launches
     // have been permanently disabled.
-    this.jobs?.terminateAll();
+    let failure: unknown;
+    try {
+      this.windowsLeases?.closeSync();
+    } catch (cause) {
+      failure = cause;
+    }
+    try {
+      this.jobs?.terminateAll();
+    } catch (cause) {
+      failure ??= cause;
+    }
+    if (failure) throw failure;
   }
 }

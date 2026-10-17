@@ -23,6 +23,26 @@ describe.runIf(isWindows)("Windows native lease ACL transactions", () => {
   afterEach(async () => {
     await dirs?.cleanup();
   });
+  it("holds a real by-ID data guard against rename and strips only an owned ACE", async () => {
+    const object = api.capture(file, "workspace-node", sid, 0x1301bf),
+      pin = api.pin(object);
+    pin.apply();
+    pin.close();
+    const guard = api.hold(object);
+    try {
+      expect(guard.snapshot().dosPath.toLowerCase()).toContain("file.txt");
+      await expect(rename(file, file + ".moved")).rejects.toMatchObject({
+        code: expect.stringMatching(/EPERM|EACCES|EBUSY/),
+      });
+      guard.stripOwnSid(sid);
+      expect(leaseDescriptor(Buffer.from(guard.snapshot().descriptor, "base64")).dacl).toEqual(
+        leaseDescriptor(Buffer.from(object.original, "base64")).dacl,
+      );
+    } finally {
+      guard.close();
+    }
+    await rename(file, file + ".moved");
+  });
   it("precomputes the installed SD without mutation and restores the exact original DACL/control", () => {
     const object = api.capture(file, "workspace-node", sid, 0x1301bf),
       pin = api.pin(object);

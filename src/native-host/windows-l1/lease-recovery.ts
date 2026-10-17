@@ -100,6 +100,12 @@ export class WindowsLeaseRecovery {
       return;
     }
     await this.native.validatePlan(record.plan, "recover");
+    // Recovery after owner death has no in-memory guards. Reacquire the same
+    // by-ID guards and revalidate under them before trusting any scope again.
+    if (!this.guards.has(record.plan.id)) {
+      this.guards.set(record.plan.id, await this.native.holdGuards(record.plan));
+      await this.native.validatePlan(record.plan, "recover");
+    }
     // Never infer actor death from parent exit, a missing lock or elapsed time.
     await this.native.drainActors(record);
     const pins: PinnedLeaseObject[] = [];

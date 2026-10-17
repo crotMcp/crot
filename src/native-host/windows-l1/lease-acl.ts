@@ -188,6 +188,9 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
     "void * __stdcall OpenFileById(void *volume,void *identity,uint32_t access,uint32_t share,void *security,uint32_t flags)",
   );
   const info = k.func("int __stdcall GetFileInformationByHandle(void *object,_Out_ uint8_t *info)");
+  const extendedInfo = k.func(
+    "int __stdcall GetFileInformationByHandleEx(void *object,int kind,_Out_ uint8_t *info,uint32_t length)",
+  );
   const finalPath = k.func(
     "uint32_t __stdcall GetFinalPathNameByHandleW(void *object,_Out_ uint8_t *path,uint32_t count,uint32_t flags)",
   );
@@ -262,6 +265,11 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
   const inspect = (handle: unknown) => {
     const bytes = Buffer.alloc(52);
     if (!okay(info(handle, bytes)) || bytes.readUInt32LE(0) & 0x400) throw fail("object identity query/reparse");
+    if (bytes.readUInt32LE(0) & 0x10) {
+      const flags = Buffer.alloc(4);
+      if (!okay(extendedInfo(handle, 23, flags, flags.length)) || flags.readUInt32LE(0) !== 0)
+        throw fail("case-sensitive directory not qualified");
+    }
     return {
       fileId:
         bytes.readUInt32LE(44).toString(16).padStart(8, "0") + bytes.readUInt32LE(48).toString(16).padStart(8, "0"),
@@ -289,6 +297,107 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
     if (!same(leaseDescriptor(query(handle)), target)) throw fail("DACL/control readback");
   };
   return {
+    /**
+     * By-ID lifetime guard and path observation. A data/list access bit is
+     * essential: metadata-only handles do not enforce DELETE sharing on NTFS.
+     * No ACL mutation, pathname fallback or reparse traversal occurs here.
+     */
+    hold(object: LeaseObject, denyRename = true) {
+      retry();
+      const identity = object.identity;
+      if (
+        !VOLUME.test(identity.volume) ||
+        !/^[0-9a-f]{16}$/.test(identity.fileId) ||
+        !/^[0-9a-f]{16}$/.test(identity.creationTime)
+      )
+        throw fail("guard identity");
+      const root = file(identity.volume, 0x120080, 7, null, 3, 0x02200000, null);
+      if (!valid(root)) throw nativeFail("guard volume open");
+      let handle: unknown, failure: unknown;
+      try {
+        inspect(root);
+        admitVolume(root);
+        handle = byId(
+          root,
+          leaseFileIdDescriptor(identity.fileId),
+          denyRename ? 0x160081 : 0x120080,
+          denyRename ? 3 : 7,
+          null,
+          0x02200000,
+        );
+        if (!valid(handle)) throw nativeFail("guard by ID open");
+        const observed = inspect(handle);
+        if (
+          observed.fileId !== identity.fileId ||
+          observed.creationTime !== identity.creationTime ||
+          observed.directory !== identity.directory
+        )
+          throw fail("guard identity changed");
+      } catch (cause) {
+        failure = cause;
+      }
+      try {
+        release(root);
+      } catch (cause) {
+        pendingHandles.add(root);
+        failure ??= cause;
+      }
+      if (failure) {
+        if (valid(handle)) disposeSetup(handle);
+        throw failure;
+      }
+      let closed = false;
+      const snapshot = () => {
+        if (closed) throw fail("closed guard");
+        const observed = inspect(handle);
+        if (
+          observed.fileId !== identity.fileId ||
+          observed.creationTime !== identity.creationTime ||
+          observed.directory !== identity.directory
+        )
+          throw fail("guard identity changed");
+        const names: string[] = [];
+        for (const flags of [0, 1]) {
+          const buffer = Buffer.alloc(65536),
+            n = Number(finalPath(handle, buffer, buffer.length / 2, flags));
+          if (n < 1 || n >= buffer.length / 2) throw fail("guard final path");
+          names.push(buffer.subarray(0, n * 2).toString("utf16le"));
+        }
+        if (!names[1]!.toLowerCase().startsWith(identity.volume.toLowerCase())) throw fail("guard volume changed");
+        return {
+          dosPath: names[0]!,
+          volumePath: names[1]!,
+          descriptor: query(handle).toString("base64"),
+          links: observed.links,
+        };
+      };
+      try {
+        snapshot();
+      } catch (cause) {
+        disposeSetup(handle);
+        throw cause;
+      }
+      return {
+        snapshot,
+        /** Revocation only, on this guarded object; no pathname/foreign ACL replacement. */
+        stripOwnSid: (sid: string) => {
+          const before = snapshot().descriptor;
+          const cleanup = prepareNewWorkspaceSidRemoval(
+            { role: "workspace-node", identity: { ...identity }, original: before, planned: before },
+            sid,
+          );
+          if (cleanup.planned === before) return;
+          if (query(handle).toString("base64") !== before) throw fail("new-node descriptor race");
+          write(handle, Buffer.from(cleanup.planned, "base64"));
+        },
+        close: () => {
+          if (!closed) {
+            release(handle);
+            closed = true;
+          }
+        },
+      };
+    },
     /** Capture a trusted local object; never called with an actor-supplied plan. */
     capture(
       target: string,
@@ -305,7 +414,7 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
         !/^[A-Za-z]:\\/.test(target) ||
         !SID.test(sid) ||
         !Number.isInteger(rights) ||
-        rights < 1 ||
+        rights < 0 ||
         rights > 0x1f01ff
       )
         throw fail("capture input");
@@ -317,7 +426,7 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
       try {
         admitVolume(handle);
         const observed = inspect(handle);
-        if (!observed.directory && observed.links !== 1) throw fail("unqualified multi-link capture");
+        if (!observed.directory && observed.links !== 1 && rights !== 0) throw fail("unqualified multi-link capture");
         const original = query(handle),
           destination = Buffer.alloc(65536);
         const length = Number(finalPath(handle, destination, destination.length / 2, 1));
@@ -325,32 +434,46 @@ export function bindLeaseAclObjects(ffi: AclFfi, libraries: { kernel32: string; 
         const name = destination.subarray(0, length * 2).toString("utf16le"),
           match = /^\\\\\?\\Volume\{([0-9a-f-]{36})\}\\/i.exec(name);
         if (!match) throw fail("volume identity");
-        if (!okay(convert(sid, allocatedSid)) || !valid(allocatedSid.value)) throw fail("package SID conversion");
-        const entries = Buffer.alloc(48);
-        ffi.encode(entries, E, {
-          permissions: rights,
-          mode: deny ? 3 : 1,
-          inheritance: inherit ? 3 : 0,
-          trustee: { multiple: null, operation: 0, form: 0, type: 0, name: allocatedSid.value },
-        });
-        if (compose(1, entries, leaseDescriptor(original).dacl, next) !== 0 || !valid(next.value))
-          throw fail("planned ACL composition");
-        const head = Buffer.from(ffi.decode(next.value, "uint8_t", 8) as Uint8Array),
-          size = head.readUInt16LE(2);
-        if (size < 8 || size > 65535) throw fail("planned ACL size");
-        const acl = Buffer.from(ffi.decode(next.value, "uint8_t", size) as Uint8Array),
-          planned = repack(original, acl);
-        result = {
-          role,
-          identity: {
-            volume: `\\\\?\\Volume{${match[1]!.toLowerCase()}}\\`,
-            fileId: observed.fileId,
-            creationTime: observed.creationTime,
-            directory: observed.directory,
-          },
-          original: original.toString("base64"),
-          planned: planned.toString("base64"),
-        };
+        if (rights === 0) {
+          result = {
+            role,
+            identity: {
+              volume: `\\\\?\\Volume{${match[1]!.toLowerCase()}}\\`,
+              fileId: observed.fileId,
+              creationTime: observed.creationTime,
+              directory: observed.directory,
+            },
+            original: original.toString("base64"),
+            planned: original.toString("base64"),
+          };
+        } else {
+          if (!okay(convert(sid, allocatedSid)) || !valid(allocatedSid.value)) throw fail("package SID conversion");
+          const entries = Buffer.alloc(48);
+          ffi.encode(entries, E, {
+            permissions: rights,
+            mode: deny ? 3 : 1,
+            inheritance: inherit ? 3 : 0,
+            trustee: { multiple: null, operation: 0, form: 0, type: 0, name: allocatedSid.value },
+          });
+          if (compose(1, entries, leaseDescriptor(original).dacl, next) !== 0 || !valid(next.value))
+            throw fail("planned ACL composition");
+          const head = Buffer.from(ffi.decode(next.value, "uint8_t", 8) as Uint8Array),
+            size = head.readUInt16LE(2);
+          if (size < 8 || size > 65535) throw fail("planned ACL size");
+          const acl = Buffer.from(ffi.decode(next.value, "uint8_t", size) as Uint8Array),
+            planned = repack(original, acl);
+          result = {
+            role,
+            identity: {
+              volume: `\\\\?\\Volume{${match[1]!.toLowerCase()}}\\`,
+              fileId: observed.fileId,
+              creationTime: observed.creationTime,
+              directory: observed.directory,
+            },
+            original: original.toString("base64"),
+            planned: planned.toString("base64"),
+          };
+        }
       } catch (error) {
         failure = error;
       }

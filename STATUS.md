@@ -747,3 +747,13 @@ TerminateProcess; учтена возможность конкуренции с 
 повторного полного прохода. Владение свежим профилем дополнительно закреплено
 in-memory brand/freeze до сетевых и launch-вызовов; durable receipt этим
 не заменена. Полная производственная аренда и Windows backend ещё открыты.
+
+WP-23c, следующий нативный срез: добавлены отдельный долговечный S_OK receipt
+профиля, NTFS guards по ID с реальным no-DELETE sharing, полный native recovery
+adapter и подключение существующих WAL к startup/shutdown NativeHost/CrotService.
+Новый Windows crash-тест убивает владельца живой аренды и запускает настоящий
+CrotService для проверки акторов, loopback, новых workspace nodes, исходных SD
+и закрытого receipt. Его Windows-квалификация обязательна; production availability
+пока не включена. Неоднозначный intent без S_OK receipt не разрешает удалять
+профиль. Неподдержанные reparse/case-sensitive/multilink/пересекающиеся аренды
+отказывают явно; они не обходят проверку границ.
