@@ -179,6 +179,39 @@ own requests. Profile: AD-13 point 4.
 - **Size:** M. **Depends on:** WP-21.
 
 ### WP-23c — L1 for Windows (spike, then restricted / low-IL token + Job Object)
+- **AD-28, $0 license-fee qualification:** Dokan MIT/LGPL permits commercial use subject to release compliance/relinking obligations, not automatic LGPL exemption for security pins.75ce0f2 implements effective LPAC and separate literal-zero raw probes; failed class46 queries at4804e32 remain failed prerequisites, not denial. Fresh exact-owned profiles have normal cleanup; abrupt recovery unqualified. Actual results/8 criteria remain partial/NOT MET; no device grants, READY bypass, CROT relicensing or accepted backend. Full local1732+147; 75ce0f2 macOS20 concurrent-start failure retained; unchanged-code20808e8 follow-up all9 non-Windows PASS,2 Windows FAIL; root cause not claimed fixed. See [source-pinned report](../design/windows-l1-continuation.md) and [zero-fee decision](../design/windows-l1-zero-license.md).
+- **AD-27 component, not acceptance:** ca04414 really compiles/verifies pinned signed driver, reads Medium-before descriptor snapshots and mounts20/22, but actor CRUD fails.0eb1519 adds pre-READY native raw-control isolation self-test: Low unique profile opens exact owned raw endpoint with zero access; helper refuses READY/unmounts, actor not launched, no sensitive IOCTL. Do not lower raw label or select unsafe backend. Node22 independent10s setup-hook timeout retained;43ff402 fixes composite setup deadlines/ownership without actor gate changes and confirms control-zero-open both20/22 with13 ready fixtures each. c6a1c45 fixes registry flake with verified same-digest fallback and5 portable tests, not weaker Docker assertions. Full local1711+147;all9 non-Windows CI green/2 Windows red; native process11/diagnostics10/RPC7 PASS both, actual ready Node22 state5+5/control denial preserved. Eight mandatory criteria remain partial/NOT MET; full control/data, runtime/filesystem, state/Docker/network/matrix/backend required. PR27 Draft/open; no merge.
+- **Active continuation (not accepted):** Native9ced362:8 successful /2 Windows failures /1 Ubuntu24 ECR rate-limit. AD-26 actual service-state provider e0cdb06 and native SACL serialization fix9ced362: owner controls/legacy credential/5 private descriptors work both runtimes; ready Node22 denies5 actual secret/key/settings/audit reads and5 writes plus actual control connection, test passes; Node20 pre-JS fails, not denial. Full local1683+147. Native process11/11, stage6a10/10, workspace RPC7/7 pass both. AD-24 label comparison now truly serializes SACL, no weaker query/ACL fallback. BNO does not solve startup/NUL/descendants/shells. No transparent filesystem, full Docker/self-approval/external config suite, supported matrix or accepted production backend; OD-6/OD-9 remain OPEN.
+- **Native transport implementation (`3b91370`, 11/11 CI):** owned OVERLAPPED byte pipes and a restricted-token ProcessLauncher component implement the existing Core contract. Real Windows binary/EOF/argv/Core/shell/timeout/ready-descendant/cancel gates pass on Node 20/22, plus portable ownership and native-pointer ABI tests. Bounded environment is implemented; unique write-filter/outside-Low gates and inherited-handle/repeated-failure checks await native qualification. Not a registered confinement backend or global write boundary; production remains unavailable and this WP stays open.
+- **Historical shared-shell qualification:** `43f7392` fixes production WinPS shell initialization by explicit import from `$PSHOME`; shared-helper ordinary Low redirection passes at 15 s and reaches Medium denial. Core stream/exit regression and all 11 CI checks pass at `01ed8ce`, with the legacy RPC gate using the same production helper; the intervening `ec11e2e` raw-startup timeout is retained. Raw direct discovery still times out. No same-backing writable filesystem, global outside-Low boundary or Windows confinement backend; no acceptance/activation. See [pinned criterion status](../design/windows-l1-continuation.md).
+- **Stage 6A diagnosis:** final code `61d0f87a`, Windows Node 20/22 jobs FAIL; nine other checks pass. Direct Node 20 empty-PATH spawning/Job cleanup and PowerShell PATHEXT version control are proven; cmd PATH loss and PowerShell exit/redirection remain open. Actual RPC CRUD is adapter-only; unapproved Low-sibling CRUD exposes missing global outside-write confinement. See [diagnostic report](../design/windows-l1-stage6a.md) and preserved native evidence. No WP-23c acceptance, production activation or mechanism selection.
+- **Stage 6 partial experiment:** explicit filesystem RPC into a real ordinary Medium root, with handle-relative operations and bounded local IPC. At `f38d68ad` native Node 22/cmd filesystem/negative cases pass, but Windows jobs FAIL on PowerShell and Node 20 descendants. Not transparent native shell/Node writes, no full stage-6 acceptance or production activation.
+- **Stage 5 evidence:** actual synthetic-victim memory/handle and native
+  readonly-pipe probes passed at `15bb9357` (Windows Node 20/22, 11 CI green).
+  Trusted controls actually read canaries; Low memory/handle access is denied,
+  NW-only pipe exposes data, explicit NR denies Low reads and Low IPC works.
+  Not full real CROT IPC/DPAPI or allowed-write/production qualification.
+- **Stage 4 evidence:** paired native MIC matrix passed at `418b7d1f` (11 CI
+  green). Privilege-stripped MIC-only restores normal/hidden Node descendants
+  while retaining fixture secret/alias and own-token raise denials. SID-filtered
+  spawn EPERM is retained as rejected behavior. Medium-workspace writes,
+  complete allowed-write/IPC and memory/handle/race proofs remain open; no
+  production activation or final OD-6 decision.
+- **Stage 3 evidence:** write-restricted/MIC comparisons passed native Windows
+  Node 20/22 at `14084c6f` (11 CI green). Ordinary owner-only reads and explicit
+  secret NO_READ_UP coexist in disposable fixtures, but Low IL prevents writing
+  ordinary Medium workspaces. Production remains fail-closed; workspace
+  mediation and token/handle/alias/IPC bypass qualification are still required.
+- **Stage 2 evidence:** research restricted child launch (suspended until Job
+  assignment), file-canary/argv/environment/descendant/failure/exit probes
+  passed native Windows Node 20/22 at `a6cdab2e` (11 CI checks green). Not full
+  L1: outside-write/IPC, owner-only developer reads, stdio/handle boundary,
+  standard-user and native ARM64 qualification remain open. See
+  [`docs/design/windows-l1-spike.md`](../design/windows-l1-spike.md).
+- **Current stage:** native restricted-token/DACL spike in progress following
+  owner authorization; x64 and ARM64 remain in the target. See
+  `docs/design/windows-l1-spike.md`. No production L1 availability is claimed;
+  OD-6 and the full remote shell/process acceptance remain open.
 - **Size:** L. **Depends on:** WP-21.
 
 - **Done when (each):** the AD-13 point 4 profile passes tests — no access to

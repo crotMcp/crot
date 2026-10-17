@@ -1,0 +1,2741 @@
+{
+  "sourceCommit": "61d0f87a395ed1962cdbc4b19c7c482698a992e4",
+  "testedCheckout": "28ec90aed4bafff659f166215d418138274880ea",
+  "checkRunId": 116097269229,
+  "runId": 38635441734,
+  "jobUrl": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38635441734/job/116097269229",
+  "annotationFileSha256": "d5822ce103c7a2e17a82900c61be4a75ed29b481c439c1a617003de080ee6bad",
+  "decoding": "All CROT-6A-bundle fragments ordered by part, base64 decoded, gzip decompressed; duplicate event titles retained. No rows filtered.",
+  "events": [
+    {
+      "title": "CROT-6A-metadata",
+      "value": {
+        "sourceBaseline": "4031536a45d67743e5fe25b18faaf36895692f67",
+        "testedCheckout": "28ec90aed4bafff659f166215d418138274880ea",
+        "githubSha": "28ec90aed4bafff659f166215d418138274880ea",
+        "osVersion": "Windows Server 2025 Datacenter",
+        "ubr": 33438,
+        "parent": {
+          "node": "v22.23.3",
+          "uv": "1.51.0",
+          "arch": "x64",
+          "environmentPresence": {
+            "PATH": true,
+            "PATHEXT": true,
+            "SYSTEMDRIVE": true,
+            "USERPROFILE": true
+          },
+          "os": {
+            "major": 10,
+            "minor": 0,
+            "build": 26100,
+            "productType": 3
+          },
+          "integrity": "S-1-16-12288",
+          "elevated": true,
+          "standard": [
+            {
+              "valid": true,
+              "error": 0,
+              "type": 3,
+              "inheritable": false
+            },
+            {
+              "valid": true,
+              "error": 0,
+              "type": 3,
+              "inheritable": false
+            },
+            {
+              "valid": true,
+              "error": 0,
+              "type": 3,
+              "inheritable": false
+            }
+          ]
+        },
+        "trustedSecretReadable": true,
+        "experimentalSandboxApi": {
+          "dll": false,
+          "error": 126,
+          "invoked": false
+        },
+        "workspaceSpelling": "проект space 😀",
+        "configuration": "mic-only Low token; unchanged Medium workspace; private Low temp; explicit environment"
+      }
+    },
+    {
+      "title": "CROT-6A-trusted-control",
+      "value": {
+        "rows": [
+          {
+            "api": "CreateProcessW",
+            "cwd": "workspace",
+            "stdio": "no-inheritance",
+            "suspended": false,
+            "attempted": true,
+            "created": true,
+            "error": 0,
+            "inAnyJobQuery": true,
+            "inAnyJob": true,
+            "wait": 0,
+            "exitQuery": true,
+            "exitCode": 17,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": true,
+                  "USERPROFILE": true
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-12288",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EXPOSED",
+              "ready": true,
+              "pid": 9308
+            }
+          },
+          {
+            "api": "CreateProcessW",
+            "cwd": "workspace",
+            "stdio": "no-inheritance",
+            "suspended": true,
+            "attempted": true,
+            "created": true,
+            "error": 0,
+            "inAnyJobQuery": true,
+            "inAnyJob": true,
+            "resume": 1,
+            "resumeError": 0,
+            "wait": 0,
+            "exitQuery": true,
+            "exitCode": 17,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": true,
+                  "USERPROFILE": true
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-12288",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EXPOSED",
+              "ready": true,
+              "pid": 984
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "workspace",
+            "stdio": "pipe",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": true,
+            "stderrMatched": true,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": true,
+                  "USERPROFILE": true
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-12288",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EXPOSED",
+              "ready": true,
+              "pid": 1044
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "workspace",
+            "stdio": "ignore",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": true,
+                  "USERPROFILE": true
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-12288",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EXPOSED",
+              "ready": true,
+              "pid": 3252
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "workspace",
+            "stdio": "inherit",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": true,
+                  "USERPROFILE": true
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-12288",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EXPOSED",
+              "ready": true,
+              "pid": 8392
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "privateLow",
+            "stdio": "pipe",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": true,
+            "stderrMatched": true,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": true,
+                  "USERPROFILE": true
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-12288",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EXPOSED",
+              "ready": true,
+              "pid": 2452
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "privateLow",
+            "stdio": "ignore",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": true,
+                  "USERPROFILE": true
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-12288",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EXPOSED",
+              "ready": true,
+              "pid": 7336
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "privateLow",
+            "stdio": "inherit",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": true,
+                  "USERPROFILE": true
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-12288",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EXPOSED",
+              "ready": true,
+              "pid": 8372
+            }
+          },
+          {
+            "api": "spawn",
+            "cwd": "workspace",
+            "stdio": "pipe",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": true,
+            "stderrMatched": true,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": true,
+                  "USERPROFILE": true
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-12288",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EXPOSED",
+              "ready": true,
+              "pid": 9128
+            }
+          },
+          {
+            "api": "spawn",
+            "cwd": "workspace",
+            "stdio": "ignore",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": true,
+                  "USERPROFILE": true
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-12288",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EXPOSED",
+              "ready": true,
+              "pid": 5660
+            }
+          },
+          {
+            "api": "spawn-hold",
+            "attempted": true,
+            "error": null,
+            "pid": 9824,
+            "exitBeforeParent": null,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": true,
+                  "USERPROFILE": true
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-12288",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EXPOSED",
+              "ready": true,
+              "pid": 9824
+            }
+          }
+        ],
+        "snapshot": {
+          "node": "v22.23.3",
+          "uv": "1.51.0",
+          "arch": "x64",
+          "environmentPresence": {
+            "PATH": true,
+            "PATHEXT": false,
+            "SYSTEMDRIVE": true,
+            "USERPROFILE": true
+          },
+          "os": {
+            "major": 10,
+            "minor": 0,
+            "build": 26100,
+            "productType": 3
+          },
+          "integrity": "S-1-16-12288",
+          "elevated": true,
+          "standard": [
+            {
+              "valid": true,
+              "error": 0,
+              "type": 3,
+              "inheritable": false
+            },
+            {
+              "valid": true,
+              "error": 0,
+              "type": 3,
+              "inheritable": false
+            },
+            {
+              "valid": true,
+              "error": 0,
+              "type": 3,
+              "inheritable": false
+            }
+          ]
+        },
+        "phase": "complete",
+        "complete": true
+      }
+    },
+    {
+      "title": "CROT-6A-low-runtime-absent",
+      "value": {
+        "rows": [
+          {
+            "api": "CreateProcessW",
+            "cwd": "workspace",
+            "stdio": "no-inheritance",
+            "suspended": false,
+            "attempted": true,
+            "created": true,
+            "error": 0,
+            "inAnyJobQuery": true,
+            "inAnyJob": true,
+            "wait": 0,
+            "exitQuery": true,
+            "exitCode": 17,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": false,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 9736
+            }
+          },
+          {
+            "api": "CreateProcessW",
+            "cwd": "workspace",
+            "stdio": "no-inheritance",
+            "suspended": true,
+            "attempted": true,
+            "created": true,
+            "error": 0,
+            "inAnyJobQuery": true,
+            "inAnyJob": true,
+            "resume": 1,
+            "resumeError": 0,
+            "wait": 0,
+            "exitQuery": true,
+            "exitCode": 17,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": false,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 6652
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "workspace",
+            "stdio": "pipe",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": true,
+            "stderrMatched": true,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": false,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 5396
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "workspace",
+            "stdio": "ignore",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": false,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 3172
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "workspace",
+            "stdio": "inherit",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": false,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 9836
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "privateLow",
+            "stdio": "pipe",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": true,
+            "stderrMatched": true,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": false,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 2052
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "privateLow",
+            "stdio": "ignore",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": false,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 7324
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "privateLow",
+            "stdio": "inherit",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": false,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 2088
+            }
+          },
+          {
+            "api": "spawn",
+            "cwd": "workspace",
+            "stdio": "pipe",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": true,
+            "stderrMatched": true,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": false,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 4052
+            }
+          },
+          {
+            "api": "spawn",
+            "cwd": "workspace",
+            "stdio": "ignore",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": false,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 9032
+            }
+          },
+          {
+            "api": "spawn-hold",
+            "attempted": true,
+            "error": null,
+            "pid": 7756,
+            "exitBeforeParent": null,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": false,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 7756
+            }
+          }
+        ],
+        "snapshot": {
+          "node": "v22.23.3",
+          "uv": "1.51.0",
+          "arch": "x64",
+          "environmentPresence": {
+            "PATH": false,
+            "PATHEXT": false,
+            "SYSTEMDRIVE": false,
+            "USERPROFILE": false
+          },
+          "os": {
+            "major": 10,
+            "minor": 0,
+            "build": 26100,
+            "productType": 3
+          },
+          "integrity": "S-1-16-4096",
+          "elevated": true,
+          "standard": [
+            {
+              "valid": true,
+              "error": 0,
+              "type": 2,
+              "inheritable": false
+            },
+            {
+              "valid": true,
+              "error": 0,
+              "type": 2,
+              "inheritable": false
+            },
+            {
+              "valid": true,
+              "error": 0,
+              "type": 2,
+              "inheritable": false
+            }
+          ]
+        },
+        "phase": "complete",
+        "complete": true
+      }
+    },
+    {
+      "title": "CROT-6A-low-cleanup-absent",
+      "value": {
+        "parentExited": true,
+        "parentExitCode": 0,
+        "before": {
+          "active": 1,
+          "total": 21
+        },
+        "readyObserved": true,
+        "descendantGoneAfterJobClose": true,
+        "status": "exercised"
+      }
+    },
+    {
+      "title": "CROT-6A-low-runtime-empty",
+      "value": {
+        "rows": [
+          {
+            "api": "CreateProcessW",
+            "cwd": "workspace",
+            "stdio": "no-inheritance",
+            "suspended": false,
+            "attempted": true,
+            "created": true,
+            "error": 0,
+            "inAnyJobQuery": true,
+            "inAnyJob": true,
+            "wait": 0,
+            "exitQuery": true,
+            "exitCode": 17,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 9508
+            }
+          },
+          {
+            "api": "CreateProcessW",
+            "cwd": "workspace",
+            "stdio": "no-inheritance",
+            "suspended": true,
+            "attempted": true,
+            "created": true,
+            "error": 0,
+            "inAnyJobQuery": true,
+            "inAnyJob": true,
+            "resume": 1,
+            "resumeError": 0,
+            "wait": 0,
+            "exitQuery": true,
+            "exitCode": 17,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 7712
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "workspace",
+            "stdio": "pipe",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": true,
+            "stderrMatched": true,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 5580
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "workspace",
+            "stdio": "ignore",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 6648
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "workspace",
+            "stdio": "inherit",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 8000
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "privateLow",
+            "stdio": "pipe",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": true,
+            "stderrMatched": true,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 8088
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "privateLow",
+            "stdio": "ignore",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 6180
+            }
+          },
+          {
+            "api": "spawnSync",
+            "cwd": "privateLow",
+            "stdio": "inherit",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 6764
+            }
+          },
+          {
+            "api": "spawn",
+            "cwd": "workspace",
+            "stdio": "pipe",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": true,
+            "stderrMatched": true,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 1100
+            }
+          },
+          {
+            "api": "spawn",
+            "cwd": "workspace",
+            "stdio": "ignore",
+            "attempted": true,
+            "error": null,
+            "status": 17,
+            "signal": null,
+            "stdoutMatched": false,
+            "stderrMatched": false,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 2,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 7716
+            }
+          },
+          {
+            "api": "spawn-hold",
+            "attempted": true,
+            "error": null,
+            "pid": 5164,
+            "exitBeforeParent": null,
+            "child": {
+              "snapshot": {
+                "node": "v22.23.3",
+                "uv": "1.51.0",
+                "arch": "x64",
+                "environmentPresence": {
+                  "PATH": true,
+                  "PATHEXT": false,
+                  "SYSTEMDRIVE": false,
+                  "USERPROFILE": false
+                },
+                "os": {
+                  "major": 10,
+                  "minor": 0,
+                  "build": 26100,
+                  "productType": 3
+                },
+                "integrity": "S-1-16-4096",
+                "elevated": true,
+                "standard": [
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  },
+                  {
+                    "valid": true,
+                    "error": 0,
+                    "type": 3,
+                    "inheritable": false
+                  }
+                ]
+              },
+              "secret": "EPERM",
+              "ready": true,
+              "pid": 5164
+            }
+          }
+        ],
+        "snapshot": {
+          "node": "v22.23.3",
+          "uv": "1.51.0",
+          "arch": "x64",
+          "environmentPresence": {
+            "PATH": true,
+            "PATHEXT": false,
+            "SYSTEMDRIVE": false,
+            "USERPROFILE": false
+          },
+          "os": {
+            "major": 10,
+            "minor": 0,
+            "build": 26100,
+            "productType": 3
+          },
+          "integrity": "S-1-16-4096",
+          "elevated": true,
+          "standard": [
+            {
+              "valid": true,
+              "error": 0,
+              "type": 2,
+              "inheritable": false
+            },
+            {
+              "valid": true,
+              "error": 0,
+              "type": 2,
+              "inheritable": false
+            },
+            {
+              "valid": true,
+              "error": 0,
+              "type": 2,
+              "inheritable": false
+            }
+          ]
+        },
+        "phase": "complete",
+        "complete": true
+      }
+    },
+    {
+      "title": "CROT-6A-low-cleanup-empty",
+      "value": {
+        "parentExited": true,
+        "parentExitCode": 0,
+        "before": {
+          "active": 1,
+          "total": 21
+        },
+        "readyObserved": true,
+        "descendantGoneAfterJobClose": true,
+        "status": "exercised"
+      }
+    },
+    {
+      "title": "CROT-6A-ordinary-crud",
+      "value": {
+        "exitCode": 0,
+        "cwdMatched": true,
+        "rows": [
+          {
+            "area": "mediumWorkspace",
+            "op": "read",
+            "attempted": true,
+            "readMatched": true,
+            "result": "ALLOWED"
+          },
+          {
+            "area": "mediumWorkspace",
+            "op": "create",
+            "attempted": true,
+            "result": "EPERM"
+          },
+          {
+            "area": "mediumWorkspace",
+            "op": "write",
+            "attempted": true,
+            "result": "EPERM"
+          },
+          {
+            "area": "mediumWorkspace",
+            "op": "rename",
+            "attempted": true,
+            "result": "EPERM"
+          },
+          {
+            "area": "mediumWorkspace",
+            "op": "remove",
+            "attempted": true,
+            "result": "EPERM"
+          },
+          {
+            "area": "privateLowControl",
+            "op": "read",
+            "attempted": true,
+            "readMatched": true,
+            "result": "ALLOWED"
+          },
+          {
+            "area": "privateLowControl",
+            "op": "create",
+            "attempted": true,
+            "result": "ALLOWED"
+          },
+          {
+            "area": "privateLowControl",
+            "op": "write",
+            "attempted": true,
+            "result": "ALLOWED"
+          },
+          {
+            "area": "privateLowControl",
+            "op": "rename",
+            "attempted": true,
+            "result": "ALLOWED"
+          },
+          {
+            "area": "privateLowControl",
+            "op": "remove",
+            "attempted": true,
+            "result": "ALLOWED"
+          },
+          {
+            "area": "outsideLowControl",
+            "op": "read",
+            "attempted": true,
+            "readMatched": true,
+            "result": "ALLOWED"
+          },
+          {
+            "area": "outsideLowControl",
+            "op": "create",
+            "attempted": true,
+            "result": "ALLOWED"
+          },
+          {
+            "area": "outsideLowControl",
+            "op": "write",
+            "attempted": true,
+            "result": "ALLOWED"
+          },
+          {
+            "area": "outsideLowControl",
+            "op": "rename",
+            "attempted": true,
+            "result": "ALLOWED"
+          },
+          {
+            "area": "outsideLowControl",
+            "op": "remove",
+            "attempted": true,
+            "result": "ALLOWED"
+          }
+        ],
+        "observed": [
+          {
+            "area": "mediumWorkspace",
+            "created": false,
+            "written": "before",
+            "renamed": false,
+            "sourceStillPresent": true,
+            "removed": false
+          },
+          {
+            "area": "privateLowControl",
+            "created": true,
+            "written": "after",
+            "renamed": true,
+            "sourceStillPresent": false,
+            "removed": true
+          },
+          {
+            "area": "outsideLowControl",
+            "created": true,
+            "written": "after",
+            "renamed": true,
+            "sourceStillPresent": false,
+            "removed": true
+          }
+        ]
+      }
+    },
+    {
+      "title": "CROT-6A-redirection",
+      "value": {
+        "shell": "cmd",
+        "variant": "baseline",
+        "attempted": true,
+        "exited": true,
+        "exitCode": 1,
+        "runtimePhase": "low-complete;medium-attempt\r\n",
+        "mediumFilePresent": false,
+        "lowFilePresent": true
+      }
+    },
+    {
+      "title": "CROT-6A-rpc-node",
+      "value": {
+        "result": {
+          "runtime": {
+            "node": "v22.23.3",
+            "uv": "1.51.0",
+            "arch": "x64",
+            "environmentPresence": {
+              "PATH": true,
+              "PATHEXT": true,
+              "SYSTEMDRIVE": false,
+              "USERPROFILE": false
+            },
+            "os": {
+              "major": 10,
+              "minor": 0,
+              "build": 26100,
+              "productType": 3
+            },
+            "integrity": "S-1-16-4096",
+            "elevated": true,
+            "standard": [
+              {
+                "valid": true,
+                "error": 0,
+                "type": 2,
+                "inheritable": false
+              },
+              {
+                "valid": true,
+                "error": 0,
+                "type": 2,
+                "inheritable": false
+              },
+              {
+                "valid": true,
+                "error": 0,
+                "type": 2,
+                "inheritable": false
+              }
+            ]
+          },
+          "cwd": "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\crot-test-3BgWm3\\workspace\\проект space 😀",
+          "argv": ["", "Unicode 😀", "quote\"slash\\"],
+          "project": "existing project",
+          "before": "EPERM",
+          "create": true,
+          "created": "исходный 😀",
+          "write": true,
+          "rename": true,
+          "renamed": "изменён 😀",
+          "remove": true,
+          "removed": "ENOENT",
+          "persist": true,
+          "after": "EPERM",
+          "outside": "EPERM",
+          "secret": "EPERM",
+          "refused": [false, false, false, false, false, false, false, false, false, false],
+          "badCapability": false,
+          "descendant": {
+            "code": 0,
+            "stdout": "{\"ok\":true}",
+            "stderr": "",
+            "error": null
+          }
+        },
+        "diagnostics": [
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "object-type-or-links",
+            "status": 1
+          },
+          {
+            "stage": "object-type-or-links",
+            "status": 2
+          },
+          {
+            "stage": "object-type-or-links",
+            "status": 2
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "object-type-or-links",
+            "status": 1
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "capability"
+          }
+        ],
+        "hostObserved": {
+          "persisted": true,
+          "outsideUnchanged": true,
+          "secretUnchangedAndTrustedReadable": true,
+          "projectUnchanged": true
+        }
+      }
+    },
+    {
+      "title": "CROT-6A-rpc-cmd",
+      "value": {
+        "result": {
+          "runtime": {
+            "node": "v22.23.3",
+            "uv": "1.51.0",
+            "arch": "x64",
+            "environmentPresence": {
+              "PATH": false,
+              "PATHEXT": true,
+              "SYSTEMDRIVE": false,
+              "USERPROFILE": false
+            },
+            "os": {
+              "major": 10,
+              "minor": 0,
+              "build": 26100,
+              "productType": 3
+            },
+            "integrity": "S-1-16-4096",
+            "elevated": true,
+            "standard": [
+              {
+                "valid": true,
+                "error": 0,
+                "type": 2,
+                "inheritable": false
+              },
+              {
+                "valid": true,
+                "error": 0,
+                "type": 1,
+                "inheritable": false
+              },
+              {
+                "valid": true,
+                "error": 0,
+                "type": 1,
+                "inheritable": false
+              }
+            ]
+          },
+          "cwd": "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\crot-test-U1E5Rm\\workspace\\проект space 😀",
+          "argv": [],
+          "project": "existing project",
+          "before": "EPERM",
+          "create": true,
+          "created": "исходный 😀",
+          "write": true,
+          "rename": true,
+          "renamed": "изменён 😀",
+          "remove": true,
+          "removed": "ENOENT",
+          "persist": true,
+          "after": "EPERM",
+          "outside": "EPERM",
+          "secret": "EPERM",
+          "refused": [false, false, false, false, false, false, false, false, false, false],
+          "badCapability": false,
+          "descendant": {
+            "code": 0,
+            "stdout": "{\"ok\":true}",
+            "stderr": "",
+            "error": null
+          }
+        },
+        "diagnostics": [
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "object-type-or-links",
+            "status": 1
+          },
+          {
+            "stage": "object-type-or-links",
+            "status": 2
+          },
+          {
+            "stage": "object-type-or-links",
+            "status": 2
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "object-type-or-links",
+            "status": 1
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "capability"
+          }
+        ],
+        "hostObserved": {
+          "persisted": true,
+          "outsideUnchanged": true,
+          "secretUnchangedAndTrustedReadable": true,
+          "projectUnchanged": true
+        }
+      }
+    },
+    {
+      "title": "CROT-6A-redirection",
+      "value": {
+        "shell": "powershell",
+        "variant": "minimal-fixed",
+        "attempted": true,
+        "exited": false,
+        "exitCode": null,
+        "runtimePhase": "low-attempt",
+        "mediumFilePresent": false,
+        "lowFilePresent": false
+      }
+    },
+    {
+      "title": "CROT-6A-redirection",
+      "value": {
+        "shell": "powershell",
+        "variant": "private-profile",
+        "attempted": true,
+        "exited": false,
+        "exitCode": null,
+        "runtimePhase": "low-attempt",
+        "mediumFilePresent": false,
+        "lowFilePresent": false
+      }
+    },
+    {
+      "title": "CROT-6A-powershell-baseline",
+      "value": {
+        "exited": true,
+        "exitCode": 0,
+        "fields": {
+          "entry": "1",
+          "psVersion": "5.1.26100.33438",
+          "languageMode": "FullLanguage",
+          "cwdMatches": "True",
+          "nodePresent": "True",
+          "clientPresent": "True",
+          "dotnet-redirected.attempted": "1",
+          "dotnet-redirected.exit": "0",
+          "dotnet-redirected.versionMatched": "True",
+          "dotnet-redirected.stderrEmpty": "True",
+          "legacy-native.attempted": "1",
+          "legacy-native.success": "True",
+          "legacy-native.errorCount": "0",
+          "legacy-native.exit": "",
+          "legacy-native.versionMatched": "False",
+          "complete": "1"
+        }
+      }
+    },
+    {
+      "title": "CROT-6A-powershell-empty-path",
+      "value": {
+        "exited": true,
+        "exitCode": 0,
+        "fields": {
+          "entry": "1",
+          "psVersion": "5.1.26100.33438",
+          "languageMode": "FullLanguage",
+          "cwdMatches": "True",
+          "nodePresent": "True",
+          "clientPresent": "True",
+          "dotnet-redirected.attempted": "1",
+          "dotnet-redirected.exit": "0",
+          "dotnet-redirected.versionMatched": "True",
+          "dotnet-redirected.stderrEmpty": "True",
+          "legacy-native.attempted": "1",
+          "legacy-native.success": "True",
+          "legacy-native.errorCount": "0",
+          "legacy-native.exit": "",
+          "legacy-native.versionMatched": "False",
+          "complete": "1"
+        }
+      }
+    },
+    {
+      "title": "CROT-6A-powershell-empty-path-pathext",
+      "value": {
+        "exited": true,
+        "exitCode": 0,
+        "fields": {
+          "entry": "1",
+          "psVersion": "5.1.26100.33438",
+          "languageMode": "FullLanguage",
+          "cwdMatches": "True",
+          "nodePresent": "True",
+          "clientPresent": "True",
+          "dotnet-redirected.attempted": "1",
+          "dotnet-redirected.exit": "0",
+          "dotnet-redirected.versionMatched": "True",
+          "dotnet-redirected.stderrEmpty": "True",
+          "legacy-native.attempted": "1",
+          "legacy-native.success": "True",
+          "legacy-native.errorCount": "0",
+          "legacy-native.exit": "0",
+          "legacy-native.versionMatched": "True",
+          "complete": "1"
+        }
+      }
+    },
+    {
+      "title": "CROT-6A-rpc-powershell-dotnet",
+      "value": {
+        "result": {
+          "runtime": {
+            "node": "v22.23.3",
+            "uv": "1.51.0",
+            "arch": "x64",
+            "environmentPresence": {
+              "PATH": true,
+              "PATHEXT": true,
+              "SYSTEMDRIVE": false,
+              "USERPROFILE": false
+            },
+            "os": {
+              "major": 10,
+              "minor": 0,
+              "build": 26100,
+              "productType": 3
+            },
+            "integrity": "S-1-16-4096",
+            "elevated": true,
+            "standard": [
+              {
+                "valid": true,
+                "error": 0,
+                "type": 3,
+                "inheritable": false
+              },
+              {
+                "valid": true,
+                "error": 0,
+                "type": 3,
+                "inheritable": false
+              },
+              {
+                "valid": true,
+                "error": 0,
+                "type": 3,
+                "inheritable": false
+              }
+            ]
+          },
+          "cwd": "C:\\Users\\runneradmin\\AppData\\Local\\Temp\\crot-test-s3jjAV\\workspace\\проект space 😀",
+          "argv": [],
+          "project": "existing project",
+          "before": "EPERM",
+          "create": true,
+          "created": "исходный 😀",
+          "write": true,
+          "rename": true,
+          "renamed": "изменён 😀",
+          "remove": true,
+          "removed": "ENOENT",
+          "persist": true,
+          "after": "EPERM",
+          "outside": "EPERM",
+          "secret": "EPERM",
+          "refused": [false, false, false, false, false, false, false, false, false, false],
+          "badCapability": false,
+          "descendant": {
+            "code": 0,
+            "stdout": "{\"ok\":true}",
+            "stderr": "",
+            "error": null
+          }
+        },
+        "diagnostics": [
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "object-type-or-links",
+            "status": 1
+          },
+          {
+            "stage": "object-type-or-links",
+            "status": 2
+          },
+          {
+            "stage": "object-type-or-links",
+            "status": 2
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "object-type-or-links",
+            "status": 1
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "request"
+          },
+          {
+            "stage": "capability"
+          }
+        ],
+        "hostObserved": {
+          "persisted": true,
+          "outsideUnchanged": true,
+          "secretUnchangedAndTrustedReadable": true,
+          "projectUnchanged": true
+        }
+      }
+    },
+    {
+      "title": "CROT-6A-test-summary",
+      "value": {
+        "file": "stage6a-diagnostics.test.ts",
+        "state": "pass",
+        "fileErrors": [],
+        "rows": [
+          {
+            "name": "records exact build, own-token/std-handle state and a trusted runtime control",
+            "state": "pass"
+          },
+          {
+            "name": "records Low spawn with absent PATH and proves tree cleanup only after readiness",
+            "state": "pass"
+          },
+          {
+            "name": "records Low spawn with empty PATH and proves tree cleanup only after readiness",
+            "state": "pass"
+          },
+          {
+            "name": "separates ordinary CRUD and shell redirection from explicit mediation",
+            "state": "pass"
+          },
+          {
+            "name": "localizes PowerShell baseline native invocation versus fully redirected ProcessStartInfo",
+            "state": "pass"
+          },
+          {
+            "name": "localizes PowerShell empty-path native invocation versus fully redirected ProcessStartInfo",
+            "state": "pass"
+          },
+          {
+            "name": "localizes PowerShell empty-path-pathext native invocation versus fully redirected ProcessStartInfo",
+            "state": "pass"
+          }
+        ]
+      }
+    },
+    {
+      "title": "CROT-6A-test-summary",
+      "value": {
+        "file": "workspace-native.test.ts",
+        "state": "fail",
+        "fileErrors": [],
+        "rows": [
+          {
+            "name": "trusted positive control performs real handle-relative CRUD without the pipe",
+            "state": "pass"
+          },
+          {
+            "name": "pins the actual workspace against root substitution; idle close releases native handles",
+            "state": "pass"
+          },
+          {
+            "name": "stopping a mediated run ends its native descendant tree",
+            "state": "pass"
+          },
+          {
+            "name": "node changes the real Medium root via explicit RPC; direct writes and forbidden RPC remain denied",
+            "state": "pass"
+          },
+          {
+            "name": "cmd changes the real Medium root via explicit RPC; direct writes and forbidden RPC remain denied",
+            "state": "pass"
+          },
+          {
+            "name": "powershell changes the real Medium root via explicit RPC; direct writes and forbidden RPC remain denied",
+            "state": "fail",
+            "errors": [
+              {
+                "name": "Error",
+                "message": "condition not met in time"
+              }
+            ]
+          },
+          {
+            "name": "powershell-dotnet changes the real Medium root via explicit RPC; direct writes and forbidden RPC remain denied",
+            "state": "fail",
+            "errors": [
+              {
+                "name": "AssertionError",
+                "message": "expected 98 to be 23 // Object.is equality"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "annotationResponseSha256": "23b1ac2501a44a96b9b2918f58c82bb67408f9b372f58395480fd165b5693131",
+  "annotationFormatting": "Published annotations are JSON-formatted only; response hash refers to original API response bytes. Annotation file hash refers to published formatted bytes."
+}

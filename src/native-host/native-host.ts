@@ -1,3 +1,6 @@
+import { loadWindowsPrivateState } from "./windows-state.js";
+import { WindowsConfinement } from "./windows-l1/confinement.js";
+import { WindowsLeaseServiceLifecycle } from "./windows-l1/service-lifecycle.js";
 import { createNodePlatform } from "../core/platform/node-platform.js";
 import type {
   CommandConfinement,
@@ -40,6 +43,7 @@ export interface NativeHostStatus {
     /** native-host: Job Objects; core: the Core launcher is used unchanged. */
     readonly provider: "native-host" | "core";
     readonly openJobs: number;
+    readonly incompleteProcessCleanup: number;
     readonly uncontainedLaunches: number;
   };
   readonly privateFiles: {
@@ -77,6 +81,7 @@ export class NativeHost {
     private readonly jobs: JobTracker | undefined,
     private readonly nativeAcl: boolean,
     private readonly notes: readonly string[],
+    readonly windowsLeases?: WindowsLeaseServiceLifecycle,
   ) {}
 
   static async start(options: NativeHostOptions): Promise<NativeHost> {
@@ -97,6 +102,7 @@ export class NativeHost {
     let privateFiles: PrivateFileProtection = base.privateFiles;
     let jobs: JobTracker | undefined;
     let nativeAcl = false;
+    let windowsOwnerSid: string | undefined;
 
     if (base.info.os === "windows") {
       if (jobObjects) {
@@ -113,7 +119,8 @@ export class NativeHost {
       if (windowsAcl) {
         try {
           const tools = windowsTools(base.environment.get(process.env, "SystemRoot") ?? "C:\\Windows");
-          privateFiles = createWindowsAclProtection({ tools, userSid: await currentUserSid(tools) });
+          windowsOwnerSid = await currentUserSid(tools);
+          privateFiles = createWindowsAclProtection({ tools, userSid: windowsOwnerSid });
           nativeAcl = true;
         } catch (error) {
           notes.push(`owner-only ACLs unavailable (${describe(error)}); private files use inherited ACLs`);
@@ -123,7 +130,27 @@ export class NativeHost {
       }
     }
 
-    // Command confinement L1 (AD-20): Linux only; other systems report not_implemented (WP-23b, WP-23c).
+    let windowsLeases: WindowsLeaseServiceLifecycle | undefined;
+    let leasePrivateFiles = privateFiles,
+      runtimePrivateFiles = privateFiles;
+    if (base.info.os === "windows" && stateDir && windowsOwnerSid && nativeAcl) {
+      try {
+        // WAL/profile/admission records are NR secrets; executable/runtime
+        // trees deliberately are not NR, so a granted AppContainer can read.
+        leasePrivateFiles = await loadWindowsPrivateState(windowsOwnerSid);
+        runtimePrivateFiles = await loadWindowsPrivateState(windowsOwnerSid, [], "runtime");
+        windowsLeases = new WindowsLeaseServiceLifecycle({
+          stateDir,
+          ownerSid: windowsOwnerSid,
+          privateFiles: leasePrivateFiles,
+        });
+        await windowsLeases.recoverExisting();
+      } catch (cause) {
+        notes.push(`Windows L1 startup recovery failed (${describe(cause)}); confinement remains unavailable`);
+      }
+    }
+
+    // Command confinement L1: qualified native backends only, no launch fallback.
     let confinement: CommandConfinement | undefined;
     if (base.info.os === "linux" && confinementOption !== false) {
       confinement = new LinuxConfinement({
@@ -132,6 +159,20 @@ export class NativeHost {
         env: process.env,
         ...(log ? { log } : {}),
         ...(typeof confinementOption === "object" ? confinementOption : {}),
+      });
+    }
+
+    if (base.info.os === "windows" && confinementOption !== false) {
+      confinement = new WindowsConfinement({
+        stateDir: stateDir ?? base.info.directories.state,
+        ownerSid: windowsOwnerSid,
+        privateFiles: leasePrivateFiles,
+        runtimeFiles: runtimePrivateFiles,
+        lifecycle: windowsLeases,
+        base: launcher,
+        environment: base.environment,
+        env: base.baseEnvironment,
+        ...(log ? { log } : {}),
       });
     }
 
@@ -151,7 +192,7 @@ export class NativeHost {
       probeCaseSensitivity: (directory) => base.probeCaseSensitivity(directory),
       ...(confinement ? { confinement } : {}),
     };
-    return new NativeHost(platform, lifecycle, jobs, nativeAcl, notes);
+    return new NativeHost(platform, lifecycle, jobs, nativeAcl, notes, windowsLeases);
   }
 
   get running(): boolean {
@@ -166,6 +207,7 @@ export class NativeHost {
         ...this.platform.info.processControl,
         provider: this.jobs ? "native-host" : "core",
         openJobs: this.jobs?.size ?? 0,
+        incompleteProcessCleanup: this.jobs?.incompleteProcessCleanup ?? 0,
         uncontainedLaunches: this.jobs?.uncontained ?? 0,
       },
       privateFiles: { provider: this.nativeAcl ? "native-host" : "core", ...this.platform.info.privateFiles },
@@ -175,13 +217,27 @@ export class NativeHost {
 
   /** Stop accepting launches and release native resources (terminating any job still open). Idempotent. */
   async close(): Promise<void> {
+    this.lifecycle.open = false;
+    await this.windowsLeases?.close();
     this.closeSync();
   }
 
   /** Synchronous close for the host process 'exit' event and fatal errors. Idempotent. */
   closeSync(): void {
-    if (!this.lifecycle.open) return;
     this.lifecycle.open = false;
-    this.jobs?.terminateAll();
+    // A previous CloseHandle failure must remain retryable even after launches
+    // have been permanently disabled.
+    let failure: unknown;
+    try {
+      this.windowsLeases?.closeSync();
+    } catch (cause) {
+      failure = cause;
+    }
+    try {
+      this.jobs?.terminateAll();
+    } catch (cause) {
+      failure ??= cause;
+    }
+    if (failure) throw failure;
   }
 }

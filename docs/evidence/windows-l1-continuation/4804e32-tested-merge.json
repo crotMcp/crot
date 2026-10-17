@@ -1,0 +1,7 @@
+{
+  "sourceHead": "4804e323e5831f9cff7df6453fabacd7fb828fd1",
+  "testedMerge": "effc8bbeffc37a12dd0d3123577dfcfc58825a4c",
+  "parents": ["289f500ca063f5f619f0a4b8ffc8806bf2aaaf0d", "4804e323e5831f9cff7df6453fabacd7fb828fd1"],
+  "verifiedSourceParentIndex": 1,
+  "meaning": "CI runs the PR merge commit, source commit verified as its second parent."
+}

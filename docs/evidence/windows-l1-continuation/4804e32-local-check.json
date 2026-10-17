@@ -1,0 +1,16 @@
+{
+  "sourceHead": "4804e323e5831f9cff7df6453fabacd7fb828fd1",
+  "command": "npm run check",
+  "platform": "linux x64",
+  "node": "24.14.1",
+  "exitCode": 0,
+  "core": {
+    "passed": 1730,
+    "skipped": 168
+  },
+  "extension": {
+    "passed": 147
+  },
+  "logSha256": "afbc77392e9a5f91a5a90bb6a0d9fe839d157a0fec69eee58ef738f3dd6bb1b3",
+  "qualification": "Portable regressions only; native LPAC query rejected with STATUS_INVALID_INFO_CLASS, not denial."
+}

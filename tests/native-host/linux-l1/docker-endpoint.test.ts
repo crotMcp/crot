@@ -16,6 +16,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DockerEndpoint, type DockerUpstream } from "../../../src/native-host/linux-l1/docker-endpoint.js";
 import type { DockerBoundary } from "../../../src/native-host/linux-l1/docker-policy.js";
 
+import { createWindowsDockerBoundary } from "../../../src/native-host/windows-l1/docker-paths.js";
+
 const posix = process.platform !== "win32";
 
 interface Seen {
@@ -103,7 +105,7 @@ function upstream(local: boolean): DockerUpstream {
   };
 }
 
-async function startEndpoint(local = true): Promise<DockerEndpoint> {
+async function startEndpoint(local = true, hostBoundary?: DockerBoundary): Promise<DockerEndpoint> {
   const socketPath = path.join(dir, "ep.sock");
   const boundary: DockerBoundary = {
     writable: ["/home/u/ws"],
@@ -115,7 +117,7 @@ async function startEndpoint(local = true): Promise<DockerEndpoint> {
   endpoint = await DockerEndpoint.start({
     socketPath,
     upstream: upstream(local),
-    boundary,
+    boundary: hostBoundary ?? boundary,
     containerProfile: "crot-l1-container-1",
     onRefusal: (request, reason) => refusals.push({ request, reason }),
   });
@@ -218,6 +220,36 @@ afterEach(async () => {
 });
 
 describe.skipIf(!posix)("Docker endpoint against a mock daemon", () => {
+  it("applies Windows drive/npipe policy before forwarding and reports refusals (Unix test transport only)", async () => {
+    const b = createWindowsDockerBoundary({
+      writable: ["C:\\workspace"],
+      protectedPaths: ["C:\\crot"],
+      dockerContextPaths: ["C:\\keys"],
+      unreadable: ["C:\\keys"],
+      daemonSockets: ["//./pipe/docker_engine"],
+      endpointSocket: "\\\\.\\pipe\\LOCAL\\crot-l1-docker-test",
+      resolve: (p) => p,
+    });
+    await startEndpoint(false, b);
+    for (const HostConfig of [
+      { Binds: ["C:\\crot\\service-token:C:\\secret:ro"] },
+      { Binds: ["C:\\outside:C:\\data"] },
+      { Mounts: [{ Type: "npipe", Source: "//./pipe/docker_engine", Target: "//./pipe/docker_engine" }] },
+      { Privileged: true },
+    ]) {
+      const result = await request("POST", "/containers/create", { HostConfig });
+      expect(result.status).toBe(403);
+    }
+    expect(refusals).toHaveLength(4);
+    expect(refusals.every((r) => r.request === "container.create")).toBe(true);
+    expect(seen).toHaveLength(0);
+    const allowed = await request("POST", "/containers/create", {
+      HostConfig: { Binds: ["C:\\workspace\\src:C:\\src"] },
+    });
+    expect(allowed.status).toBe(201);
+    expect(seen).toHaveLength(1);
+  });
+
   it("forwards ordinary requests unchanged, including streamed responses", async () => {
     await startEndpoint();
     expect(await request("GET", "/v1.45/containers/json?all=1")).toMatchObject({

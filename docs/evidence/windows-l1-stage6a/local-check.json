@@ -1,0 +1,13 @@
+{
+  "sourceCommit": "61d0f87a395ed1962cdbc4b19c7c482698a992e4",
+  "command": "npm run check",
+  "environment": "local Linux; not Windows qualification",
+  "logSha256": "f52277822045f37da819a9da92c309eb6962ca2fd96c4445d6bd99cfbc02603e",
+  "observedSummaries": [
+    "Test Files  97 passed | 13 skipped (110)",
+    "Tests  1511 passed | 140 skipped (1651)",
+    "Test Files  10 passed (10)",
+    "Tests  147 passed (147)"
+  ],
+  "note": "Windows-only skips are not Windows results. Full log retained locally; no transcript-only claims substituted for native CI."
+}

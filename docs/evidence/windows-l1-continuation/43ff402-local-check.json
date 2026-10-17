@@ -1,0 +1,16 @@
+{
+  "sourceHead": "43ff4022c8b6ad5a9f4cfea0d7d7250d617e658b",
+  "command": "npm run check",
+  "platform": "linux x64",
+  "node": "24.14.1",
+  "exitCode": 0,
+  "core": {
+    "passed": 1706,
+    "skipped": 168
+  },
+  "extension": {
+    "passed": 147
+  },
+  "logSha256": "dc80a3fa84c9b0acefbd48f1c901ba3a439faf7cbc04f7e5a57853ab9d6e453d",
+  "qualification": "Portable only, not native Windows qualification"
+}

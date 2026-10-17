@@ -1,0 +1,45 @@
+{
+  "formatVersion": 1,
+  "source": "dokan-dev/dokany",
+  "tag": "v2.3.1.1000",
+  "commit": "f1d5de68ff459af94e309cfdd171e4b8ca2af4dd",
+  "retrievedAt": "2026-10-15T16:01:09.258260+00:00",
+  "files": {
+    "README.md": {
+      "url": "https://github.com/dokan-dev/dokany/blob/f1d5de68ff459af94e309cfdd171e4b8ca2af4dd/README.md",
+      "bytes": 7408,
+      "sha256": "7505552709e059f9a92bdc896bfaa4b96cde34679e85b6031691d2a36cfd4e7f"
+    },
+    "license.lgpl.txt": {
+      "url": "https://github.com/dokan-dev/dokany/blob/f1d5de68ff459af94e309cfdd171e4b8ca2af4dd/license.lgpl.txt",
+      "bytes": 7639,
+      "sha256": "a853c2ffec17057872340eee242ae4d96cbf2b520ae27d903e1b2fef1a5f9d1c"
+    },
+    "license.mit.txt": {
+      "url": "https://github.com/dokan-dev/dokany/blob/f1d5de68ff459af94e309cfdd171e4b8ca2af4dd/license.mit.txt",
+      "bytes": 1180,
+      "sha256": "7c7007fc460a096242df72182da1158536e62b170dea738d338bb6ebb394b27c"
+    },
+    "sys/init.c": {
+      "url": "https://github.com/dokan-dev/dokany/blob/f1d5de68ff459af94e309cfdd171e4b8ca2af4dd/sys/init.c",
+      "bytes": 44644,
+      "sha256": "b4b514b04991a02f2af66bddd4c75c1356e60a63a83168dbacab4fa1d326ac38"
+    },
+    "sys/create.c": {
+      "url": "https://github.com/dokan-dev/dokany/blob/f1d5de68ff459af94e309cfdd171e4b8ca2af4dd/sys/create.c",
+      "bytes": 51704,
+      "sha256": "b4b6c6fcf641eac62478b8576ec34d6a374a90b7fb23886bd790bc93a7e4237a"
+    },
+    "sys/fscontrol.c": {
+      "url": "https://github.com/dokan-dev/dokany/blob/f1d5de68ff459af94e309cfdd171e4b8ca2af4dd/sys/fscontrol.c",
+      "bytes": 36762,
+      "sha256": "153b1ca7c3c7e229ddc66193999c388f8f543f4a845b0c7217dfa55f6a5a7491"
+    },
+    "sys/access.c": {
+      "url": "https://github.com/dokan-dev/dokany/blob/f1d5de68ff459af94e309cfdd171e4b8ca2af4dd/sys/access.c",
+      "bytes": 3938,
+      "sha256": "4667cdc839460da9eb65682c0f1889a259a0a196d838bd83bd126d1b1c110ecf"
+    }
+  },
+  "meaning": "Authoritative source/license identity only, not native execution or legal clearance."
+}

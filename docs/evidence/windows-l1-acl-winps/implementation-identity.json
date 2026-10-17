@@ -1,0 +1,11 @@
+{
+  "sourceHead": "bc9a1c06183e53673689b1a95578615283383aad",
+  "blockedTreeCleanupApplied": false,
+  "paths": {
+    "native/windows-workspace-view/main.cpp": "fc93428cce2b64cf011ac1d13c332bf4b4fc6ffd",
+    "native/windows-workspace-view/acl-lease.h": "706619304817d5b548c95f8c003d237485176f23",
+    "native/windows-workspace-view/control-profile-child.cpp": "7701c8a4042fe951422192a5aea67046dda00f59",
+    "tests/native-host/windows-l1/appcontainer-native.test.ts": "a48a82981fc91ab04ad45ac12174111869281015",
+    "tests/native-host/windows-l1/diagnostics/workspace-view-security.ts": "33be242802d4cf60bba223b5c889c4a4c8c4ff0b"
+  }
+}

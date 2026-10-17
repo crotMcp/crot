@@ -1,0 +1,168 @@
+/** Contract/pointer ABI qualification, NOT native Windows protection evidence. */
+import { execFileSync } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { bindWindowsPrivateState } from "../../../src/native-host/windows-state.js";
+let cc: string | undefined;
+if (process.platform !== "win32")
+  for (const c of ["cc", "gcc", "clang"])
+    try {
+      execFileSync(c, ["--version"], { stdio: "ignore" });
+      cc = c;
+      break;
+    } catch {
+      /*next*/
+    }
+describe.skipIf(!cc)("exact CROT private state native ABI", () => {
+  let dir: string,
+    api: ReturnType<typeof bindWindowsPrivateState>,
+    fault: (n: number) => void,
+    handles: () => number,
+    memory: () => number,
+    invalid: () => number,
+    sets: () => number,
+    lastDescriptor: () => string;
+  const owner = "S-1-5-21-1-2-3-1000",
+    file = "C:\\fixture\\state\\credential.txt";
+  beforeAll(async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), "crot-state-ffi-"));
+    const lib = path.join(dir, "state.so");
+    execFileSync(cc!, [
+      "-shared",
+      "-fPIC",
+      "-o",
+      lib,
+      fileURLToPath(new URL("./fixtures/state-ffi.c", import.meta.url)),
+    ]);
+    const name: string = "koffi",
+      m = await import(name),
+      ffi = m.default ?? m,
+      n = ffi.load(lib);
+    fault = n.func("void StateFault(int f)");
+    handles = n.func("int StateHandles(void)");
+    memory = n.func("int StateMemory(void)");
+    invalid = n.func("int StateInvalid(void)");
+    sets = n.func("int StateSets(void)");
+    lastDescriptor = n.func("str16 StateLastDescriptor(void)");
+    api = bindWindowsPrivateState(ffi, { kernel32: lib, advapi32: lib, ntdll: lib });
+    expect(bindWindowsPrivateState(ffi, { kernel32: lib, advapi32: lib, ntdll: lib })).toBe(api);
+  });
+  afterAll(async () => rm(dir, { recursive: true, force: true }));
+  it.each([false, true])(
+    "pins every ancestor/type before installing and reading back exact owner-only Medium-NR (directory=%s)",
+    (directory) => {
+      fault(0);
+      expect(api(file, owner, directory, true)).toBe(true);
+      expect(handles()).toBe(0);
+      expect(memory()).toBe(0);
+      expect(invalid()).toBe(0);
+    },
+  );
+  it("keeps executable runtime read-down separate from NR-protected service secrets", () => {
+    fault(0);
+    expect(api(file, owner, false, true, [], true)).toBe(true);
+    expect(lastDescriptor()).toBe(`D:P(A;;FA;;;${owner})S:(ML;;NW;;;ME)`);
+    expect(api(file, owner, false, true)).toBe(true);
+    expect(lastDescriptor()).toBe(`D:P(A;;FA;;;${owner})S:(ML;;NWNR;;;ME)`);
+    expect(handles()).toBe(0);
+    expect(memory()).toBe(0);
+  });
+  it("labels only the bounded actor-writable root Low, never service storage or foreign ancestors", () => {
+    fault(0);
+    expect(api(file, owner, true, true, [], "writable", "C:\\fixture\\state")).toBe(true);
+    expect(lastDescriptor()).toBe(`D:P(A;OICI;FA;;;${owner})S:(ML;OICI;NW;;;LW)`);
+    expect(api(file, owner, false, true, [], "writable", "C:\\fixture\\state")).toBe(true);
+    expect(lastDescriptor()).toBe(`D:P(A;;FA;;;${owner})S:(ML;;NW;;;LW)`);
+    const before = sets();
+    expect(() => api(file, owner, false, true, [], "writable")).toThrow("writable root missing");
+    expect(() => api(file, owner, false, true, [], "writable", "C:\\foreign")).toThrow("writable root scope");
+    expect(() => api(file, owner, false, true, [], "writable", "C:\\")).toThrow("writable root scope");
+    expect(sets()).toBe(before);
+    expect(api(file, owner, false, true)).toBe(true);
+    expect(lastDescriptor()).toContain("NWNR;;;ME");
+    expect(handles()).toBe(0);
+    expect(memory()).toBe(0);
+    expect(invalid()).toBe(0);
+  });
+  it("installs explicit deny for the exact AppContainer SID without an Everyone/Users deny", () => {
+    fault(0);
+    expect(api(file, owner, false, true, ["S-1-15-2-1-2-3-4-5-6-7"])).toBe(true);
+    expect(lastDescriptor()).toBe(`D:P(D;;FA;;;S-1-15-2-1-2-3-4-5-6-7)(A;;FA;;;${owner})S:(ML;;NWNR;;;ME)`);
+    expect(api(file, owner, true, true, ["S-1-15-2-1-2-3-4-5-6-7"])).toBe(true);
+    expect(lastDescriptor()).toContain("D:P(D;OICI;FA;;;S-1-15-2-1-2-3-4-5-6-7)(A;OICI;FA;;;");
+    expect(handles()).toBe(0);
+    expect(memory()).toBe(0);
+    for (const sid of [owner, "S-1-1-0", "S-1-15-2-1", "S-1-5-12"]) {
+      const before = sets();
+      expect(() => api(file, owner, false, true, [sid])).toThrow();
+      expect(sets()).toBe(before);
+    }
+  });
+  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 14, 16, 17, 18])(
+    "fails closed for state ABI failure %i and releases all partial owners",
+    (n) => {
+      fault(n);
+      expect(() => api(file, owner, false, true)).toThrow();
+      fault(0);
+      expect(handles()).toBe(0);
+      expect(memory()).toBe(0);
+      expect(invalid()).toBe(0);
+    },
+  );
+  it.each([3, 4, 12, 13])("refuses alias/reparse/unsafe-parent case %i before changing any descriptor", (n) => {
+    fault(n);
+    const before = sets();
+    expect(() => api(file, owner, false, true)).toThrow();
+    fault(0);
+    expect(sets()).toBe(before);
+  });
+  it.each([10, 11])("retains failed native release %i and blocks allocation until recovery", (n) => {
+    fault(n);
+    expect(() => api(file, owner, false, true)).toThrow("native release");
+    const h = handles(),
+      m = memory();
+    expect(h + m).toBeGreaterThan(0);
+    for (let i = 0; i < 3; i++) {
+      expect(() => api(file, owner, false, true)).toThrow("native release");
+      expect(handles()).toBe(h);
+      expect(memory()).toBe(m);
+    }
+    fault(0);
+    expect(api(file, owner, false, true)).toBe(true);
+    expect(handles()).toBe(0);
+    expect(memory()).toBe(0);
+    expect(invalid()).toBe(0);
+  });
+  it("accepts verified absent parent SACL only, with target DACL+label comparison still required", () => {
+    fault(15);
+    expect(api(file, owner, false, true)).toBe(true);
+    expect(handles()).toBe(0);
+    expect(memory()).toBe(0);
+    expect(invalid()).toBe(0);
+    fault(16);
+    expect(() => api(file, owner, false, true)).toThrow("kernel descriptor mismatch");
+    fault(0);
+    expect(handles()).toBe(0);
+    expect(memory()).toBe(0);
+  });
+  it("does not mutate state in inspect mode", () => {
+    fault(0);
+    const before = sets();
+    expect(api(file, owner, false, false)).toBe(false);
+    expect(sets()).toBe(before);
+    expect(handles()).toBe(0);
+    expect(memory()).toBe(0);
+  });
+  it.each(["C:\\fixture\\..\\secret", "C:\\fixture\\secret:stream", "\\\\host\\share\\secret"])(
+    "rejects unpinned state path %s before native allocation",
+    (name) => {
+      fault(0);
+      expect(() => api(name, owner, false, true)).toThrow();
+      expect(handles()).toBe(0);
+      expect(memory()).toBe(0);
+    },
+  );
+});

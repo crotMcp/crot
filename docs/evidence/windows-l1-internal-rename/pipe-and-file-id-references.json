@@ -1,0 +1,17 @@
+{
+  "qualification": "Technical references, not a substitute for native runtime evidence; v20.x is a moving source branch, not an exact libuv revision pin.",
+  "sources": [
+    {
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-openfilebyid",
+      "fact": "The volume hint may be a handle to any file on the same volume; OPEN_REPARSE_POINT avoids normal reparse processing."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/nodejs/node/v20.x/deps/uv/src/win/pipe.c",
+      "fact": "uv__unique_pipe_name uses the non-LOCAL pipe/uv namespace; uv__pipe_server retries ERROR_ACCESS_DENIED as though it were a name collision."
+    },
+    {
+      "url": "https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-createnamedpipea",
+      "fact": "App-container named-pipe support is documented with the LOCAL prefix."
+    }
+  ]
+}

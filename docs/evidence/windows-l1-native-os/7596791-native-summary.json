@@ -1,0 +1,62 @@
+{
+  "sourceHead": "7596791d0abd124085ad100d4276aa19bbabc75c",
+  "qualification": "Disposable native fixture, not actual CrotService state/IPC and not production backend. No secret bytes read and no write through outside alias. The alias proof is a successful GENERIC_WRITE handle open.",
+  "nodes": {
+    "20": {
+      "phase": "cleanup",
+      "launchStep": "complete",
+      "verified": true,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 1,
+      "cleanup": true,
+      "outsideHardlinkOpened": true,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "originalDescriptorsRestored": false,
+      "nodeResult": {
+        "ready": true,
+        "read": true,
+        "nul": true
+      },
+      "nativeDeniedOrSuccessBits": {
+        "nulIO": true,
+        "workspaceCRUD": true,
+        "privateTemp": true,
+        "privateCache": true,
+        "outsideWriteDenied": true,
+        "protectedReadDenied": true,
+        "protectedWriteDenied": true,
+        "outsideHardlinkWriteDenied": false
+      }
+    },
+    "22": {
+      "phase": "cleanup",
+      "launchStep": "complete",
+      "verified": true,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 1,
+      "cleanup": true,
+      "outsideHardlinkOpened": true,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "originalDescriptorsRestored": false,
+      "nodeResult": {
+        "ready": true,
+        "read": true,
+        "nul": true
+      },
+      "nativeDeniedOrSuccessBits": {
+        "nulIO": true,
+        "workspaceCRUD": true,
+        "privateTemp": true,
+        "privateCache": true,
+        "outsideWriteDenied": true,
+        "protectedReadDenied": true,
+        "protectedWriteDenied": true,
+        "outsideHardlinkWriteDenied": false
+      }
+    }
+  }
+}

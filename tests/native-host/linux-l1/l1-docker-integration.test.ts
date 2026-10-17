@@ -24,32 +24,18 @@ import { profileNames } from "../../../src/native-host/linux-l1/components.js";
 import { readHostFacts } from "../../../src/native-host/linux-l1/host.js";
 import { assertAvailable, homeLayerDiagnostics, l1Fixture, type L1Fixture } from "./l1-harness.js";
 import { isLinux, l1Required } from "./l1-support.js";
+import { dockerFixtureImages, pullDockerFixtureImage } from "./fixtures/docker-image.js";
 
 const run = isLinux && l1Required;
-/**
- * The official alpine:3.20 image from the public ECR mirror of Docker Official Images:
- * the same image as on Docker Hub, without its unauthenticated pull rate limit on CI runners.
- */
-const IMAGE = "public.ecr.aws/docker/library/alpine:3.20";
+// Only the trusted setup chooses an official registry. Every scenario and
+// Dockerfile uses the exact selected digest, including BuildKit resolution.
+let IMAGE: string = dockerFixtureImages[0];
 const REFUSED = "CROT L1 Docker endpoint refused";
 const { container: containerProfile } = profileNames();
 const DAEMON_SOCKET = "/var/run/docker.sock";
 
 function hostDocker(args: string[], env: NodeJS.ProcessEnv = process.env): string {
   return execFileSync("docker", args, { encoding: "utf8", env, stdio: ["ignore", "pipe", "pipe"] });
-}
-
-/** Pulls the test image, retrying with backoff: anonymous registry pulls are throttled per runner IP. */
-async function pullImage(attempts = 6): Promise<void> {
-  for (let i = 1; ; i++) {
-    try {
-      hostDocker(["pull", "-q", IMAGE]);
-      return;
-    } catch (err) {
-      if (i >= attempts) throw err;
-      await new Promise((r) => setTimeout(r, 2_000 * 2 ** (i - 1)));
-    }
-  }
 }
 
 /**
@@ -143,7 +129,14 @@ beforeAll(async () => {
   dockerOk = spawnSync("docker", ["info"], { stdio: "ignore" }).status === 0;
   if (!dockerOk) throw new Error("the L1 Docker tests are mandatory here but no Docker daemon is reachable");
   apparmor = (await readHostFacts("1")).apparmorEnabled;
-  await pullImage();
+  IMAGE = await pullDockerFixtureImage((args) => {
+    execFileSync("docker", args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 45_000,
+      maxBuffer: 1024 * 1024,
+    });
+  });
   tcp = await proxy();
   certDir = await mkdtemp(path.join(os.homedir(), "crot-it-certs-"));
   makeCerts(certDir);

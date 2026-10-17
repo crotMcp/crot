@@ -1,0 +1,21 @@
+{
+  "sourceHead": "595ea7969e83c8078a44d6123d127b728f2fadfd",
+  "files": {
+    "native/windows-workspace-view/main.cpp": {
+      "gitBlob": "d031282918bd5735ee4cf11a7079b908b67e601c",
+      "sha256": "db94e3bfedcebe902e974de5605cf107d71a63eb939fc586e5af55cd1801f86a"
+    },
+    "tests/native-host/windows-l1/appcontainer-native.test.ts": {
+      "gitBlob": "a871c5650bea78c18230731d532b4a9c87e5299d",
+      "sha256": "f10a3da529c8308c64db6b218d1889e771969496cf3cb3f107c75c2502f39d55"
+    },
+    "tests/native-host/windows-l1/diagnostics/appcontainer-service-actor.ts": {
+      "gitBlob": "459ae3bd052d9dd6b417fb12e1c9778980066d33",
+      "sha256": "4dffcfbeec9c2652cfabc3faa7a315736e27d008e0e8d57b350d85eac064baab"
+    },
+    "native/windows-workspace-view/acl-lease.h": {
+      "gitBlob": "706619304817d5b548c95f8c003d237485176f23",
+      "sha256": "6b8e9541ddfd7d98ec0b4b92df8072705b9d438f8ee5f20d9a76ae8ebada31e4"
+    }
+  }
+}

@@ -10,6 +10,20 @@ const LOCK_STALE_MS = 15_000;
 /** Generations of break claims tried for one stale lock (a claim is only skipped when its breaker crashed). */
 const MAX_BREAK_GENERATIONS = 8;
 
+/** A pending-delete Windows directory can report EPERM instead of EEXIST.
+ * Refuse ownership and let the caller's bounded wait retry. NEVER treat this
+ * as success, break a possibly live lock, change ACLs, or bypass the lock.
+ * A permanent denial therefore still fails closed at the caller's deadline.
+ */
+export function lockCreateFailure(
+  error: unknown,
+  platform: NodeJS.Platform = process.platform,
+): "exists" | "contended" | "fatal" {
+  const code = (error as NodeJS.ErrnoException)?.code;
+  if (code === "EEXIST") return "exists";
+  return platform === "win32" && code === "EPERM" ? "contended" : "fatal";
+}
+
 /**
  * Exclusive directory lock (atomic mkdir). A lock older than `staleMs` (its
  * holder crashed) is broken by exactly one process: the stale lock is moved
@@ -27,7 +41,9 @@ export async function acquireDirectoryLock(lock: string, staleMs = LOCK_STALE_MS
     await mkdir(lock, { mode: 0o700 });
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    const disposition = lockCreateFailure(error);
+    if (disposition === "contended") return false;
+    if (disposition === "fatal") throw error;
   }
   const info = await stat(lock).catch(() => undefined);
   if (info && Date.now() - info.mtimeMs <= staleMs) return false;

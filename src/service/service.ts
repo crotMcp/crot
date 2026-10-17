@@ -276,6 +276,13 @@ export class CrotService {
   private async claimEndpoints(): Promise<boolean> {
     const { stateDir, privateFiles } = this.options;
     await privateFiles.ensureDirectory(stateDir);
+    if (this.windows && privateFiles.protectFile) {
+      // Fixed service-owned state root, not an arbitrary workspace/audit parent.
+      // Protect legacy directories too, before secret-store/bootstrap activity.
+      await privateFiles.protectFile(stateDir);
+      const { existingPrivateStateFiles } = await import("./private-files.js");
+      for (const file of await existingPrivateStateFiles(stateDir)) await privateFiles.protectFile(file);
+    }
     const warning = await stateDirectoryWarning(stateDir);
     if (warning) this.log(`warning: ${warning}`);
     // The secret store first (WP-21): it may migrate the credentials the endpoints are derived from.
@@ -390,15 +397,26 @@ export class CrotService {
       this.native = await NativeHost.start({ startupPath: parsed.environment.path, stateDir, log });
       for (const note of this.native.status().notes) log(`note: native host: ${note}`);
       // The browser bridge never stops CROT: when it cannot start, CROT runs without it.
+      const servicePlatform =
+        this.windows && this.options.privateFiles.enforced
+          ? {
+              ...this.native.platform,
+              privateFiles: this.options.privateFiles,
+              info: {
+                ...this.native.platform.info,
+                privateFiles: { mechanism: this.options.privateFiles.mechanism, enforced: true },
+              },
+            }
+          : this.native.platform;
       this.bridge = await startBrowserBridge({
         enabled: parsed.browser.enabled,
         stateDir,
-        privateFiles: this.native.platform.privateFiles,
+        privateFiles: servicePlatform.privateFiles,
         token: () => secrets.store.readOrCreate("browser-token"),
         log,
       });
       const remoteExposure = remoteExposureFile
-        ? await RemoteExposureStore.open(remoteExposureFile, this.native.platform.privateFiles, {
+        ? await RemoteExposureStore.open(remoteExposureFile, servicePlatform.privateFiles, {
             onError: (e) => log(`remote exposure state: ${e instanceof Error ? e.message : String(e)}`),
           })
         : undefined;
@@ -407,7 +425,7 @@ export class CrotService {
         secretPaths,
         ...(remoteExposureFile ? { remoteExposureFile } : {}),
         ...(remoteExposure ? { remoteExposure } : {}),
-        platform: this.native.platform,
+        platform: servicePlatform,
         ...(this.bridge ? { browser: this.bridge } : {}),
         serviceStatus: () => this.status(),
       };

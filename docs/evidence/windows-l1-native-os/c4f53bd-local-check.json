@@ -1,0 +1,11 @@
+{
+  "sourceHead": "c4f53bd6b844d466c6be4de6f27dff8151f3d9ce",
+  "command": "npm run check",
+  "exitCode": 1,
+  "platform": "Linux x64",
+  "node": "24.14.1",
+  "result": "1 Core failed /1735 passed /168 skipped; extension not run. Existing snapshot output-contract regression; corrected separately in7596791.",
+  "log": "c4f53bd-local-check.log",
+  "sha256": "802de95db7f3c50e98e78bd1663596d02648bd499c81c1b6cb7ac1cef26e79d1",
+  "qualification": "Portable evidence only, not Windows isolation."
+}

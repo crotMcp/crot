@@ -1,0 +1,20 @@
+
+ RUN  v3.2.7 /data/crot-mcp
+
+ ✓ tests/service/shim.test.ts (11 tests | 2 skipped) 20691ms
+   ✓ stdio shim and CROT service (built, WP-20) > several stdio clients start at the same time and work concurrently through one service  3905ms
+   ✓ stdio shim and CROT service (built, WP-20) > `service status` and `service stop` work over the control channel  2461ms
+   ✓ stdio shim and CROT service (built, WP-20) > a client with another configuration gets a clear error while the service is in use  1663ms
+   ✓ stdio shim and CROT service (built, WP-20) > an idle on-demand service is replaced for a new configuration  2496ms
+   ✓ stdio shim and CROT service (built, WP-20) > graceful shutdown keeps AD-7: in-flight and background operations are audited before the audit log closes  2221ms
+   ✓ stdio shim and CROT service (built, WP-20) > after a crash the shim exits with status 1, a new service takes over, and persisted remote exposure is intact  2660ms
+   ✓ stdio shim and CROT service (built, WP-20) > concurrent service starts of one user leave exactly one owner, also when taking over after a crash  2523ms
+   ✓ stdio shim and CROT service (built, WP-20) > clients started in different working directories share the service; it does not keep the first one's  1715ms
+   ✓ stdio shim and CROT service (built, WP-20) > a managed service refuses to start twice  1046ms
+ ✓ tests/service/endpoints.test.ts (5 tests) 105ms
+
+ Test Files  2 passed (2)
+      Tests  14 passed | 2 skipped (16)
+   Start at  21:52:46
+   Duration  29.07s (transform 687ms, setup 0ms, collect 1.26s, tests 20.80s, environment 0ms, prepare 141ms)
+

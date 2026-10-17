@@ -1,0 +1,40 @@
+{
+  "driver": "Dokan 2.3.1.1000",
+  "scope": "Pinned upstream source review plus harmless own-device native open. Not a sensitive IOCTL exploit and not binary/source reproducibility proof.",
+  "nativeSource": "0eb15199fa9bcfebe2cb4af8f3cd65530018ea63",
+  "nativeResult": "Node20 Low unique WRITE_RESTRICTED profile obtains valid zero-access handle to exact new raw device; helper rejects READY and unmounts. No sensitive IOCTL requested. Node22 new test not reached: trusted setup hook timeout.",
+  "files": [
+    {
+      "url": "https://raw.githubusercontent.com/dokan-dev/dokany/v2.3.1.1000/sys/init.c",
+      "sha256": "b4b514b04991a02f2af66bddd4c75c1356e60a63a83168dbacab4fa1d326ac38",
+      "observation": "DokanSetVolumeSecurity installs DACL_SECURITY_INFORMATION only"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/dokan-dev/dokany/v2.3.1.1000/sys/create.c",
+      "sha256": "b4b6c6fcf641eac62478b8576ec34d6a374a90b7fb23886bd790bc93a7e4237a",
+      "observation": "Vcb==NULL raw device create succeeds without CROT file callbacks"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/dokan-dev/dokany/v2.3.1.1000/sys/fscontrol.c",
+      "sha256": "153b1ca7c3c7e229ddc66193999c388f8f543f4a845b0c7217dfa55f6a5a7491",
+      "observation": "DokanDiskUserFsRequest forwards token/event IOCTLs, no CROT Job gate"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/dokan-dev/dokany/v2.3.1.1000/sys/access.c",
+      "sha256": "4667cdc839460da9eb65682c0f1889a259a0a196d838bd83bd126d1b1c110ecf",
+      "observation": "DokanGetAccessToken can open pending request token with GENERIC_ALL/KernelMode"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/dokan-dev/dokany/v2.3.1.1000/sys/public.h",
+      "sha256": "d8485c7600947a396500a0d847ccf44d65ca831e3c63c1f92c724da36bf90895",
+      "observation": "Control IOCTL definitions use FILE_ANY_ACCESS"
+    }
+  ],
+  "alternative": {
+    "candidate": "WinFsp v2.1",
+    "status": "Research only. Not selected, installed, linked or bundled.",
+    "licenseUrl": "https://github.com/winfsp/winfsp/blob/v2.1/License.txt",
+    "licenseSha256": "68ae2fa9d8e6110ebdc9a236beecf118e279f8a26530daf09c9e682c231f7879",
+    "limitation": "GPLv3 + FLOSS-only exception; current CROT UNLICENSED. No licensing entitlement inferred, no relicense. Control-handle design and captured-token semantics still require native qualification."
+  }
+}

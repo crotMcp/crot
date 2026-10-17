@@ -1,0 +1,1704 @@
+{
+  "sourceHead": "e812f1d95c6d992b6a4f0ad8a1c4a731e8d3b36f",
+  "qualification": "AppContainer SDK fixture, not full real-service CROT-6A, not production availability. No secret bytes emitted. Successful write-handle probes do not write data.",
+  "snapshotObjectOrder": [
+    "workspace",
+    "protected fixture",
+    "cross-root linked file",
+    "fixture parent",
+    "Temp",
+    "Local",
+    "AppData",
+    "runner profile",
+    "Users",
+    "volume root"
+  ],
+  "nodes": {
+    "20": {
+      "phase": "cleanup",
+      "aclStep": "query-descriptor",
+      "aclError": 0,
+      "ancestorIndex": 7,
+      "lastWin32Error": 87,
+      "verified": true,
+      "nativeCode": 1129474303,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 1,
+      "cleanup": false,
+      "originalDescriptorsRestored": false,
+      "linkedCount": 1,
+      "deniedLinkedCount": 1,
+      "restoreReasons": [
+        "restored-control-mismatch",
+        "restored-control-mismatch",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none"
+      ],
+      "insideHardlinkWriteDenied": true,
+      "insideHardlinkOpened": false,
+      "outsideHardlinkOpened": false,
+      "externalLinkCreationDenied": true,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "directoryAccess": [
+        {
+          "depth": 0,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 32,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 1,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 2,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 3,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 4,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 5,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 6,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 7,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        }
+      ],
+      "nodeResult": {
+        "ready": true,
+        "read": true,
+        "nul": true
+      },
+      "runtime": {
+        "node": "v20.20.2",
+        "arch": "x64",
+        "os": "Windows Server 2025 Datacenter"
+      },
+      "nativeCodeHex": "0x435268ff",
+      "linkedReadPreserved": true,
+      "exactDescriptorRestoredByObject": [false, true, false, false, false, false, false, true, false, false],
+      "descriptorFlags": [
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "P",
+          "after": "P"
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "P",
+          "after": "P"
+        },
+        {
+          "before": "PAI",
+          "after": "P"
+        },
+        {
+          "before": "AI",
+          "after": ""
+        }
+      ],
+      "powershellStdout": "CROT-PS-INITIAL-FILESYSTEM=True\r\nCROT-PS-INITIAL-ROOT=True\r\nCROT-PS-NUL-EXIT=\r\n",
+      "powershellStderr": "NUL descendant failed\r\nAt line:1 char:793\r\n+ ... EXITCODE); if ($LASTEXITCODE -ne 0) { throw 'NUL descendant failed' }\r\n+                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : OperationStopped: (NUL descendant failed:String) [], RuntimeException\r\n    + FullyQualifiedErrorId : NUL descendant failed\r\n \r\n",
+      "nativeDiagnostics": {
+        "directoryAccess": [
+          {
+            "depth": 0,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 32,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 1,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 2,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 3,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 4,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 5,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 6,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 7,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          }
+        ],
+        "childConsoleModes": [
+          {
+            "noWindow": false,
+            "createError": 0,
+            "exit": 0
+          },
+          {
+            "noWindow": true,
+            "createError": 0,
+            "exit": 0
+          }
+        ]
+      }
+    },
+    "22": {
+      "phase": "cleanup",
+      "aclStep": "query-descriptor",
+      "aclError": 0,
+      "ancestorIndex": 7,
+      "lastWin32Error": 87,
+      "verified": true,
+      "nativeCode": 1129474303,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 1,
+      "cleanup": false,
+      "originalDescriptorsRestored": false,
+      "linkedCount": 1,
+      "deniedLinkedCount": 1,
+      "restoreReasons": [
+        "restored-control-mismatch",
+        "restored-control-mismatch",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "none"
+      ],
+      "insideHardlinkWriteDenied": true,
+      "insideHardlinkOpened": false,
+      "outsideHardlinkOpened": false,
+      "externalLinkCreationDenied": true,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "directoryAccess": [
+        {
+          "depth": 0,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 32,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 1,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 2,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 3,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 4,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 5,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 6,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        },
+        {
+          "depth": 7,
+          "attributeError": 0,
+          "opens": [
+            {
+              "mask": 128,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 32,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 1,
+              "error": 0,
+              "closeError": 0
+            },
+            {
+              "mask": 2,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 4,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 65536,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 262144,
+              "error": 5,
+              "closeError": 0
+            },
+            {
+              "mask": 524288,
+              "error": 5,
+              "closeError": 0
+            }
+          ]
+        }
+      ],
+      "nodeResult": {
+        "ready": true,
+        "read": true,
+        "nul": true
+      },
+      "runtime": {
+        "node": "v22.23.3",
+        "arch": "x64",
+        "os": "Windows Server 2025 Datacenter"
+      },
+      "nativeCodeHex": "0x435268ff",
+      "linkedReadPreserved": true,
+      "exactDescriptorRestoredByObject": [false, true, false, false, false, false, false, true, false, false],
+      "descriptorFlags": [
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "P",
+          "after": "P"
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "",
+          "after": ""
+        },
+        {
+          "before": "P",
+          "after": "P"
+        },
+        {
+          "before": "PAI",
+          "after": "P"
+        },
+        {
+          "before": "AI",
+          "after": ""
+        }
+      ],
+      "powershellStdout": "CROT-PS-INITIAL-FILESYSTEM=True\r\nCROT-PS-INITIAL-ROOT=True\r\nCROT-PS-NUL-EXIT=\r\n",
+      "powershellStderr": "NUL descendant failed\r\nAt line:1 char:793\r\n+ ... EXITCODE); if ($LASTEXITCODE -ne 0) { throw 'NUL descendant failed' }\r\n+                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : OperationStopped: (NUL descendant failed:String) [], RuntimeException\r\n    + FullyQualifiedErrorId : NUL descendant failed\r\n \r\n",
+      "nativeDiagnostics": {
+        "directoryAccess": [
+          {
+            "depth": 0,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 32,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 1,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 2,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 3,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 4,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 5,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 6,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          },
+          {
+            "depth": 7,
+            "attributeError": 0,
+            "opens": [
+              {
+                "mask": 128,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 32,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 1,
+                "error": 0,
+                "closeError": 0
+              },
+              {
+                "mask": 2,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 4,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 65536,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 262144,
+                "error": 5,
+                "closeError": 0
+              },
+              {
+                "mask": 524288,
+                "error": 5,
+                "closeError": 0
+              }
+            ]
+          }
+        ],
+        "childConsoleModes": [
+          {
+            "noWindow": false,
+            "createError": 0,
+            "exit": 0
+          },
+          {
+            "noWindow": true,
+            "createError": 0,
+            "exit": 0
+          }
+        ]
+      }
+    }
+  }
+}

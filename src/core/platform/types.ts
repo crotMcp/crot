@@ -67,7 +67,9 @@ export interface PrivateFileProtection {
   /** Create a directory for private files; new directories are owner-only where supported. */
   ensureDirectory(dir: string): Promise<void>;
   /**
-   * Restrict an existing file to the CROT user. Provided where protection is
+   * Restrict an existing file (or an explicitly owned private-state directory)
+   * to the CROT user. Never use this to rewrite an arbitrary workspace parent.
+   * Provided where protection is
    * not expressed by a creation mode (Windows ACLs). Callers create the file
    * empty, call protectFile, and only then write secrets into it.
    */
@@ -192,6 +194,8 @@ export interface ManagedProcess {
   /** Resolves when the direct child exits. */
   readonly exited: Promise<ExitStatus>;
   readonly hasExited: boolean;
+  /** Fatal launcher/transport failure, independent of the actual child exit code. */
+  readonly failure?: Error | undefined;
   /**
    * Terminate the process tree. Works after the direct child has exited where
    * the platform allows it (POSIX process groups, Windows Job Objects).
@@ -304,7 +308,7 @@ export type ConfinementNetwork = (typeof CONFINEMENT_NETWORK_MODES)[number];
  * paths.
  */
 export interface ConfinementStatus {
-  readonly mechanism: "linux-bubblewrap" | "none";
+  readonly mechanism: "linux-bubblewrap" | "windows-appcontainer" | "none";
   readonly available: boolean;
   readonly network: ConfinementNetwork;
   readonly reason: ConfinementReason | null;
@@ -338,6 +342,8 @@ export interface ConfinementScope {
  * operation.
  */
 export interface CoreConfinement {
+  /** Optional sticky post-admission failure guard. Does not run readiness checks. */
+  assertAdmission?(): void;
   /** Last reported state (no checks run). */
   status(): ConfinementStatus;
   /** Run the availability checks (AD-20 point 12) and report the result. */

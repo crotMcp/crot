@@ -57,9 +57,14 @@ steps 10–11 and step 21 — Git read and write):
   builds pin no identity environment yet (staging WP-38), development uses
   `CROT_IDENTITY_DEV_ENVIRONMENT`; see [`docs/IDENTITY.md`](docs/IDENTITY.md)
 
-Not yet implemented: command confinement L1 on macOS and Windows (Linux: [L1](docs/L1.md)), Docker operations beyond `docker.use` (build, pull, push, run, exec), Git network operations (fetch, pull, push), OS-level network egress control for processes and containers, remote (non-loopback)
+Not yet implemented: command confinement L1 on macOS (Linux and qualified Windows: [L1](docs/L1.md)), Docker operations beyond `docker.use` (build, pull, push, run, exec), Git network operations (fetch, pull, push), OS-level network egress control for processes and containers, remote (non-loopback)
 exposure (Cloud Relay WP-29, device tunnel WP-30), installer and autostart (including packaging of the tray), account/licensing layer.
 Firefox is not supported.
+
+Windows L1 uses the qualified AppContainer + Job backend (WP-23c, AD-30).
+Explicit host/component preparation is required; unsupported configurations
+report unavailable. Native LOCAL Docker mediation and full durable service
+lease recovery are included. See [L1](docs/L1.md).
 
 **Goal and plan.** The v1 goal (remote MCP clients reach the local computer and
 the user's real browser through CROT and the Cloud Relay), the architecture and

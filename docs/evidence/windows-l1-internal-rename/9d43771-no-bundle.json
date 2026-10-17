@@ -1,0 +1,5 @@
+{
+  "sourceHead": "9d43771a8c32024cc067e184a298bcadcf64fa72",
+  "qualification": "Windows test step failed without a CROT evidence bundle; this is NOT an access-denial proof. Profile LPWSTR decoding was found incorrect by source inspection and fixed with a compiled allocator/UTF16 ABI test in the next source commit. Exact Windows failure cause unavailable: log API returned 403.",
+  "nodes": [20, 22]
+}

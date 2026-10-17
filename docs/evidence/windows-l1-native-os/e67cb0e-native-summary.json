@@ -1,0 +1,46 @@
+{
+  "sourceHead": "e67cb0ee70c091dd03dfdb695412d46d963fd2da",
+  "qualification": "Disposable qualification, not accepted backend. Outside alias successful GENERIC_WRITE handle, no data written through it. Protected fixture no secret bytes read.",
+  "nodes": {
+    "20": {
+      "phase": "cleanup",
+      "launchStep": "complete",
+      "verified": true,
+      "nativeCode": 1129447807,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 1,
+      "cleanup": true,
+      "outsideHardlinkOpened": true,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "originalDescriptorsRestored": false,
+      "nodeResult": {
+        "ready": true,
+        "read": true,
+        "nul": true
+      },
+      "exactDescriptorRestoredByObject": [false, true]
+    },
+    "22": {
+      "phase": "cleanup",
+      "launchStep": "complete",
+      "verified": true,
+      "nativeCode": 1129447807,
+      "nodeCode": 0,
+      "cmdCode": 0,
+      "psCode": 1,
+      "cleanup": true,
+      "outsideHardlinkOpened": true,
+      "protectedReadOpened": false,
+      "protectedWriteOpened": false,
+      "originalDescriptorsRestored": false,
+      "nodeResult": {
+        "ready": true,
+        "read": true,
+        "nul": true
+      },
+      "exactDescriptorRestoredByObject": [false, true]
+    }
+  }
+}

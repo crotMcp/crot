@@ -1,0 +1,418 @@
+{
+  "head": "8fe6ba594ec77938aebd4532d1688548f7b92ae3",
+  "qualification": "Квалификация `8fe6ba5`: [CI 11/11](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906), Windows Server 2025 x64, Node 20/22.",
+  "scope": "Server2025 x64 Node20/22; native Docker transport/policy with controlled upstream, not real daemon/Desktop/WSL",
+  "jobs": [
+    {
+      "name": "real-chromium",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379861/job/117424297915"
+    },
+    {
+      "name": "L1 / ubuntu-24.04",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379862/job/117424297931"
+    },
+    {
+      "name": "L1 / ubuntu-24.04-arm",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379862/job/117424298018"
+    },
+    {
+      "name": "L1 / ubuntu-22.04",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379862/job/117424298135"
+    },
+    {
+      "name": "L1 / ubuntu-22.04-arm",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379862/job/117424298139"
+    },
+    {
+      "name": "Node 20 / macos-latest",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906/job/117424298054"
+    },
+    {
+      "name": "Node 20 / windows-latest",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906/job/117424298166"
+    },
+    {
+      "name": "Node 22 / ubuntu-latest",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906/job/117424298172"
+    },
+    {
+      "name": "Node 22 / windows-latest",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906/job/117424298193"
+    },
+    {
+      "name": "Node 20 / ubuntu-latest",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906/job/117424298214"
+    },
+    {
+      "name": "Node 22 / macos-latest",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906/job/117424298297"
+    }
+  ],
+  "windows": [
+    {
+      "job": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906/job/117424298166",
+      "production": {
+        "networkOn": true,
+        "networkOff": true,
+        "deliveryVerified": true,
+        "coreShell": true,
+        "coreProcessExit": 23,
+        "workspaceOperations": "7/7",
+        "restoredFileSnapshots": "13/13",
+        "hardlinkWrite": "EPERM",
+        "deletedOriginalRecovered": true,
+        "mismatchRefused": true,
+        "remoteUnavailable": true,
+        "mechanism": "windows-appcontainer",
+        "checkout": "d3e2cec3b02bc9e431141b507cc5410d1ac62a76",
+        "node": "v20.20.2",
+        "logs": [
+          "Windows L1 readiness failure: Windows L1 components have not been provisioned.",
+          "Windows L1 on: components_missing",
+          "Windows L1 off: available",
+          "Windows L1 on: available",
+          "Windows L1 on: available"
+        ]
+      },
+      "fullLeaseRecovery": {
+        "restoredOriginals": 30,
+        "independentFileSnapshots": 13,
+        "actorsDead": true,
+        "newNodesStripped": 3,
+        "loopbackRemoved": true,
+        "profileReceiptClosed": true,
+        "startupIdempotent": true,
+        "serviceLifecycleTested": true,
+        "dockerLocalTransport": true,
+        "dockerResponses": [200, 403, 403, 403],
+        "dockerRefusalsAudited": 3,
+        "dockerUpstream": "mock-byte-stream-not-real-daemon",
+        "checkout": "d3e2cec3b02bc9e431141b507cc5410d1ac62a76",
+        "node": "v20.20.2"
+      },
+      "nativeAcl": {
+        "cleanup": true,
+        "originalDescriptorsRestored": true,
+        "pinnedObjectRenames": [true, true, true, true, true],
+        "pinnedObjectRenameErrors": [32, 32, 32, 32, 32],
+        "outsideHardlinkOpened": false,
+        "protectedReadOpened": false,
+        "protectedWriteOpened": false
+      },
+      "descriptorFingerprints": [
+        {
+          "before": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca",
+          "after": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca"
+        },
+        {
+          "before": "bcebc6f0dbe3defc16c511757137fe6facf9d007736458592a9a0b7a6020e305",
+          "after": "bcebc6f0dbe3defc16c511757137fe6facf9d007736458592a9a0b7a6020e305"
+        },
+        {
+          "before": "f93f4b7cd919f32a37aaa054796d43c0173e83fff2a008aba2d5cf1ffee97049",
+          "after": "f93f4b7cd919f32a37aaa054796d43c0173e83fff2a008aba2d5cf1ffee97049"
+        },
+        {
+          "before": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca",
+          "after": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca"
+        },
+        {
+          "before": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca",
+          "after": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca"
+        },
+        {
+          "before": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca",
+          "after": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca"
+        },
+        {
+          "before": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca",
+          "after": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca"
+        },
+        {
+          "before": "24ef4620c9e84c71a0d42e97acc9b2baae7d246c0174c94a596125df4a81c4e2",
+          "after": "24ef4620c9e84c71a0d42e97acc9b2baae7d246c0174c94a596125df4a81c4e2"
+        },
+        {
+          "before": "086731d8a4b5fa44f9abd073a7b0d752d992e1b3a1e8ef49ffc10214f6f87a8c",
+          "after": "086731d8a4b5fa44f9abd073a7b0d752d992e1b3a1e8ef49ffc10214f6f87a8c"
+        },
+        {
+          "before": "ab890264662af5d6c9a8dfcf2f43895c1f8082368ee5f895888b03d9f71073fd",
+          "after": "ab890264662af5d6c9a8dfcf2f43895c1f8082368ee5f895888b03d9f71073fd"
+        },
+        {
+          "before": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca",
+          "after": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca"
+        },
+        {
+          "before": "f93f4b7cd919f32a37aaa054796d43c0173e83fff2a008aba2d5cf1ffee97049",
+          "after": "f93f4b7cd919f32a37aaa054796d43c0173e83fff2a008aba2d5cf1ffee97049"
+        },
+        {
+          "before": "f93f4b7cd919f32a37aaa054796d43c0173e83fff2a008aba2d5cf1ffee97049",
+          "after": "f93f4b7cd919f32a37aaa054796d43c0173e83fff2a008aba2d5cf1ffee97049"
+        }
+      ],
+      "descendants": {
+        "ready": true,
+        "parentExit": 23,
+        "descendantReady": true,
+        "profileHeldUntilJobDrain": true,
+        "descendantTerminated": true,
+        "grandchildTerminated": true,
+        "shimPropagatedAcrossTwoSpawns": true,
+        "profileClosed": true
+      },
+      "realServiceGate": {
+        "ready": true,
+        "reads": ["EPERM", "EPERM", "EPERM", "EPERM", "EPERM"],
+        "writes": ["EPERM", "EPERM", "EPERM", "EPERM", "EPERM"],
+        "endpointAttempted": true,
+        "endpointResult": "EPERM",
+        "serviceAttempted": true,
+        "serviceCode": 0,
+        "serviceUnchanged": true,
+        "ownerStillAuthenticated": true,
+        "actorScriptRestored": true
+      },
+      "networkOn": {
+        "ready": true,
+        "mode": "on",
+        "loopback": {
+          "status": 200
+        },
+        "lan": {
+          "status": 200
+        },
+        "internet": {
+          "status": 200
+        },
+        "httpNoToken": {
+          "status": 401
+        },
+        "httpWrongToken": {
+          "status": 401
+        },
+        "reads": ["EPERM", "EPERM", "EPERM", "EPERM", "EPERM", "EPERM"],
+        "writes": ["EPERM", "EPERM", "EPERM", "EPERM", "EPERM", "EPERM"],
+        "control": "EPERM",
+        "ownerNetworkControls": true,
+        "internetDnsBypassed": true,
+        "hostAcceptedConnections": 2
+      },
+      "networkOff": {
+        "ready": true,
+        "mode": "off",
+        "loopback": {
+          "error": "ETIMEDOUT"
+        },
+        "lan": {
+          "error": "TIMEOUT"
+        },
+        "internet": {
+          "error": "EACCES"
+        },
+        "httpNoToken": {
+          "error": "ETIMEDOUT"
+        },
+        "httpWrongToken": {
+          "error": "ETIMEDOUT"
+        },
+        "reads": ["EPERM", "EPERM", "EPERM", "EPERM", "EPERM", "EPERM"],
+        "writes": ["EPERM", "EPERM", "EPERM", "EPERM", "EPERM", "EPERM"],
+        "control": "EPERM",
+        "ownerNetworkControls": true,
+        "internetDnsBypassed": true,
+        "hostAcceptedConnections": 0
+      }
+    },
+    {
+      "job": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906/job/117424298193",
+      "production": {
+        "networkOn": true,
+        "networkOff": true,
+        "deliveryVerified": true,
+        "coreShell": true,
+        "coreProcessExit": 23,
+        "workspaceOperations": "7/7",
+        "restoredFileSnapshots": "13/13",
+        "hardlinkWrite": "EPERM",
+        "deletedOriginalRecovered": true,
+        "mismatchRefused": true,
+        "remoteUnavailable": true,
+        "mechanism": "windows-appcontainer",
+        "checkout": "d3e2cec3b02bc9e431141b507cc5410d1ac62a76",
+        "node": "v22.23.3",
+        "logs": [
+          "Windows L1 readiness failure: Windows L1 components have not been provisioned.",
+          "Windows L1 on: components_missing",
+          "Windows L1 off: available",
+          "Windows L1 on: available",
+          "Windows L1 on: available"
+        ]
+      },
+      "fullLeaseRecovery": {
+        "restoredOriginals": 30,
+        "independentFileSnapshots": 13,
+        "actorsDead": true,
+        "newNodesStripped": 3,
+        "loopbackRemoved": true,
+        "profileReceiptClosed": true,
+        "startupIdempotent": true,
+        "serviceLifecycleTested": true,
+        "dockerLocalTransport": true,
+        "dockerResponses": [200, 403, 403, 403],
+        "dockerRefusalsAudited": 3,
+        "dockerUpstream": "mock-byte-stream-not-real-daemon",
+        "checkout": "d3e2cec3b02bc9e431141b507cc5410d1ac62a76",
+        "node": "v22.23.3"
+      },
+      "nativeAcl": {
+        "cleanup": true,
+        "originalDescriptorsRestored": true,
+        "pinnedObjectRenames": [true, true, true, true, true],
+        "pinnedObjectRenameErrors": [32, 32, 32, 32, 32],
+        "outsideHardlinkOpened": false,
+        "protectedReadOpened": false,
+        "protectedWriteOpened": false
+      },
+      "descriptorFingerprints": [
+        {
+          "before": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca",
+          "after": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca"
+        },
+        {
+          "before": "bcebc6f0dbe3defc16c511757137fe6facf9d007736458592a9a0b7a6020e305",
+          "after": "bcebc6f0dbe3defc16c511757137fe6facf9d007736458592a9a0b7a6020e305"
+        },
+        {
+          "before": "f93f4b7cd919f32a37aaa054796d43c0173e83fff2a008aba2d5cf1ffee97049",
+          "after": "f93f4b7cd919f32a37aaa054796d43c0173e83fff2a008aba2d5cf1ffee97049"
+        },
+        {
+          "before": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca",
+          "after": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca"
+        },
+        {
+          "before": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca",
+          "after": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca"
+        },
+        {
+          "before": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca",
+          "after": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca"
+        },
+        {
+          "before": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca",
+          "after": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca"
+        },
+        {
+          "before": "24ef4620c9e84c71a0d42e97acc9b2baae7d246c0174c94a596125df4a81c4e2",
+          "after": "24ef4620c9e84c71a0d42e97acc9b2baae7d246c0174c94a596125df4a81c4e2"
+        },
+        {
+          "before": "086731d8a4b5fa44f9abd073a7b0d752d992e1b3a1e8ef49ffc10214f6f87a8c",
+          "after": "086731d8a4b5fa44f9abd073a7b0d752d992e1b3a1e8ef49ffc10214f6f87a8c"
+        },
+        {
+          "before": "ab890264662af5d6c9a8dfcf2f43895c1f8082368ee5f895888b03d9f71073fd",
+          "after": "ab890264662af5d6c9a8dfcf2f43895c1f8082368ee5f895888b03d9f71073fd"
+        },
+        {
+          "before": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca",
+          "after": "5cd89900ad22a91df2c929518f1730e2170b2b77c3359ec61d90d8b688bf3fca"
+        },
+        {
+          "before": "f93f4b7cd919f32a37aaa054796d43c0173e83fff2a008aba2d5cf1ffee97049",
+          "after": "f93f4b7cd919f32a37aaa054796d43c0173e83fff2a008aba2d5cf1ffee97049"
+        },
+        {
+          "before": "f93f4b7cd919f32a37aaa054796d43c0173e83fff2a008aba2d5cf1ffee97049",
+          "after": "f93f4b7cd919f32a37aaa054796d43c0173e83fff2a008aba2d5cf1ffee97049"
+        }
+      ],
+      "descendants": {
+        "ready": true,
+        "parentExit": 23,
+        "descendantReady": true,
+        "profileHeldUntilJobDrain": true,
+        "descendantTerminated": true,
+        "grandchildTerminated": true,
+        "shimPropagatedAcrossTwoSpawns": true,
+        "profileClosed": true
+      },
+      "realServiceGate": {
+        "ready": true,
+        "reads": ["EPERM", "EPERM", "EPERM", "EPERM", "EPERM"],
+        "writes": ["EPERM", "EPERM", "EPERM", "EPERM", "EPERM"],
+        "endpointAttempted": true,
+        "endpointResult": "EPERM",
+        "serviceAttempted": true,
+        "serviceCode": 0,
+        "serviceUnchanged": true,
+        "ownerStillAuthenticated": true,
+        "actorScriptRestored": true
+      },
+      "networkOn": {
+        "ready": true,
+        "mode": "on",
+        "loopback": {
+          "status": 200
+        },
+        "lan": {
+          "status": 200
+        },
+        "internet": {
+          "status": 200
+        },
+        "httpNoToken": {
+          "status": 401
+        },
+        "httpWrongToken": {
+          "status": 401
+        },
+        "reads": ["EPERM", "EPERM", "EPERM", "EPERM", "EPERM", "EPERM"],
+        "writes": ["EPERM", "EPERM", "EPERM", "EPERM", "EPERM", "EPERM"],
+        "control": "EPERM",
+        "ownerNetworkControls": true,
+        "internetDnsBypassed": true,
+        "hostAcceptedConnections": 2
+      },
+      "networkOff": {
+        "ready": true,
+        "mode": "off",
+        "loopback": {
+          "error": "ETIMEDOUT"
+        },
+        "lan": {
+          "error": "TIMEOUT"
+        },
+        "internet": {
+          "error": "EACCES"
+        },
+        "httpNoToken": {
+          "error": "ETIMEDOUT"
+        },
+        "httpWrongToken": {
+          "error": "ETIMEDOUT"
+        },
+        "reads": ["EPERM", "EPERM", "EPERM", "EPERM", "EPERM", "EPERM"],
+        "writes": ["EPERM", "EPERM", "EPERM", "EPERM", "EPERM", "EPERM"],
+        "control": "EPERM",
+        "ownerNetworkControls": true,
+        "internetDnsBypassed": true,
+        "hostAcceptedConnections": 0
+      }
+    }
+  ]
+}

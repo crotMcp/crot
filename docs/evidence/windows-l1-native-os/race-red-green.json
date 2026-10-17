@@ -1,0 +1,10 @@
+{
+  "implementation": "fd4fd47b141ca9469b9f71bd054cfc065aefbc17",
+  "baseline": "a6eb17db41d631d7d980881c428d730cc5970b7b",
+  "redLog": "race-red.log",
+  "redExitCode": 1,
+  "greenLog": "race-tests.log",
+  "greenExitCode": 0,
+  "test": "a fresh listener cannot bypass a held POSIX stale-recovery lock",
+  "scope": "Deterministic endpoint-lock bypass reproduced on baseline and fixed. Original intermittent macOS root cause not independently established; macOS Node20/22 CI success pinned separately."
+}

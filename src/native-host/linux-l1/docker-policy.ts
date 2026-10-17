@@ -8,8 +8,15 @@
 import path from "node:path";
 import { isWithin } from "./bwrap-args.js";
 
+/** Platform-specific path checks; the Windows adapter must never use POSIX volume detection. */
+export interface DockerHostPaths {
+  checkSource(source: string, readOnly: boolean, where: string): void;
+  parseBind(bind: string): { source: string; readOnly: boolean; namedVolume?: boolean };
+}
+
 /** The L1 boundary as the Docker endpoint applies it to host paths. */
 export interface DockerBoundary {
+  readonly hostPaths?: DockerHostPaths;
   /** Writable sources are accepted only inside these (the workspace and the L1 private storage). */
   readonly writable: readonly string[];
   /** CROT-protected paths: a source that is or contains one is refused (rule a). */
@@ -86,6 +93,7 @@ function normalizeSecurityOpt(opt: string): string {
 
 /** Check one host path source (rules a and d). */
 export function checkSource(boundary: DockerBoundary, source: string, readOnly: boolean, where: string): void {
+  if (boundary.hostPaths) return boundary.hostPaths.checkSource(source, readOnly, where);
   if (!path.posix.isAbsolute(source)) return; // a named volume, not a host path
   const lexical = path.posix.normalize(source);
   const resolved = boundary.resolve ? boundary.resolve(lexical) : lexical;
@@ -139,7 +147,7 @@ function checkMount(boundary: DockerBoundary, mount: Json, where: string): void 
   const type = str(mount.Type) ?? "volume";
   const readOnly = mount.ReadOnly === true;
   const source = str(mount.Source) ?? "";
-  if (type === "bind") checkSource(boundary, source, readOnly, where);
+  if (type === "bind" || type === "npipe") checkSource(boundary, source, readOnly, where);
   if (type === "volume") {
     const driverConfig = obj(obj(mount.VolumeOptions)?.DriverConfig);
     checkVolumeOptions(boundary, obj(driverConfig?.Options), readOnly, where);
@@ -186,7 +194,9 @@ export function checkHostConfig(boundary: DockerBoundary, hostConfig: Json | und
   checkPrivileges(hostConfig, where);
   for (const bind of arr(hostConfig.Binds)) {
     if (typeof bind !== "string") continue;
-    const { source, readOnly } = parseBind(bind);
+    const parsed = boundary.hostPaths ? boundary.hostPaths.parseBind(bind) : parseBind(bind);
+    if ("namedVolume" in parsed && parsed.namedVolume) continue;
+    const { source, readOnly } = parsed;
     checkSource(boundary, source, readOnly, `${where}: bind ${source}`);
   }
   for (const mount of arr(hostConfig.Mounts)) {
@@ -199,7 +209,7 @@ export function checkHostConfig(boundary: DockerBoundary, hostConfig: Json | und
 export function checkInspectedMounts(boundary: DockerBoundary, mounts: unknown, where: string): void {
   for (const mount of arr(mounts)) {
     const m = obj(mount);
-    if (!m || str(m.Type) !== "bind") continue;
+    if (!m || !["bind", "npipe"].includes(str(m.Type) ?? "")) continue;
     checkSource(boundary, str(m.Source) ?? "", m.RW === false, `${where}: mount ${str(m.Source) ?? ""}`);
   }
 }

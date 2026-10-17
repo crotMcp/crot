@@ -125,7 +125,7 @@ export class ProcessService {
       const launcher = this.launcherFor(context);
       await assertDirectory(cwd);
       const env = this.env(args.env);
-      const spec = await this.deps.platform.launcher.resolveCommand(args.command, args.args, {
+      const spec = await launcher.resolveCommand(args.command, args.args, {
         cwd: cwd.absolute,
         env,
       });
@@ -191,7 +191,7 @@ export class ProcessService {
       const spec =
         args.script !== undefined
           ? this.deps.platform.shells.command(args.script, shell)
-          : await this.deps.platform.launcher.resolveCommand(args.command!, args.args, { cwd: cwd.absolute, env });
+          : await launcher.resolveCommand(args.command!, args.args, { cwd: cwd.absolute, env });
       const proc = await launcher.launch(spec, { cwd: cwd.absolute, env, stdin: false });
       if (this.closing) {
         // Shutdown began while the process was starting.
@@ -246,6 +246,7 @@ export class ProcessService {
       context,
       { operation: "process.read_output", capability: "process.manage", paths: [record.cwd] },
       async () => {
+        if (record.proc.failure) throw record.proc.failure;
         const out = record.stdout.readFrom(args.stdoutOffset);
         const err = record.stderr.readFrom(args.stderrOffset);
         return {
@@ -352,6 +353,9 @@ export class ProcessService {
     const confinement = this.deps.confinement;
     const status = confinement?.status();
     const mode = this.deps.modeFor?.(context) ?? (confinement ? "sandbox" : "full_control");
+    // Status can honestly become unavailable after a native failure. That is
+    // not permission to fall back after this Core was admitted into L1.
+    if (context.principal.kind === "remote" || mode !== "full_control") confinement?.assertAdmission?.();
     if (context.principal.kind === "remote") {
       if (!confinement || !status) {
         throw new CrotError(
@@ -420,14 +424,22 @@ export class ProcessService {
       void terminateTree(proc);
     }, timeoutMs);
 
-    const status = await proc.exited;
-    clearTimeout(timer);
-    // Descendants may keep stdio open; wait briefly for the streams, then stop waiting.
-    await Promise.race([Promise.all([ended(proc.stdout), ended(proc.stderr)]), delay(STDIO_CLOSE_GRACE_MS)]);
-    // The command owns its process tree: terminate leftovers (POSIX process group).
-    await proc.terminate("force");
-    proc.stdout.destroy();
-    proc.stderr.destroy();
+    let status;
+    try {
+      status = await proc.exited;
+      if (proc.failure) throw proc.failure;
+      // Descendants may keep stdio open; wait briefly, then end the owned tree.
+      await Promise.race([Promise.all([ended(proc.stdout), ended(proc.stderr)]), delay(STDIO_CLOSE_GRACE_MS)]);
+    } finally {
+      clearTimeout(timer);
+      try {
+        await proc.terminate("force");
+      } finally {
+        proc.stdout.destroy();
+        proc.stderr.destroy();
+      }
+    }
+    if (proc.failure) throw proc.failure;
     stdout.end();
     stderr.end();
     const out = stdout.readAll();
@@ -527,7 +539,11 @@ async function assertDirectory(cwd: ResolvedPath): Promise<void> {
 
 function ended(stream: NodeJS.ReadableStream): Promise<void> {
   return new Promise((resolve) => {
-    if ((stream as { readableEnded?: boolean }).readableEnded) return resolve();
+    if (
+      (stream as { readableEnded?: boolean; destroyed?: boolean }).readableEnded ||
+      (stream as { destroyed?: boolean }).destroyed
+    )
+      return resolve();
     stream.once("end", () => resolve());
     stream.once("close", () => resolve());
   });

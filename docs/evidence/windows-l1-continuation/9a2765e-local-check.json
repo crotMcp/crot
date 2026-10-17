@@ -1,0 +1,16 @@
+{
+  "sourceHead": "9a2765e87f6ef6a5909b82a5a27c258d70af336d",
+  "command": "npm run check",
+  "platform": "linux x64",
+  "node": "24.14.1",
+  "exitCode": 0,
+  "core": {
+    "passed": 1702,
+    "skipped": 168
+  },
+  "extension": {
+    "passed": 147
+  },
+  "logSha256": "ff505791fbcd81910bf695b06ec2c126a50687516e2406e7ad8c5e2d061de7da",
+  "qualification": "Portable regression results, not native Windows proof"
+}

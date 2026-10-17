@@ -1,0 +1,247 @@
+{
+  "platform": "linux",
+  "node": "v24.14.1",
+  "scope": "Linux Node24 stress only; NOT macOS qualification",
+  "rounds": [
+    {
+      "round": 0,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 4,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 5,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 6,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 7,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 8,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 9,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 10,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 11,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 12,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 13,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 14,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    },
+    {
+      "round": 15,
+      "passed": true,
+      "losers": [
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        },
+        {
+          "code": 0
+        }
+      ]
+    }
+  ]
+}

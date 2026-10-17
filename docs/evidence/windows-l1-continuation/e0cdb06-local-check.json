@@ -1,0 +1,17 @@
+{
+  "implementationCommit": "e0cdb0682c6070fd7f36299f81f63f9138828d97",
+  "command": "npm run check",
+  "platform": "linux",
+  "arch": "x64",
+  "node": "v24.14.1",
+  "core": {
+    "passed": 1676,
+    "skipped": 167
+  },
+  "extension": {
+    "passed": 147
+  },
+  "lint_format_types_builds": "passed",
+  "fullLogSha256": "a8d4808e300802717abdacceef166b93049480632b811e94134f5abb82defcd1",
+  "qualificationLimit": "Native Windows fixture skipped locally. This is not native protection evidence."
+}

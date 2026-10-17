@@ -201,22 +201,20 @@ export async function listenExclusive(
   endpoint: ServiceEndpoint,
   onConnection: (socket: net.Socket) => void,
 ): Promise<net.Server | "in_use"> {
-  let server = await listenOnce(endpoint, onConnection);
-  if (server === "in_use") {
-    if (endpoint.kind === "named-pipe") return "in_use";
-    if (await isListening(endpoint.path)) return "in_use";
-    const lock = endpoint.path + ".lock";
-    if (!(await acquireDirectoryLock(lock, 10_000))) return "in_use";
-    try {
+  // Serialize every POSIX bind, not only stale-socket recovery. A fresh
+  // contender must not bind while another owner is checking/removing a stale
+  // path or applying its mode. Named pipes already have atomic OS ownership.
+  if (endpoint.kind === "named-pipe") return listenOnce(endpoint, onConnection);
+  const lock = endpoint.path + ".lock";
+  if (!(await acquireDirectoryLock(lock, 10_000))) return "in_use";
+  try {
+    let server = await listenOnce(endpoint, onConnection);
+    if (server === "in_use") {
       if (await isListening(endpoint.path)) return "in_use";
       await removeStaleSocket(endpoint.path);
       server = await listenOnce(endpoint, onConnection);
       if (server === "in_use") return "in_use";
-    } finally {
-      await releaseDirectoryLock(lock);
     }
-  }
-  if (endpoint.kind === "unix-socket") {
     try {
       await chmod(endpoint.path, 0o600);
     } catch (error) {
@@ -226,8 +224,10 @@ export async function listenExclusive(
         `Cannot restrict the CROT ${endpoint.channel} socket ${endpoint.path}: ${(error as Error).message}`,
       );
     }
+    return server;
+  } finally {
+    await releaseDirectoryLock(lock);
   }
-  return server;
 }
 
 export async function removeStaleSocket(socketPath: string): Promise<void> {

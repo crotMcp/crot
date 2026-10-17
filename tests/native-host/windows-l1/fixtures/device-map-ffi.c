@@ -1,0 +1,1 @@
+/* Retired DeviceMap ABI fixture. No privileged process assignment is supported. */

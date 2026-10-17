@@ -209,11 +209,14 @@ All paths end in the same Core pipeline; no path bypasses it.
 
 ### 2.4 Component placement
 
+Актуальное решение Windows L1 — §27 AD-30 (WP-23c); прежние spike-статусы
+заменены квалифицированным backend, без изменения Linux AD-20 / full_control.
+
 | Component | Runs where | Responsibility | Status |
 | --- | --- | --- | --- |
 | CROT Core | device, inside `crot-mcp` | permissions, execution guard, capabilities, audit, config | **[Implemented]** |
 | CROT MCP server (adapter) | device, inside `crot-mcp` | MCP tools over stdio and Streamable HTTP (loopback) | **[Implemented]** |
-| Native Host (OS platform layer) | device, inside `crot-mcp` | OS-specific Platform implementations (Windows Job Objects, ACLs) | **[Implemented]** |
+| Native Host (OS platform layer) | device, inside `crot-mcp` | OS-specific Platform implementations (Windows AppContainer + Job, ACLs, AD-30) | **[Implemented]** |
 | Browser bridge | device, inside `crot-mcp` | local IPC endpoint, handshake, request/response | **[Implemented]** |
 | `crot-browser-relay` | device, started by the browser | native-messaging host; forwards frames only | **[Implemented]** |
 | CROT Browser Extension | user's browser | fixed browser commands | **[Implemented]** (Chromium), basic command set; browser contract v1 decided (§27 AD-16), implementation **[Target, v1]** (§7.1) |
@@ -282,7 +285,7 @@ When the user grants them, CROT can provide:
 - Git — **[Partial]**: read operations (`status`, `diff`, `log`, `branch`, `show`) are a dedicated capability gated by `git.read` (§27 AD-1); local write operations (`add`, `commit`, branch create/rename/delete, checkout of a branch or a detached commit) are gated by `git.write` (§27 AD-2); network operations (fetch, pull, push) and destructive operations (amend, force, reset) are not implemented and remain usable only through `shell.execute`
 - Docker — **[Partial]**: dedicated operations gated by `docker.use` (§27 AD-3): list containers, read container logs, `compose up` and `compose down` with a reviewed Compose model; build, pull, push, run, exec and every other Docker command are not implemented and remain usable only through `shell.execute`
 - Network — **[Partial]**: HTTP(S) requests made by CROT itself, gated by `network.access` and the host policy `permissions.network` (§27 AD-4); no OS-level egress control for processes or containers
-- Python, Node.js, FFmpeg, project tools — **[Partial]**: usable through `shell.execute` / `process.manage` (not covered by tests; remote principals on macOS/Windows in workspace mode are refused until L1 exists there, AD-20 point 11). Dedicated media operations are **[Target]** (§26 question 18)
+- Python, Node.js, FFmpeg, project tools — **[Partial]**: usable through `shell.execute` / `process.manage` (not covered by tests; remote principals require ready L1: Linux AD-20 / qualified Windows AD-30; macOS pending). Dedicated media operations are **[Target]** (§26 question 18)
 
 New local capabilities are added as Core capability services that go through
 the ExecutionGuard, with their own capability names in the PermissionEngine.
@@ -644,6 +647,9 @@ Do not:
 
 ## 16. Development Order
 
+Актуальное решение Windows L1 — §27 AD-30 (WP-23c); прежние spike-статусы
+заменены квалифицированным backend, без изменения Linux AD-20 / full_control.
+
 Approximate order (status in brackets):
 
 ```text
@@ -680,7 +686,7 @@ packages, their order and dependencies are in
 21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
-24. Command confinement L1 (Linux, macOS, Windows) [Partial: Linux implemented (WP-23a, §27 AD-20); macOS, Windows Target, v1, §27 AD-13]
+24. Command confinement L1 (Linux, macOS, Windows) [Partial: Linux implemented (WP-23a, §27 AD-20); Windows implemented (WP-23c, AD-30); macOS Target, v1, §27 AD-13]
 25. Browser contract v1                           [Target, v1, §7.1, §27 AD-14; contract AD-16]
 26. Jobs, artifacts, optional components          [Target, post-v1 foundation, §26 q16–17]
 27. Media operations and rendering                [Target, post-v1, §26 q18–19]
@@ -748,10 +754,13 @@ Boundaries:
 
 ## 19. Trust Boundaries
 
+Актуальное решение Windows L1 — §27 AD-30 (WP-23c); прежние spike-статусы
+заменены квалифицированным backend, без изменения Linux AD-20 / full_control.
+
 | Boundary | Trusted side | Untrusted / external side | Enforcement | Status |
 | --- | --- | --- | --- | --- |
 | Agent -> CROT | Core | agent requests | schemas, ExecutionGuard, PermissionEngine, audit | **[Implemented]** |
-| Local operations | Core + Platform | commands and their effects | workspace boundary, protected paths, timeouts, process-tree control; not OS sandboxing | **[Implemented]** |
+| Local operations | Core + Platform | commands and their effects | workspace boundary, protected paths, timeouts, process-tree control; shell/process sandbox: Linux AD-20, qualified Windows AD-30; local full_control remains unconfined | **[Implemented]** |
 | Repository contents (`git.read`) | Core + Git on `PATH` | repository files and repository Git configuration | §27 AD-1: PATH-only lookup, configuration allowlist, hardened invocation, metadata lock | **[Implemented]** |
 | Repository contents (`git.write`) | Core + Git on `PATH` | repository files, repository Git configuration, hooks, agent-supplied messages and names | §27 AD-2: AD-1 checks plus hooks/editors/signing/maintenance disabled, fixed non-destructive commands, exclusive metadata lock, protected paths | **[Implemented]** |
 | Docker (`docker.use`) | Core + Docker CLI on `PATH` | Compose files, env files, container labels and logs, the Docker daemon | §27 AD-3: fixed operations, Compose policy and host-path checks, canonical private model file, no build/pull, environment allowlist | **[Implemented]** |
@@ -975,6 +984,9 @@ The tray app is a UI; control logic stays in Core/service.
 
 ## 25. Implementation Status Summary
 
+Актуальное решение Windows L1 — §27 AD-30 (WP-23c); прежние spike-статусы
+заменены квалифицированным backend, без изменения Linux AD-20 / full_control.
+
 | Component | Status |
 | --- | --- |
 | Core, PermissionEngine, ExecutionGuard, audit | **[Implemented]** |
@@ -996,11 +1008,11 @@ The tray app is a UI; control logic stays in Core/service.
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | Provider, claim model, revocation model and device resource URI decided (§27 AD-21: WorkOS AuthKit); device side **[Implemented]** (WP-28: verifier, pairing, device id and credential, unpair, re-grant; development environment only); staging/production environments **[Target]** (WP-38, WP-39); provider-side revocation and accounts **[Target]** (WP-36) |
 | Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); Cloud Relay v1 and the relay side of the tunnel **[Partial]** (WP-29, §27 AD-22; per-client rate limits and the load test open); device tunnel: device side **[Implemented]** (WP-30, §27 AD-22, [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)); deployment WP-38/WP-39 **[Target]** |
-| Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); macOS, Windows **[Target]** (v1, AD-13; WP-23b/c) |
+| Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); Windows **[Implemented]** (WP-23c, AD-30; Server2025 x64 Node20/22); macOS **[Target]** (WP-23b) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
 | Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
-| CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children: Linux **[Implemented]** (L1, WP-23a, §27 AD-20), macOS/Windows **[Target]** (WP-23b/c) |
-| Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (Linux: closed for confined children by WP-23a; macOS/Windows: WP-23b/c) |
+| CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children: Linux **[Implemented]** (L1, WP-23a, §27 AD-20), Windows **[Implemented]** (WP-23c, AD-30); macOS **[Target]** (WP-23b) |
+| Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (Linux: closed for confined children by WP-23a; qualified Windows: closed by WP-23c, AD-30; macOS: WP-23b) |
 | Installer, tray packaging, autostart of the service | **[Target]** (v1, AD-13; WP-34) |
 | Jobs and artifacts, optional-component availability | **[Target]** (post-v1 foundation; §26 q16–17; WP-43, WP-44) |
 | Media operations, edit description, render, verification | **[Target]** (post-v1; §26 q18–19; WP-49…WP-57) |
@@ -1008,6 +1020,9 @@ The tray app is a UI; control logic stays in Core/service.
 | Editor integrations, application bridges, scoped application control | **[Target]** / under reassessment (post-v1; §26 q22–23; WP-65…WP-70) |
 
 ## 26. Open Architectural Questions
+
+Актуальное решение Windows L1 — §27 AD-30 (WP-23c); прежние spike-статусы
+заменены квалифицированным backend, без изменения Linux AD-20 / full_control.
 
 These need explicit decisions before the corresponding work packages.
 
@@ -1026,7 +1041,7 @@ These need explicit decisions before the corresponding work packages.
    stricter) capability profile.
 4. **Isolation of locally started external MCP servers.** An external server
    started locally over stdio is local code with the user's OS permissions;
-   CROT has no OS-level sandbox. Decide whether such servers are supported and
+   the shell/process L1 backends do not automatically confine external-server launch. Decide whether such servers are supported and
    how they are confined.
 5. **Server-initiated MCP features** of external servers (requests back to the
    client, root listings and similar): forwarding policy.
@@ -4001,8 +4016,8 @@ development capability CROT already offers.
 12. **Availability checks, reason codes and status.** The checks run when a
     Core is created, after a sandbox failure and before `crot_status` reports.
     The first failing check is the reason. Stable reason codes:
-    - `not_implemented` — L1 is not implemented for this OS (macOS and
-      Windows until WP-23b and WP-23c);
+    - `not_implemented` — L1 is not implemented for this OS (macOS until
+      WP-23b; Windows availability and owner-provisioned components: AD-30);
     - `userns_unavailable` — unprivileged user namespaces are disabled;
     - `components_missing` — `/usr/lib/crot/l1/<v>/` or one of its components
       is missing;
@@ -5118,3 +5133,731 @@ protected state files by an unconfined process of the same OS user.
 **Implementation (WP-31).** **[Partial]** — PR #21, not merged. Points 1–7
 and 9–12 are implemented and covered by tests. Point 8: the gate exists,
 but no upload operation exists and the real upload path is not tested.
+
+### AD-24. Owned noninteractive Win32 desktop for the Windows unique write-filter implementation slice (WP-23c; not OD-6/OD-9 acceptance)
+
+**Context / necessity.** Native source `8e6a01d` traces a unique-SID
+WRITE_RESTRICTED Low actor failing in user32.dll initialization before JavaScript
+on Windows Node 20 and 22. No filesystem attempt or global write denial was
+reached. Adding Everyone/Builtin Users/logon SIDs would change the global write
+boundary, and changing an existing user's window-station/desktop ACL would widen
+an unrelated resource. Neither is an acceptable compatibility workaround.
+
+**Decision before implementation.** Provision a new random-name noninteractive
+window station and desktop with an explicit owner/System/unique-restricting-SID
+DACL and Low mandatory label. Only new CROT-owned user objects are changed. A
+fixed trusted helper performs its process/thread desktop association in its own
+process, never on the Core/service/tray thread and never executing user code.
+The actor starts suspended with this explicit desktop; existing restricted-token,
+three-handle stdio allowlist, empty Job verification/assignment and resume order
+remain in force. User code is never first executed with a weaker token.
+
+The helper accepts only validated host-generated names and SIDs, reports bounded
+readiness, and supports only shutdown. It is not an exec/filesystem/permission
+broker and is not exposed by RPC. It runs under a host-owned kill-on-close Job;
+its failure ends dependent actor runs. All actor trees stop before normal helper
+teardown; abrupt helper/host shutdown and repeated teardown require native gates.
+The helper restores its own borrowed original station/desktop before closing
+owned handles and never closes borrowed handles. No switch of the interactive
+input desktop, broad window-station grant, hook permission across accounts,
+registry/IFEO change or user security-descriptor change is allowed.
+
+**Scope / qualification.** This authorizes the necessary new user-object trust
+boundary for implementation, not a conclusion that user32 failure is wholly
+explained or the Windows L1 mechanism is accepted. Ordinary Node/cmd/WinPS,
+normal/hidden and ignored-stdio descendants, owner-only project reads, unrelated
+Low writes/ACL mutation, actual protected state/IPC/Docker, lifecycle and a
+transparent same-backing filesystem still must pass through the production
+interfaces. No available=true registration or weaker retry is allowed before
+all mandatory properties qualify. OD-6/OD-9, Windows 11 standard-user and native
+ARM64 qualification remain open; no v1 platform target is removed. Filesystem
+view/driver selection is not made by this decision.
+
+**Implementation status.** In progress, native qualification pending. Existing
+ExecutionGuard/PermissionEngine, exposure, full-control/local semantics,
+Linux/macOS confinement and WP-25/26/27 are unchanged.
+
+AD-24 helper containment clarification: the fixed helper itself uses the owned
+native suspended launch/explicit handle allowlist and verified fresh Job path,
+not the general host launcher's post-start assignment/fallback. Its duplicate
+source token uses the existing mic-only construction without Low lowering;
+only the fixed helper module is executed at source integrity, never actor code.
+The actor still uses the unique write-only Low token. No missing helper Job or
+helper setup failure retries through an uncontained host process. Cleanup
+failures retain owners for retry rather than falsely claiming release.
+
+AD-24 owned-console clarification (decision before implementation): the fixed
+production cmd UTF-8 provider requires a console for chcp, while the native
+NO_WINDOW path has none. Actor processes on the already verified NEW private,
+noninteractive desktop may therefore receive a NEW hidden console at restricted
+creation, before ResumeThread and after verified Job assignment. The explicit
+three-handle stdio allowlist remains; no host console attach, host desktop ACL
+change, visible/input-desktop switch or weaker token retry is permitted. Console
+objects use the actor token's private default descriptor; no console handles
+from CROT are passed. Without an owned desktop this mode is rejected. Read-back
+of kernel owner/DACL/Low label precedes readiness. Ordinary console/shell and
+normal/hidden/ignored-stdio descendants still require native proof, not an
+assumption that console allocation fixes other loader failures.
+
+### AD-25. Owned Base Named Object isolation prefix for the Windows strong-token implementation slice (WP-23c; qualification required)
+
+**Decision before code.** Ordinary runtime initialization needs process-local
+Win32 named objects. The unique WRITE_RESTRICTED Low token must not gain a
+common/logon restricting SID or rights to the ambient BaseNamedObjects namespace.
+Use the native BNO-isolation process attribute with a new cryptographically
+random, CROT-generated prefix, only through the existing suspended/Job-owned
+launcher. The prefix is an internal branded capability, not RPC/CommandSpec
+input, a caller-selected object path or a permission policy. No service token,
+existing object, device or user workspace descriptor is changed.
+
+The extended-startup attribute is additive to the EXACT existing stdio handle
+allowlist. Unsupported attributes or mismatched bounded kernel TokenBnoIsolation
+read-back fail the launch before ResumeThread; no retry without isolation and no
+extra resume. A child token opened for read-back has explicit ownership and
+failed closes block subsequent verification/allocation until cleanup succeeds.
+Existing token restrictions, Low integrity, private desktop and empty Job
+verification/assignment remain mandatory and unchanged.
+
+**Scope/status.** Implement this component and qualify it with the real ordinary
+Node20/22/cmd/WinPS and descendant/global-denial gates; keep the legacy MIC-only
+component tests intact. BNO is not transparent filesystem confinement or network
+isolation. Kernel directory descriptors, inherited namespace behavior, aliases,
+concurrency, resource lifetime and all protected IPC/state boundaries still need
+native qualification before production activation. An API description or a
+matching token prefix is not that acceptance. No kernel namespace ACL is weakened
+as a compatibility fallback. This decision adds no broker/permission system.
+
+**Implementation status:** in progress. Production CommandConfinement remains
+none/not_implemented, remote launch fail-closed, OD-6/OD-9 OPEN, PR27 Draft/open.
+Windows ARM64/Windows11/standard-user qualification and every eight-criterion
+acceptance requirement remain independent and mandatory.
+
+### AD-26. Windows CROT-owned service state: owner-only DACL and Medium no-read-up label before content
+
+**Decision before implementation.** Bootstrap must not create service credentials
+with an inherited-ACL provider and later treat NativeHost's owner-only DACL as
+protection from the same-user Low actor. For actual Windows service/shim/secret
+operations use a dedicated private-file provider: protected owner-only DACL and
+Medium NW+NR mandatory label, installed and kernel-read-back verified on empty
+new files before content. Missing native support/failed verification is an error,
+never an inherited-ACL downgrade. POSIX behavior and the generic platform provider
+are unchanged; no activation of Windows CommandConfinement follows.
+
+Only files explicitly owned/used as CROT state and newly CROT-created private
+directories are provisioned. Existing arbitrary directories are NOT relabeled or
+recursively rewritten. Exact known old state files are hardened before service
+secret initialization; no recursive scan of user files or external config path.
+Handle-relative no-reparse ancestor pinning and file-type/single-link validation
+precede mutation; handles remain pinned through set/read-back. No caller handle,
+remote path authority, ambient device/namespace ACL or user workspace SD changes.
+Failed native releases retain exact owners and block allocation until cleanup.
+
+The service's Core audit/bridge/state writers must use the same trusted provider
+rather than silently switch back to weaker private-file protection. This changes
+private-state provisioning, not ExecutionGuard/PermissionEngine, permissions,
+exposure or local/full-control semantics. Same-user Medium owner controls remain
+usable. Low service/shim execution or an unsupported state storage layout must
+fail explicitly, not expose credentials.
+
+**Qualification/status:** implementation in progress. Native actual-service
+fixtures need trusted reads/control followed by ready-actor read/write/control
+attempts; no canary/credential bytes in evidence. Existing-file migration, atomic
+write failure, aliases, resource lifetime and native supported-user/arch matrix
+remain mandatory. This does NOT by itself protect every external config path,
+Docker/network endpoint or create a transparent workspace. OD-6/OD-9 and WP-23c
+acceptance stay OPEN; no production L1 backend registration.
+
+
+**AD-26 native correction after e0cdb06:** the first actual service gate fails at
+parent descriptor encoding and managed-service regressions are explicitly red.
+LABEL_SECURITY_INFORMATION is a *query/install* selector. To serialize the
+returned descriptor's mandatory-label ACE, request SACL_SECURITY_INFORMATION
+in ConvertSecurityDescriptorToStringSecurityDescriptorW (no second SACL query
+and no new privilege). Apply the same correction to AD-24 owned-object label
+comparison; earlier0x15 serialization did not independently qualify the label.
+For an absent parent SACL, verify absence with GetSecurityDescriptorSacl before
+using the Windows implicit Medium/NW policy; do not serialize an empty selection
+or treat a failed encoding as absence. Target descriptor comparisons always
+include DACL+SACL. Native requalification is required; no weaker fallback.
+
+### AD-27. Native same-backing workspace projection component (WP-23c; not L1 acceptance)
+
+**Decision before code.** Implement an actual Windows filesystem projection,
+not more RPC filesystem verbs. The implementation slice uses the signed Dokan
+2.3.1 driver and its dynamically linked LGPL-3.0 user-mode DLL, plus a CROT-owned
+native host helper. WinFsp's FLOSS/commercial licensing is not silently imposed
+on this UNLICENSED repository. No driver is installed by the production service;
+installation/version/architecture/signature are explicit provisioning prerequisites.
+Native CI qualification may provision the pinned signed installer on its disposable
+Windows runner. No test-signing, security disabling, ambient ACL changes or
+unsigned driver fallback. ARM64 remains required, independently unqualified.
+
+The helper receives only trusted host configuration once over owned stdin: a
+local original root, a NEW CROT-owned mount, owner/restricting SID, the exact
+owned Job's query name and fixed protected relative roots. No arbitrary filesystem
+RPC, client-chosen host path, external handle or execution verb exists. Read,
+write and metadata callbacks are rooted in held no-reparse native directory
+handles; original content is read/written directly, never copied/synchronized.
+Existing user-file SDs are never installed, relabeled or weakened. Projected
+security exists only on the new volume and new CROT-owned mount objects.
+
+A unique restricting SID is not authentication: another same-user process can
+construct a restricted token with a chosen SID. Each create must verify the
+kernel requestor token, exact owner/Low/unique restriction and a held process's
+membership in this exact kill-on-close Job. Compare requestor/process token IDs;
+PID reuse or a fabricated SID alone grants nothing. A query-only Job reference
+held by the helper is released on shutdown/host-stdin EOF; actor teardown and
+helper/volume teardown are one owned run lifetime. Never broaden the existing
+actor empty-Job, stdio handle-list or resume gates. No view on unavailable driver,
+failed binding/mount/self-test/cleanup; no weaker retry or available=true.
+
+The first slice deliberately rejects streams, reparse points, hard-linked files,
+security changes, existing-destination replacement and ambiguous object names.
+Backing-file opens are exclusive until close, and parent handles prohibit delete
+sharing. These conservative restrictions are NOT the required complete Windows
+sharing/atomic-replace/concurrent-alias contract. They must not be papered over
+as full ordinary-tool compatibility. The WRITE_RESTRICTED Low actor is retained:
+projection does not by itself solve NUL/device/startup or all IPC/network gates.
+
+**Status:** implementation/qualification in progress. Native Node/cmd/WinPS,
+host-immediate original content, unchanged SDs, Job/alias/negative/lifetime proof
+remain mandatory. This component is not an accepted OD-6/OD-9 selection or a
+production CommandConfinement registration. WP-23c and all unfulfilled criteria
+remain OPEN; no permission/full-control semantics are changed.
+
+**AD-27 control-plane correction (before enabling any data-write workaround):**
+Pinned Dokan2.3.1 sys/init.c DokanSetVolumeSecurity installs DACL only, not
+LABEL/SACL from the supplied descriptor. The configured device descriptor is
+for the raw disk/control device, not a substitute for projected file security.
+Its FSCTL_GET_ACCESS_TOKEN / event-control requests are FILE_ANY_ACCESS and raw
+DCB dispatch bypasses CROT's filesystem create callback/Job check. Never infer
+an installed Low label from supplied SDDL or lower the raw device label merely
+to make writes pass. No original/global/shared device ACL is changed.
+
+Before READY, a fixed native self-test must construct/read back the same unique
+WRITE_RESTRICTED Low profile and impersonate it only for zero-access/read-only
+opens of this exact newly owned raw disk endpoint. It never requests a token,
+consumes/mutates events or targets another mount. Unexpected open success or an
+unverifiable result refuses readiness and unmounts; it is a FAILED prerequisite,
+not actor-denial or successful filesystem evidence. Restoring the source thread
+identity is mandatory; inability to revert terminates the helper fail-closed.
+Secure atomic separation of raw control from Low data and concurrent/other-Job
+attacks remains a critical acceptance blocker until native proof exists. This
+component is not an approved OD-6 mechanism or production confinement backend.
+
+### AD-28. Zero-fee commercial Windows L1 candidate qualification (WP-23c)
+
+**Decision before code.** Third-party license fees must be $0. Dokan's official
+MIT/LGPL components permit commercial use subject to the exact component
+obligations; proprietary CROT is not automatically excluded. Distribution needs
+license/notices, corresponding library source and LGPL combined-work/relinking,
+modification/reverse-engineering and installation-information compliance as
+applicable. This is an engineering constraint, not a blanket legal clearance.
+WinFsp's paid proprietary route is not selected. No dependencies are relicensed.
+
+Stock signed Dokan remains **unqualified**: AD-27's actual raw zero-access open
+succeeds. Network mode is not a security fix: upstream volume network dispatch
+forwards to the same disk control dispatcher. Neither a hidden name, device
+DACL, supplied-but-uninstalled label nor a user-mode callback authenticates
+FILE_ANY_ACCESS control. A driver fix would need atomic controller-open/file
+object authentication across every control alias and lifetime, plus separately
+qualified production Microsoft signing. An upstream binary signature does not
+cover a local fork. No test-signing, Secure Boot disabling, paid license or
+unbudgeted signing purchase is authorized.
+
+First qualify a public Windows OS-only containment candidate: zero-capability
+AppContainer and LPAC. Add an experimental fixed native child, not a production
+actor or alternate backend. Derive a unique package SID using the public
+DeriveAppContainerSidFromAppContainerName API; do not register persistent
+profiles. Create only a new private executable directory/file, grant that exact
+package RX there, never change original workspace/parent/global/device ACLs.
+Use public SECURITY_CAPABILITIES and LPAC ALL_APPLICATION_PACKAGES_OPT_OUT
+process attributes. Create suspended with an exact owned kill-on-close Job
+assigned at creation; read back package SID, zero capabilities, Low IL, LPAC
+state and Job membership before resume. No capability/regular-profile fallback.
+
+The child performs harmless zero/read opens on **only our newly owned Dokan
+raw endpoint**, through both Win32 GLOBALROOT and absolute NtCreateFile paths.
+Owner positive controls establish both paths exist. No IOCTL, token request,
+event mutation, arbitrary command, inherited handle or foreign mount access.
+A fixed exit signature proves child entry; startup failure, namespace absence,
+timeout and cleanup failure are distinct from access denial. Diagnostic output
+contains fixed bounded status codes only, not paths/SIDs/secret bytes. The
+existing AD-27 mandatory control gate still rejects READY on the old profile;
+no experimental result may bypass it or count as filesystem acceptance.
+
+This first experiment deliberately grants **no package access to the device**.
+Even denial would NOT prove separation after real data access is granted, tool
+compatibility, whole-system network/write isolation or standard-user/ARM64
+qualification. Any positive result requires those further mandatory native
+gates before mechanism selection. Production remains none/not_implemented,
+remote fail-closed, WP-23c and OD-6/OD-9 OPEN; preserve existing PS/RPC gates.
+
+**AD-28 native positive-control correction:** `673edb6` builds both executables
+but absolute NtCreateFile with literal zero DesiredAccess fails even for the
+owner (`owner-nt-zero`) on both runtimes. That is a failed experiment prerequisite,
+not AppContainer denial. Match Win32 CreateFile's minimum metadata access
+(FILE_READ_ATTRIBUTES | SYNCHRONIZE, non-directory/overlapped open) in the
+absolute-NT probe, explicitly name that result `ntMetadata`, and preserve the
+exact bounded failing NTSTATUS when an owner NT control fails. This minimum
+handle would still carry FILE_ANY_ACCESS controls; no IOCTL is invoked. Keep
+both namespaces' positive controls mandatory and all existing actor gates.
+
+**AD-28 supported-bootstrap amendment (before implementation):** `9faa901`
+passes all owner Win32/NT controls and owned executable preparation, but both
+profiles fail CreateProcess before child entry. Microsoft's documented public
+launch sequence creates a profile for a NEW moniker; DeriveAppContainerSid is
+for deriving an existing identity and is not itself profile provisioning.
+Replace the profileless experiment with **fresh CreateAppContainerProfile /
+DeleteAppContainerProfile ownership**, not a retry with fewer capabilities,
+looser LPAC/token/Job checks or an existing/shared profile. Names remain unique
+and <=64 characters. ERROR_ALREADY_EXISTS is failure: never adopt/delete it.
+Only S_OK grants ownership. Record exact names in a fixed retained owner table
+before creation, mark owned only after success; delete only exact owned profiles
+after their Jobs settle and all process/token handles close. Failed deletion
+retains the owner, blocks fresh allocation, retries at helper teardown and
+reports cleanup failure rather than qualified evidence. No original/parent/
+global ACL is altered by CROT. Public OS profile APIs create their own new
+per-user/per-package objects with the platform's isolation policy.
+
+This amended fixture is disposable hosted-native CI only, not production:
+profile cleanup on abrupt helper/host death and durable crash recovery are
+**unqualified**. A future backend must implement/verify that ownership/recovery
+contract before shipping. Normal API deletion is not crash-lifetime proof.
+Native literal-zero NT opens with the correct non-directory options, all data
+access grants/aliases and actual runtime/global/network gates also remain
+mandatory before any safe mechanism selection; metadata denial alone is not
+full control-plane isolation proof. Reference: Microsoft Learn,
+`/windows/win32/secauthz/implementing-an-appcontainer` and
+`/windows/win32/api/userenv/nf-userenv-createappcontainerprofile`.
+
+**AD-28 LPAC query ABI correction (before code):** `d43f96b` proves the failure
+is the generic null/zero-length GetTokenInformation probe for SDK class46
+(TokenIsLessPrivilegedAppContainer), ERROR_INVALID_PARAMETER87 on both profiles
+and runtimes. Keep the LPAC predicate mandatory. Query its fixed ULONG payload
+using the documented user-mode NtQueryInformationToken read-only API on the
+already owned TOKEN_QUERY handle, require success and exact returned size, and
+verify the same Boolean before resume AND again in the child. Missing export,
+unsupported class, wrong length, mismatch or native error remains a failure;
+never default to regular AppContainer or infer LPAC from requested attributes.
+No NtCreateLowBoxToken/undocumented creation, capability grant or security
+policy downgrade is introduced. Reference: Microsoft WDK ZwQueryInformationToken
+(user-mode name NtQueryInformationToken), public SDK TOKEN_INFORMATION_CLASS;
+ULONG width is4 bytes. This corrects a query ABI, not confinement acceptance.
+
+**AD-28 least-access probe coverage (before code):** metadata access denial is
+not proof that an ANY_ACCESS endpoint cannot be opened. Extend the diagnostic
+child to separately attempt absolute NtCreateFile with literal DesiredAccess0
+and FILE_NON_DIRECTORY_FILE0x40, alongside the existing metadata/read opens.
+Report the owner's same literal-zero result separately; unsupported/absent
+owner results are not positive controls or denial evidence. Expand the fixed
+packet (v2) to carry all five open classifications and NUL without merging
+outcomes or losing startup/cleanup stages. Keep the original WRITE_RESTRICTED
+Low pre-READY gate and no-IOCTL rule unchanged. All results remain diagnostic,
+not a production-availability predicate or proof of untested aliases/data grants.
+
+**AD-28 effective LPAC verification (before code):** `4804e32` proves that the
+fixed-size native query also fails with STATUS_INVALID_INFO_CLASS0xc0000003
+on both hosted Windows runtimes. The SDK enum alone is not an implemented
+query contract on those hosts. Do not infer LPAC from a requested attribute or
+silently default to ordinary AppContainer. Replace the unusable prerequisite
+with an explicit effective-access predicate using public DuplicateTokenEx and
+AccessCheck, before resume and again in the child. In-memory descriptors only:
+user-only must deny, user+exact package must allow; user+ALL_APPLICATION_PACKAGES
+must allow ordinary AppContainer and deny LPAC, with user+ALL_RESTRICTED_APPLICATION_PACKAGES
+allowing LPAC. All checks must successfully execute; inconclusive/error is failure.
+This verifies the documented access-check distinction, not the unsupported token
+flag query. No descriptor is applied to a real object, and no shared SID is added
+to any token or granted on any filesystem/device object. Private duplicated
+impersonation tokens are closed; failures remain prerequisites, never denials.
+Reference: Microsoft TOKEN_INFORMATION_CLASS LPAC semantics, AccessCheck and
+DuplicateTokenEx. Original raw-device gate and all eight criteria remain mandatory.
+
+### AD-29 — Windows L1 без сторонних драйверов; решения OD-6 и OD-9
+
+Решение куратора, продолжение после a6eb17d. Изменения границ записаны до кода.
+AD-27/AD-28 остаются историей экспериментов, а не выбранным механизмом выпуска.
+Dokan/WinFsp не входят в поставку, подготовку хоста, CI или доверенную базу CROT v1.
+OD-6 закрыт выбором встроенного **AppContainer без сетевых capabilities + Job Object**
+(вариант Б); это выбор механизма, не заявление о завершённой квалификации WP-23c.
+LPAC не является неявным fallback: разрешение ALL_APPLICATION_PACKAGES на NUL
+не даёт того же доступа LPAC. Недоступность обязательного свойства — отказ до запуска.
+
+**OD-9, матрица целевых платформ v1.** Linux остаётся по AD-20. Windows 11:
+x64 и ARM64; Windows Server 2022/2025: x64; Node 20 и 22 на каждой реально
+поставляемой комбинации. Microsoft требует x64 для Server 2022/2025: ARM64
+Server не объявляется существующей/проверенной платформой. ARM64 Windows 11
+обязателен, не вычёркивается из v1. Добавление реально выпущенного ARM64 Server
+потребует отдельной квалификации, а не переноса результата x64. Обычный пользователь
+и повышенный процесс проверяются независимо. Матрица — обязательство приёмки,
+не автоматическое available=true на непроверенных машинах.
+macOS: актуальная и две предшествующие основные версии на поставляемых Apple
+сочетаниях Intel x64 и Apple Silicon arm64 (на момент решения: 27, 26, 15).
+Не обещаем архитектуру, которую Apple не выпускает для конкретной версии.
+Механизм WP-23b — Seatbelt, секреты — Keychain по AD-13; решение платформенной
+зависимости OD-9 разблокирует начало WP-23b, но не закрывает сам пакет.
+Браузерная часть OD-9 остаётся отдельной открытой частью.
+Источники: Microsoft Learn `/windows-server/get-started/hardware-requirements`;
+Apple Support `/109033`. Фактические версии/архитектуры фиксируются в evidence.
+
+**Токен и запуск.** Новый уникальный AppContainer SID принадлежит одному Core;
+профиль создаётся только как новый, чужие/существующие профили не усыновляются.
+Нулевые capabilities, фактические AppContainer/SID/IL/Job проверяются до ResumeThread;
+Job — без breakaway, с kill-on-close; наследуются только принадлежащие запуску
+концы байтовых каналов. Существующие ExecutionGuard/PermissionEngine, Core,
+аудит, надзор, stdout/stderr/backpressure и остановка дерева сохраняются.
+Факт старта фиксированного C++ child не подменяет запуск Node20/22/cmd/WinPS.
+Сетевая политика требует самостоятельной реализации и доказательства: нулевые
+capabilities не объявляются выполнением режима network=on.
+
+**Штатный NUL и подготовка хоста.** Явный административный скрипт
+`scripts/l1-install-win.ps1` добавляет только GRGW для ALL_APPLICATION_PACKAGES
+на `\Device\Null`, сохраняя владельца, существующие ACE и метку целостности.
+Это одобренное исключение для пустого устройства, не разрешение на папки,
+диски, другие устройства или глобальные namespace. Проверка — чтение/запись
+самого NUL из готового AppContainer. Windows может сбрасывать политику при
+перезагрузке: проверять при каждом self-test, не обещать бессрочную настройку.
+Сервис не повышает свои права, не исправляет хост молча, не меняет ACL NUL на
+каждом запуске. Нельзя назначать Everyone/Users, заменять весь DACL либо снижать IL.
+
+**Три дерева записи и срок владения ACE.** Доверенный сервис выдаёт точному
+SID Core наследуемое Modify (OI|CI|M) только на выбранный workspace.root,
+приватный temp и приватные кэши инструментов. Владелец и существующие права
+пользователя сохраняются; менять ACL workspace теперь явно разрешено.
+Управляемые ACE — точные отдельные записи с журналом владения/восстановления,
+не снимок DACL, который можно слепо вернуть поверх правок пользователя.
+На остановке сначала прекращается/дожидается всё дерево Job, затем снимаются
+только собственные ACE, включая унаследованные записи. Повторный запуск,
+параллельные Core, crash/recovery и частичная ошибка требуют явной модели
+владения; сбой очистки не считается успехом. Переходы reparse/hardlink и уже
+открытые дескрипторы не закрываются одним наследуемым ACE: они обязательны
+в отрицательных тестах. За пределами трёх деревьев нельзя предполагать отсутствие
+пакетных или общих AppContainer grants — нужен self-test и доказательство границы.
+
+**Чтение и запись защищённых ресурсов.** Все реальные расположения состояния,
+%LOCALAPPDATA%\CROT, %APPDATA%\CROT, secrets, ключ устройства, конфиг,
+audit.jsonl, service-settings.json, remote-clients.json и каналы шима/трея
+защищаются через PrivateFileProtection: owner-only DACL и явный запрет доступа
+для SID AppContainer, установленный до открытия/выдачи данных. Защищённые пути
+внутри workspace имеют приоритет над наследуемым разрешением Modify; external
+config/audit не забываются. Нужны реальные попытки actor/descendants чтения,
+записи, изменения DACL и подключения к управляющим каналам после owner-controls.
+Одного отсутствия переменных окружения или токена IPC недостаточно.
+
+**Почему не выбираем вариант А без доказательств.** S-1-5-12 в списке restricting
+SIDs расширяет доступ ко всем объектам с соответствующими разрешениями, не только
+к NUL. WRITE_RESTRICTED не ограничивает чтение; deny для SID только в restricting
+списке нельзя считать запретом чтения без нативного доказательства. Вариант А
+не становится production fallback после ошибки AppContainer.
+
+**Приёмка и поставка.** Все три ОС остаются обязательными для v1, без урезания
+инструментов разработчика. WP-34 включает явную подготовку Windows L1; Linux
+подготовка по AD-20 не меняется. Нельзя объявлять WP-23c выполненным, пока все
+восемь критериев не пройдены, включая исходные файлы workspace, среды/stdio/
+потомков, CROT-6A, Docker, сеть и полную матрицу. До этого production Windows
+остаётся unavailable; remote sandbox отказывает, а PR27 остаётся Draft/open.
+
+**Сопутствующее исправление singleton сервиса.** Для POSIX все попытки bind,
+проверка/удаление старого сокета и установка 0600 должны проходить под одним
+endpoint-lock. Иначе первичный bind обходит защиту stale-recovery. Конкуренты
+не должны получать exit1 из-за окна между созданием/ограничением сокета.
+Отдельный коммит и детерминированный regression-test; исторический сбой не
+приписывается этой причине без доказательств воспроизведения исходного сбоя.
+
+
+**Квалификационное уточнение AD-29 после a6eb17d.** На исходном коммите
+7596791 оба Windows Node 20/22 получили GENERIC_WRITE по внешнему hardlink на
+разрешённый workspace-файл; независимый внешний файл при этом закрыт.
+Это не секретная запись, а успешное открытие/закрытие дескриптора с опасным правом.
+ACE относится к файловому объекту, а не одному пути. Следовательно, выбор
+AppContainer + трёх наследуемых ACE пока не закрывает строгую границу по путям.
+Достаточность решения OD-6 требует пересмотра; production остаётся unavailable,
+без fallback. Отказ unsafe-workspace до выдачи ACE потребует отдельного решения
+о допустимых входных условиях и не подменяет отрицательный runtime-тест.
+Нельзя молча отказаться от hardlink/reparse/гонок или разрешить внешнюю запись.
+Платформенная часть OD-9 и разблокировка WP-23b остаются в силе.
+Текущие коммиты, восемь критериев и полные доказательства:
+`docs/design/windows-l1-native-os.md`, `docs/evidence/windows-l1-native-os/`.
+
+
+**Решение куратора OD-6: продолжение AD-29 без виртуализации (после 6da4386).**
+Windows Sandbox, Hyper-V и HCS не являются допустимым backend v1. Остаётся
+AppContainer + Job с установленными на хосте инструментами; Windows Home
+не исключается из матрицы. Сторонние драйверы по-прежнему запрещены.
+
+**Файлы с внешними жёсткими ссылками.** Сам workspace не отклоняется из-за
+наличия hardlink. После выдачи Modify и до запуска actor доверенная подготовка
+перечисляет файлы без переходов reparse, проверяет NumberOfLinks и полное
+перечисление имён. На общий файловый объект с хотя бы одним внешним именем
+добавляется явный запрещающий ACE точному SID песочницы для GENERIC_WRITE,
+DELETE, WRITE_DAC, WRITE_OWNER, FILE_WRITE_DATA, FILE_APPEND_DATA,
+FILE_WRITE_ATTRIBUTES и FILE_WRITE_EA. Запись через внутреннее имя этого же
+объекта также запрещена — это явно одобренное исключение, не отказ workspace.
+Обычные файлы остаются доступны. Нужны настоящие runtime-открытия обоих имён,
+отрицательное создание внешней ссылки и проверка сохранности исходных байтов.
+Политика на момент подготовки сама по себе не доказывает отсутствие гонок:
+смена имён/ссылок, открытые дескрипторы, reparse и параллельные изменения
+остаются обязательными отдельными проверками до доступности production.
+
+**Только чтение каталогов-предков.** Разрешается точный ненаследуемый ACE
+для SID данного Core с маской FILE_TRAVERSE | FILE_READ_ATTRIBUTES |
+FILE_READ_EA | FILE_LIST_DIRECTORY | SYNCHRONIZE (0x1000a9), только самому
+каталогу. Никаких WRITE/DELETE/WRITE_DAC/WRITE_OWNER, OI/CI либо общих SID.
+Защищённые пути CROT не получают такой grant; их deny остаётся приоритетным.
+Применять по закреплённым дескрипторам, без распространения изменения по
+чужому дереву. Проверять каждый опасный доступ отдельно и отсутствие
+наследования в посторонние дочерние объекты. Нехватка прав доверенной службы
+не разрешает скрытое повышение привилегий или ослабление DACL.
+
+**Точное восстановление.** До первой модификации сохраняются исходные DACL
+и управляющие биты SD, а также идентичность объекта. Снимаются собственные ACE;
+чужие конкурентные изменения нельзя затирать снимком. Для изолированной
+квалификационной фикстуры разрешена проверенная реставрация исходных байтов
+после проверки неизменности всех чужих ACE. Для общих предков необходима
+проверка текущего DACL перед обратной записью; несовпадение — ошибка, а не
+успешная очистка. Владелец, группа и SACL/IL не меняются. API, автоматически
+распространяющий ACE, не применяется к предкам: SetSecurityInfo на handle,
+открытом MAXIMUM_ALLOWED, документированно не распространяет ACE потомкам.
+Сначала остановить всё дерево Job, затем удалить deny/allow и восстановить
+контрольные биты; проверить результат чтением SD, не только return-code.
+
+**Порядок подключения.** Сначала доказать эти три исправления на Windows
+Node 20/22; затем полный CROT-6A настоящего сервиса: пять чтений, пять записей
+и отказ управляющего IPC. Только после проверки остальных критериев, сети,
+Docker, жизненного цикла и матрицы разрешена регистрация доступного
+CommandConfinement. Успешная SDK-фикстура не включает production сама по себе.
+
+
+**Уточнение реализации после нативной проверки 932be34.** MAXIMUM_ALLOWED
+запрашивает DELETE и конфликтует с существующими дескрипторами корня тома
+(ERROR_SHARING_VIOLATION). Нельзя обходить это распространением ACL по диску.
+Для ненаследуемых grants допускается документированный непередающий
+SetFileSecurityW, несмотря на obsolete-статус API: нужны минимальные права
+READ_CONTROL/WRITE_DAC и закреплённые объекты. Точное обратное применение
+исходного DACL/control допускается тем же handle-based SetKernelObjectSecurity,
+который уже используется PrivateFileProtection; это узкое восстановление,
+не изменение владельца, SACL, метки либо выдача дополнительных прав.
+Microsoft не рекомендует этот API для файлов; поэтому обязательны точное
+чтение результата, проверка чужих ACE до восстановления и отдельная нативная
+квалификация. До доказательства cleanup не считается успешным.
+
+Одобренная куратором альтернатива для внешне связанных файлов: защищённый
+DACL без наследуемого Modify песочницы, с явным запретом конкретных пишущих
+битов и ненаследуемым чтением точному package SID. GENERIC_WRITE-запрос
+содержит эти пишущие биты после отображения; READ_CONTROL/SYNCHRONIZE
+сами по себе запрещать не нужно, иначе ломается обычное чтение. Владельческие
+права сохраняются, внутреннее и внешнее имена закрыты на запись одновременно.
+Это всё ещё требует нативного доказательства и не закрывает гонки автоматически.
+
+
+**Уточнение снимков по разрешению куратора и проверке bc9a1c0.** Для точного
+сравнения обе стороны читают одинаковые OWNER/GROUP/DACL/LABEL секции; исходный
+снимок получают до открытия объекта на изменение. Входной запрос восстановления
+AUTO_INHERITED включает AUTO_INHERIT_REQ, но успех определяется независимым
+чтением исходного DACL/control, а не кодом API. Ненаследуемые изменения предков
+в текущей квалификационной реализации выполняются прямой handle-based записью;
+владелец, группа и SACL не переписываются. На обоих Node достигнуто только 8/10,
+потому производственная доступность по-прежнему запрещена. Для hardlink
+принадлежность дереву сравнивают по идентичности каталога (том и file index),
+не отождествляя разные регистрозависимые каталоги строковым case-folding.
+Полная матрица регистрозависимых путей и все гонки требуют отдельной проверки.
+
+
+**Проверенное уточнение очистки и реального сервиса: abe8e40 / 595ea79.**
+После разрешения куратора очистка workspace удаляет только ACE свежего SID
+на узлах с сохранённым снимком или фактически присутствующим SID; чужие ACE
+сверяются с фактически установленным состоянием. Исходные снимки восстанавливаются
+по handles напрямую, без повторного распространения наследования. Для приватных
+temp/cache рекурсивная перезапись запрещена, восстанавливаются корневые grants.
+На обоих Node20/22 получены независимые исходные SD 10/10 и cleanup=true.
+595ea79 проверяет настоящий CrotService с owner-only PrivateFileProtection:
+пять чтений, пять записей и настоящий управляющий канал под AppContainer
+получают EPERM; состояние неизменно, владелец сохраняет аутентифицированный доступ.
+Это не регистрация производственного CommandConfinement. Текущий контроллер
+ещё требует квалификации переименования существовавших узлов, полной матрицы ОС,
+обычного пользователя, гонок, сети/Docker и восстановления после аварии.
+Готовность и production availability не объявляются при этих открытых вопросах.
+Доказательства: docs/evidence/windows-l1-workspace-service/.
+
+
+**Квалифицированное уточнение обычных узлов workspace: bd96740 / a36a701.**
+FILE_SHARE_DELETE разрешён только обычным внутренним узлам без внешних hardlink;
+корень, предки, CROT-protected пути и внешне связанные файлы сохраняют отдельный
+read/list guard без DELETE sharing на весь срок аренды. Метаданные сами по себе
+не обеспечивали эффективного запрета подмены; это исправлено в 5d4791d.
+Контроль на Windows Node20/22 даёт пять фактических ERROR_SHARING_VIOLATION.
+NTFS не позволяет переименовать каталог с открытым дочерним файлом даже при
+DELETE sharing: конечные owner-контроли без изменения ACL доказывают отказ=5
+при открытом файле и успех=0 после его закрытия. Поэтому только обычные single-link
+файлы хранят исходный снимок и файловую идентичность без живого file handle на время
+акторов. После полного Job drain они открываются через OpenFileById по исходному
+NTFS ID, не по старому пути. Проверяются том, file index, тип, время создания;
+новый handle принимается только после этих проверок. Несовпадение, отсутствие
+объекта или изменение чужих ACE/control означает отказ очистки, не перезапись
+подменённого объекта. Владельца/группу/SACL не переписывают. Обычные каталоги
+остаются открытыми с DELETE sharing; защищённые объекты никогда не переходят
+на этот режим. temp/cache не подвергаются рекурсивной перезаписи ACL.
+На обоих Node: запись и переименование существовавшего файла и его каталога,
+исходные SD 13/13, cleanup=true и настоящий CROT-6A 5+5+канал EPERM.
+394c1e8 добавляет реальный выбранный AppContainer-компонент NativeProcessLauncher,
+но не регистрирует весь CommandConfinement: обязательный тест detached-потомка
+не получает возврат из синхронного spawn. a36a701 сохраняет конечные pipe-контроли
+и строгий неуспешный гейт, не расширяя ACL общего пространства каналов.
+На Node20/22 создание обычного и libuv pipe namespace возвращает Win32=5 даже
+с явным DACL собственного нового экземпляра; LOCAL создаётся/закрывается с кодом 0.
+Изменение частного DACL не решает этот namespace-конфликт. Безопасное частное
+пространство имён для неизменённых инструментов требует отдельного доказательства.
+Вложенные multi-link деревья, все гонки, аварийная очистка, полная матрица,
+сеть/Docker и производственная интеграция остаются открытыми. Нулевые capabilities
+не объявляются network=on; общего обхода защиты или виртуализации нет.
+Доказательства: docs/evidence/windows-l1-internal-rename/; восемь критериев:
+docs/design/windows-l1-curator-appcontainer.md. WP-23c не принят; PR27 Draft.
+
+**Продолжение AD-29 после 3f094a1: разрешённая квалификация NPFS.**
+ProcessDeviceMap и его привилегированный NtSetInformationProcess исключены из
+пути запуска; проверка токена до ResumeThread и доказанная очистка при
+прерывании до ResumeThread сохраняются. По разрешению куратора сначала
+проверяется ненаследуемый ACE только свежего package SID на корне NPFS с
+маской FILE_CREATE_PIPE_INSTANCE | FILE_READ_ATTRIBUTES | SYNCHRONIZE
+(0x00100084), без FILE_READ_DATA/FILE_WRITE_DATA. Это эксперимент, не
+производственная доступность. Чужие DACL каналов, deny CROT, Job и capabilities
+не ослабляются. Если NPFS отвергает не-LOCAL имена независимо от DACL,
+следующий разрешённый вариант — пользовательское перенаправление только
+префиксов libuv в LOCAL. Граница безопасности остаётся в ядре.
+
+**Продолжение AD-29: вариант А.2 после d7436af, одобрено куратором.**
+Обращения к DACL корня NPFS исключаются. Пользовательская DLL совместимости
+перехватывает ANSI и Unicode CreateNamedPipe/CreateFile и перенаправляет
+только `\\?\pipe\uv\` и `\\.\pipe\uv\` в
+`\\.\pipe\LOCAL\uv\`; реальные управляющие каналы CROT и docker_engine
+не перенаправляются. DLL находится вне workspace в принадлежащем L1 каталоге,
+доступном package SID на RX, не на запись. Для загрузки до точки входа и
+перехвата Win32 API используются закреплённые исходники Microsoft Detours
+v4.0.1 (MIT), без драйверов и виртуализации. Загрузка производится только в
+приостановленный, проверенный AppContainer-процесс внутри Job; потомки
+получают ту же DLL до возобновления. Ошибка внедрения не допускает обычный
+незащищённый запуск. Прослойка — совместимость, не граница безопасности:
+ею остаются AppContainer, Job и DACL; обход прослойки актором не расширяет
+его права ядра. Никакие успешные прогоны SDK не включают production до
+проверки восстановления аренды, сети, Docker и обязательной матрицы.
+
+**Продолжение AD-29: долговечный протокол аренды и восстановление.**
+До первой записи ACL доверенный контроллер фиксирует в защищённом, находящемся
+вне workspace журнале полную неизменяемую транзакцию: свежий профиль/SID,
+идентичности объектов NTFS (том, file ID, время создания), исходные и
+запланированные дескрипторы. Намерение создания каждого Job фиксируется до
+его создания и до ResumeThread. Запись считается завершённой только после
+FlushFileBuffers/fsync. Исключительная блокировка принадлежит дескриптору ОС,
+а не PID/возрасту файла; после аварии её можно открыть заново, но нельзя
+«украсть» у живого владельца. Контрольные суммы выявляют повреждения, а не
+заменяют owner-only DACL и проверку отсутствия reparse/hardlink.
+
+Восстановление сначала доказывает остановку всех акторов, затем открывает
+сохранённые объекты по идентичности, удерживает их до завершения проверки
+всей транзакции и принимает только исходный либо точно запланированный SD.
+Изменённые чужие права, пропавшая/переиспользованная идентичность, повреждённый
+или обрезанный журнал — отказ с сохранением журнала, без запуска нового
+sandbox и без восстановления по старому pathname. Снимаются только ACE
+собственного SID с новых объектов workspace; temp/cache не обходятся этим
+проходом. Профиль удаляется последним, после проверки восстановления всех
+дескрипторов. Каждый этап повторяем после аварии; журнал закрывается только
+после успешного удаления профиля. Нативный адаптер обязан обеспечить эти
+проверки, запрет наследования handles и собственную модель свежести профиля.
+Сам протокол и его тестовые адаптеры не являются production backend, проверкой
+ядра либо основанием для available=true. Регистрация Windows backend остаётся
+заблокированной до нативного подключения и всей приёмки AD-29.
+
+**Продолжение AD-29: network=on/off, разрешено куратором 16.10.2026.**
+Режим off сохраняет ноль сетевых capabilities и отсутствие loopback-исключения.
+Режим on допускает только стандартные SID InternetClient (S-1-15-3-1),
+InternetClientServer (S-1-15-3-2), PrivateNetworkClientServer (S-1-15-3-3).
+Их точный набор и атрибут SE_GROUP_ENABLED проверяются в приостановленном
+токене до ResumeThread; лишний/пропавший SID означает отказ запуска.
+Исключение loopback создаётся только для свежего принадлежащего CROT package
+SID после долговечной записи сетевого режима в WAL; старый журнал без режима
+означает off. Владелец сети удерживает профиль, а живые Job — владельца сети.
+После полного drain удаляется только запись этого SID, затем профиль.
+При аварии намерение в WAL достаточно для повторяемого удаления записи;
+ошибка очистки не допускает closed/новых запусков. Снимок общего списка не
+восстанавливается. Системный CheckNetIsolation вызывается по абсолютному пути,
+без shell/UAC/повышения прав и только с -a/-d -p=SID; чужие записи до/после
+проверяются, неоднозначная конкурентная смена означает отказ, не откат всего
+списка. Компонент сети не объявляет production backend готовым; native recovery,
+служебный lifecycle, Docker и полный предикат готовности остаются обязательными.
+Сетевой on не снимает DACL CROT, не меняет настоящие service/control/Docker pipes,
+не раскрывает http-token и не отключает проверку HTTP-аутентификации.
+
+**Продолжение AD-29: положительное доказательство drain и владельца профиля.**
+Нативный recovery-компонент перечисляет WTS-процессы всех сеансов, отбирает
+SID того же пользователя и проверяет TokenUser/TokenIsAppContainer/точный
+AppContainerSid на удержанном process handle. Только совпавший package SID
+может быть завершён; токен повторно проверяется на handle завершения.
+Неизвестный SID, отказ полной инвентаризации/запроса либо неоднозначный wait —
+ошибка. Исчезнувший PID требует нового прохода, а не признания аренды пустой.
+Требуются два полных пустых прохода; живой контроллер должен присутствовать
+в инвентаре, чтобы пустой/усечённый ответ не стал ложным доказательством.
+Все сеансы могут требовать подготовленного административного контекста;
+автоматического повышения прав нет. Новые admissions должны быть остановлены
+владельцем аренды; до вызова обязательна долговечная квитанция свежего профиля.
+
+In-memory владелец профиля выдаётся только после S_OK создания, закреплён
+неподделываемой внутри типового интерфейса ссылкой и неизменяемой identity.
+Структурная копия с чужим SID не принимается сетевым/launch-компонентом.
+Это не замена durable receipt после аварии, profile-intent протоколу,
+самопроверке установки и полной производственной регистрации.
+OD-9 Windows part и OD-6 остаются открытыми до такого целостного подключения.
+
+**Продолжение AD-29: Windows host-path boundary медиируемого Docker.**
+
+Общая политика запросов Docker использует отдельный Windows adapter, а не
+POSIX isAbsolute/split(':'). Drive-aware Binds, bind/npipe/inspect, local volume
+options и Swarm проверяют лексическую и native-resolved границы; context keys
+защищены независимо от writable. Неизвестные daemon-to-host отображения
+(UNC/device/Volume GUID/WSL/Desktop) отказывают до подтверждения их идентичности.
+Разрешение точного собственного LOCAL endpoint не является доказательством
+владения каналом: оно обязательно обеспечивается native владельцем и DACL.
+Request-policy/Unix mock proxy tests не заменяют нативную квалификацию transport,
+защиту прямого docker_engine и аудит сервиса. Полный recovery/service/backend
+и поставка остаются открытыми; OD-6 и Windows part OD-9 этим не закрываются.
+
+
+### AD-30. Производственный Windows L1 — OD-6 и Windows-часть OD-9 закрыты
+
+Квалификация `8fe6ba5`: [CI 11/11](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906), Windows Server 2025 x64, Node 20/22.
+
+1. Встроенный AppContainer + Job Object + DACL выбран окончательно: без
+   виртуализации, сторонних драйверов, ProcessDeviceMap и изменения корня NPFS.
+2. LOCAL-прослойка только для libuv, вне workspace; цепочки Node и Job tree kill
+   квалифицированы. Настоящие CROT/Docker pipe не переписываются.
+3. NTFS ID/WAL/полный preflight/guards сохраняют чужие ACE; workspace остаётся
+   настоящим. Многоссылочные файлы read-only. Новые узлы теряют только свой SID.
+4. Долговечное владение свежим профилем, actor drain по Job/реальному SID,
+   loopback cleanup и profile deletion подключены к CrotService/Core lifecycle.
+   Неоднозначные/повреждённые доказательства не удаляются.
+5. Секреты/WAL — owner-only Medium/NWNR; компоненты — Medium/NW;
+   изменяемый одноразовый runtime — owner-only Low/NW строго в своём корне.
+   Метки пользовательского workspace не понижаются.
+6. network=off: ноль capabilities/нет loopback; on: три стандартные capabilities
+   и только своё временное loopback. HTTP-token/CROT-6A защищены. AD-20.14,
+   включая остаточный риск Docker TCP без TLS, сохранён без запрета сети.
+7. LOCAL Docker endpoint с owner+lease-SID DACL и фиксированным DOCKER_HOST
+   использует общую политику a–d, native host-path guards, HTTP403/audit.
+   Неквалифицированные UNC/WSL/daemon mappings не объявляются поддержанными;
+   CI проверяет native transport с контролируемым upstream, не real daemon.
+8. Проверенная SHA-256 поставка и настоящий self_test обязательны до
+   windows-appcontainer/available=true/reason=null в status/overview.
+   Missing/mismatch/private-storage/self-test причины стабильны; remote
+   UNAVAILABLE и post-admission FAILED не дают неизолированного повтора.
+9. Локальный full_control остаётся неограниченным (AD-13, AD-23).
+10. Единственное machine-wide владение исключает наложение ACL аренд разных
+    сервисов/stateDir. Это явное ограничение, не общесистемный AppContainer ACE.
+11. OD-6 закрыт. Windows-часть OD-9: Server2025 x64 Node20/22 квалифицированы;
+    Win11/ARM64/Server2022/неподготовленные конфигурации честно unavailable.
+    macOS и браузерная часть OD-9 этим не закрываются; упаковка/подпись — WP-34.
+12. WP-23c Done. Политика поставки, ошибки, остаточные риски и квалификация
+    удаления stale NTFS ID описаны в docs/L1.md; восемь критериев и компактные
+    доказательства — docs/design/windows-l1-curator-appcontainer.md и
+    docs/evidence/windows-l1-production/qualification.json.
+
+AD-24…AD-29 сохраняются как история исследования; прежние записи unavailable
+не отменяют это текущее решение и не объявляются старыми production-прогонами.

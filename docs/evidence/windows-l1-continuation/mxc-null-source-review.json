@@ -1,0 +1,16 @@
+{
+  "formatVersion": 1,
+  "source": "microsoft/mxc",
+  "commit": "ae9e3c06469fd2958da546b71bd170932e7f8ba2",
+  "path": "docs/backends/process-container/host-prep.md",
+  "url": "https://github.com/microsoft/mxc/blob/ae9e3c06469fd2958da546b71bd170932e7f8ba2/docs/backends/process-container/host-prep.md",
+  "retrievedAt": "2026-10-15T17:31:55.615171+00:00",
+  "bytes": 12053,
+  "sha256": "ce1878ef83681a42356f61a0b87f539ef09fd00aec61ddc3b71c267cd163993c",
+  "relevantFindings": [
+    "AppContainer tier3 host preparation adds well-known AppContainer ACEs to system-drive root.",
+    "prepare-null-device applies a shared Device Null security descriptor; the documented default lacks AppContainer grants and causes NUL ERROR_ACCESS_DENIED.",
+    "These global/shared ACL modifications are forbidden by CROT constraints and were NOT executed."
+  ],
+  "qualification": "Authoritative upstream documentation corroboration only; no copied implementation, deployment, or CROT-native proof."
+}

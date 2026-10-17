@@ -6,6 +6,7 @@
  * dies) and without BREAKAWAY_OK, so descendants cannot leave it. Only the
  * minimum set of kernel32 functions is bound; no other native code is loaded.
  */
+import { randomBytes } from "node:crypto";
 import { CrotError } from "../core/errors.js";
 import { validatePid } from "./validation.js";
 
@@ -89,6 +90,7 @@ function counter(value: unknown): number | null {
 
 class KernelJob implements JobObject {
   private isClosed = false;
+  private readonly pendingProcessHandles = new Set<unknown>();
 
   constructor(
     private readonly k32: Kernel32,
@@ -104,11 +106,23 @@ class KernelJob implements JobObject {
     if (this.isClosed) throw new CrotError("OPERATION_FAILED", "The Job Object is closed.");
     const proc = this.k32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
     if (isNullHandle(proc)) return false;
+    this.pendingProcessHandles.add(proc);
+    let assigned = false;
+    let failure: unknown;
     try {
-      return succeeded(this.k32.AssignProcessToJobObject(this.handle, proc));
-    } finally {
-      this.k32.CloseHandle(proc);
+      assigned = succeeded(this.k32.AssignProcessToJobObject(this.handle, proc));
+    } catch (error) {
+      failure = error;
     }
+    try {
+      if (!succeeded(this.k32.CloseHandle(proc)))
+        throw new CrotError("OPERATION_FAILED", "CloseHandle (process assignment) failed.");
+      this.pendingProcessHandles.delete(proc);
+    } catch (error) {
+      failure ??= error;
+    }
+    if (failure) throw failure;
+    return assigned;
   }
 
   accounting(): JobAccounting | null {
@@ -137,22 +151,68 @@ class KernelJob implements JobObject {
   }
 
   close(): void {
-    if (this.isClosed) return;
-    this.isClosed = true;
-    this.k32.CloseHandle(this.handle);
+    let failure: unknown;
+    if (!this.isClosed) {
+      try {
+        if (!succeeded(this.k32.CloseHandle(this.handle)))
+          throw new CrotError("OPERATION_FAILED", "CloseHandle (Job Object) failed.");
+        this.isClosed = true;
+      } catch (error) {
+        failure = error;
+      }
+    }
+    // Failed closes retain their exact owned handles. Retry cleanup without
+    // reopening by PID, and attempt all resources even after the first error.
+    for (const handle of this.pendingProcessHandles) {
+      try {
+        if (!succeeded(this.k32.CloseHandle(handle)))
+          throw new CrotError("OPERATION_FAILED", "CloseHandle (process assignment) failed.");
+        this.pendingProcessHandles.delete(handle);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure) throw failure;
   }
 }
 
-function createJob(k32: Kernel32): JobObject {
-  const handle = k32.CreateJobObjectW(null, null);
-  if (isNullHandle(handle)) throw new CrotError("OPERATION_FAILED", "CreateJobObjectW failed.");
-  const info = Buffer.alloc(EXTENDED_LIMIT_INFORMATION_SIZE);
-  info.writeUInt32LE(JOB_LIMIT_FLAGS, LIMIT_FLAGS_OFFSET);
-  if (!succeeded(k32.SetInformationJobObject(handle, JobObjectExtendedLimitInformation, info, info.length))) {
-    k32.CloseHandle(handle);
-    throw new CrotError("OPERATION_FAILED", "SetInformationJobObject (kill-on-close) failed.");
+// A failed configuration still owns a kernel handle. Keep it reachable across
+// API rebindings/self-test failures, retry that exact owner before allocating,
+// and never grow an unbounded series of leaked failed creations.
+const failedCreations = new WeakMap<Kernel32, Set<JobObject>>();
+function createJob(k32: Kernel32, allocate: () => unknown = () => k32.CreateJobObjectW(null, null)): JobObject {
+  let pending = failedCreations.get(k32);
+  if (!pending) {
+    pending = new Set();
+    failedCreations.set(k32, pending);
   }
-  return new KernelJob(k32, handle);
+  let cleanupError: unknown;
+  for (const job of pending) {
+    try {
+      job.close();
+      pending.delete(job);
+    } catch (error) {
+      cleanupError ??= error;
+    }
+  }
+  if (cleanupError) throw cleanupError;
+  const handle = allocate();
+  if (isNullHandle(handle)) throw new CrotError("OPERATION_FAILED", "CreateJobObjectW failed.");
+  const job = new KernelJob(k32, handle);
+  try {
+    const info = Buffer.alloc(EXTENDED_LIMIT_INFORMATION_SIZE);
+    info.writeUInt32LE(JOB_LIMIT_FLAGS, LIMIT_FLAGS_OFFSET);
+    if (!succeeded(k32.SetInformationJobObject(handle, JobObjectExtendedLimitInformation, info, info.length)))
+      throw new CrotError("OPERATION_FAILED", "SetInformationJobObject (kill-on-close) failed.");
+    return job;
+  } catch (error) {
+    try {
+      job.close();
+    } catch {
+      pending.add(job);
+    }
+    throw error;
+  }
 }
 
 /** Bindings are created once per FFI module (koffi type names are global). */
@@ -189,6 +249,57 @@ function bind(ffi: FfiModule): Kernel32 {
   return k32;
 }
 
+/** Native binding seam. Platform and self-test checks remain in loadJobObjectApi. */
+export function bindJobObjectApi(ffi: FfiModule): JobObjectApi {
+  const k32 = bind(ffi);
+  return { createKillOnCloseJob: () => createJob(k32) };
+}
+
+/** AD-27 internal owner name; a name/SID alone never authenticates filesystem I/O. */
+const viewJobNames = new WeakMap<JobObject, string>();
+const failedNameCloses = new WeakMap<object, Set<unknown>>();
+export function ownedViewJobName(job: JobObject): string {
+  const name = viewJobNames.get(job);
+  if (!name || job.closed) throw new CrotError("INVALID_INPUT", "Not an open owned projection Job.");
+  return name;
+}
+/** Trusted projection setup only. Existing unnamed Job behavior/gates are unchanged. */
+export function bindViewJobObjectApi(ffi: FfiModule): JobObjectApi {
+  const k32 = bind(ffi),
+    lib = ffi.load("kernel32.dll");
+  const create = lib.func("void * __stdcall CreateJobObjectW(void *attributes, str16 name)");
+  const last = lib.func("uint32_t __stdcall GetLastError(void)");
+  const setLast = lib.func("void __stdcall SetLastError(uint32_t error)");
+  let pending = failedNameCloses.get(ffi);
+  if (!pending) {
+    pending = new Set();
+    failedNameCloses.set(ffi, pending);
+  }
+  return {
+    createKillOnCloseJob: () => {
+      for (const handle of pending) {
+        if (!succeeded(k32.CloseHandle(handle)))
+          throw new CrotError("OPERATION_FAILED", "Projection Job close incomplete.");
+        pending.delete(handle);
+      }
+      const name = `Local\\crot-view-job-${randomBytes(24).toString("hex")}`;
+      const job = createJob(k32, () => {
+        setLast(0);
+        const handle = create(null, name);
+        const collision = Number(last()) === 183;
+        if (!isNullHandle(handle) && collision) {
+          // Never configure/terminate an existing foreign object on name collision.
+          if (!succeeded(k32.CloseHandle(handle))) pending.add(handle);
+          throw new CrotError("OPERATION_FAILED", "Projection Job name collision.");
+        }
+        return handle;
+      });
+      viewJobNames.set(job, name);
+      return job;
+    },
+  };
+}
+
 /**
  * Bind the Job Object API and verify it with a self-test (create, configure,
  * query and close a job). Throws OPERATION_FAILED where it is unavailable:
@@ -213,18 +324,41 @@ export async function loadJobObjectApi(load: FfiLoader = defaultLoader): Promise
   }
   const ffi = candidate as unknown as FfiModule;
   try {
-    const k32 = bind(ffi);
-    const api: JobObjectApi = { createKillOnCloseJob: () => createJob(k32) };
+    const api = bindJobObjectApi(ffi);
     const probe = api.createKillOnCloseJob();
+    let selfTestError: unknown;
     try {
       const counters = probe.accounting();
       if (!counters || counters.active !== 0 || counters.total !== 0)
         throw new Error("job accounting could not be read");
-    } finally {
-      probe.close();
+    } catch (error) {
+      selfTestError = error;
     }
+    try {
+      probe.close();
+    } catch (error) {
+      // The API is not returned on self-test failure. Retain its probe in
+      // the binding's recovery set, not in a now-unreachable local variable.
+      failedCreations.get(bind(ffi))!.add(probe);
+      selfTestError ??= error;
+    }
+    if (selfTestError) throw selfTestError;
     return api;
   } catch (error) {
     throw new CrotError("OPERATION_FAILED", `Job Objects could not be initialized: ${describe(error)}`);
   }
+}
+
+/** AD-27 same canonical ESM FFI instance as the existing Job/token launch path. */
+export async function loadViewJobObjectApi(load: FfiLoader = defaultLoader): Promise<JobObjectApi> {
+  let loaded: unknown;
+  // Preserve platform/ABI/optional-dependency admission and the normal exact
+  // empty kill-on-close Job self-test. Never mix require(koffi)'s CJS wrapper
+  // with import(koffi)'s ESM wrapper: they share a native type registry.
+  await loadJobObjectApi(async () => {
+    loaded = await load();
+    return loaded;
+  });
+  const ffi = ((loaded as { default?: unknown } | null | undefined)?.default ?? loaded) as FfiModule;
+  return bindViewJobObjectApi(ffi);
 }

@@ -1,0 +1,202 @@
+{
+  "formatVersion": 1,
+  "testedHead": "20808e80d31165b6c31abf9ac258819cd1e6007d",
+  "implementationSource": "75ce0f211fac413b66da877c7f32721359f63fef",
+  "testedMerge": "053666435a2b13d7c79a970094f30437245979cb",
+  "unchangedCodeAndAssertions": {
+    "src": {
+      "testedHeadGitObject": "32e75feef3197eaa5f352ba2b14e9c28bd51f28d",
+      "implementationGitObject": "32e75feef3197eaa5f352ba2b14e9c28bd51f28d",
+      "identical": true
+    },
+    "tests": {
+      "testedHeadGitObject": "7e8daa19fdf21c2bc0a28c197716d981e56f6f1d",
+      "implementationGitObject": "7e8daa19fdf21c2bc0a28c197716d981e56f6f1d",
+      "identical": true
+    },
+    "native": {
+      "testedHeadGitObject": "80b4d73e11af60b470e0de3324faba532aadf75b",
+      "implementationGitObject": "80b4d73e11af60b470e0de3324faba532aadf75b",
+      "identical": true
+    },
+    "scripts": {
+      "testedHeadGitObject": "f1914ef902dbdb28d481017eeababf67bac9d455",
+      "implementationGitObject": "f1914ef902dbdb28d481017eeababf67bac9d455",
+      "identical": true
+    },
+    ".github": {
+      "testedHeadGitObject": "a0d5da6ef255e71f1ed11140bec7a3090fb36c18",
+      "implementationGitObject": "a0d5da6ef255e71f1ed11140bec7a3090fb36c18",
+      "identical": true
+    },
+    "package.json": {
+      "testedHeadGitObject": "e7870d872d5433a9778344eb6c1e9715df553df7",
+      "implementationGitObject": "e7870d872d5433a9778344eb6c1e9715df553df7",
+      "identical": true
+    },
+    "package-lock.json": {
+      "testedHeadGitObject": "841e0e5fd48563ea6ed163d007f9743c6a0cae9b",
+      "implementationGitObject": "841e0e5fd48563ea6ed163d007f9743c6a0cae9b",
+      "identical": true
+    },
+    "extension": {
+      "testedHeadGitObject": "6acfdaad37ecba2dbb219ea509db59dfc097d54e",
+      "implementationGitObject": "6acfdaad37ecba2dbb219ea509db59dfc097d54e",
+      "identical": true
+    }
+  },
+  "checks": [
+    {
+      "name": "Node 22 / macos-latest",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38778316936/job/116571627010"
+    },
+    {
+      "name": "L1 / ubuntu-24.04",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38778316912/job/116571626871"
+    },
+    {
+      "name": "L1 / ubuntu-24.04-arm",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38778316912/job/116571626627"
+    },
+    {
+      "name": "Node 20 / ubuntu-latest",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38778316936/job/116571626565"
+    },
+    {
+      "name": "Node 22 / windows-latest",
+      "conclusion": "failure",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38778316936/job/116571626521"
+    },
+    {
+      "name": "Node 22 / ubuntu-latest",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38778316936/job/116571626484"
+    },
+    {
+      "name": "L1 / ubuntu-22.04",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38778316912/job/116571626441"
+    },
+    {
+      "name": "Node 20 / macos-latest",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38778316936/job/116571626360"
+    },
+    {
+      "name": "L1 / ubuntu-22.04-arm",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38778316912/job/116571626273"
+    },
+    {
+      "name": "Node 20 / windows-latest",
+      "conclusion": "failure",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38778316936/job/116571625979"
+    },
+    {
+      "name": "real-chromium",
+      "conclusion": "success",
+      "url": "https://github.com/mysteriumpersonae/crot-mcp/actions/runs/38778316816/job/116571625282"
+    }
+  ],
+  "nodes": {
+    "20": {
+      "workspaceView": [
+        {
+          "phase": "signed-component-build",
+          "value": {
+            "passed": true,
+            "arch": "x64",
+            "version": "2.3.1.1000"
+          }
+        },
+        {
+          "phase": "original-medium-before",
+          "value": {
+            "passed": true,
+            "objects": 2
+          }
+        },
+        {
+          "phase": "control-profile-probes",
+          "value": {
+            "protocolVersion": 2,
+            "completed": true,
+            "ownerControls": true,
+            "ownerNtLiteralZero": "access-denied",
+            "devicePackageAccessGranted": false,
+            "appContainer": {
+              "ready": true,
+              "win32Zero": "access-denied",
+              "win32Read": "access-denied",
+              "ntMetadata": "access-denied",
+              "ntRead": "access-denied",
+              "nulReadWriteOpened": false,
+              "ntLiteralZero": "access-denied"
+            },
+            "lpac": {
+              "ready": true,
+              "win32Zero": "access-denied",
+              "win32Read": "access-denied",
+              "ntMetadata": "access-denied",
+              "ntRead": "access-denied",
+              "nulReadWriteOpened": false,
+              "ntLiteralZero": "access-denied"
+            }
+          }
+        }
+      ]
+    },
+    "22": {
+      "workspaceView": [
+        {
+          "phase": "signed-component-build",
+          "value": {
+            "passed": true,
+            "arch": "x64",
+            "version": "2.3.1.1000"
+          }
+        },
+        {
+          "phase": "original-medium-before",
+          "value": {
+            "passed": true,
+            "objects": 2
+          }
+        },
+        {
+          "phase": "control-profile-probes",
+          "value": {
+            "protocolVersion": 2,
+            "completed": true,
+            "ownerControls": true,
+            "ownerNtLiteralZero": "access-denied",
+            "devicePackageAccessGranted": false,
+            "appContainer": {
+              "ready": true,
+              "win32Zero": "access-denied",
+              "win32Read": "access-denied",
+              "ntMetadata": "access-denied",
+              "ntRead": "access-denied",
+              "nulReadWriteOpened": false,
+              "ntLiteralZero": "access-denied"
+            },
+            "lpac": {
+              "ready": true,
+              "win32Zero": "access-denied",
+              "win32Read": "access-denied",
+              "ntMetadata": "access-denied",
+              "ntRead": "access-denied",
+              "nulReadWriteOpened": false,
+              "ntLiteralZero": "access-denied"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "qualification": "Nine non-Windows checks pass on an unchanged-code follow-up run. Prior75ce0f2 macOS20 concurrent-start failure remains retained; root cause NOT fixed or established. Windows mandatory gates still fail, no backend acceptance. Local fullcheck1732+147 is source75ce0f2 evidence, not a new20808e8 local run."
+}

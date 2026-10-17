@@ -52,6 +52,26 @@ describe("service locks and endpoint ownership (WP-20)", () => {
     expect(await acquireDirectoryLock(lock, 10_000)).toBe(false);
   });
 
+  it.skipIf(isWindows)("a fresh listener cannot bypass a held POSIX stale-recovery lock", async () => {
+    const endpoint = serviceEndpoint(dir, "service", "d".repeat(43), false);
+    const lock = endpoint.path + ".lock";
+    expect(await acquireDirectoryLock(lock, 10_000)).toBe(true);
+    try {
+      // This used to bind successfully: only the EADDRINUSE path took the lock.
+      const contender = await listenExclusive(endpoint, (socket) => socket.destroy());
+      if (contender !== "in_use") {
+        await new Promise<void>((resolve) => contender.close(() => resolve()));
+      }
+      expect(contender).toBe("in_use");
+      expect(await stat(endpoint.path).catch(() => undefined)).toBeUndefined();
+    } finally {
+      await releaseDirectoryLock(lock);
+    }
+    const owner = await listenExclusive(endpoint, (socket) => socket.destroy());
+    expect(owner).not.toBe("in_use");
+    if (owner !== "in_use") await new Promise<void>((resolve) => owner.close(() => resolve()));
+  });
+
   it("concurrent listeners on one endpoint: exactly one owner, also when taking over a stale socket", async () => {
     const endpoint = serviceEndpoint(dir, "service", "c".repeat(43), isWindows);
     const servers: net.Server[] = [];

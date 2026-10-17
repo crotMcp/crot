@@ -311,7 +311,17 @@ describe("stdio shim and CROT service (built, WP-20)", () => {
       const owner = Number(/pid (\d+)/.exec(stdout)?.[1]);
       // Every other one gave up silently before touching the bridge or Core.
       const exits = await Promise.all(starts.filter((p) => p.child.pid !== owner).map((p) => p.exited));
-      expect(exits).toEqual([0, 0, 0]);
+      expect(
+        exits,
+        JSON.stringify(
+          starts
+            .filter((p) => p.child.pid !== owner)
+            .map((p) => ({
+              code: p.child.exitCode,
+              diagnostic: p.stderr().slice(-2000),
+            })),
+        ),
+      ).toEqual([0, 0, 0]);
       expect(starts.some((p) => p.child.pid === owner)).toBe(true);
       expect(isAlive(owner)).toBe(true);
       // Clients reach that owner.
