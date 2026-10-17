@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, link, symlink, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, link, symlink, rm, realpath } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { describe, it, expect } from "vitest";
@@ -35,7 +35,7 @@ describe.runIf(process.platform !== "win32")("macOS hardlink identity preflight"
       await mkdir(s);
       await writeFile(external, "secret");
       await symlink(external, path.join(s, "alias"));
-      expect(await inspectProtected([s])).toContain(external);
+      expect(await inspectProtected([s])).toContain(await realpath(external));
       expect(await workspaceHardlinks(s)).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
