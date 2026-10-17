@@ -9,8 +9,20 @@ README describes the current implementation and how to run it.
 
 ## Status
 
-Implemented (ARCHITECTURE.md §16, steps 1–6, the first part of step 7,
-steps 10–11 and step 21 — Git read and write):
+Срез проверки реализации: `main` `e23b7b9c29c5e3e1758b9ad2703bbd827648426f` (merge PR #27). PR #27 слит, не Draft;
+WP-23c **Done**, AD-30 действует, OD-6 и Windows-часть OD-9 закрыты.
+Дерево merge совпадает с квалифицированным `f916a6b`; `8fe6ba5` — более
+ранний квалификационный источник, не текущий HEAD. На самом `e23b7b9`
+подтверждены все 11 заданий: [основной CI 6/6](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180293), [Linux L1 4/4](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180333), [Chromium 1/1](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180363).
+Это фиксированная база кода для документационной сверки, не SHA будущего docs PR.
+
+**Как читать статусы.** «Реализовано» означает наличие кода; «проверено» —
+конкретный тест/CI на указанном SHA; «ручная приёмка» — отдельная запись владельца;
+«Done» требует критериев пакета, не одного merge. «Запланировано» и
+«не подтверждено» не означают доступность. Ни merge PR #27, ни зелёный CI
+не означают готовность всего CROT к коммерческому релизу.
+
+Implemented components (not a whole-product acceptance or commercial-release claim):
 
 - CROT Core: configuration, workspace, central permission engine, execution guard
 - Filesystem capability
@@ -47,7 +59,7 @@ steps 10–11 and step 21 — Git read and write):
   environment (see [Security properties](#security-properties))
 - Tray v1 (WP-22): an Electron tray on the control channel shows approval
   requests and is the approval UI; it also holds the device controls
-  (approval preset, remote mode, remote full-control opt-in — recorded only —,
+  (approval preset, remote mode, pairing-bound remote full-control opt-in,
   exposure reset and revocation of remote clients); see
   [`docs/TRAY.md`](docs/TRAY.md)
 - Identity and device binding (WP-28): pairing the device with a CROT account
@@ -57,14 +69,32 @@ steps 10–11 and step 21 — Git read and write):
   builds pin no identity environment yet (staging WP-38), development uses
   `CROT_IDENTITY_DEV_ENVIRONMENT`; see [`docs/IDENTITY.md`](docs/IDENTITY.md)
 
-Not yet implemented: command confinement L1 on macOS (Linux and qualified Windows: [L1](docs/L1.md)), Docker operations beyond `docker.use` (build, pull, push, run, exec), Git network operations (fetch, pull, push), OS-level network egress control for processes and containers, remote (non-loopback)
-exposure (Cloud Relay WP-29, device tunnel WP-30), installer and autostart (including packaging of the tray), account/licensing layer.
-Firefox is not supported.
+- Windows L1 (WP-23c Done, AD-30): AppContainer + Job, LOCAL libuv and
+  Docker mediation, full durable service recovery; qualified Server2025 x64,
+  Node20/22 only. Explicit host/component preparation and self_test required;
+  other configurations report unavailable. See [L1](docs/L1.md).
+- Remote path: Cloud Relay code (WP-29 **Partial**), device tunnel (WP-30 Done),
+  per-principal permission profiles/presets (WP-31 Done) are on main.
+  They are not a deployed or accepted public service: WP-29 limits/load and
+  registration follow-ups, live staging WP-38 and E2E acceptance WP-32 remain open.
+- Browser CDP/ref/trusted-input implementation (WP-24) and fixes PR #22–#26
+  are merged and tested. Owner runs 1–5/follow-up are recorded; final manual
+  acceptance (timeout signalling, C1, owner review) remains open.
 
-Windows L1 uses the qualified AppContainer + Job backend (WP-23c, AD-30).
-Explicit host/component preparation is required; unsupported configurations
-report unavailable. Native LOCAL Docker mediation and full durable service
-lease recovery are included. See [L1](docs/L1.md).
+Not implemented / not accepted yet: macOS L1 WP-23b; browser WP-25/26/27
+(dialog/file chooser/background screenshot/tab group, upload/download and
+remote multi-agent rules); OD-8 download hand-over; dedicated Docker commands
+beyond docker.use and Git network tools (still usable via shell); general
+per-host/process/container egress policy beyond the existing L1 network on/off;
+public staging/production deployment, account/entitlement service, signed
+installer and autostart. Firefox is not supported. WorkOS live behaviour and
+Windows11/ARM64/Server2022 L1 are not qualified by existing CI.
+
+Next executable package: **WP-29 follow-up** before public WP-38 staging;
+in parallel finish **WP-24 acceptance** before counting WP-25/26/27 prerequisites.
+WP-32 is blocked by those packages and WP-38, not enabled by one merge.
+See [roadmap §8.4](CROT_IMPLEMENTATION_ROADMAP.md#84-next-wp-selection-rule)
+and [documentation audit](docs/design/post-merge-e23b7b9-doc-audit.md).
 
 **Goal and plan.** The v1 goal (remote MCP clients reach the local computer and
 the user's real browser through CROT and the Cloud Relay), the architecture and
@@ -288,9 +318,9 @@ it.
 Authentication happens behind a replaceable `AccessTokenVerifier`
 (`src/adapters/http/auth.ts`), shape-compatible with the SDK's OAuth token
 verifier. It only establishes the principal; authorization stays with the
-PermissionEngine. A future OAuth/OIDC resource-server verifier (user/device
-identity, accounts) replaces the provisional token without changes to the HTTP
-server, the MCP tools, Core or the PermissionEngine.
+PermissionEngine. The WP-28 OAuth/OIDC verifier already serves the separate relay entry point;
+local loopback keeps its provisional local token. Live IdP/deployment qualification
+is still WP-38/32; no relay authorization moves into Core.
 
 **Principal (AD-15 point 6).** The entry point alone decides the principal
 kind:
@@ -299,7 +329,7 @@ kind:
 | --- | --- |
 | stdio | `{ id: "local-user", kind: "local", transport: "stdio" }` |
 | loopback HTTP (local token) | `{ id: "local-token:<fingerprint>", kind: "local", transport: "http", authMethod: "local-token", client }` |
-| Cloud Relay (verifier: WP-28, [`docs/IDENTITY.md`](docs/IDENTITY.md); relay and tunnel planned, WP-29/WP-30; token model: ARCHITECTURE.md §27 AD-21) | `{ id: <sub>, kind: "remote", transport: "relay", authMethod: "oauth", accountId: <sub>, deviceId: <from aud>, clientId: <client_id> }` |
+| Cloud Relay (verifier: WP-28, [`docs/IDENTITY.md`](docs/IDENTITY.md); relay WP-29 Partial and tunnel WP-30 implemented; deployment/acceptance WP-38/WP-32 pending; token model: ARCHITECTURE.md §27 AD-21) | `{ id: <sub>, kind: "remote", transport: "relay", authMethod: "oauth", accountId: <sub>, deviceId: <from aud>, clientId: <client_id> }` |
 
 The principal is recorded in every audit event. Credentials never reach Core or
 the audit log. `kind: "remote"` is reserved for relay clients, identified by
@@ -309,7 +339,7 @@ never accepted through the relay.
 **Migration (WP-19).** Before WP-19, loopback HTTP principals had
 `kind: "remote"`. They are now `kind: "local"`, so rules with
 `principalKinds: ["remote"]` (such as the `remote-writes` example below) **no
-longer match loopback HTTP clients**; they only match future relay clients. To
+longer match loopback HTTP clients**; they match relay clients, not loopback clients. To
 keep gating loopback HTTP clients, use `principalKinds: ["local"]` — this also
 matches stdio (a transport matcher is an open question, ARCHITECTURE.md §26
 question 12) — or match on operations/capabilities without `principalKinds`.
@@ -347,7 +377,8 @@ audit log. Idle sessions are closed after `http.sessionIdleTimeoutMs`.
 **Limitations (honest status).**
 
 - Loopback only. Binding any other address is refused; remote exposure needs
-  TLS and a real authorization server, which are future milestones.
+  the separate relay path (WP-29/30/31 code exists); public TLS/IdP
+  deployment and acceptance are WP-38/32, not a loopback binding option.
 - The local token is a provisional, static, shared credential: no expiry or
   per-device identity. It is kept in the CROT secret store; read it with
   `crot-mcp secrets show http-token` and rotate it with `crot-mcp service
@@ -355,12 +386,10 @@ audit log. Idle sessions are closed after `http.sessionIdleTimeoutMs`.
   Anyone who can read it can act as the HTTP principal.
 - No TLS: traffic is plaintext on the loopback interface.
 - CROT tools cannot read the token in any mode (secret paths are denied, see
-  [Security properties](#security-properties)). A command run with
-  `shell.execute` runs as the user and is not confined at the OS level: it can
-  reach the OS secret store or the file fallback itself (in `full_control` by
-  definition, in sandbox mode on macOS and Windows until command confinement,
-  WP-23b/c; on Linux sandbox-mode commands run under L1, see
-  [Command confinement](#command-confinement-linux-l1)).
+  [Security properties](#security-properties)). OS-unconfined commands can reach the OS store/fallback as the user:
+  local full_control, macOS pending WP-23b, or local use before initial L1
+  admission. Qualified Linux/Windows sandbox commands are confined by AD-20/30;
+  remote commands without L1 are refused. See [L1](docs/L1.md).
 - `http.auth.storage: "token-file"` keeps the token in a plaintext owner-only
   file for clients that read it from there; CROT warns about it at start.
 - HTTP-level rejections (401, 403, ...) are logged to stderr, not to the audit
@@ -402,10 +431,12 @@ plus `browser.read` (and `browser.control` if the agent may act in the
 browser). The extension and its bridge never authorize anything themselves
 (see [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)).
 
-**Sandbox limits.** Sandbox confines CROT's own file operations and the
-working directory of commands. It is not OS-level isolation: a command the agent
-runs with `shell.execute` has the operating-system permissions of the CROT
-process. To prevent command execution, leave `shell.execute` and
+**Sandbox limits.** Core path/cwd checks are not themselves OS isolation.
+With available L1, Linux AD-20 / qualified Windows AD-30 commands are OS-confined.
+Local full_control, macOS without L1 and local use before initial L1 admission
+remain OS-unconfined; remote commands without ready L1 are refused, and an
+admitted sandbox failure is never retried unconfined. General same-user host
+processes/administrators are outside L1. To prevent command execution, leave `shell.execute` and
 `process.manage` out of the capability set (for example, a read-only setup is
 `"capabilities": ["filesystem.read", "git.read"]`; `git.read` never runs
 repository-controlled programs, see below).
@@ -591,7 +622,8 @@ allow rule; with the default empty policy every request is refused, also in
   Programs started with `shell.execute`/`process.manage` and Docker containers
   keep the network access the operating system gives them; `network.access`
   neither grants nor removes it. Restricting their traffic needs OS-level egress
-  control, which is not implemented.
+  control (general per-host traffic policy is not implemented). Existing L1
+  network on/off is separate; see [L1](docs/L1.md).
 
 ## Approval gates
 
@@ -779,8 +811,9 @@ exit hook force-kills any process tree that is still running.
   to be valid UTF-8 is decoded as UTF-8.
 - Windows private files (audit log, token files) are restricted with owner-only
   ACLs by the Native Host; administrators and the file owner can still change
-  them, and if the ACL tools are unavailable the Native Host falls back to the
-  Core mechanism and reports it at startup. Owner-only modes (`0600`/`0700`)
+  them. Legacy Native Host mechanisms can report fallback notes when tools are
+  unavailable; this is not a Windows L1 admission or a post-admission fallback.
+  Qualified AD-30 state/lease storage uses native Medium/NWNR protection. Owner-only modes (`0600`/`0700`)
   are applied on POSIX only.
 - The startup `PATH` heuristic relies on `SHLVL`; set `environment.path` to
   `login-shell` or `inherited` to choose explicitly. Windows `PATH` changes made
@@ -794,13 +827,12 @@ its limitations). Not yet implemented:
 
 - Graceful termination of Windows console programs (`GenerateConsoleCtrlEvent`);
   graceful termination requests escalate to forced termination.
-- OS-level sandboxing of commands on macOS and Windows (Core's sandbox
-  confines paths and working directories, not what a command does); until
-  then a command can use the OS secret store as the user (WP-23b/c). Linux:
-  [Command confinement](#command-confinement-linux-l1) (WP-23a).
-- Credential provisioning for the HTTP transport (device identity/registration
-  verifier); installing the CROT service for autostart (the
-  service itself exists, see [`docs/SERVICE.md`](docs/SERVICE.md)).
+- macOS L1 WP-23b and qualification of other Windows configurations. Linux
+  AD-20 and qualified Windows AD-30 are implemented, not just path checks.
+  General traffic policy is distinct from their implemented network on/off.
+- Live identity environment and public relay deployment/acceptance (WP-38/32),
+  account/provider-side operations WP-36, signed installation/autostart WP-34.
+  Device verifier/pairing and the service already exist (WP-28/20).
 
 ## Command confinement (Linux L1)
 
@@ -850,7 +882,9 @@ ship them (WP-34); details in [`docs/L1.md`](docs/L1.md).
   denied to every CROT tool in every mode, and `docker_*` refuses mounts that
   contain them. Not covered: a command started by CROT runs as the user and
   can use the OS secret store itself (`full_control` is unconfined by
-  definition; on Linux, workspace-mode commands are confined by L1 (WP-23a); macOS and Windows: WP-23b/c); administrators.
+  definition; initially-unavailable local L1 and macOS remain unconfined;
+  qualified Linux/Windows use AD-20/30); administrators and unrelated host
+  processes of the same user are not contained by L1.
 - Child environment: `shell_run`, `process_exec` and `process_start` children
   get only an allowlist of the CROT environment (paths, home, user, shell,
   locale, terminal, temporary directories, proxies, toolchain homes such as

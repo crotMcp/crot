@@ -280,6 +280,8 @@ mechanism: its credential only shows that the peer runs as the same OS user
   run in an explicit directory.
 - Sleep detection is a heuristic (clock-jump based); approval deadlines are not
   extended across sleep.
-- Windows named pipes keep Node's default security descriptor (no explicit
-  DACL); access by other users is prevented by that descriptor and by the
-  authentication.
+- Windows service/control pipes keep Node's default security descriptor,
+  plus credential authentication; the real AppContainer denial is tested.
+  This does not describe the AD-30 Docker LOCAL endpoint, which has an explicit
+  owner+lease-SID DACL. Qualified Windows L1 also adds native Medium/NWNR state
+  protection and startup/shutdown WAL recovery; see [L1](L1.md).

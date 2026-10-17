@@ -1,7 +1,17 @@
 # WP-23c: внутренние переименования и выбранный запуск AppContainer
 
-**WP-23c Done.** Производственный backend — AD-30. Квалификация `8fe6ba5`: [CI 11/11](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39042379906), Windows Server 2025 x64, Node 20/22.
-Следующие разделы с прежними SHA сохраняют историю, не текущие блокеры.
+**WP-23c Done; AD-30.**
+
+Срез проверки реализации: `main` `e23b7b9c29c5e3e1758b9ad2703bbd827648426f` (merge PR #27). PR #27 слит, не Draft;
+WP-23c **Done**, AD-30 действует, OD-6 и Windows-часть OD-9 закрыты.
+Дерево merge совпадает с квалифицированным `f916a6b`; `8fe6ba5` — более
+ранний квалификационный источник, не текущий HEAD. На самом `e23b7b9`
+подтверждены все 11 заданий: [основной CI 6/6](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180293), [Linux L1 4/4](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180333), [Chromium 1/1](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180363).
+Это фиксированная база кода для документационной сверки, не SHA будущего docs PR.
+
+Исходный пакет `qualification.json` закреплён за `8fe6ba5` и не переписан.
+Проверка именно merge-main: [main-e23b7b9-verification.json](../evidence/windows-l1-production/main-e23b7b9-verification.json).
+Разделы со старыми SHA — история, не текущие блокеры или состояние PR.
 
 ## Историческая дельта до восстановления сессии (не текущий отчёт)
 
@@ -71,7 +81,7 @@
 Доказательства: `docs/evidence/windows-l1-production/qualification.json`.
 Не квалифицированные ОС не выдаются за пройденную native матрицу.
 
-## CI и границы доказательств
+## Исторические CI и границы доказательств (до production приёмки)
 
 `3d17e6d`: Windows подтверждает сохранение WAL после убийства владельца,
 освобождение OS lock без удаления lock-файла и реальный AppContainer read/write

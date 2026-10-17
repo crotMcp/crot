@@ -1,3 +1,10 @@
+> **Исторический отчёт, не текущий статус.** Срез main — merge PR #27
+> `e23b7b9`, WP-23c Done, OD-6 / Windows OD-9 закрыты AD-30.
+> [Действующее руководство](../L1.md), [текущая приёмка](windows-l1-curator-appcontainer.md).
+> Все Draft/open/not_implemented/NOT MET ниже относятся только к исходным
+> экспериментам и их SHA; отрицательные результаты и ограничения сохранены.
+> AD-27/AD-28 не являются выбранным производственным механизмом.
+
 # WP-23c stage 6A — workspace mediation diagnosis and direction
 
 Status: diagnostic report delivered; remaining failures explicitly OPEN. **Not WP-23c acceptance, stage-6 acceptance, or production L1.**

@@ -190,7 +190,7 @@ and proofs are never logged (tested).
 
 ## Known limitations
 
-- The device side is WP-30 (PR #20, Partial; see
+- The device side is WP-30 (PR #20, Done/merged; relay WP-29 remains Partial; see
   [DEVICE_TUNNEL.md](DEVICE_TUNNEL.md)).
 - Single relay instance: routing is in memory; multi-instance routing is
   open (AD-22 open question 8).
@@ -206,5 +206,6 @@ and proofs are never logged (tested).
 - The relay code is built into the device package's `dist` (not in `bin`);
   separate packaging is WP-34/WP-38.
 - Entitlement is a hook with an allow-all default (WP-36).
-- Per-principal permission profiles are not a relay concern (§26 question
-  25, before WP-31).
+- Per-principal permission profiles are implemented on the device (WP-31,
+  AD-23), never authorized by the relay. Public deployment/E2E acceptance
+  are still WP-38/WP-32, not implied by merged relay/tunnel code.

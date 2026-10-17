@@ -2,7 +2,7 @@
 
 The Native Host is the OS-specific implementation layer below CROT Core. It is
 **not a second Core**: it implements Core's platform interfaces
-(`ProcessLauncher`, `PrivateFileProtection`) with stronger OS mechanisms and
+(`ProcessLauncher`, `PrivateFileProtection`, `CommandConfinement`) with stronger OS mechanisms and
 hands the resulting `Platform` to `CrotCore`. See ARCHITECTURE.md (unchanged).
 
 ## Boundary
@@ -31,7 +31,37 @@ Emergency exit: `core.terminateProcessesSync()` then `native.closeSync()`.
 The CLI lifecycle (`installLifecycle`) is the only shutdown authority. After
 close, the launcher rejects new processes; `close`/`closeSync` are idempotent.
 
-## Mechanisms
+## Windows L1 / AD-30 (действующий backend)
+
+Срез проверки реализации: `main` `e23b7b9c29c5e3e1758b9ad2703bbd827648426f` (merge PR #27). PR #27 слит, не Draft;
+WP-23c **Done**, AD-30 действует, OD-6 и Windows-часть OD-9 закрыты.
+Дерево merge совпадает с квалифицированным `f916a6b`; `8fe6ba5` — более
+ранний квалификационный источник, не текущий HEAD. На самом `e23b7b9`
+подтверждены все 11 заданий: [основной CI 6/6](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180293), [Linux L1 4/4](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180333), [Chromium 1/1](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39051180363).
+Это фиксированная база кода для документационной сверки, не SHA будущего docs PR.
+
+Сервис подключает WindowsLeaseServiceLifecycle и WindowsConfinement из
+src/native-host/windows-l1/. Компоненты проверяются до настоящего self_test;
+AppContainer создаётся suspended, получает Job и проверенный токен до ResumeThread.
+Этот путь не имеет окна post-spawn назначения Job, описанного ниже для старого
+неизолированного launcher. Полный recovery — actors/новые ACE/исходные NTFS ID/
+loopback/profile — подключён к жизненному циклу сервиса.
+Секреты/WAL: owner-only Medium/NWNR; executable components: Medium/NW;
+только bounded disposable runtime — Low/NW. Docker LOCAL имеет собственный DACL.
+
+available=false/refusal причины не подменяются legacy fallback:
+remote — CONFINEMENT_UNAVAILABLE; post-admission failure — CONFINEMENT_FAILED,
+без неизолированного повтора. local full_control и локальное выполнение до
+первичного допуска L1 сохраняют прежний контракт. Подготовка, матрица и
+остаточные риски: [L1](L1.md). Проверки:
+[production](../tests/native-host/windows-l1/production-confinement.test.ts),
+[recovery](../tests/native-host/windows-l1/native-lease-recovery.test.ts).
+
+## Базовые механизмы вне квалифицированного L1
+
+Следующие Job/PowerShell ACL описания относятся к базовому launcher и
+общему PrivateFileProtection, не к AppContainer admission или его downgrade.
+
 
 | | Windows (Native Host) | Linux / macOS |
 |---|---|---|
@@ -42,7 +72,7 @@ close, the launcher rejects new processes; `close`/`closeSync` are idempotent.
 If koffi or the ACL tools are unavailable, the Native Host falls back to the
 Core mechanism and reports a note at startup (`native host: ...`).
 
-## Windows owner-only ACLs
+## Базовый PowerShell owner-only ACL provider
 
 - The CROT user's SID is read once at startup with `whoami.exe /user` and
   validated.
@@ -62,7 +92,7 @@ Core mechanism and reports a note at startup (`native host: ...`).
 - No file mode is reported on Windows: chmod/0600 is not equivalent and is not
   pretended.
 
-## Limitations
+## Ограничения базового launcher / общие ограничения
 
 - Assignment race: Node.js cannot spawn a process suspended, so a command is
   assigned to its job right after spawn. A grandchild started in that window,
