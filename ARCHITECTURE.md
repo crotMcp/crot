@@ -6078,7 +6078,7 @@ not evidence for the entire browser/OS/version matrix or the full package.
 MCP → BrowserService → ExecutionGuard → native bridge → extension. OD-8 is
 **Decided (AD-33)**. Upload uses `DOM.setFileInputFiles` by document-bound ref or
 intercepted chooser, 1–16 files / 64 MiB total per command; staged copies are
-read-only and retained until document/frame replacement, tab close or Core
+read-only and retained until top-level document replacement, tab close or Core
 shutdown. Content-free release notices carry only a Core-issued random token
 and are accepted only from the issuing connection. Dead-process leases are
 reclaimed on next staging initialization; live processes' leases are untouched.

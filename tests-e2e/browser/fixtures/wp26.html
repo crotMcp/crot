@@ -2,12 +2,15 @@
 <input id="files" aria-label="Upload fixture" type="file" multiple>
 <input id="single" type="file" name="multiple" aria-label="Single fixture">
 <input id="hidden" type="file" style="display:none">
+<button id="replace">Replace child fixture</button>
 <button id="chooser">Choose fixture</button><button id="read">Read retained file</button>
 <a id="download" href="/wp26-file">Download fixture</a>
 <script>
 let retained;
-files.onchange = () => retained = files.files[0];
+files.onchange = () => { retained = files.files[0]; if(parent !== window) parent.postMessage({wp26File:retained},"*"); };
 hidden.onchange = () => retained = hidden.files[0];
+onmessage = async e => { if(e.data?.wp26File instanceof File) {retained=e.data.wp26File; await fetch("/event?type=wp26-parent-retained");} };
+replace.onclick = () => {const f=document.querySelector("iframe"); if(f) f.src=f.src+"?replacement=1";};
 chooser.onclick = () => hidden.click();
 read.onclick = async () => { const data = await retained.text(); await fetch('/event?type=wp26-upload&data='+encodeURIComponent(data)); };
 </script>

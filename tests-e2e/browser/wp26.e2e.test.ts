@@ -266,6 +266,25 @@ describe.runIf(process.platform === "linux")("WP-26 real MCP → guard → nativ
       savePath: "frame.bin",
     });
     expect(result.size).toBeGreaterThan(0);
+    await h.waitFor(
+      async () => (fixture.requests.some((r) => r.query.get("type") === "wp26-parent-retained") ? true : undefined),
+      10_000,
+      "parent retaining child File",
+    );
+    await call("browser_click", { tabId, selector: "#replace" });
+    await h.sleep(300);
+    expect((await readdir(uploadRoot)).length).toBeGreaterThan(0);
+    const before = fixture.requests.filter((r) => r.query.get("type") === "wp26-upload").length;
+    await call("browser_click", { tabId, selector: "#read" });
+    await h.waitFor(
+      async () =>
+        fixture.requests.filter((r) => r.query.get("type") === "wp26-upload" && r.query.get("data") === content)
+          .length > before
+          ? true
+          : undefined,
+      10_000,
+      "retained File read after child document replacement",
+    );
     await fresh();
     await h.waitFor(
       async () => ((await readdir(uploadRoot)).length === 0 ? true : undefined),

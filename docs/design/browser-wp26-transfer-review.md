@@ -15,7 +15,7 @@ evidence; it is no longer the feature's implementation status.
 - Upload: 1–16 files / 64 MiB total, workspace boundary plus protected/secret
   checks, canonical source with no-follow descriptor and immutable private
   read-only copy. Ref and pending chooser both use DOM.setFileInputFiles.
-  Copies survive mutation of the original and are released on frame/document
+  Copies survive mutation of the original and are released on top-level document
   replacement, tab close or Core shutdown. Definite precondition errors clean
   immediately; indeterminate applies keep their copies until lifecycle release.
 - Download: one extension-wide capture queue, target's existing verified
@@ -58,7 +58,7 @@ fixtures, headed under Xvfb (no shared/user profile):
 | Upload ref + intercepted chooser | Real MCP → Core → native bridge → Chromium |
 | Lazy-read immutable bytes after original mutation | Real Chromium page reads retained File |
 | Sandbox outside/protected/secret path denial | Real tools; no browser hand-over |
-| Upload document/frame/tab lifetime | Chromium navigation/tab removal; unit child-frame/detach tests |
+| Upload top-level document/tab lifetime | Chromium parent-retained File across child navigation, top-level navigation/tab removal; unit detach tests |
 | Click + URL download; overwrite:false + explicit overwrite | Real tools, exact file bytes, destination absent while in flight |
 | OOP child frame upload + download | Real cross-site Chromium iframe |
 | Concurrent foreign identical URL, foreign first | Real second tab, foreign filename/history untouched; foreign bytes never read |
@@ -70,7 +70,7 @@ fixtures, headed under Xvfb (no shared/user profile):
 | Event order, ambiguity, unproved/foreign items | Production capture + exact ownership unit tests |
 
 Full local `npm run check`: passed (Core 1995 passed / 216 platform-dependent
-skips; extension 180 passed; new non-Linux primitive test is skipped on Linux). Full headed
+skips; extension 183 passed; new non-Linux primitive test is skipped on Linux). Full headed
 `npm run test:e2e:browser`: **5 files, 49 passed / 3 existing opt-in skips**;
 WP-26 **11/11**. The opt-in skipped tests are not counted as passed.
 Local Electron smoke lacked libgtk-3 and was skipped; native L1/other-OS
@@ -223,3 +223,12 @@ for native terminal state after cancellation before removal/hand-over cleanup.
 The regression exercises the actual Chromium callback and Core cleanup path;
 unknown items remain untouched. Final-head CI, not the failed attempt, is the
 acceptance gate.
+
+
+Chooser uploads are also pinned before approval to a fresh chooser identity
+and its frame origin. A replacement/dismissal/navigation cannot redirect an
+already approved upload to another input. This identity is private bridge
+metadata, never an agent parameter or audit value. Child navigation alone does
+not delete staged copies: a parent page may retain a File from that child.
+The real OOP fixture posts its File to the parent, replaces the child document
+and then lazily reads the original bytes before top-level cleanup.

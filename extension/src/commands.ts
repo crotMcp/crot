@@ -544,6 +544,28 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
 
   const capture = new DownloadCapture(api, cdp);
   const handlers: CommandHandlers = {
+    async "files.chooser"(params, context) {
+      onlyKeys(params, ["tabId", "expect"]);
+      const tab = await targetTab(optionalTabIdParam(params), expectParam(params), context, true);
+      const chooser = cdp.fileChooser(tab.id);
+      if (!chooser || cdp.dialog(tab.id)?.type !== "file_chooser") throw invalid("Open a file chooser first.");
+      type Tree = { frame: { id: string; url: string }; childFrames?: Tree[] };
+      const { frameTree } = await cdp.send<{ frameTree: Tree }>(tab.id, "Page.getFrameTree", {}, chooser.sessionId);
+      const pending = [frameTree];
+      let origin = "unknown",
+        count = 0;
+      while (pending.length && ++count <= 100) {
+        const node = pending.pop()!;
+        if (node.frame.id === chooser.frameId) {
+          origin = httpOrigin(node.frame.url) ?? "unknown";
+          break;
+        }
+        pending.push(...(node.childFrames ?? []));
+      }
+      if (cdp.fileChooser(tab.id)?.nonce !== chooser.nonce)
+        throw new ExtensionError("BROWSER_STALE_REF", "File chooser changed.");
+      return { nonce: chooser.nonce, frameOrigin: origin };
+    },
     async "files.download_release"(params) {
       onlyKeys(params, ["stem"]);
       const stem = stringParam(params, "stem", 48, 48);
@@ -552,7 +574,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       return {};
     },
     async "files.upload"(params, context) {
-      onlyKeys(params, ["tabId", "ref", "token", "paths", "expect"]);
+      onlyKeys(params, ["tabId", "ref", "chooserNonce", "token", "paths", "expect"]);
       const token = stringParam(params, "token", 48, 48);
       if (
         !/^[a-f0-9]{48}$/.test(token) ||
@@ -570,6 +592,8 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         let frameId: string;
         const chooser = cdp.fileChooser(tab.id);
         if (params.ref === undefined) {
+          if (typeof params.chooserNonce !== "string" || params.chooserNonce !== chooser?.nonce)
+            throw new ExtensionError("BROWSER_STALE_REF", "File chooser changed since authorization.");
           if (!chooser || cdp.dialog(tab.id)?.type !== "file_chooser")
             throw invalid("Give a file input ref or open a file chooser first.");
           frameId = chooser.frameId;
@@ -580,7 +604,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
             { files: paths, backendNodeId: chooser.backendNodeId },
             chooser.sessionId,
           );
-          cdp.completeFileChooser(tab.id);
+          cdp.completeFileChooser(tab.id, chooser.nonce);
         } else {
           cdp.assertNoDialog(tab.id);
           const node = await resolveTarget(cdp, refsFor(context), tab.id, params, SELECTOR_MAX_LENGTH);
@@ -1174,6 +1198,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     "dialog.handle",
     "files.upload",
     "files.download_release",
+    "files.chooser",
   ]);
   const reads = new Set<BrowserCommand>(["page.read", "page.screenshot", "page.wait"]);
   return Object.fromEntries(

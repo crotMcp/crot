@@ -32,10 +32,12 @@ interface Expect {
 
 /** Parameters of each command Core sends to the extension. */
 export interface BrowserCommandParams {
+  "files.chooser": { readonly tabId: number } & Expect;
   "files.download_release": { readonly stem: string };
   "files.upload": {
     readonly tabId?: number;
     readonly ref?: string;
+    readonly chooserNonce?: string;
     readonly token: string;
     readonly paths: readonly string[];
   } & Expect;
@@ -131,6 +133,7 @@ interface Settle {
 export type BrowserCommand = keyof BrowserCommandParams;
 
 export const BROWSER_COMMANDS: readonly BrowserCommand[] = [
+  "files.chooser",
   "files.download_release",
   "files.upload",
   "files.download",

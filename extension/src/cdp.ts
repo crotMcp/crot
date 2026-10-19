@@ -1,3 +1,4 @@
+import { ownershipToken } from "./download-ownership.js";
 import type { BrowserNotice } from "../../src/browser-bridge/protocol.js";
 import type { ChromeApi, ChromeDebuggee } from "./chrome-api.js";
 import { ExtensionError } from "./errors.js";
@@ -90,6 +91,7 @@ const DETACHED_MESSAGE = "The browser debugger was detached from the tab.";
 /** Methods that still answer while a JavaScript dialog blocks the page (they do not need the page's script). */
 const DIALOG_SAFE_METHODS: ReadonlySet<string> = new Set([
   "DOM.setFileInputFiles",
+  "Page.getFrameTree",
   "Page.enable",
   "Page.getNavigationHistory",
   "Target.setAutoAttach",
@@ -151,7 +153,10 @@ export class CdpSessions {
     (tabId: number, method: string, params: unknown, sessionId?: string) => void
   >();
   private readonly uploads = new Map<number, Map<string, string>>();
-  private readonly choosers = new Map<number, { backendNodeId: number; frameId: string; sessionId?: string }>();
+  private readonly choosers = new Map<
+    number,
+    { backendNodeId: number; frameId: string; nonce: string; sessionId?: string }
+  >();
   private readonly attachments = new Map<number, Attachment>();
   private readonly generations = new Map<number, number>();
   private readonly listeners = new Set<CdpEventListener>();
@@ -189,16 +194,24 @@ export class CdpSessions {
       for (const listener of this.sessionListeners) listener(source.tabId, method, params, source.sessionId);
       const frame = params as { frame?: { id?: string; parentId?: string }; frameId?: string } | undefined;
       if (method === "Page.frameNavigated" && frame?.frame?.id) {
-        this.releaseUploads(
-          source.tabId,
-          frame.frame.parentId === undefined && source.sessionId === undefined ? undefined : frame.frame.id,
-        );
-      } else if (method === "Page.frameDetached" && frame?.frameId) this.releaseUploads(source.tabId, frame.frameId);
+        const top = frame.frame.parentId === undefined && source.sessionId === undefined;
+        if (top) this.releaseUploads(source.tabId);
+        // A parent page may retain a File from a removed/navigated child.
+        // Only replacing the tab's top-level document releases lazy-read copies.
+        if (top || this.choosers.get(source.tabId)?.frameId === frame.frame.id) this.clearDialog(source.tabId);
+      } else if (
+        method === "Page.frameDetached" &&
+        frame?.frameId &&
+        frame.frameId === this.choosers.get(source.tabId)?.frameId
+      ) {
+        this.clearDialog(source.tabId);
+      }
       if (method === "Page.fileChooserOpened") {
         const p = params as { backendNodeId?: number; frameId?: string };
         if (Number.isSafeInteger(p.backendNodeId) && typeof p.frameId === "string")
           this.choosers.set(source.tabId, {
             backendNodeId: p.backendNodeId!,
+            nonce: ownershipToken(),
             frameId: p.frameId,
             ...(source.sessionId === undefined ? {} : { sessionId: source.sessionId }),
           });
@@ -289,11 +302,14 @@ export class CdpSessions {
       }
     if (!leases.size) this.uploads.delete(tabId);
   }
-  fileChooser(tabId: number): { backendNodeId: number; frameId: string; sessionId?: string } | undefined {
+  fileChooser(
+    tabId: number,
+  ): { backendNodeId: number; frameId: string; nonce: string; sessionId?: string } | undefined {
     return this.choosers.get(tabId);
   }
-  completeFileChooser(tabId: number): void {
-    this.clearDialog(tabId);
+  completeFileChooser(tabId: number, nonce: string): void {
+    if (this.choosers.get(tabId)?.nonce === nonce && this.dialogs.get(tabId)?.type === "file_chooser")
+      this.clearDialog(tabId);
   }
 
   onEvent(listener: CdpEventListener): () => void {

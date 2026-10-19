@@ -76,7 +76,7 @@ opened and no public server is involved.
   JavaScript dialogs cannot be bypassed. Multiple files require a multiple
   input. `browser.control` + `filesystem.read`; canonical source resolution,
   protected/secret denial and immutable read-only private copies. Copies live
-  until frame/document replacement, tab close or Core shutdown; dead-process
+  until top-level document replacement, tab close or Core shutdown; dead-process
   leases are reclaimed on restart/next use. Result: tabId, names and sizes.
 - `browser_download`: `tabId?`, exactly one `ref` / `selector` / HTTP(S) `url`,
   optional selector `frameRef`, workspace `savePath`, `overwrite:false`,

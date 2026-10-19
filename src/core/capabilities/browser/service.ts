@@ -477,6 +477,18 @@ export class BrowserService {
     const args = parseInput(BrowserFileUploadInputSchema, input),
       store = this.fileStore();
     const paths = await Promise.all(args.paths.map((p) => store.workspace.resolve(p)));
+    let chooser: { nonce: string; frameOrigin: string } | undefined;
+    const bindChooser = async (subject: ApprovalBrowserSubject): Promise<readonly ApprovalEffect[]> => {
+      chooser = validate(
+        fileZ.object({ nonce: fileZ.string().regex(/^[a-f0-9]{48}$/), frameOrigin: fileZ.string().max(8192) }).strict(),
+        await this.send("files.chooser", bindParams({ tabId: subject.tabId! }, subject), subject, subject.connectionId),
+        "files.chooser",
+      );
+      return [
+        { label: "file chooser frame origin", value: chooser.frameOrigin },
+        { label: "file chooser identity", value: chooser.nonce },
+      ];
+    };
     const details: Record<string, unknown> = {
       tabId: tabRef(args.tabId),
       paths: paths.map((p) => p.relative ?? "(outside workspace)"),
@@ -488,6 +500,7 @@ export class BrowserService {
       details,
       {
         summary: "Upload workspace files to a browser page",
+        ...(args.ref === undefined ? { prepare: bindChooser } : {}),
         elements: args.ref ? [{ ref: args.ref, prefix: "", description: this.describeRef(args.ref, args.tabId) }] : [],
         target: { tabId: args.tabId },
         effects: paths.map((p) => ({ label: "file", value: p.relative ?? "(outside workspace)" })),
@@ -496,6 +509,7 @@ export class BrowserService {
         if (paths.some((p) => !p.insideWorkspace))
           throw new CrotError("PERMISSION_DENIED", "Browser uploads require workspace files.");
         const subject = bound ?? (await this.bindTarget({ tabId: args.tabId })).browser!;
+        if (args.ref === undefined && !chooser) await bindChooser(subject);
         const lease = await store.upload(paths);
         details.files = lease.files.map((f, i) => ({ path: paths[i]!.relative, size: f.size }));
         this.uploadConnections.set(lease.token, subject.connectionId);
@@ -507,6 +521,7 @@ export class BrowserService {
                 {
                   ...tab(subject.tabId),
                   ...(args.ref === undefined ? {} : { ref: args.ref }),
+                  ...(chooser ? { chooserNonce: chooser.nonce } : {}),
                   token: lease.token,
                   paths: lease.paths,
                 },
@@ -902,11 +917,16 @@ export class BrowserService {
             const binding = await this.bindTarget(target);
             bound = binding.browser;
             const elements = approval.elements ?? [];
-            if (elements.length === 0 || !bound) return binding;
+            const prepared = bound && approval.prepare ? await approval.prepare(bound) : [];
+            if ((elements.length === 0 && prepared.length === 0) || !bound) return binding;
             const { tabId, connectionId } = bound;
             return {
               ...binding,
-              effects: [...(binding.effects ?? []), ...elements.flatMap((e) => elementEffects(e, tabId, connectionId))],
+              effects: [
+                ...(binding.effects ?? []),
+                ...prepared,
+                ...elements.flatMap((e) => elementEffects(e, tabId, connectionId)),
+              ],
             };
           };
     return this.deps.guard.run(
@@ -1089,6 +1109,7 @@ const tab = (tabId: number | undefined): { tabId?: number } => (tabId === undefi
 type BrowserTarget = { readonly tabId: number | undefined } | { readonly url: string };
 
 interface BrowserApproval {
+  readonly prepare?: (subject: ApprovalBrowserSubject) => Promise<readonly ApprovalEffect[]>;
   readonly summary: string;
   readonly effects: readonly ApprovalEffect[];
   /** Absent: the operation does not act on a tab (status, tabs_list) and has no browser binding. */

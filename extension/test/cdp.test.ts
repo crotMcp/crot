@@ -216,7 +216,7 @@ describe("JavaScript dialogs", () => {
 });
 
 describe("WP-26 upload lease lifecycle", () => {
-  it("releases a child frame's copies only on that frame's document replacement", async () => {
+  it("retains child File copies across iframe replacement until the top-level document changes", async () => {
     const chrome = new FakeChrome(),
       notices: unknown[] = [];
     chrome.addTab({ id: 1 });
@@ -229,7 +229,7 @@ describe("WP-26 upload lease lifecycle", () => {
     cdp.retainUpload(1, "a1".repeat(24), "main");
     cdp.retainUpload(1, "b2".repeat(24), "child");
     chrome.debugger.event(1, "Page.frameNavigated", { frame: { id: "child", parentId: "main" } });
-    expect(notices).toEqual([{ type: "browser_notice", event: "upload_released", token: "b2".repeat(24) }]);
+    expect(notices).toEqual([]);
     chrome.debugger.event(1, "Page.frameNavigated", { frame: { id: "main" } });
     expect(notices).toHaveLength(2);
     await cdp.detachAll();
