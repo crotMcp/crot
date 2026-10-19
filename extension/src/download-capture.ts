@@ -80,7 +80,9 @@ export class DownloadCapture {
     let pending: { id: number; suggest: (v?: { filename: string; conflictAction: "uniquify" }) => void } | undefined;
     let completed = false,
       closed = false,
-      succeeded = false;
+      succeeded = false,
+      failed = false,
+      stagingAssigned = false;
     let ownedId: number | undefined;
     const progress = new Map<string, { sessionId?: string; state?: string }>();
     let resolve!: (item: ChromeDownloadItem) => void, reject!: (e: Error) => void;
@@ -91,6 +93,7 @@ export class DownloadCapture {
     // A synchronous event can fail before trigger()/arming has finished.
     void done.catch(() => undefined);
     const fail = (e: unknown) => {
+      failed = true;
       if (!closed) reject(e instanceof Error ? e : failure("Download capture failed."));
     };
     const inFlight = new Set<Promise<void>>();
@@ -108,7 +111,7 @@ export class DownloadCapture {
         throw failure("Owned download was interrupted or is unsafe.");
       if (item.bytesReceived > maxBytes || item.totalBytes > maxBytes || item.fileSize > maxBytes)
         throw failure("Download byte limit exceeded.");
-      if (completed && item.state === "complete") {
+      if (stagingAssigned && completed && item.state === "complete") {
         if (!Number.isSafeInteger(item.fileSize) || item.fileSize < 0 || item.fileSize !== item.bytesReceived)
           throw failure("Invalid download byte count.");
         resolve(item);
@@ -125,8 +128,23 @@ export class DownloadCapture {
       }
       const held = pending;
       pending = undefined;
-      held.suggest({ filename: prefix + "/" + stem + "-" + proof.originalName, conflictAction: "uniquify" });
-      track(inspect);
+      track(async () => {
+        try {
+          // A proved id is not yet permission to stage unsafe bytes. Inspect
+          // while its filename callback is still held, before creating a path.
+          await inspect();
+          if (closed || failed) {
+            held.suggest();
+            return;
+          }
+          held.suggest({ filename: prefix + "/" + stem + "-" + proof.originalName, conflictAction: "uniquify" });
+          stagingAssigned = true;
+        } catch (error) {
+          held.suggest();
+          throw error;
+        }
+        await inspect();
+      });
     };
     const filename = (
       item: ChromeDownloadItem,
@@ -290,6 +308,15 @@ export class DownloadCapture {
       // Only a two-factor-proved id may be canceled or removed, even on failure.
       if (!succeeded && ownedId !== undefined) {
         await downloads.cancel(ownedId).catch(() => undefined);
+        // Cancellation acknowledgement can precede native terminal-state
+        // notification. Do not let Core delete a lease while Chrome can still
+        // initialize its destination in response to the filename callback.
+        const until = Date.now() + 3000;
+        while (Date.now() < until) {
+          const item = (await downloads.search({ id: ownedId }).catch(() => []))[0];
+          if (!item || item.state !== "in_progress") break;
+          await new Promise<void>((r) => setTimeout(r, 25));
+        }
         await downloads.removeFile(ownedId).catch(() => undefined);
       }
       ledger.invalidate();

@@ -30,7 +30,9 @@ function setup() {
     onDeterminingFilename: filename,
     onChanged: changed,
     search: vi.fn(async () => [item]),
-    cancel: vi.fn(async () => {}),
+    cancel: vi.fn(async () => {
+      item = { ...item, state: "interrupted" };
+    }),
     removeFile: vi.fn(async () => {}),
   };
   const api = { ...fake.api, downloads },
@@ -67,9 +69,12 @@ function setup() {
     item = { ...item, state: state as ChromeDownloadItem["state"], fileSize: 5, bytesReceived: 5, danger };
     changed.emit({ id: item.id });
   }
+  const unsafe = () => {
+    item = { ...item, danger: "dangerous" };
+  };
   const run = (trigger: () => Promise<void>, timeout = 1000) =>
     capture.run(1, prefix, stem, Date.now() + timeout, 100, trigger);
-  return { fake, cdp, capture, downloads, filename, changed, mark, begin, progress, own, complete, run };
+  return { fake, cdp, capture, downloads, filename, changed, mark, begin, progress, own, complete, unsafe, run };
 }
 
 describe("production AD-33 download capture", () => {
@@ -81,6 +86,7 @@ describe("production AD-33 download capture", () => {
       const marked = await s.mark();
       s.begin(marked);
       const own = s.own(marked);
+      await flush();
       expect(own).toHaveBeenCalledWith({ filename: prefix + "/" + stem + "-file.bin", conflictAction: "uniquify" });
       s.complete();
       s.progress();
@@ -112,20 +118,42 @@ describe("production AD-33 download capture", () => {
     "fails closed for %s and removes only owned bytes",
     async (kind) => {
       const s = setup();
+      let suggestion = vi.fn();
       await expect(
         s.run(async () => {
           const marked = await s.mark();
           s.begin(marked);
-          s.own(marked);
-          if (kind === "dangerous") s.complete("dangerous");
-          else s.progress("canceled");
+          if (kind === "dangerous") s.unsafe();
+          else if (kind === "interrupted") s.complete("safe", "interrupted");
+          suggestion = s.own(marked);
+          if (kind === "canceled") s.progress("canceled");
         }),
       ).rejects.toThrow();
+      expect(suggestion).toHaveBeenCalledExactlyOnceWith();
       expect(s.downloads.cancel).toHaveBeenCalledExactlyOnceWith(2);
       expect(s.downloads.removeFile).toHaveBeenCalledExactlyOnceWith(2);
       await s.cdp.detachAll();
     },
   );
+  it("cleans a proved download that becomes unsafe after staging was assigned", async () => {
+    const s = setup();
+    await expect(
+      s.run(async () => {
+        const marked = await s.mark();
+        s.begin(marked);
+        const suggestion = s.own(marked);
+        await flush();
+        expect(suggestion).toHaveBeenCalledWith({
+          filename: prefix + "/" + stem + "-file.bin",
+          conflictAction: "uniquify",
+        });
+        s.complete("dangerous");
+      }),
+    ).rejects.toThrow();
+    expect(s.downloads.cancel).toHaveBeenCalledExactlyOnceWith(2);
+    expect(s.downloads.removeFile).toHaveBeenCalledExactlyOnceWith(2);
+    await s.cdp.detachAll();
+  });
   it("times out without ever canceling or removing an unproved item", async () => {
     const s = setup(),
       unknown = vi.fn();

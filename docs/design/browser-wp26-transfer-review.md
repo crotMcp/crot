@@ -69,8 +69,8 @@ fixtures, headed under Xvfb (no shared/user profile):
 | Destination/staging substitution, symlink, hardlink, size and permissions | BrowserFiles unit tests; native no-follow primitives |
 | Event order, ambiguity, unproved/foreign items | Production capture + exact ownership unit tests |
 
-Full local `npm run check`: passed (Core 1995 passed / 215 platform-dependent
-skips; extension 179 passed; new non-Linux primitive test is skipped on Linux). Full headed
+Full local `npm run check`: passed (Core 1995 passed / 216 platform-dependent
+skips; extension 180 passed; new non-Linux primitive test is skipped on Linux). Full headed
 `npm run test:e2e:browser`: **5 files, 49 passed / 3 existing opt-in skips**;
 WP-26 **11/11**. The opt-in skipped tests are not counted as passed.
 Local Electron smoke lacked libgtk-3 and was skipped; native L1/other-OS
@@ -210,3 +210,16 @@ were not implemented, and the first private-repository check reads returned
 403. The repository was subsequently made public; checks on 8920529 were
 verified 11/11 green. That witness alone did not complete WP-26. The production
 implementation and separate acceptance evidence below supersede this status.
+
+
+## CI correction: unsafe classification before native destination initialization
+
+The first production CI head (`a2f8184`) exposed a race in the danger fault
+injection: cancellation could precede native destination initialization and a
+lease directory could reappear after Core cleanup. This was not counted as
+passing acceptance. The production capture now inspects the proved native item
+while its filename callback is still held, before assigning staging, and waits
+for native terminal state after cancellation before removal/hand-over cleanup.
+The regression exercises the actual Chromium callback and Core cleanup path;
+unknown items remain untouched. Final-head CI, not the failed attempt, is the
+acceptance gate.
