@@ -250,7 +250,7 @@ export function trayView(state: TrayState): TrayView {
         ),
         row("Approval UIs", `${o.approvals.trays} tray(s) connected, ${o.approvals.pending} pending`),
         row("Command confinement (L1)", confinementText(o.mode, o.confinement)),
-        row("CDP browser backend", `not available — ${o.cdp.reason}`),
+        row("CDP browser backend", o.cdp.available ? "available" : `not available — ${o.cdp.reason}`),
       ]
     : [];
   const presets: PresetOption[] = o

@@ -427,6 +427,10 @@ export interface CdpWitness {
    */
   watchDialogs(urlPrefix: string): Promise<{ answer(): Promise<void> }>;
   closeTab(tabId: number): Promise<void>;
+  detachTab(tabId: number): Promise<void>;
+  blockDebugger(blocked: boolean): Promise<void>;
+  tabState(): Promise<{ active: number[]; focused: number[] }>;
+  discardTab(tabId: number): Promise<void>;
   openWindow(url: string): Promise<{ tabId: number; windowId: number }>;
   closeWindow(windowId: number): Promise<void>;
   close(): void;
@@ -496,6 +500,16 @@ export async function watchExtensionCdp(sb: Sandbox): Promise<CdpWitness> {
     return true;
   })()`);
   return {
+    detachTab: (tabId) => evaluate<void>(`chrome.debugger.detach({tabId:${tabId}})`),
+    blockDebugger: (blocked) =>
+      evaluate<void>(
+        `(() => { if (!globalThis.__crotOriginalAttach) globalThis.__crotOriginalAttach=chrome.debugger.attach.bind(chrome.debugger); chrome.debugger.attach=${blocked} ? () => Promise.reject(new Error('Blocked by test policy')) : globalThis.__crotOriginalAttach; })()`,
+      ),
+    tabState: () =>
+      evaluate(
+        `Promise.all([chrome.tabs.query({active:true}),chrome.windows.getAll()]).then(([tabs,windows])=>({active:tabs.map(t=>t.id),focused:windows.filter(w=>w.focused).map(w=>w.id)}))`,
+      ),
+    discardTab: (tabId) => evaluate<void>(`chrome.tabs.discard(${tabId}).then(()=>undefined)`),
     closeTab: (tabId) => evaluate<void>(`chrome.tabs.remove(${tabId})`),
     openWindow: (url) =>
       evaluate<{ tabId: number; windowId: number }>(

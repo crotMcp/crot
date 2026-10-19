@@ -34,11 +34,11 @@
 
 ## macOS L1 — WP-23b / AD-31
 
-В этой ветке PR #30 реализован производственный `macos-seatbelt`; пакет
-**WP-23b: Done** для описанной ниже квалификации реализации. База ветки —
-`main` `0590c31` (merge документационного PR #28), а не `e23b7b9`.
-PR #27 уже слит как `e23b7b9`; это историческая Windows-база, не текущий main.
-Этот текст не утверждает, что PR #30 уже слит или весь продукт принят.
+PR #30 слит в `main` как `e072e61` (проверенная база ветки WP-25).
+Производственный `macos-seatbelt`, **WP-23b: Done**, принят куратором.
+`0590c31` — прежняя база ветки macOS, `e23b7b9` — исторический merge Windows
+PR #27; ни один из них не выдаётся за текущий main. Приёмка пакета не означает
+готовность всего продукта.
 
 Нативная квалификация и точные SHA/CI/ограничения:
 [отчёт macOS L1](docs/design/macos-l1-production.md).
@@ -379,7 +379,7 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | OD-6 | Windows L1 | **Decided: AD-30**, AppContainer + Job + DACL, durable lease / LOCAL Docker | WP-34: упаковка/подпись | **Closed (WP-23c)** |
 | OD-7 | How a preset / remote-profile change is applied by the service (reload vs restart) | Policy immutability (AD-5, AD-10) vs usability | WP-22, WP-31 | **Decided by AD-19 point 5 (WP-22):** device state in `service-settings.json`; a new Core with the new policy, only while Core is idle; WP-31 adds the `autonomous-browser` rule set and the remote profile on the same mechanism |
 | OD-8 | Download hand-over mechanism (staging in download directory vs stream over bridge) | File-integrity guarantees of AD-16 p.12 | WP-26 | Start of WP-26 (already assigned by AD-16) |
-| OD-9 | Матрица v1 | Windows **Closed: AD-30**, Server2025 x64 Node20/22; неквалифицированные конфигурации unavailable. Linux AD-20; macOS **Closed: AD-31** (target matrix separate from CI coverage); browser part open | WP-23b, WP-34, WP-37 | Windows/macOS decisions closed; browser part open |
+| OD-9 | Матрица v1 | Windows **Closed: AD-30**, Server2025 x64 Node20/22; неквалифицированные конфигурации unavailable. Linux AD-20; macOS **Closed: AD-31** (target matrix separate from CI coverage); browser **Closed: AD-32**, Chrome/Edge/Brave Chromium ≥120 (manual qualification tracked separately) | WP-23b, WP-34, WP-37 | Windows/macOS/browser decisions closed; qualification limits retained |
 | OD-10 | Store extension IDs vs native-host `allowed_origins` (Chrome Web Store and Edge Add-ons may assign different IDs; current manifest pins `bllcepanlhojbddfbbpegmnokpaakool`) and custody of the extension signing key | The native host must allow exactly the published extensions and nothing else | WP-34, WP-35 | When store items are created (WP-35 start) |
 | OD-11 | Version-compatibility policy across extension (store auto-updates), local service, tray and relay/tunnel protocol; minimum supported versions; whether the relay may refuse outdated devices | Independent update channels can break the chain; refusing devices at the relay is admission, which must stay distinct from authorization (AD-15 p.10) | WP-29, WP-34, WP-39 | Before WP-34 — AD if the relay gains an admission rule |
 | OD-12 | Diagnostics and crash reporting under "no hidden telemetry" (§12): none, or explicit opt-in; scope of relay operational logs (metadata only) | Operability vs privacy promise; must be stated in the privacy policy | WP-39, WP-37 | Before WP-39 |
@@ -454,7 +454,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | **Done** — AD-31; production Seatbelt, Keychain boundary, guardian, Docker; native Node20/22 evidence and limits in macOS report |
 | WP-23c | 2 | L1 Windows: AppContainer + Job | WP-21, OD-9 | L | yes | with 23a/b | **Done** — AD-30; production Core, whole-lease recovery, LOCAL Docker; все 8 критериев, CI 11/11 |
 | WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | **Merged** (PR #22–#25): implemented incl. out-of-process frames and element/frame-origin approval subjects; manual runs 1–5/follow-up recorded; B4/E5/windows and G5/H passed by owner; default-load timeout signalling merged in PR #26 (`289f500`); C1 partial, final acceptance open |
-| WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 | M | yes | with 26, 27 | Not started |
+| WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 (acceptance open) | M | yes | with 26, 27 | Implemented; automated qualification in docs/design/browser-wp25.md; headed/manual matrix acceptance open |
 | WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | Not started |
 | WP-27 | 2B | Browser: per-tab queue, explicit `tabId` for remote, `openedBy` | WP-24 | S–M | yes | with 25, 26 | Not started |
 | WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | **Done** (AD-21; crot-mcp PR #16, `4d574f0`) |
@@ -790,6 +790,12 @@ today's behaviour.
   re-attach; manual check of the debugger notice in headed Chrome, Edge and
   Brave on Linux, macOS, Windows; enterprise-policy-blocked debugger reported,
   no fallback.
+- **Implementation status:** implemented; automated qualification in
+  `docs/design/browser-wp25.md`. Final manual acceptance remains open for the
+  headed Chrome/Edge/Brave × Linux/macOS/Windows infobar matrix; WP-24 owner
+  acceptance is still open. OD-9 browser decision is closed by AD-32, not
+  inferred from CI. Enterprise-policy denial is simulated in the E2E witness;
+  it is not real managed-host qualification. Not a commercial-release claim.
 - **RB:** yes. **Parallel:** with WP-26, WP-27.
 
 #### WP-26 — File upload and download
@@ -1193,10 +1199,12 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
 
 ### 8.4 Next-WP selection rule
 
-Сверка целевой ветки перед разрешением конфликта: remote `main` —
-`6f98e5d` (merge PR #29); `0590c31` — предшествующий merge PR #28,
-а `e23b7b9` — историческая Windows-база аудита. WP-23b реализован в PR #30
-по AD-31; AD-30/WP-23c Done и порядок следующих работ ниже сохраняются.
+Проверенная база ветки WP-25: `main` на `e072e61` (merge PR #30).
+Предыдущая сверка при разрешении конфликта PR #30 фиксировала `6f98e5d`
+(merge PR #29); `0590c31` — более ранний merge PR #28, а `e23b7b9` —
+историческая Windows-база аудита. Эти SHA не являются указателями на текущий
+HEAD `main`. WP-23b принят куратором и слит по AD-31; AD-30/WP-23c Done
+и зависимости следующих работ ниже сохраняются.
 
 1. If any OD that blocks an unblocked WP is undecided, the next task is that
    decision (docs-only PR or first commit of the WP).
@@ -1217,7 +1225,7 @@ WP-25/26/27. Это приоритизация существующих зада
 | --- | --- | --- |
 | **WP-29 follow-up — следующий исполнительный WP** | WP-28 и OD-3/4/5 решены; relay и WP-30 уже в main | WP-29 Partial: per-client/device rate/concurrency, per-source connections/handshakes, registration rate, deregistration/key rotation/orphan registration, load/backpressure. До публичного WP-38 — выполнить либо явно переназначить допустимые пункты в WP-39; этим docs PR ничего не переназначается |
 | **WP-24 — ближайшая незакрытая браузерная приёмка, параллельно** | WP-18 решён; PR #22–#26 уже в main | Код и автоматические тесты есть; PR #26 (`289f500`) исправляет default-load timeout. Ручная проверка сигнала, C1 partial/unreproduced и итоговая приёмка владельца открыты; G5/H и B4/E5/windows не обнуляются |
-| WP-25 / WP-27 | Завершённая база WP-24; WP-27 также WP-19 (Done) | Разработка может опираться на слитый код, но зависимость приёмки WP-24 не считается закрытой. Собственные E2E: dialogs/file chooser/background screenshot/debugger/tab group; remote tabId/openedBy/two-agent ordering — ещё не выполнены |
+| WP-25 / WP-27 | Завершённая база WP-24; WP-27 также WP-19 (Done) | Разработка может опираться на слитый код, но зависимость приёмки WP-24 не считается закрытой. WP-25: код и автоматическая квалификация — docs/design/browser-wp25.md; ручная headed/branded-матрица остаётся открытой. WP-27: remote tabId/openedBy/two-agent ordering ещё не выполнены |
 | WP-26 | WP-24 и **OD-8** | OD-8 download hand-over ещё не решён; нужны upload/download и реальные AD-23.8 approval gates. Нельзя объявить gate проверенным по WP-31 rule-set тестам |
 | WP-23b | WP-21 Done; платформенное решение OD-9 принято AD-29 | Done: Seatbelt/Keychain, AD-31 и зафиксированная Node20/22 CI-квалификация; более широкая матрица не объявляется проверенной |
 | WP-38 | WP-28, завершение/явное согласование открытого WP-29; WP-36 hook может быть stub по карточке | Подготовку TLS/IdP/deployment можно вести; публичный staging блокируют перечисленные WP-29 задачи. Live WorkOS, pin identity environment, payload-free logs, external OAuth/tool run ещё не подтверждены; RFC 9207 — условие G4 или отдельный принятый AD |

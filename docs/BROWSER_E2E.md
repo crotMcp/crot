@@ -1,9 +1,10 @@
 # Real-browser E2E of the browser bridge
 
-Two suites run against a real Chromium:
-`tests-e2e/browser/real-browser.e2e.test.ts` (the chain and the legacy tools)
-and `tests-e2e/browser/browser-v1.e2e.test.ts` (browser contract v1,
-ARCHITECTURE.md §27 AD-16, WP-24; see [Browser v1](#browser-v1-suite)).
+Four suites run against a real Chromium:
+`tests-e2e/browser/real-browser.e2e.test.ts` (the chain and legacy tools),
+`browser-v1.e2e.test.ts` and `browser-layout.e2e.test.ts` (WP-24 contract and
+layout regressions), and `wp25.e2e.test.ts` (dialogs, background screenshots,
+debugger lifecycle and CROT groups; AD-16 / AD-32).
 
 `tests-e2e/browser/real-browser.e2e.test.ts` checks the existing browser chain
 (ARCHITECTURE.md §16) against a **real Chromium**, end to end:
@@ -172,9 +173,10 @@ the page's own `isTrusted` reports:
 5. An element scrolled under the fixed header is scrolled clear and clicked.
 6. A number input reports the typed value and ArrowUp; a cut snapshot
    (`maxElements: 3`) still lists the dialog's button.
-7. A click that opens `alert()` fails at once, a following snapshot fails at
-   once, and after the dialog is answered (by the test's own DevTools
-   session, as the user would) commands work again.
+7. A click that opens `alert()` returns only `dialog: { type }`; snapshot
+   exposes the pending message, page reads fail promptly with
+   `BROWSER_DIALOG_OPEN`, and `browser_dialog_handle` dismisses the dialog.
+   This replaces the historical pre-WP-25 fail-fast regression expectation.
 
 8. Own/descendant pseudo-elements: trusted clicks; unrelated pseudo-element
    overlays are refused by unit tests.
@@ -201,9 +203,37 @@ attaches its own DevTools session to the extension's service worker and wraps
 or the extension changes; that the extension itself refuses a method outside
 the allowlist is covered by the unit tests (`extension/test/cdp.test.ts`).
 
-Not covered here (later work packages): dialogs, file chooser, background
-screenshots (WP-25), upload and download (WP-26), two concurrent agents and
-remote `tabId` (WP-27). Manual runs on real third-party sites are separate:
+### WP-25 lifecycle suite
+
+`tests-e2e/browser/wp25.e2e.test.ts` uses `fixtures/wp25.html` and the same
+real MCP-to-extension chain. Seven tests cover:
+
+1. Alert / confirm / prompt: content-free control results, metadata exposed
+   only by snapshot / tabs list, blocked page reads, explicit answers.
+2. Intercepted file chooser with safe dismissal; acceptance is refused until
+   WP-26 supplies upload (no native OS chooser automation).
+3. Beforeunload: rejected navigation stays, pending close reports
+   `closed: false`, explicit acceptance leaves; alert + tab close works.
+4. Background PNG, ref crop and full-page pixels/dimensions, viewport / DPR,
+   unchanged active tabs and focused windows, discarded-tab refusal.
+5. Actual Chrome debugger API detach, stale refs, reconnect, fixed failure
+   and status when attach is refused. The policy refusal is an injected test
+   seam, **not** a real managed enterprise policy. Chrome API detach does not
+   emit `onDetach`; cancellation of an unanswered command by that event is
+   separately covered by unit tests. User-infobar cancel remains manual.
+6. CROT groups for opened tabs and real popups.
+7. The actual production 60-second timeout: confirm is rejected, a content-free
+   auto-dismiss audit entry has the current connection ID.
+
+The test-only witness wraps Chrome APIs / observes windows; it does not add
+production operations or synthetic input fallbacks. See
+[`design/browser-wp25.md`](design/browser-wp25.md) for qualification results
+and explicit gaps (headed branded-browser / OS matrix, actual policy,
+minimum-version and HiDPI variants). Linux headless results do not qualify
+macOS / Windows UI. Skipped tests are never counted as passes.
+
+Not covered here (later packages): upload / download (WP-26), two concurrent
+agents and remote `tabId` (WP-27). WP-24 manual acceptance remains separate:
 see [`acceptance/WP-24-manual-run-1.md`](acceptance/WP-24-manual-run-1.md).
 
 Local run without a display (as used during WP-24):

@@ -96,7 +96,7 @@ export class TabObserver {
 
   constructor(
     private readonly api: ChromeApi,
-    cdp: CdpSessions | undefined,
+    private readonly cdp: CdpSessions | undefined,
     readonly tabId: number,
     mainFrameId?: string,
   ) {
@@ -146,6 +146,10 @@ export class TabObserver {
       if (typeof params.requestId === "string") this.inflight.delete(params.requestId);
       this.lastNetwork = Date.now();
     }
+  }
+
+  get pendingDialog() {
+    return this.cdp?.dialog(this.tabId);
   }
 
   /** A top-level navigation started (or committed) since the observer was created. */
@@ -207,6 +211,7 @@ async function reached(
   timing: Timing,
 ): Promise<boolean | "closed"> {
   const tab = await tabNow(api, tabId);
+  if (observer?.pendingDialog) return true;
   if (!tab) return "closed";
   const committed = !tab.pendingUrl;
   const complete = committed && tab.status === "complete";
@@ -243,6 +248,7 @@ export async function waitForLoadState(
 export interface ControlResult {
   readonly tabId: number;
   readonly url: string;
+  readonly dialog?: { readonly type: string };
   readonly navigated: boolean;
   readonly newTabs: number[];
   /** The navigation the action started did not reach waitUntil within timeoutMs (it goes on loading). */
@@ -276,6 +282,7 @@ export async function settle(
       url: (tab ? tab.url || tab.pendingUrl || "" : "").slice(0, urlMax),
       navigated: observer.navigationStarted,
       newTabs: observer.newTabs,
+      ...(observer.pendingDialog ? { dialog: { type: observer.pendingDialog.type } } : {}),
     };
     return timedOut ? { ...result, loadTimedOut: true } : result;
   } finally {

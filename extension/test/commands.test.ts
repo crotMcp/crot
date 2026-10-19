@@ -101,6 +101,8 @@ describe("extension commands", () => {
       url: "https://example.com/a",
       title: "A",
       active: true,
+      discarded: false,
+      groupedByCrot: false,
       status: "complete",
     });
     expect(result.tabs[3]).toEqual({
@@ -109,6 +111,8 @@ describe("extension commands", () => {
       url: "https://pending.example/",
       title: "",
       active: false,
+      discarded: false,
+      groupedByCrot: false,
     });
   });
 
@@ -299,59 +303,57 @@ describe("extension commands", () => {
     expect((await failure(handlers["page.read"]({ format: "text", maxBytes: 5 }))).code).toBe("OPERATION_FAILED");
   });
 
-  it("takes screenshots of the visible tab only", async () => {
+  it("captures background tabs through CDP without activation, and reports viewport/dpr", async () => {
     const { fake, handlers } = setup();
-    const png = await handlers["page.screenshot"]({ format: "png" });
-    expect(png).toEqual({ tabId: 1, url: "https://example.com/a", mimeType: "image/png", data: "iVBORw0KGgo=" });
-    ok(BrowserScreenshotResultSchema, png);
-    const jpeg = (await handlers["page.screenshot"]({ tabId: 1, format: "jpeg", quality: 70 })) as { mimeType: string };
-    expect(jpeg.mimeType).toBe("image/jpeg");
-    expect(fake.captures).toEqual([
-      { windowId: 1, options: { format: "png" } },
-      { windowId: 1, options: { format: "jpeg", quality: 70 } },
-    ]);
-    // Tab 2 is in the background: CROT does not activate it for a read.
-    const background = await failure(handlers["page.screenshot"]({ tabId: 2, format: "png" }));
-    expect(background.code).toBe("INVALID_INPUT");
+    screenshotFake(fake);
+    const image = await handlers["page.screenshot"]({ tabId: 2, format: "png" });
+    ok(BrowserScreenshotResultSchema, image);
+    expect(image).toMatchObject({
+      tabId: 2,
+      mimeType: "image/png",
+      viewport: { width: 800, height: 600 },
+      devicePixelRatio: 1,
+    });
     expect(fake.tabsById.get(2)?.active).toBe(false);
-    expect(fake.captures.length).toBe(2);
+    expect(fake.focused).toEqual([]);
+    expect(fake.captures).toEqual([]);
   });
 
-  it("rejects a screenshot when the visible tab changed meanwhile", async () => {
-    const { fake, handlers } = setup();
-    fake.afterCapture = () => {
-      fake.tabsById.get(1)!.active = false;
-      fake.tabsById.get(2)!.active = true;
-    };
-    expect((await failure(handlers["page.screenshot"]({ tabId: 1, format: "png" }))).code).toBe("OPERATION_FAILED");
-  });
-
-  it("bounds screenshots and maps capture errors", async () => {
-    const { fake, handlers } = setup();
-    fake.captureResult = () => "data:image/png;base64," + "A".repeat(Math.ceil(SCREENSHOT_MAX_BYTES / 3) * 4 + 4);
-    expect((await failure(handlers["page.screenshot"]({ format: "png" }))).code).toBe("LIMIT_EXCEEDED");
-    fake.captureResult = () => "data:image/jpeg;base64,AAAA";
-    expect((await failure(handlers["page.screenshot"]({ format: "png" }))).code).toBe("OPERATION_FAILED");
-    fake.captureError = new Error("This request exceeds the MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND quota.");
-    expect((await failure(handlers["page.screenshot"]({ format: "png" }))).code).toBe("RESOURCE_BUSY");
-  });
-
-  it("never hangs on a hidden window: minimized fails at once, an unanswered capture times out", async () => {
-    const fake = new FakeChrome();
-    fake.addTab({ id: 1, windowId: 1, active: true, url: "https://example.com/a", title: "A" });
-    const handlers = createCommandHandlers(fake.api, { screenshotTimeoutMs: 50 });
-    fake.windowStates.set(1, "minimized");
-    const minimized = await failure(handlers["page.screenshot"]({ format: "png" }));
-    expect(minimized.code).toBe("OPERATION_FAILED");
-    expect(minimized.message).toMatch(/minimized or hidden/);
-    expect(fake.captures).toHaveLength(0);
-    fake.windowStates.set(1, "normal");
-    const api = fake.api;
-    const hanging = createCommandHandlers(
-      { ...api, tabs: { ...api.tabs, captureVisibleTab: () => new Promise<string>(() => undefined) } },
-      { screenshotTimeoutMs: 50 },
-    );
-    const timedOut = await failure(hanging["page.screenshot"]({ format: "png" }));
-    expect(timedOut.code).toBe("TIMEOUT");
+  it("captures fullPage, refuses discarded tabs without loading, bounds size and times out", async () => {
+    const { fake } = setup();
+    screenshotFake(fake);
+    const handlers = createCommandHandlers(fake.api, { screenshotTimeoutMs: 25 });
+    await handlers["page.screenshot"]({ tabId: 1, format: "jpeg", quality: 70, fullPage: true });
+    expect(fake.debugger.sent.find((c) => c.method === "Page.captureScreenshot")?.params).toMatchObject({
+      format: "jpeg",
+      quality: 70,
+      clip: { width: 800, height: 1200 },
+    });
+    fake.tabsById.get(1)!.discarded = true;
+    expect((await failure(handlers["page.screenshot"]({ tabId: 1, format: "png" }))).code).toBe("INVALID_INPUT");
+    fake.tabsById.get(1)!.discarded = false;
+    const respond = fake.debugger.respond;
+    fake.debugger.respond = (id, method, params) =>
+      method === "Page.captureScreenshot"
+        ? { data: "A".repeat(Math.ceil(SCREENSHOT_MAX_BYTES / 3) * 4 + 4) }
+        : respond(id, method, params);
+    expect((await failure(handlers["page.screenshot"]({ tabId: 1, format: "png" }))).code).toBe("LIMIT_EXCEEDED");
+    fake.debugger.respond = (id, method, params) =>
+      method === "Page.captureScreenshot" ? new Promise(() => undefined) : respond(id, method, params);
+    expect((await failure(handlers["page.screenshot"]({ tabId: 1, format: "png" }))).code).toBe("TIMEOUT");
   });
 });
+
+function screenshotFake(fake: FakeChrome): void {
+  // Image decoding is a browser platform primitive; real pixels are checked in Chromium E2E.
+  globalThis.createImageBitmap = (async () => ({ width: 800, close() {} })) as unknown as typeof createImageBitmap;
+  fake.debugger.respond = (_id, method) => {
+    if (method === "Page.getLayoutMetrics")
+      return {
+        cssLayoutViewport: { pageX: 0, pageY: 0, clientWidth: 800, clientHeight: 600 },
+        cssContentSize: { x: 0, y: 0, width: 800, height: 1200 },
+      };
+    if (method === "Page.captureScreenshot") return { data: "iVBORw0KGgo=" };
+    return {};
+  };
+}

@@ -4,6 +4,7 @@ import {
   MAX_BROWSER_TO_HOST_FRAME_BYTES,
   parseHostMessage,
   type BrowserHello,
+  type BrowserNotice,
   type BrowserInfoMessage,
   type BrowserResponse,
   type HostRequest,
@@ -22,7 +23,7 @@ import { cleanMessage, toWireError } from "./errors.js";
  * 1. connectNative(NATIVE_HOST_NAME) starts the relay. The extension sends
  *    `hello` and waits for `welcome`.
  * 2. It then answers each `request` (possibly sent as `chunk`s) with exactly
- *    one `response`. It never sends anything else: the browser side cannot
+ *    one `response`, plus bounded content-free lifecycle notices: the browser side cannot
  *    initiate operations, and authorization belongs to Core's PermissionEngine.
  * 3. Any protocol violation closes the port. After a disconnect (CROT not
  *    running, relay exit, another extension already connected) it reconnects
@@ -76,6 +77,11 @@ export class HostConnection {
   get state(): HostConnectionState {
     if (!this.port) return "disconnected";
     return this.connected ? "connected" : "connecting";
+  }
+
+  /** Fixed passive telemetry, never a request to execute a Core operation. */
+  notify(notice: BrowserNotice): void {
+    if (this.port && this.connected) this.post(this.port, notice);
   }
 
   /** Connect now unless a connection exists or is being set up. */
@@ -166,7 +172,7 @@ export class HostConnection {
     this.post(port, fitResponse(response));
   }
 
-  private post(port: ChromePort, message: BrowserHello | BrowserResponse): boolean {
+  private post(port: ChromePort, message: BrowserHello | BrowserResponse | BrowserNotice): boolean {
     try {
       port.postMessage(message);
       return true;

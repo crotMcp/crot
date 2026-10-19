@@ -1,3 +1,4 @@
+import type { BrowserNotice } from "../../src/browser-bridge/protocol.js";
 import type { ChromeApi, ChromeDebuggee } from "./chrome-api.js";
 import { ExtensionError } from "./errors.js";
 
@@ -38,8 +39,8 @@ export const CDP_IDLE_DETACH_MS = 5 * 60_000;
  * Storage.*, Browser.*, SystemInfo.*, every other Emulation method, Network.getCookies /
  * getResponseBody / interception, Target.createTarget,
  * Target.createBrowserContext, Page.addScriptToEvaluateOnNewDocument.
- * DOM.setFileInputFiles and the Page dialog / file chooser / download methods
- * belong to WP-25 and WP-26 and are added there.
+ * Dialog, chooser interception and screenshot methods are included by WP-25.
+ * DOM.setFileInputFiles and download handling remain WP-26.
  */
 export const CDP_ALLOWED_METHODS: ReadonlySet<string> = new Set([
   "Accessibility.enable",
@@ -62,6 +63,9 @@ export const CDP_ALLOWED_METHODS: ReadonlySet<string> = new Set([
   "Input.dispatchMouseEvent",
   "Input.dispatchKeyEvent",
   "Input.insertText",
+  "Page.captureScreenshot",
+  "Page.handleJavaScriptDialog",
+  "Page.setInterceptFileChooserDialog",
   "Page.enable",
   "Page.getFrameTree",
   "Page.getLayoutMetrics",
@@ -83,19 +87,11 @@ const DIALOG_SAFE_METHODS: ReadonlySet<string> = new Set([
   "Page.enable",
   "Page.getNavigationHistory",
   "Target.setAutoAttach",
+  "Page.handleJavaScriptDialog",
 ]);
 
-/**
- * A JavaScript dialog (alert, confirm, prompt, beforeunload) blocks the page
- * until the user answers it. Browser v1 does not answer dialogs, so commands
- * fail at once instead of waiting out their timeout.
- */
-export const dialogMessage = (type: string, opened: boolean): string =>
-  (opened ? "The action opened a JavaScript " : "A JavaScript ") +
-  (["alert", "confirm", "prompt", "beforeunload"].includes(type) ? type : "") +
-  " dialog" +
-  (opened ? "" : " is open in the tab") +
-  ": the page is blocked until it is answered. CROT does not answer dialogs; ask the user to close it in the browser, then continue.";
+export const dialogMessage = (_type: string, _opened: boolean): string =>
+  "A dialog is open in the tab; use browser_snapshot or browser_dialog_handle.";
 
 export type CdpEventListener = (tabId: number, method: string, params: unknown) => void;
 
@@ -120,7 +116,15 @@ export interface ChildSession {
   readonly depth: number;
 }
 
+export type DialogType = "alert" | "confirm" | "prompt" | "beforeunload" | "file_chooser";
+export interface PendingDialog {
+  readonly type: DialogType;
+  readonly message: string;
+  readonly defaultPrompt?: string;
+}
 export interface CdpOptions {
+  readonly dialogTimeoutMs?: number;
+  readonly onNotice?: (notice: BrowserNotice) => void;
   readonly idleDetachMs?: number;
   readonly setTimer?: (callback: () => void, ms: number) => unknown;
   readonly clearTimer?: (handle: unknown) => void;
@@ -133,6 +137,7 @@ interface Attachment {
   /** Target.setAutoAttach has been sent on the tab's own session. */
   autoAttach?: Promise<void>;
   readonly children: Map<string, ChildSession>;
+  readonly childReady: Map<string, Promise<void>>;
 }
 
 export class CdpSessions {
@@ -140,7 +145,12 @@ export class CdpSessions {
   private readonly generations = new Map<number, number>();
   private readonly listeners = new Set<CdpEventListener>();
   /** Open JavaScript dialogs per tab (type), from Page.javascriptDialogOpening / Closed. */
-  private readonly dialogs = new Map<number, string>();
+  private readonly dialogs = new Map<number, PendingDialog>();
+  private readonly dialogSessions = new Map<number, string | undefined>();
+  private readonly dialogTimers = new Map<number, unknown>();
+  private readonly pending = new Map<number, Set<(e: Error) => void>>();
+  private readonly dialogTimeoutMs: number;
+  private readonly notice: (notice: BrowserNotice) => void;
   private readonly dialogWaiters = new Map<number, Set<(type: string) => void>>();
   private readonly idleMs: number;
   private readonly setTimer: (callback: () => void, ms: number) => unknown;
@@ -150,9 +160,12 @@ export class CdpSessions {
     private readonly api: ChromeApi,
     options: CdpOptions = {},
   ) {
+    this.dialogTimeoutMs = options.dialogTimeoutMs ?? 60_000;
+    this.notice = options.onNotice ?? (() => undefined);
     this.idleMs = options.idleDetachMs ?? CDP_IDLE_DETACH_MS;
     this.setTimer = options.setTimer ?? ((callback, ms) => setTimeout(callback, ms));
     this.clearTimer = options.clearTimer ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+    if (!api.debugger) return;
     api.debugger.onDetach.addListener((source) => {
       if (source.tabId === undefined) return;
       // A child session ending (its frame went away) is not a detach of the tab.
@@ -162,13 +175,38 @@ export class CdpSessions {
     });
     api.debugger.onEvent.addListener((source, method, params) => {
       if (source.tabId === undefined || !this.attachments.has(source.tabId)) return;
-      if (method === "Page.javascriptDialogOpening") {
-        const type = String((params as { type?: unknown } | undefined)?.type ?? "");
-        this.dialogs.set(source.tabId, type);
-        for (const waiter of this.dialogWaiters.get(source.tabId) ?? []) waiter(type);
-      } else if (method === "Page.javascriptDialogClosed") {
-        this.dialogs.delete(source.tabId);
-      }
+      if (method === "Page.javascriptDialogOpening" || method === "Page.fileChooserOpened") {
+        const p = (params ?? {}) as { type?: string; message?: string; defaultPrompt?: string };
+        const type = method === "Page.fileChooserOpened" ? "file_chooser" : p.type;
+        if (["alert", "confirm", "prompt", "beforeunload", "file_chooser"].includes(type ?? "")) {
+          const dialog: PendingDialog = {
+            type: type as DialogType,
+            message: String(p.message ?? "").slice(0, 10_000),
+            ...(typeof p.defaultPrompt === "string" ? { defaultPrompt: p.defaultPrompt.slice(0, 10_000) } : {}),
+          };
+          this.clearDialog(source.tabId);
+          this.dialogs.set(source.tabId, dialog);
+          this.dialogSessions.set(source.tabId, source.sessionId);
+          const id = source.tabId;
+          this.dialogTimers.set(
+            id,
+            this.setTimer(() => {
+              if (this.dialogs.get(id) !== dialog) return;
+              void this.handleDialog(id, false)
+                .then(() =>
+                  this.notice({
+                    type: "browser_notice",
+                    event: "dialog_auto_dismissed",
+                    tabId: id,
+                    dialogType: dialog.type,
+                  }),
+                )
+                .catch(() => undefined);
+            }, this.dialogTimeoutMs),
+          );
+          for (const waiter of this.dialogWaiters.get(id) ?? []) waiter(dialog.type);
+        }
+      } else if (method === "Page.javascriptDialogClosed") this.clearDialog(source.tabId);
       if (method === "Target.attachedToTarget" || method === "Target.detachedFromTarget") {
         this.onTargetEvent(source.tabId, source.sessionId, method, params);
         return;
@@ -192,7 +230,11 @@ export class CdpSessions {
   /** Fails at once while a JavaScript dialog is known to block the tab (before script injection, which would wait). */
   assertNoDialog(tabId: number): void {
     const dialog = this.dialogs.get(tabId);
-    if (dialog !== undefined) throw new ExtensionError("OPERATION_FAILED", dialogMessage(dialog, false));
+    if (dialog !== undefined)
+      throw new ExtensionError(
+        "BROWSER_DIALOG_OPEN",
+        "A dialog is open in the tab; use browser_snapshot or browser_dialog_handle.",
+      );
   }
 
   onEvent(listener: CdpEventListener): () => void {
@@ -217,18 +259,21 @@ export class CdpSessions {
     const generation = await this.attach(tabId);
     const dialog = this.dialogs.get(tabId);
     if (dialog !== undefined && !DIALOG_SAFE_METHODS.has(method))
-      throw new ExtensionError("OPERATION_FAILED", dialogMessage(dialog, false));
+      throw new ExtensionError(
+        "BROWSER_DIALOG_OPEN",
+        "A dialog is open in the tab; use browser_snapshot or browser_dialog_handle.",
+      );
     if (sessionId !== undefined && !this.attachments.get(tabId)?.children.has(sessionId)) {
       throw new ExtensionError("OPERATION_FAILED", FRAME_DETACHED_MESSAGE);
     }
     try {
       const command = this.api.debugger.sendCommand(target(tabId, sessionId), method, params);
-      if (DIALOG_SAFE_METHODS.has(method)) return (await command) as T;
+      if (DIALOG_SAFE_METHODS.has(method)) return (await this.cancellable(tabId, command)) as T;
       // A dialog the command opens (a click on a button that calls alert()) blocks its answer.
       let stop = (): void => undefined;
       const opened = new Promise<never>((_, reject) => {
         const waiter = (type: string): void =>
-          reject(new ExtensionError("OPERATION_FAILED", dialogMessage(type, true)));
+          reject(new ExtensionError("BROWSER_DIALOG_OPEN", "The action opened a dialog: " + type));
         const waiters = this.dialogWaiters.get(tabId) ?? new Set();
         waiters.add(waiter);
         this.dialogWaiters.set(tabId, waiters);
@@ -239,7 +284,7 @@ export class CdpSessions {
       });
       command.catch(() => undefined);
       try {
-        return (await Promise.race([command, opened])) as T;
+        return (await this.cancellable(tabId, Promise.race([command, opened]))) as T;
       } finally {
         stop();
       }
@@ -252,6 +297,10 @@ export class CdpSessions {
         throw new ExtensionError("OPERATION_FAILED", DETACHED_MESSAGE);
       }
       const message = error instanceof Error ? error.message : String(error);
+      if (/Debugger is not attached/i.test(message)) {
+        this.forget(tabId, false); // No retry: next command may attach afresh.
+        throw new ExtensionError("OPERATION_FAILED", DETACHED_MESSAGE);
+      }
       throw new ExtensionError("OPERATION_FAILED", "Browser operation failed: " + message);
     } finally {
       this.touch(tabId);
@@ -260,13 +309,27 @@ export class CdpSessions {
 
   /** Attaches to a tab if needed and answers the tab's generation. */
   async attach(tabId: number): Promise<number> {
+    if (!this.api.debugger) {
+      this.notice({ type: "browser_notice", event: "cdp_status", available: false });
+      throw new ExtensionError("OPERATION_FAILED", CDP_UNAVAILABLE_MESSAGE);
+    }
     let attachment = this.attachments.get(tabId);
     if (!attachment) {
       const created: Attachment = {
         attached: false,
         children: new Map(),
+        childReady: new Map(),
         ready: this.api.debugger.attach(target(tabId), CDP_PROTOCOL_VERSION).then(() => {
+          if (this.attachments.get(tabId) !== created) throw new ExtensionError("OPERATION_FAILED", DETACHED_MESSAGE);
           created.attached = true;
+          return this.api.debugger
+            .sendCommand(target(tabId), "Page.enable")
+            .then(() =>
+              this.api.debugger.sendCommand(target(tabId), "Page.setInterceptFileChooserDialog", { enabled: true }),
+            )
+            .then(() => {
+              this.notice({ type: "browser_notice", event: "cdp_status", available: true });
+            });
         }),
       };
       attachment = created;
@@ -274,7 +337,11 @@ export class CdpSessions {
       try {
         await created.ready;
       } catch {
-        if (this.attachments.get(tabId) === created) this.attachments.delete(tabId);
+        if (this.attachments.get(tabId) === created) {
+          this.forget(tabId);
+          void this.api.debugger.detach(target(tabId)).catch(() => undefined);
+        }
+        this.notice({ type: "browser_notice", event: "cdp_status", available: false });
         throw new ExtensionError("OPERATION_FAILED", CDP_UNAVAILABLE_MESSAGE);
       }
     } else {
@@ -305,6 +372,7 @@ export class CdpSessions {
       if (this.attachments.get(tabId) === attachment) attachment.autoAttach = undefined;
       throw error;
     }
+    await Promise.all(attachment.childReady.values());
     return [...attachment.children.values()];
   }
 
@@ -318,6 +386,7 @@ export class CdpSessions {
       while (gone.length > 0) {
         const id = gone.pop() as string;
         attachment.children.delete(id);
+        attachment.childReady.delete(id);
         for (const child of attachment.children.values()) if (child.parentSessionId === id) gone.push(child.sessionId);
       }
       return;
@@ -330,8 +399,14 @@ export class CdpSessions {
     if (depth > CDP_MAX_CHILD_DEPTH || attachment.children.size >= CDP_MAX_CHILD_SESSIONS) return;
     const sessionId = params.sessionId;
     attachment.children.set(sessionId, { sessionId, frameId: info.targetId, parentSessionId, depth });
-    // Nested out-of-process frames of this frame.
-    void this.send(tabId, "Target.setAutoAttach", AUTO_ATTACH, sessionId).catch(() => undefined);
+    // Every OOP frame gets the same interception, before frame commands proceed.
+    const ready = (async () => {
+      await this.send(tabId, "Page.enable", {}, sessionId);
+      await this.send(tabId, "Page.setInterceptFileChooserDialog", { enabled: true }, sessionId);
+      await this.send(tabId, "Target.setAutoAttach", AUTO_ATTACH, sessionId);
+    })();
+    attachment.childReady.set(sessionId, ready);
+    void ready.catch(() => undefined); // frameSessions propagates failures; avoid unhandled event promises.
   }
 
   /** Detaches one tab (idle, tab no longer needed). */
@@ -348,6 +423,75 @@ export class CdpSessions {
     await Promise.all([...this.attachments.keys()].map((tabId) => this.detach(tabId)));
   }
 
+  dialog(tabId: number): PendingDialog | undefined {
+    return this.dialogs.get(tabId);
+  }
+
+  private clearDialog(tabId: number): void {
+    const timer = this.dialogTimers.get(tabId);
+    if (timer !== undefined) this.clearTimer(timer);
+    this.dialogTimers.delete(tabId);
+    this.dialogs.delete(tabId);
+    this.dialogSessions.delete(tabId);
+  }
+
+  async handleDialog(tabId: number, accept: boolean, promptText?: string): Promise<void> {
+    const dialog = this.dialogs.get(tabId);
+    if (!dialog) throw new ExtensionError("NOT_FOUND", "There is no pending dialog in the tab.");
+    if (promptText !== undefined && dialog.type !== "prompt")
+      throw new ExtensionError("INVALID_INPUT", "promptText is only valid for prompt.");
+    if (dialog.type === "file_chooser") {
+      if (accept)
+        throw new ExtensionError(
+          "INVALID_INPUT",
+          "File upload belongs to WP-26; dismiss this chooser with accept=false.",
+        );
+    } else
+      await this.send(
+        tabId,
+        "Page.handleJavaScriptDialog",
+        {
+          accept,
+          ...(promptText === undefined ? {} : { promptText }),
+        },
+        this.dialogSessions.get(tabId),
+      );
+    if (this.dialogs.get(tabId) === dialog) this.clearDialog(tabId);
+  }
+
+  async guardDialog<T>(tabId: number, run: () => Promise<T>): Promise<T> {
+    this.assertNoDialog(tabId);
+    let waiter: (type: string) => void = () => undefined;
+    const waiters = this.dialogWaiters.get(tabId) ?? new Set();
+    this.dialogWaiters.set(tabId, waiters);
+    const opened = new Promise<never>((_, reject) => {
+      waiter = () => reject(new ExtensionError("BROWSER_DIALOG_OPEN", dialogMessage("", true)));
+      waiters.add(waiter);
+    });
+    try {
+      return await this.cancellable(tabId, Promise.race([run(), opened]));
+    } finally {
+      waiters.delete(waiter);
+      if (!waiters.size) this.dialogWaiters.delete(tabId);
+    }
+  }
+
+  async cancellable<T>(tabId: number, command: Promise<T>): Promise<T> {
+    let rejecter: (e: Error) => void = () => undefined;
+    const waiters = this.pending.get(tabId) ?? new Set();
+    this.pending.set(tabId, waiters);
+    const detached = new Promise<never>((_, reject) => {
+      rejecter = reject;
+      waiters.add(rejecter);
+    });
+    try {
+      return await Promise.race([command, detached]);
+    } finally {
+      waiters.delete(rejecter);
+      if (!waiters.size) this.pending.delete(tabId);
+    }
+  }
+
   private touch(tabId: number): void {
     const attachment = this.attachments.get(tabId);
     if (!attachment) return;
@@ -355,14 +499,18 @@ export class CdpSessions {
     attachment.idle = this.setTimer(() => void this.detach(tabId), this.idleMs);
   }
 
-  private forget(tabId: number): void {
+  private forget(tabId: number, cancel = true): void {
     const attachment = this.attachments.get(tabId);
     if (!attachment) return;
     if (attachment.idle !== undefined) this.clearTimer(attachment.idle);
     attachment.attached = false;
     attachment.children.clear();
+    attachment.childReady.clear();
     this.attachments.delete(tabId);
-    this.dialogs.delete(tabId);
+    this.clearDialog(tabId);
+    if (cancel)
+      for (const reject of this.pending.get(tabId) ?? [])
+        reject(new ExtensionError("OPERATION_FAILED", DETACHED_MESSAGE));
     this.generations.set(tabId, this.generation(tabId) + 1);
   }
 }

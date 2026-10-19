@@ -90,6 +90,7 @@ const EXTENSION_ERROR_CODES: ReadonlySet<string> = new Set<CrotErrorCode>([
   "OPERATION_FAILED",
   "BROWSER_PAGE_RESTRICTED",
   "BROWSER_STALE_REF",
+  "BROWSER_DIALOG_OPEN",
 ]);
 
 export interface BrowserBridgeOptions {
@@ -127,6 +128,9 @@ interface ConnectedExtension {
   readonly socket: net.Socket;
   readonly browser: BrowserInfo;
   readonly connectionId: string;
+  cdp?: { available: boolean; reason: string | null };
+  noticeWindow?: number;
+  noticeCount?: number;
 }
 
 const notConnected = () => new CrotError("BROWSER_NOT_CONNECTED", "The CROT Browser Extension is not connected.");
@@ -137,6 +141,15 @@ const inUse = () =>
   );
 
 export class BrowserBridge implements BrowserConnection {
+  private readonly dialogListeners = new Set<
+    (event: { tabId: number; dialogType: string; connectionId: string }) => void
+  >();
+  onDialogDismissed(
+    listener: (event: { tabId: number; dialogType: string; connectionId: string }) => void,
+  ): () => void {
+    this.dialogListeners.add(listener);
+    return () => this.dialogListeners.delete(listener);
+  }
   private server: net.Server | undefined;
   private extension: ConnectedExtension | undefined;
   private readonly handshakes = new Set<net.Socket>();
@@ -184,7 +197,12 @@ export class BrowserBridge implements BrowserConnection {
 
   state(): BrowserConnectionState {
     if (this.extension)
-      return { kind: "connected", browser: this.extension.browser, connectionId: this.extension.connectionId };
+      return {
+        kind: "connected",
+        browser: this.extension.browser,
+        connectionId: this.extension.connectionId,
+        cdp: this.extension.cdp ?? { available: false, reason: "not_probed" },
+      };
     return this.server || this.closed ? { kind: "waiting" } : { kind: "in_use" };
   }
 
@@ -445,6 +463,23 @@ export class BrowserBridge implements BrowserConnection {
   /** A message on the connected extension's socket: only answers to requests this bridge sent are accepted. */
   private receive(message: unknown): void {
     const response = parseBrowserMessage(message);
+    if (response.type === "browser_notice") {
+      const extension = this.extension;
+      if (!extension) throw new BrowserProtocolError("Notice without an active connection.");
+      const now = Date.now();
+      if (!extension.noticeWindow || now - extension.noticeWindow >= 60_000) {
+        extension.noticeWindow = now;
+        extension.noticeCount = 0;
+      }
+      extension.noticeCount = (extension.noticeCount ?? 0) + 1;
+      if (extension.noticeCount > 120) throw new BrowserProtocolError("Browser notice rate exceeded.");
+      if (response.event === "cdp_status")
+        extension.cdp = { available: response.available, reason: response.available ? null : "debugger_unavailable" };
+      else
+        for (const listener of this.dialogListeners)
+          listener({ tabId: response.tabId, dialogType: response.dialogType, connectionId: extension.connectionId });
+      return;
+    }
     if (response.type !== "response")
       throw new BrowserProtocolError("Unexpected " + response.type + " after the handshake.");
     const pending = this.pending.get(response.id);

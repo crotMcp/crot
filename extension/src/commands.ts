@@ -39,8 +39,8 @@ import {
 } from "./input.js";
 import { clickElement, readPageContent, typeIntoElement, type PageOutcome } from "./page-functions.js";
 import { NOT_DELIVERED_MESSAGE, VISIBLE_WAIT_MS, ensureVisible, injector, startInputProbe } from "./delivery.js";
-import { RefRegistry, frameRefParam } from "./refs.js";
-import { SNAPSHOT_DEFAULT_ELEMENTS, SNAPSHOT_MAX_ELEMENTS, takeSnapshot } from "./snapshot.js";
+import { RefRegistry, frameRefParam, refParam, verifyRef } from "./refs.js";
+import { SNAPSHOT_DEFAULT_ELEMENTS, SNAPSHOT_MAX_ELEMENTS, takeSnapshot, quadBounds } from "./snapshot.js";
 
 /**
  * The fixed commands of the CROT Browser Extension (bridge protocol v1).
@@ -100,8 +100,7 @@ export interface CommandOptions {
 
 /** A capture the browser does not answer in this time fails (a hidden window produces no image). */
 export const SCREENSHOT_TIMEOUT_MS = 10_000;
-const SCREENSHOT_HIDDEN_MESSAGE =
-  "The browser did not capture the tab: its window may be minimized or hidden. Show the browser window and try again.";
+const SCREENSHOT_HIDDEN_MESSAGE = "The browser did not capture the requested tab within the screenshot timeout.";
 
 /** Bound of each tab's command queue (AD-16 point 8). */
 export const TAB_QUEUE_MAX = 16;
@@ -503,11 +502,66 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     return timedOut ? { tabId, url, loadTimedOut: true } : { tabId, url };
   }
 
+  const groupQueues = new Map<number, Promise<unknown>>();
+  async function groupTab(tab: ChromeTab & { id: number }): Promise<void> {
+    const previous = groupQueues.get(tab.windowId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        const [group] = await api.tabGroups.query({ title: "CROT", windowId: tab.windowId });
+        const id = await api.tabs.group({
+          tabIds: [tab.id],
+          ...(group ? { groupId: group.id } : { createProperties: { windowId: tab.windowId } }),
+        });
+        await api.tabGroups.update(id, { title: "CROT" });
+      });
+    groupQueues.set(tab.windowId, next);
+    try {
+      await next;
+    } finally {
+      if (groupQueues.get(tab.windowId) === next) groupQueues.delete(tab.windowId);
+    }
+  }
+  api.tabs.onCreated.addListener((tab) => {
+    if (!hasId(tab) || tab.openerTabId === undefined) return;
+    void getTab(tab.openerTabId)
+      .then(async (opener) => {
+        const groups = await api.tabGroups.query({ title: "CROT", windowId: opener.windowId });
+        if (groups.some((g) => g.id === opener.groupId)) await groupTab(tab);
+      })
+      .catch(() => undefined); // Browser may refuse grouping popups or a closed tab.
+  });
+  const dialogSnapshot = (tab: ChromeTab & { id: number }) => ({
+    tabId: tab.id,
+    url: tabUrl(tab),
+    title: bounded(tab.title, TITLE_MAX_LENGTH),
+    frames: [],
+    elements: [],
+    truncated: false,
+    dialog: cdp.dialog(tab.id),
+  });
+
   const handlers: CommandHandlers = {
     async "tabs.list"(params) {
       onlyKeys(params, []);
       const tabs = await api.tabs.query({});
-      return { tabs: tabs.filter(hasId).slice(0, MAX_TABS).map(tabInfo) };
+      return {
+        tabs: await Promise.all(
+          tabs
+            .filter(hasId)
+            .slice(0, MAX_TABS)
+            .map(async (tab) => {
+              const groups = await api.tabGroups.query({ title: "CROT", windowId: tab.windowId });
+              const dialog = cdp.dialog(tab.id);
+              return {
+                ...tabInfo(tab),
+                discarded: tab.discarded === true,
+                groupedByCrot: groups.some((g) => g.id === tab.groupId),
+                ...(dialog ? { dialog } : {}),
+              };
+            }),
+        ),
+      };
     },
 
     async "tabs.resolve"(params) {
@@ -535,6 +589,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         throw browserError(error, "Opening the tab");
       }
       if (!hasId(tab)) throw new ExtensionError("OPERATION_FAILED", "The browser did not report the new tab.");
+      await groupTab(tab);
       if (waitUntil === undefined && timeoutMs === undefined) return loaded(tab.id);
       return loaded(tab.id, waitUntil ?? "load", timeoutMs ?? loadWaitMs);
     },
@@ -581,9 +636,23 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       const tabId = tabIdParam(params);
       const expected = expectParam(params);
       const tab = expected ? await targetTab(tabId, expected, context, false) : await getTab(tabId);
+      // Closing is explicit; dismiss a pending page dialog safely, never confirm it.
+      const pending = cdp.dialog(tab.id);
+      if (pending?.type === "beforeunload") return { tabId: tab.id, closed: false, dialog: { type: pending.type } };
+      if (pending) await cdp.handleDialog(tab.id, false);
       try {
-        await api.tabs.remove(tab.id);
+        // Closing can itself open beforeunload; do not leave the command hanging.
+        await cdp.guardDialog(tab.id, () => api.tabs.remove(tab.id));
       } catch (error) {
+        const dialog = cdp.dialog(tab.id);
+        if (error instanceof ExtensionError && error.code === "BROWSER_DIALOG_OPEN" && dialog)
+          return { tabId: tab.id, closed: false, dialog: { type: dialog.type } };
+        // A successful removal emits onRemoved, which also cancels in-flight work.
+        try {
+          await api.tabs.get(tab.id);
+        } catch {
+          return { tabId: tab.id, closed: true };
+        }
         throw browserError(error, "Closing the tab");
       }
       return { tabId: tab.id, closed: true };
@@ -611,63 +680,99 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       };
     },
 
+    async "dialog.handle"(params, context) {
+      onlyKeys(params, ["tabId", "accept", "promptText", "expect"]);
+      const accept = booleanParam(params, "accept");
+      const promptText = params.promptText === undefined ? undefined : stringParam(params, "promptText", 0, 10_000);
+      const tab = await targetTab(optionalTabIdParam(params), expectParam(params), context, true);
+      await cdp.handleDialog(tab.id, accept, promptText);
+      const dialog = cdp.dialog(tab.id);
+      return { tabId: tab.id, url: tabUrl(tab), ...(dialog ? { dialog: { type: dialog.type } } : {}) };
+    },
+
     async "page.screenshot"(params, context) {
-      onlyKeys(params, ["tabId", "format", "quality", "expect"]);
-      const tabId = optionalTabIdParam(params);
+      onlyKeys(params, ["tabId", "format", "quality", "ref", "fullPage", "expect"]);
       const format = enumParam(params, "format", ["png", "jpeg"] as const);
       const quality = params.quality;
-      if (quality !== undefined) {
-        if (format !== "jpeg") throw invalid("'quality' is only valid with format 'jpeg'.");
-        if (!Number.isInteger(quality) || (quality as number) < 0 || (quality as number) > 100)
-          throw invalid("'quality' must be an integer from 0 to 100.");
-      }
+      if (
+        quality !== undefined &&
+        (format !== "jpeg" || !Number.isInteger(quality) || (quality as number) < 0 || (quality as number) > 100)
+      )
+        throw invalid("'quality' requires jpeg and an integer from 0 to 100.");
+      const ref = params.ref === undefined ? undefined : refParam(params.ref);
+      const fullPage = params.fullPage === undefined ? false : booleanParam(params, "fullPage");
+      if (ref && fullPage) throw invalid("'ref' and 'fullPage' are mutually exclusive.");
       const expected = expectParam(params);
-      const tab = await targetTab(tabId, expected, context, true);
-      // A screenshot is a read: CROT never activates a tab to take one.
-      if (!tab.active) {
-        throw invalid(
-          "Tab " + tab.id + " is not the visible tab of its window. Activate it with browser_tab_activate first.",
-        );
-      }
-      // A minimized window shows nothing; the browser would wait instead of capturing.
-      const window = await api.windows.get(tab.windowId).catch(() => undefined);
-      if (window?.state === "minimized") throw new ExtensionError("OPERATION_FAILED", SCREENSHOT_HIDDEN_MESSAGE);
-      let dataUrl: string;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        dataUrl = await Promise.race([
-          api.tabs.captureVisibleTab(
-            tab.windowId,
-            quality === undefined ? { format } : { format, quality: quality as number },
-          ),
-          new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(
-              () => reject(new ExtensionError("TIMEOUT", SCREENSHOT_HIDDEN_MESSAGE)),
-              screenshotTimeoutMs,
-            );
-          }),
-        ]);
-      } catch (error) {
-        if (error instanceof ExtensionError) throw error;
-        throw browserError(error, "Taking the screenshot");
-      } finally {
-        clearTimeout(timer);
-      }
-      // captureVisibleTab captures whatever the window shows: make sure it was still this tab and page.
-      const [visible] = await api.tabs.query({ active: true, windowId: tab.windowId });
-      if (!visible || visible.id !== tab.id)
-        throw new ExtensionError("OPERATION_FAILED", "The visible tab changed while taking the screenshot.");
-      if (!isHttpUrl(visible.url)) throw restricted();
-      if (expected) checkTab(expected, visible, context);
-      const prefix = "data:image/" + format + ";base64,";
-      if (typeof dataUrl !== "string" || !dataUrl.startsWith(prefix))
-        throw new ExtensionError("OPERATION_FAILED", "The browser returned an unexpected image.");
-      const data = dataUrl.slice(prefix.length);
-      const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
-      if ((data.length / 4) * 3 - padding > SCREENSHOT_MAX_BYTES) {
-        throw new ExtensionError("LIMIT_EXCEEDED", "The screenshot exceeds " + SCREENSHOT_MAX_BYTES + " bytes.");
-      }
-      return { tabId: tab.id, url: tabUrl(visible), mimeType: "image/" + format, data };
+      const first = await targetTab(optionalTabIdParam(params), expected, context, true);
+      return serialized(first.id, async () => {
+        const tab = await targetTab(first.id, expected, context, true);
+        if (tab.discarded) throw invalid("Discarded tabs cannot be captured; explicitly reload the tab first.");
+        cdp.assertNoDialog(tab.id);
+        const node = ref ? await verifyRef(refsFor(context), cdp, ref, tab.id) : undefined;
+        type View = { pageX: number; pageY: number; clientWidth: number; clientHeight: number };
+        const metrics = await cdp.send<{
+          cssLayoutViewport: View;
+          cssContentSize: { x: number; y: number; width: number; height: number };
+        }>(tab.id, "Page.getLayoutMetrics");
+        const view = metrics.cssLayoutViewport;
+        const viewport = { width: view.clientWidth, height: view.clientHeight };
+        let clip = { x: view.pageX, y: view.pageY, width: viewport.width, height: viewport.height, scale: 1 };
+        if (fullPage) clip = { ...metrics.cssContentSize, scale: 1 };
+        if (node) {
+          const box = await node.channel.send<{ model: { border: number[] } }>(tab.id, "DOM.getBoxModel", {
+            backendNodeId: node.backendNodeId,
+          });
+          const bounds = quadBounds(box.model.border);
+          if (!bounds || bounds.width <= 0 || bounds.height <= 0)
+            throw invalid("The referenced element has no screenshot area.");
+          clip = { ...bounds, x: bounds.x + view.pageX, y: bounds.y + view.pageY, scale: 1 };
+          await verifyRef(refsFor(context), cdp, ref as string, tab.id);
+        }
+        if (
+          ![clip.x, clip.y, clip.width, clip.height].every(Number.isFinite) ||
+          clip.width <= 0 ||
+          clip.height <= 0 ||
+          clip.width * clip.height > 64_000_000
+        )
+          throw new ExtensionError("LIMIT_EXCEEDED", "Screenshot area exceeds the capture bound.");
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let image: { data: string };
+        try {
+          image = await Promise.race([
+            cdp.send<{ data: string }>(tab.id, "Page.captureScreenshot", {
+              format,
+              ...(quality === undefined ? {} : { quality }),
+              fromSurface: true,
+              captureBeyondViewport: true,
+              clip,
+            }),
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(
+                () => reject(new ExtensionError("TIMEOUT", SCREENSHOT_HIDDEN_MESSAGE)),
+                screenshotTimeoutMs,
+              );
+            }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+        const after = await getTab(tab.id);
+        if (expected) checkTab(expected, after, context);
+        if (after.url !== tab.url) throw new ExtensionError("OPERATION_FAILED", "The document changed during capture.");
+        if (node) await verifyRef(refsFor(context), cdp, ref as string, tab.id);
+        const data = image.data;
+        if (typeof data !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(data))
+          throw new ExtensionError("OPERATION_FAILED", "The browser returned an invalid image.");
+        const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+        if ((data.length / 4) * 3 - padding > SCREENSHOT_MAX_BYTES)
+          throw new ExtensionError("LIMIT_EXCEEDED", "The screenshot exceeds 16 MiB.");
+        // Decode image metadata only; no page-world script or global emulation override.
+        const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/" + format }));
+        const devicePixelRatio = bitmap.width / clip.width;
+        bitmap.close();
+        return { tabId: tab.id, url: tabUrl(after), mimeType: "image/" + format, data, viewport, devicePixelRatio };
+      });
     },
 
     async "page.click"(params, context) {
@@ -732,8 +837,10 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       const expected = expectParam(params);
       const refs = refsFor(context);
       const first = await targetTab(tabId, expected, context, true);
+      if (cdp.dialog(first.id)) return dialogSnapshot(first);
       return serialized(first.id, async () => {
         const tab = await targetTab(first.id, expected, context, true);
+        if (cdp.dialog(tab.id)) return dialogSnapshot(tab);
         return takeSnapshot(
           cdp,
           refs,
@@ -931,7 +1038,20 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
           await act(tab.id, node, refs);
         } catch (error) {
           observer.dispose();
+          const dialog = cdp.dialog(tab.id);
+          if (error instanceof ExtensionError && error.code === "BROWSER_DIALOG_OPEN" && dialog)
+            return { tabId: tab.id, url: tabUrl(tab), navigated: false, newTabs: [], dialog: { type: dialog.type } };
           throw error;
+        }
+        if (cdp.dialog(tab.id)) {
+          observer.dispose();
+          return {
+            tabId: tab.id,
+            url: tabUrl(tab),
+            navigated: false,
+            newTabs: [],
+            dialog: { type: cdp.dialog(tab.id)!.type },
+          };
         }
         const result = await settle(api, observer, waitUntil, timeoutMs, timing, URL_MAX_LENGTH);
         return activated ? { ...result, activated: true } : result;
@@ -939,5 +1059,39 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     );
   }
 
-  return handlers;
+  const exempt = new Set<BrowserCommand>([
+    "tabs.list",
+    "tabs.resolve",
+    "tabs.open",
+    "tabs.close",
+    "page.snapshot",
+    "dialog.handle",
+  ]);
+  const reads = new Set<BrowserCommand>(["page.read", "page.screenshot", "page.wait"]);
+  return Object.fromEntries(
+    Object.entries(handlers).map(([name, handler]) => [
+      name,
+      async (params: CommandParams, context?: CommandContext) => {
+        if (exempt.has(name as BrowserCommand)) return handler(params, context);
+        const tab = await targetTab(optionalTabIdParam(params), expectParam(params), context, true);
+        cdp.assertNoDialog(tab.id);
+        try {
+          return await cdp.guardDialog(tab.id, () => handler(params, context));
+        } catch (error) {
+          const dialog = cdp.dialog(tab.id);
+          if (
+            !reads.has(name as BrowserCommand) &&
+            error instanceof ExtensionError &&
+            error.code === "BROWSER_DIALOG_OPEN" &&
+            dialog
+          )
+            return { tabId: tab.id, url: tabUrl(await getTab(tab.id)), dialog: { type: dialog.type } };
+          if (error instanceof ExtensionError && error.code === "OPERATION_FAILED") {
+            await getTab(tab.id); // NOT_FOUND for a tab close; external detach remains OPERATION_FAILED.
+          }
+          throw error;
+        }
+      },
+    ]),
+  ) as CommandHandlers;
 }

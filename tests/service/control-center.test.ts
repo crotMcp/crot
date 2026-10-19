@@ -628,7 +628,7 @@ describe("tray provider (AD-19 point 3)", () => {
     });
     // Core built on a platform without an L1 mechanism (AD-20 point 12 shape).
     expect(overview.confinement).toMatchObject({ mechanism: "none", available: false, reason: "not_implemented" });
-    expect(overview.cdp.reason).toMatch(/WP-24/);
+    expect(overview.cdp).toEqual({ available: false, reason: "not_probed" });
     expect(overview.browser).toMatchObject({ state: "connected", name: "Chrome", version: "130.0.0.0" });
   });
 });

@@ -240,12 +240,13 @@ export interface ControlOverview {
     readonly name?: string;
     readonly version?: string;
     readonly extensionVersion?: string;
+    readonly cdp?: { readonly available: boolean; readonly reason: string | null };
     readonly connectionId?: string;
   };
   readonly approvals: { readonly trays: number; readonly pending: number };
   /** Command confinement L1 as reported by the Core (AD-20 point 12). */
   readonly confinement: ConfinementStatus;
-  readonly cdp: { readonly available: false; readonly reason: string };
+  readonly cdp: { readonly available: boolean; readonly reason: string | null };
   readonly pairing: PairingView;
 }
 

@@ -146,16 +146,20 @@ describe("expected browser subject (AD-11)", () => {
     ).resolves.toMatchObject({ tabId: expect.any(Number) });
   });
 
-  it("checks the visible tab again after a screenshot", async () => {
+  it("checks the approved tab origin after CDP screenshot capture", async () => {
     const { fake, handlers } = setup();
-    fake.afterCapture = () => {
-      const tab = fake.tabsById.get(1);
-      if (tab) tab.url = "https://evil.example/";
+    fake.debugger.respond = (_id, method) => {
+      if (method === "Page.getLayoutMetrics")
+        return { cssLayoutViewport: { pageX: 0, pageY: 0, clientWidth: 800, clientHeight: 600 } };
+      if (method === "Page.captureScreenshot") {
+        fake.tabsById.get(1)!.url = "https://changed.example/";
+        return { data: "AAAA" };
+      }
+      return {};
     };
-    const error = await failure(
-      handlers["page.screenshot"]({ tabId: 1, format: "png", expect: expected(1) }, context()),
-    );
-    expect(error.code).toBe("PERMISSION_DENIED");
+    expect(
+      (await failure(handlers["page.screenshot"]({ tabId: 1, format: "png", expect: expected(1) }, context()))).code,
+    ).toBe("PERMISSION_DENIED");
   });
 
   it("rejects a malformed expected subject as invalid input", async () => {

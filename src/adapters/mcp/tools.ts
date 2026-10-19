@@ -6,6 +6,7 @@ import {
   BrowserNavigateInputSchema,
   BrowserPageReadInputSchema,
   BrowserScreenshotInputSchema,
+  BrowserDialogHandleInputSchema,
   BrowserStatusInputSchema,
   BrowserTabActivateInputSchema,
   BrowserTabCloseInputSchema,
@@ -401,11 +402,20 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "browser_screenshot",
     title: "Screenshot browser tab",
     description:
-      "Capture the visible part of a tab (default: the active tab) as a PNG (default) or JPEG image. Returns the image followed by its tab id, URL and MIME type. Requires browser.read.",
+      "Capture a requested http(s) tab, including background tabs, without activation or focus changes. Optional ref clips one current snapshot element; fullPage captures the document. Returns PNG/JPEG, viewport and devicePixelRatio. Discarded tabs must be explicitly reloaded. Requires browser.read.",
     inputSchema: BrowserScreenshotInputSchema,
     annotations: { readOnlyHint: true, openWorldHint: true },
     call: (core, ctx, input) => core.browser.screenshot(ctx, input),
     encode: ({ data, ...metadata }) => toImageToolResult(data, metadata.mimeType, metadata),
+  }),
+  tool({
+    name: "browser_dialog_handle",
+    title: "Answer browser dialog",
+    description:
+      "Accept or dismiss the pending dialog in the given tab; optional promptText for prompt. Requires browser.control. Dialog text is available only through snapshot/tabs_list.",
+    inputSchema: BrowserDialogHandleInputSchema,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    call: (core, ctx, input) => core.browser.handleDialog(ctx, input),
   }),
   tool({
     name: "browser_tab_open",

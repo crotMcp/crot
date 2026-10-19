@@ -28,6 +28,7 @@ export type CrotErrorCode =
    * Nothing was done; the agent takes a new snapshot (ARCHITECTURE.md §27, AD-16 point 5).
    */
   | "BROWSER_STALE_REF"
+  | "BROWSER_DIALOG_OPEN"
   /**
    * The repository's own Git configuration contains settings that could make a
    * git.read or git.write operation run programs; the operation is refused

@@ -157,6 +157,17 @@ const c = (): CrotCore => {
 };
 
 describe("browser approvals (AD-6, AD-8, AD-9, AD-11)", () => {
+  it("binds dialog responses to tab/origin/connection and does not audit promptText", async () => {
+    const answering = c().browser.handleDialog(ctx, { tabId: 7, accept: true, promptText: "private answer" });
+    const { request } = await ui.next();
+    expect(request.subject.browser).toEqual({ tabId: 7, origin: "https://example.com", connectionId: CONNECTION_A });
+    expect(JSON.stringify(request.subject)).not.toContain("private answer");
+    stub.tabs.set(7, "https://changed.example/");
+    ui.approveLast();
+    await expect(answering).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+    expect(stub.performed).toEqual([]);
+    expect(JSON.stringify(audit.events)).not.toContain("private answer");
+  });
   it("binds the default active tab with tabs.resolve and sends the expected subject", async () => {
     const clicking = c().browser.click(ctx, { selector: "#buy" });
     const { request } = await ui.next();

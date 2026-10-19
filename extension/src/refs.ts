@@ -207,7 +207,13 @@ export async function verifyRef(
   const target = registry.lookup(ref);
   if (target === undefined || target.tabId !== tabId) throw stale();
   if (cdp.generation(tabId) !== target.generation || !cdp.isAttached(tabId)) throw stale();
-  const { frames } = await tabFrames(cdp, tabId);
+  let frames;
+  try {
+    ({ frames } = await tabFrames(cdp, tabId));
+  } catch (error) {
+    if (cdp.generation(tabId) !== target.generation || !cdp.isAttached(tabId)) throw stale();
+    throw error;
+  }
   const frame = frames.find((f) => f.frameId === target.frameId);
   if (frame === undefined || frame.loaderId !== target.loaderId) throw stale();
   if (cdp.generation(tabId) !== target.generation) throw stale();

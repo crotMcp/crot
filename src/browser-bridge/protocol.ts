@@ -79,7 +79,18 @@ export type BrowserResponse =
       readonly error: { readonly code: string; readonly message: string };
     };
 
-export type BrowserToHostMessage = BrowserHello | BrowserResponse;
+export const BROWSER_DIALOG_TYPES = ["alert", "confirm", "prompt", "beforeunload", "file_chooser"] as const;
+export type BrowserDialogType = (typeof BROWSER_DIALOG_TYPES)[number];
+/** Content-free telemetry only: cannot initiate a Core operation (AD-32). */
+export type BrowserNotice =
+  | {
+      readonly type: "browser_notice";
+      readonly event: "dialog_auto_dismissed";
+      readonly tabId: number;
+      readonly dialogType: BrowserDialogType;
+    }
+  | { readonly type: "browser_notice"; readonly event: "cdp_status"; readonly available: boolean };
+export type BrowserToHostMessage = BrowserHello | BrowserResponse | BrowserNotice;
 
 /** Host -> extension: the hello was accepted. */
 export interface HostWelcome {
@@ -389,6 +400,28 @@ export function parseBrowserMessage(value: unknown): BrowserToHostMessage {
         invalid("hello");
       }
       return { type: "hello", protocol: value.protocol, browser: { name, version, extensionVersion } };
+    }
+    case "browser_notice": {
+      if (
+        value.event === "cdp_status" &&
+        typeof value.available === "boolean" &&
+        Object.keys(value).every((k) => ["type", "event", "available"].includes(k))
+      )
+        return { type: "browser_notice", event: "cdp_status", available: value.available };
+      if (
+        value.event === "dialog_auto_dismissed" &&
+        Number.isSafeInteger(value.tabId) &&
+        (value.tabId as number) >= 0 &&
+        BROWSER_DIALOG_TYPES.includes(value.dialogType as BrowserDialogType) &&
+        Object.keys(value).every((k) => ["type", "event", "tabId", "dialogType"].includes(k))
+      )
+        return {
+          type: "browser_notice",
+          event: "dialog_auto_dismissed",
+          tabId: value.tabId as number,
+          dialogType: value.dialogType as BrowserDialogType,
+        };
+      return invalid("browser notice");
     }
     case "response": {
       const id = value.id;

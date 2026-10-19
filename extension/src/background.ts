@@ -26,7 +26,7 @@ const platform =
 const mac = /mac/i.test(platform);
 
 /** Debugger sessions (Browser v1, AD-16 point 3); detached when the CROT connection ends. */
-const cdp = new CdpSessions(chrome);
+const cdp = new CdpSessions(chrome, { onNotice: (notice) => connection.notify(notice) });
 
 const connection = new HostConnection({
   runtime: chrome.runtime,
