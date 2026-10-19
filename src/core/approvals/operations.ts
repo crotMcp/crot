@@ -8,6 +8,8 @@ export const KNOWN_OPERATIONS: readonly string[] = [
   "browser.click",
   "browser.dialog_handle",
   "browser.drag",
+  "browser.download",
+  "browser.file_upload",
   "browser.history",
   "browser.hover",
   "browser.navigate",

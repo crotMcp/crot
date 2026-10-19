@@ -141,6 +141,11 @@ const inUse = () =>
   );
 
 export class BrowserBridge implements BrowserConnection {
+  private readonly uploadListeners = new Set<(token: string, connectionId: string) => void>();
+  onUploadReleased(listener: (token: string, connectionId: string) => void): () => void {
+    this.uploadListeners.add(listener);
+    return () => this.uploadListeners.delete(listener);
+  }
   private readonly dialogListeners = new Set<
     (event: { tabId: number; dialogType: string; connectionId: string }) => void
   >();
@@ -475,7 +480,9 @@ export class BrowserBridge implements BrowserConnection {
       if (extension.noticeCount > 120) throw new BrowserProtocolError("Browser notice rate exceeded.");
       if (response.event === "cdp_status")
         extension.cdp = { available: response.available, reason: response.available ? null : "debugger_unavailable" };
-      else
+      else if (response.event === "upload_released") {
+        for (const listener of this.uploadListeners) listener(response.token, extension.connectionId);
+      } else
         for (const listener of this.dialogListeners)
           listener({ tabId: response.tabId, dialogType: response.dialogType, connectionId: extension.connectionId });
       return;

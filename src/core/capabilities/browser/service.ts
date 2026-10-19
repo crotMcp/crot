@@ -1,3 +1,6 @@
+import { z as fileZ } from "zod";
+import { BROWSER_FILE_BYTES_MAX, type BrowserFiles } from "./files.js";
+import type { ResolvedPath } from "../../workspace/workspace.js";
 import { StringDecoder } from "node:string_decoder";
 import type { z } from "zod";
 import { normalizedHttpOrigin } from "../../approvals/subject.js";
@@ -16,6 +19,10 @@ import type {
 } from "./connection.js";
 import {
   BROWSER_SCREENSHOT_MAX_BYTES,
+  BrowserFileUploadInputSchema,
+  BrowserDownloadInputSchema,
+  type BrowserFileUploadInput,
+  type BrowserDownloadInput,
   BrowserDialogHandleInputSchema,
   type BrowserDialogHandleInput,
   BrowserClickInputSchema,
@@ -115,6 +122,7 @@ const IN_USE_DETAIL =
   "Another CROT instance owns the browser bridge. Browser operations are unavailable in this instance; all other capabilities work normally.";
 
 export interface BrowserServiceDeps {
+  readonly files?: BrowserFiles;
   readonly guard: ExecutionGuard;
   readonly limits: Pick<Limits, "maxReadBytes">;
   /** Absent when browser support is disabled. */
@@ -151,11 +159,18 @@ export class BrowserService {
   private readonly inFlight = new Map<number | "active", number>();
   /** Role, name and frame of the refs of the last snapshots (AD-16 points 10, 16). */
   private readonly refs = new RefDescriptions();
+  private readonly uploadConnections = new Map<string, string>();
+  private readonly stopUploadRelease: (() => void) | undefined;
   private closed = false;
   private readonly unsubscribe: (() => void) | undefined;
 
   constructor(private readonly deps: BrowserServiceDeps) {
     this.timeoutMs = deps.timeoutMs ?? BROWSER_DEFAULT_TIMEOUT_MS;
+    this.stopUploadRelease = deps.connection?.onUploadReleased?.((token, connectionId) => {
+      if (this.uploadConnections.get(token) !== connectionId) return;
+      this.uploadConnections.delete(token);
+      void deps.files?.release(token).catch(() => undefined);
+    });
     this.unsubscribe = deps.onDialogDismissed
       ? deps.connection?.onDialogDismissed?.(deps.onDialogDismissed)
       : undefined;
@@ -455,6 +470,171 @@ export class BrowserService {
     );
   }
 
+  async fileUpload(
+    context: AuthContext,
+    input: BrowserFileUploadInput,
+  ): Promise<{ tabId: number; files: { name: string; size: number }[] }> {
+    const args = parseInput(BrowserFileUploadInputSchema, input),
+      store = this.fileStore();
+    const paths = await Promise.all(args.paths.map((p) => store.workspace.resolve(p)));
+    const details: Record<string, unknown> = {
+      tabId: tabRef(args.tabId),
+      paths: paths.map((p) => p.relative ?? "(outside workspace)"),
+    };
+    return this.run(
+      context,
+      "browser.file_upload",
+      ["browser.control", "filesystem.read"],
+      details,
+      {
+        summary: "Upload workspace files to a browser page",
+        elements: args.ref ? [{ ref: args.ref, prefix: "", description: this.describeRef(args.ref, args.tabId) }] : [],
+        target: { tabId: args.tabId },
+        effects: paths.map((p) => ({ label: "file", value: p.relative ?? "(outside workspace)" })),
+      },
+      async (bound) => {
+        if (paths.some((p) => !p.insideWorkspace))
+          throw new CrotError("PERMISSION_DENIED", "Browser uploads require workspace files.");
+        const subject = bound ?? (await this.bindTarget({ tabId: args.tabId })).browser!;
+        const lease = await store.upload(paths);
+        details.files = lease.files.map((f, i) => ({ path: paths[i]!.relative, size: f.size }));
+        this.uploadConnections.set(lease.token, subject.connectionId);
+        try {
+          const raw = await this.perTab(subject.tabId, () =>
+            this.send(
+              "files.upload",
+              bindParams(
+                {
+                  ...tab(subject.tabId),
+                  ...(args.ref === undefined ? {} : { ref: args.ref }),
+                  token: lease.token,
+                  paths: lease.paths,
+                },
+                subject,
+              ),
+              subject,
+              subject.connectionId,
+            ),
+          );
+          const result = validate(
+            fileZ.object({ tabId: fileZ.number().int().nonnegative() }).strict(),
+            raw,
+            "files.upload",
+          );
+          expectTab("files.upload", subject.tabId, result.tabId);
+          return { tabId: result.tabId, files: lease.files };
+        } catch (error) {
+          // These are definite precondition failures, never an indeterminate CDP apply.
+          if (
+            error instanceof CrotError &&
+            [
+              "INVALID_INPUT",
+              "BROWSER_STALE_REF",
+              "BROWSER_DIALOG_OPEN",
+              "BROWSER_PAGE_RESTRICTED",
+              "PERMISSION_DENIED",
+              "NOT_FOUND",
+            ].includes(error.code)
+          ) {
+            this.uploadConnections.delete(lease.token);
+            await store.release(lease.token);
+          }
+          // Timeouts/disconnects may follow an applied upload. Keep its copy until
+          // the retained extension lease reports document/tab release or Core exits.
+          throw error;
+        }
+      },
+      paths,
+    );
+  }
+  async download(context: AuthContext, input: BrowserDownloadInput): Promise<{ size: number; mimeType: string }> {
+    const args = parseInput(BrowserDownloadInputSchema, input),
+      store = this.fileStore();
+    const destination = await store.workspace.resolve(args.savePath);
+    const details: Record<string, unknown> = {
+      tabId: tabRef(args.tabId),
+      savePath: destination.relative ?? "(outside workspace)",
+      overwrite: args.overwrite,
+    };
+    return this.run(
+      context,
+      "browser.download",
+      ["browser.control", "filesystem.write"],
+      details,
+      {
+        summary: "Download a browser attachment into the workspace",
+        elements: args.ref ? [{ ref: args.ref, prefix: "", description: this.describeRef(args.ref, args.tabId) }] : [],
+        target: { tabId: args.tabId },
+        effects: [
+          ...(args.url ? [{ label: "URL origin", value: urlOrigin(args.url) }] : []),
+          ...(args.ref === undefined ? this.frameEffects(args.frameRef, args.tabId, "") : []),
+          { label: "save path", value: destination.relative ?? "(outside workspace)" },
+          { label: "overwrite", value: String(args.overwrite) },
+        ],
+      },
+      async (bound) => {
+        if (!destination.insideWorkspace)
+          throw new CrotError("PERMISSION_DENIED", "Browser download destination must be in the workspace.");
+        const subject = bound ?? (await this.bindTarget({ tabId: args.tabId })).browser!;
+        const lease = await store.download();
+        try {
+          const params = {
+            ...tab(subject.tabId),
+            ...(args.ref === undefined ? {} : { ref: args.ref }),
+            ...(args.selector === undefined ? {} : { selector: args.selector }),
+            ...(args.frameRef === undefined ? {} : { frameRef: args.frameRef }),
+            ...(args.url === undefined ? {} : { url: args.url }),
+            prefix: lease.prefix,
+            stem: lease.stem,
+            deadline: Date.now() + args.timeoutMs,
+            timeoutMs: args.timeoutMs,
+            maxBytes: BROWSER_FILE_BYTES_MAX,
+          };
+          const raw = await this.perTab(subject.tabId, () =>
+            this.send(
+              "files.download",
+              bindParams(params, subject),
+              subject,
+              subject.connectionId,
+              args.timeoutMs + BROWSER_WAIT_MARGIN_MS,
+            ),
+          );
+          const result = validate(
+            fileZ
+              .object({
+                tabId: fileZ.number().int().nonnegative(),
+                originalName: fileZ.string().max(120),
+                size: fileZ.number().int().min(0).max(BROWSER_FILE_BYTES_MAX),
+                mimeType: fileZ.string().max(200),
+              })
+              .strict(),
+            raw,
+            "files.download",
+          );
+          expectTab("files.download", subject.tabId, result.tabId);
+          this.assertOpen();
+          await store.publish(lease, result.originalName, result.size, destination, args.overwrite);
+          details.size = result.size;
+          return { size: result.size, mimeType: result.mimeType };
+        } finally {
+          await this.send("files.download_release", { stem: lease.stem }, undefined, subject.connectionId).catch(
+            () => undefined,
+          );
+          await store.discard(lease);
+        }
+      },
+      [destination],
+    );
+  }
+  private fileStore(): BrowserFiles {
+    if (!this.deps.files) throw new CrotError("OPERATION_FAILED", "Browser file staging is unavailable.");
+    return this.deps.files;
+  }
+  async closeFiles(): Promise<void> {
+    this.stopUploadRelease?.();
+    await this.deps.files?.close();
+  }
+
   async hover(context: AuthContext, input: BrowserHoverInput): Promise<BrowserControlResult> {
     const args = parseInput(BrowserHoverInputSchema, input);
     return this.control(context, "browser.hover", "page.hover", args, BrowserControlResultSchema, {
@@ -707,10 +887,11 @@ export class BrowserService {
   private run<T>(
     context: AuthContext,
     operation: string,
-    capability: Capability,
+    capability: Capability | readonly Capability[],
     details: Record<string, unknown>,
     approval: BrowserApproval,
     execute: (bound: ApprovalBrowserSubject | undefined) => Promise<T>,
+    paths?: readonly ResolvedPath[],
   ): Promise<T> {
     let bound: ApprovalBrowserSubject | undefined;
     const target = approval.target;
@@ -733,10 +914,19 @@ export class BrowserService {
       {
         operation,
         capability,
+        ...(paths ? { paths, auditPaths: paths.map((p) => p.relative ?? "(outside workspace)") } : {}),
         details,
         approval: { summary: approval.summary, effects: approval.effects, ...(bind ? { bind } : {}) },
       },
-      () => execute(bound),
+      async () => {
+        try {
+          return await execute(bound);
+        } catch (e) {
+          if (paths && !(e instanceof CrotError))
+            throw new CrotError("OPERATION_FAILED", "Browser file transfer failed; private staging was not published.");
+          throw e;
+        }
+      },
     );
   }
 

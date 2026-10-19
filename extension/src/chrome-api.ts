@@ -80,6 +80,7 @@ export interface ChromeDebuggee {
 }
 
 export interface ChromeApi {
+  readonly downloads?: ChromeDownloads;
   readonly runtime: {
     connectNative(application: string): ChromePort;
     readonly lastError?: { readonly message?: string } | undefined;
@@ -128,4 +129,29 @@ export interface ChromeApi {
     create(name: string, info: { readonly periodInMinutes: number }): Promise<void>;
     readonly onAlarm: ChromeEvent<(alarm: { readonly name: string }) => void>;
   };
+}
+
+export interface ChromeDownloadItem {
+  readonly id: number;
+  readonly filename: string;
+  readonly url: string;
+  readonly finalUrl?: string;
+  readonly state: string;
+  readonly danger: string;
+  readonly fileSize: number;
+  readonly totalBytes: number;
+  readonly bytesReceived: number;
+  readonly mime: string;
+}
+export interface ChromeDownloads {
+  readonly onDeterminingFilename: ChromeEvent<
+    (
+      item: ChromeDownloadItem,
+      suggest: (suggestion?: { filename: string; conflictAction: "uniquify" }) => void,
+    ) => boolean | void
+  >;
+  readonly onChanged: ChromeEvent<(delta: { id: number }) => void>;
+  search(query: { id: number }): Promise<ChromeDownloadItem[]>;
+  cancel(id: number): Promise<void>;
+  removeFile(id: number): Promise<void>;
 }

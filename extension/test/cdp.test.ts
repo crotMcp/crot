@@ -45,7 +45,7 @@ const FORBIDDEN = [
   "Runtime.enable",
   "Page.addScriptToEvaluateOnNewDocument",
   "Debugger.enable",
-  "Fetch.enable",
+  "Fetch.getResponseBody",
   "Storage.getCookies",
   "Browser.grantPermissions",
   "SystemInfo.getInfo",
@@ -61,10 +61,26 @@ const FORBIDDEN = [
 
 describe("CDP allowlist (AD-16 point 3)", () => {
   it("contains only methods of the allowed domains", () => {
-    const domains = new Set(["Accessibility", "DOM", "DOMSnapshot", "Emulation", "Input", "Page", "Target", "Network"]);
+    const domains = new Set([
+      "Accessibility",
+      "DOM",
+      "DOMSnapshot",
+      "Emulation",
+      "Input",
+      "Page",
+      "Target",
+      "Network",
+      "Fetch",
+    ]);
     for (const method of CDP_ALLOWED_METHODS) expect(domains.has(method.split(".")[0] as string)).toBe(true);
     expect([...CDP_ALLOWED_METHODS].filter((m) => m.startsWith("Network."))).toEqual(["Network.enable"]);
     expect([...CDP_ALLOWED_METHODS].filter((m) => m.startsWith("Target."))).toEqual(["Target.setAutoAttach"]);
+    expect([...CDP_ALLOWED_METHODS].filter((m) => m.startsWith("Fetch."))).toEqual([
+      "Fetch.enable",
+      "Fetch.continueResponse",
+      "Fetch.continueRequest",
+      "Fetch.disable",
+    ]);
     // Focus emulation only: no device, network, script or timezone emulation.
     expect([...CDP_ALLOWED_METHODS].filter((m) => m.startsWith("Emulation."))).toEqual([
       "Emulation.setFocusEmulationEnabled",
@@ -196,5 +212,42 @@ describe("JavaScript dialogs", () => {
     chrome.debugger.event(1, "Page.javascriptDialogClosed", { result: true });
     await cdp.send(1, "DOM.getDocument");
     cdp.assertNoDialog(1);
+  });
+});
+
+describe("WP-26 upload lease lifecycle", () => {
+  it("releases a child frame's copies only on that frame's document replacement", async () => {
+    const chrome = new FakeChrome(),
+      notices: unknown[] = [];
+    chrome.addTab({ id: 1 });
+    const cdp = new CdpSessions(chrome.api, {
+      onNotice: (n) => {
+        if (n.event === "upload_released") notices.push(n);
+      },
+    });
+    await cdp.send(1, "Page.enable");
+    cdp.retainUpload(1, "a1".repeat(24), "main");
+    cdp.retainUpload(1, "b2".repeat(24), "child");
+    chrome.debugger.event(1, "Page.frameNavigated", { frame: { id: "child", parentId: "main" } });
+    expect(notices).toEqual([{ type: "browser_notice", event: "upload_released", token: "b2".repeat(24) }]);
+    chrome.debugger.event(1, "Page.frameNavigated", { frame: { id: "main" } });
+    expect(notices).toHaveLength(2);
+    await cdp.detachAll();
+  });
+  it("does not discard lazy-read copies on manual debugger detach", async () => {
+    const chrome = new FakeChrome(),
+      notices: unknown[] = [];
+    chrome.addTab({ id: 1 });
+    const cdp = new CdpSessions(chrome.api, {
+      onNotice: (n) => {
+        if (n.event === "upload_released") notices.push(n);
+      },
+    });
+    await cdp.send(1, "Page.enable");
+    cdp.retainUpload(1, "a1".repeat(24), "main");
+    chrome.debugger.userDetach(1);
+    expect(notices).toEqual([]);
+    await chrome.api.tabs.remove(1);
+    expect(notices).toEqual([{ type: "browser_notice", event: "upload_released", token: "a1".repeat(24) }]);
   });
 });

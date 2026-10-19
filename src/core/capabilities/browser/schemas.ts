@@ -382,6 +382,32 @@ export type BrowserSetCheckedInput = z.input<typeof BrowserSetCheckedInputSchema
 export type BrowserWaitInput = z.input<typeof BrowserWaitInputSchema>;
 export type BrowserHistoryInput = z.input<typeof BrowserHistoryInputSchema>;
 
+export const BrowserFileUploadInputSchema = z
+  .object({
+    tabId: OptionalTabId,
+    ref: OptionalRef.describe("File input from browser_snapshot; omit only to answer a pending file chooser."),
+    paths: z.array(z.string().min(1).max(4096)).min(1).max(16),
+  })
+  .strict();
+export const BrowserDownloadInputSchema = z
+  .object({
+    tabId: OptionalTabId,
+    ref: OptionalRef,
+    selector: OptionalSelector,
+    frameRef: TargetFrameRef,
+    url: z.string().refine(isAllowedBrowserUrl).optional(),
+    savePath: z.string().min(1).max(4096),
+    overwrite: z.boolean().default(false),
+    timeoutMs: z.number().int().min(1).max(60_000).default(20_000),
+  })
+  .strict()
+  .refine((v) => [v.ref, v.selector, v.url].filter((x) => x !== undefined).length === 1, {
+    message: "Give exactly one ref, selector or HTTP(S) URL trigger.",
+  })
+  .refine(frameNeedsTarget, FRAME_NEEDS_TARGET);
+export type BrowserFileUploadInput = z.input<typeof BrowserFileUploadInputSchema>;
+export type BrowserDownloadInput = z.input<typeof BrowserDownloadInputSchema>;
+
 // ---------------------------------------------------------------- results (untrusted, from the browser)
 
 const ResultUrl = z.string().max(BROWSER_URL_MAX_LENGTH);

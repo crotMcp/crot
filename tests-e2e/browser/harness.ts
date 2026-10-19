@@ -167,6 +167,11 @@ export async function startFixtureServer(): Promise<FixtureServer> {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     requests.push({ path: url.pathname, query: url.searchParams, userAgent: String(req.headers["user-agent"] ?? "") });
+    if (url.pathname === "/wp26-redirect") {
+      res.writeHead(302, { Location: "/wp26-file" });
+      res.end();
+      return;
+    }
     // Hold the first response headers past the default 20 s tab-open load budget.
     // Chromium keeps a non-http initial document until this navigation commits.
     if (url.pathname === "/delayed-commit.html") {
@@ -176,6 +181,27 @@ export async function startFixtureServer(): Promise<FixtureServer> {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
         res.end("<!doctype html><title>Delayed commit</title><button>Delayed button</button>");
       }, 23000);
+      delayed.add(timer);
+      res.on("close", () => {
+        clearTimeout(timer);
+        delayed.delete(timer);
+      });
+      return;
+    }
+    if (url.pathname === "/wp26-file" || url.pathname === "/wp26-interrupted") {
+      const body = Buffer.from("WP26_FIXTURE_FILE_CONTENT_NOT_FOR_AUDIT\0binary");
+      res.writeHead(200, {
+        "content-type": "application/octet-stream",
+        "content-disposition": 'attachment; filename="fixture.bin"',
+        "content-length": body.length,
+        "cache-control": "no-store",
+      });
+      res.write(body.subarray(0, 8));
+      const timer = setTimeout(() => {
+        delayed.delete(timer);
+        if (url.pathname === "/wp26-interrupted") res.destroy();
+        else res.end(body.subarray(8));
+      }, 500);
       delayed.add(timer);
       res.on("close", () => {
         clearTimeout(timer);
@@ -426,6 +452,10 @@ export interface CdpWitness {
    * before the dialog opens); answer() then accepts the open dialog, as the user would.
    */
   watchDialogs(urlPrefix: string): Promise<{ answer(): Promise<void> }>;
+  /** Fault injection of native danger classification, not malware-detection qualification. */
+  unsafeDownloadClassification(enabled: boolean): Promise<void>;
+  foreignDownload(tabId: number, url: string): Promise<void>;
+  downloads(): Promise<{ id: number; filename: string; state: string; url: string }[]>;
   closeTab(tabId: number): Promise<void>;
   detachTab(tabId: number): Promise<void>;
   blockDebugger(blocked: boolean): Promise<void>;
@@ -510,6 +540,15 @@ export async function watchExtensionCdp(sb: Sandbox): Promise<CdpWitness> {
         `Promise.all([chrome.tabs.query({active:true}),chrome.windows.getAll()]).then(([tabs,windows])=>({active:tabs.map(t=>t.id),focused:windows.filter(w=>w.focused).map(w=>w.id)}))`,
       ),
     discardTab: (tabId) => evaluate<void>(`chrome.tabs.discard(${tabId}).then(()=>undefined)`),
+    unsafeDownloadClassification: (enabled) =>
+      evaluate<void>(`(() => {
+      if (!globalThis.__crotSearch) globalThis.__crotSearch = chrome.downloads.search.bind(chrome.downloads);
+      chrome.downloads.search = ${enabled} ? async q => (await globalThis.__crotSearch(q)).map(i => ({...i,danger:"dangerous"})) : globalThis.__crotSearch;
+    })()`),
+    foreignDownload: async (tabId, url) => {
+      await evaluate(`chrome.tabs.update(${tabId}, {url:${JSON.stringify(url)}})`);
+    },
+    downloads: () => evaluate(`chrome.downloads.search({})`),
     closeTab: (tabId) => evaluate<void>(`chrome.tabs.remove(${tabId})`),
     openWindow: (url) =>
       evaluate<{ tabId: number; windowId: number }>(

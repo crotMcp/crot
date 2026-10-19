@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8"><title>WP26 files</title>
+<input id="files" aria-label="Upload fixture" type="file" multiple>
+<input id="single" type="file" name="multiple" aria-label="Single fixture">
+<input id="hidden" type="file" style="display:none">
+<button id="chooser">Choose fixture</button><button id="read">Read retained file</button>
+<a id="download" href="/wp26-file">Download fixture</a>
+<script>
+let retained;
+files.onchange = () => retained = files.files[0];
+hidden.onchange = () => retained = hidden.files[0];
+chooser.onclick = () => hidden.click();
+read.onclick = async () => { const data = await retained.text(); await fetch('/event?type=wp26-upload&data='+encodeURIComponent(data)); };
+</script>
+
+<script>
+if(new URLSearchParams(location.search).has('frame')) {
+ const iframe=document.createElement('iframe'); iframe.src=new URLSearchParams(location.search).get('frame')+'/wp26.html'; iframe.style='width:700px;height:350px'; document.body.append(iframe);
+}
+</script>

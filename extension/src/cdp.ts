@@ -35,17 +35,22 @@ export const CDP_IDLE_DETACH_MS = 5 * 60_000;
  * method: focus emulation, so that keys and focus reach the page while the
  * browser window is not the focused window (it changes nothing else).
  *
- * Not here, therefore never sendable: Runtime.*, Debugger.*, Fetch.*,
+ * Not here, therefore never sendable: Runtime.*, Debugger.*, all Fetch methods except the four AD-33 continuations,
  * Storage.*, Browser.*, SystemInfo.*, every other Emulation method, Network.getCookies /
  * getResponseBody / interception, Target.createTarget,
  * Target.createBrowserContext, Page.addScriptToEvaluateOnNewDocument.
  * Dialog, chooser interception and screenshot methods are included by WP-25.
- * DOM.setFileInputFiles and download handling remain WP-26.
+ * WP-26 adds DOM.setFileInputFiles and the four AD-33 Fetch methods; there is no generic interception tool.
  */
 export const CDP_ALLOWED_METHODS: ReadonlySet<string> = new Set([
   "Accessibility.enable",
   "Accessibility.getFullAXTree",
   "Accessibility.getPartialAXTree",
+  "DOM.setFileInputFiles",
+  "Fetch.enable",
+  "Fetch.continueResponse",
+  "Fetch.continueRequest",
+  "Fetch.disable",
   "DOM.enable",
   "DOM.getDocument",
   "DOM.describeNode",
@@ -84,6 +89,7 @@ const DETACHED_MESSAGE = "The browser debugger was detached from the tab.";
 
 /** Methods that still answer while a JavaScript dialog blocks the page (they do not need the page's script). */
 const DIALOG_SAFE_METHODS: ReadonlySet<string> = new Set([
+  "DOM.setFileInputFiles",
   "Page.enable",
   "Page.getNavigationHistory",
   "Target.setAutoAttach",
@@ -141,6 +147,11 @@ interface Attachment {
 }
 
 export class CdpSessions {
+  private readonly sessionListeners = new Set<
+    (tabId: number, method: string, params: unknown, sessionId?: string) => void
+  >();
+  private readonly uploads = new Map<number, Map<string, string>>();
+  private readonly choosers = new Map<number, { backendNodeId: number; frameId: string; sessionId?: string }>();
   private readonly attachments = new Map<number, Attachment>();
   private readonly generations = new Map<number, number>();
   private readonly listeners = new Set<CdpEventListener>();
@@ -175,6 +186,23 @@ export class CdpSessions {
     });
     api.debugger.onEvent.addListener((source, method, params) => {
       if (source.tabId === undefined || !this.attachments.has(source.tabId)) return;
+      for (const listener of this.sessionListeners) listener(source.tabId, method, params, source.sessionId);
+      const frame = params as { frame?: { id?: string; parentId?: string }; frameId?: string } | undefined;
+      if (method === "Page.frameNavigated" && frame?.frame?.id) {
+        this.releaseUploads(
+          source.tabId,
+          frame.frame.parentId === undefined && source.sessionId === undefined ? undefined : frame.frame.id,
+        );
+      } else if (method === "Page.frameDetached" && frame?.frameId) this.releaseUploads(source.tabId, frame.frameId);
+      if (method === "Page.fileChooserOpened") {
+        const p = params as { backendNodeId?: number; frameId?: string };
+        if (Number.isSafeInteger(p.backendNodeId) && typeof p.frameId === "string")
+          this.choosers.set(source.tabId, {
+            backendNodeId: p.backendNodeId!,
+            frameId: p.frameId,
+            ...(source.sessionId === undefined ? {} : { sessionId: source.sessionId }),
+          });
+      }
       if (method === "Page.javascriptDialogOpening" || method === "Page.fileChooserOpened") {
         const p = (params ?? {}) as { type?: string; message?: string; defaultPrompt?: string };
         const type = method === "Page.fileChooserOpened" ? "file_chooser" : p.type;
@@ -184,7 +212,9 @@ export class CdpSessions {
             message: String(p.message ?? "").slice(0, 10_000),
             ...(typeof p.defaultPrompt === "string" ? { defaultPrompt: p.defaultPrompt.slice(0, 10_000) } : {}),
           };
+          const chooser = this.choosers.get(source.tabId);
           this.clearDialog(source.tabId);
+          if (type === "file_chooser" && chooser) this.choosers.set(source.tabId, chooser);
           this.dialogs.set(source.tabId, dialog);
           this.dialogSessions.set(source.tabId, source.sessionId);
           const id = source.tabId;
@@ -215,7 +245,10 @@ export class CdpSessions {
       if (source.sessionId !== undefined) return;
       for (const listener of this.listeners) listener(source.tabId, method, params);
     });
-    api.tabs.onRemoved.addListener((tabId) => this.forget(tabId));
+    api.tabs.onRemoved.addListener((tabId) => {
+      this.releaseUploads(tabId);
+      this.forget(tabId);
+    });
   }
 
   /** Increases whenever the tab's debugger session ends; references carry it to detect detach. */
@@ -235,6 +268,32 @@ export class CdpSessions {
         "BROWSER_DIALOG_OPEN",
         "A dialog is open in the tab; use browser_snapshot or browser_dialog_handle.",
       );
+  }
+
+  onSessionEvent(listener: (tabId: number, method: string, params: unknown, sessionId?: string) => void): () => void {
+    this.sessionListeners.add(listener);
+    return () => this.sessionListeners.delete(listener);
+  }
+  retainUpload(tabId: number, token: string, frameId: string): void {
+    const leases = this.uploads.get(tabId) ?? new Map<string, string>();
+    leases.set(token, frameId);
+    this.uploads.set(tabId, leases);
+  }
+  private releaseUploads(tabId: number, frameId?: string): void {
+    const leases = this.uploads.get(tabId);
+    if (!leases) return;
+    for (const [token, frame] of leases)
+      if (frameId === undefined || frame === frameId) {
+        leases.delete(token);
+        this.notice({ type: "browser_notice", event: "upload_released", token });
+      }
+    if (!leases.size) this.uploads.delete(tabId);
+  }
+  fileChooser(tabId: number): { backendNodeId: number; frameId: string; sessionId?: string } | undefined {
+    return this.choosers.get(tabId);
+  }
+  completeFileChooser(tabId: number): void {
+    this.clearDialog(tabId);
   }
 
   onEvent(listener: CdpEventListener): () => void {
@@ -432,6 +491,7 @@ export class CdpSessions {
     if (timer !== undefined) this.clearTimer(timer);
     this.dialogTimers.delete(tabId);
     this.dialogs.delete(tabId);
+    this.choosers.delete(tabId);
     this.dialogSessions.delete(tabId);
   }
 
@@ -444,7 +504,7 @@ export class CdpSessions {
       if (accept)
         throw new ExtensionError(
           "INVALID_INPUT",
-          "File upload belongs to WP-26; dismiss this chooser with accept=false.",
+          "Use browser_file_upload to answer this chooser, or accept=false to dismiss it.",
         );
     } else
       await this.send(
@@ -496,7 +556,10 @@ export class CdpSessions {
     const attachment = this.attachments.get(tabId);
     if (!attachment) return;
     if (attachment.idle !== undefined) this.clearTimer(attachment.idle);
-    attachment.idle = this.setTimer(() => void this.detach(tabId), this.idleMs);
+    attachment.idle = this.setTimer(() => {
+      if (this.uploads.has(tabId)) this.touch(tabId);
+      else void this.detach(tabId);
+    }, this.idleMs);
   }
 
   private forget(tabId: number, cancel = true): void {

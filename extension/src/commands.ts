@@ -1,3 +1,4 @@
+import { DownloadCapture } from "./download-capture.js";
 import type { BrowserCommand } from "../../src/core/capabilities/browser/connection.js";
 import type { ChromeApi, ChromeTab } from "./chrome-api.js";
 import { ExtensionError, isExtensionErrorCode } from "./errors.js";
@@ -541,7 +542,112 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     dialog: cdp.dialog(tab.id),
   });
 
+  const capture = new DownloadCapture(api, cdp);
   const handlers: CommandHandlers = {
+    async "files.download_release"(params) {
+      onlyKeys(params, ["stem"]);
+      const stem = stringParam(params, "stem", 48, 48);
+      if (!/^[a-f0-9]{48}$/.test(stem)) throw invalid("Invalid download lease.");
+      await capture.release(stem);
+      return {};
+    },
+    async "files.upload"(params, context) {
+      onlyKeys(params, ["tabId", "ref", "token", "paths", "expect"]);
+      const token = stringParam(params, "token", 48, 48);
+      if (
+        !/^[a-f0-9]{48}$/.test(token) ||
+        !Array.isArray(params.paths) ||
+        params.paths.length < 1 ||
+        params.paths.length > 16 ||
+        !params.paths.every((p) => typeof p === "string" && p.length > 0 && p.length < 8192 && !p.includes("\0"))
+      )
+        throw invalid("Invalid upload staging parameters.");
+      const paths = params.paths as string[];
+      const expected = expectParam(params),
+        first = await targetTab(optionalTabIdParam(params), expected, context, true);
+      return serialized(first.id, async () => {
+        const tab = await targetTab(first.id, expected, context, true);
+        let frameId: string;
+        const chooser = cdp.fileChooser(tab.id);
+        if (params.ref === undefined) {
+          if (!chooser || cdp.dialog(tab.id)?.type !== "file_chooser")
+            throw invalid("Give a file input ref or open a file chooser first.");
+          frameId = chooser.frameId;
+          cdp.retainUpload(tab.id, token, frameId);
+          await cdp.send(
+            tab.id,
+            "DOM.setFileInputFiles",
+            { files: paths, backendNodeId: chooser.backendNodeId },
+            chooser.sessionId,
+          );
+          cdp.completeFileChooser(tab.id);
+        } else {
+          cdp.assertNoDialog(tab.id);
+          const node = await resolveTarget(cdp, refsFor(context), tab.id, params, SELECTOR_MAX_LENGTH);
+          const info = await node.channel.send<{ node: { nodeName: string; attributes?: string[] } }>(
+            tab.id,
+            "DOM.describeNode",
+            { backendNodeId: node.backendNodeId },
+          );
+          const attrs = info.node.attributes ?? [];
+          const attributes = new Map<string, string>();
+          for (let i = 0; i + 1 < attrs.length; i += 2) attributes.set(attrs[i]!.toLowerCase(), attrs[i + 1]!);
+          const type = attributes.get("type");
+          if (info.node.nodeName.toLowerCase() !== "input" || type?.toLowerCase() !== "file")
+            throw invalid("ref is not a file input.");
+          if (paths.length > 1 && !attributes.has("multiple"))
+            throw invalid("File input does not accept multiple files.");
+          const tree = await cdp.send<{ frameTree: { frame: { id: string } } }>(tab.id, "Page.getFrameTree");
+          frameId = node.frameId ?? tree.frameTree.frame.id;
+          cdp.retainUpload(tab.id, token, frameId);
+          await node.channel.send(tab.id, "DOM.setFileInputFiles", { files: paths, backendNodeId: node.backendNodeId });
+        }
+        return { tabId: tab.id };
+      });
+    },
+    async "files.download"(params, context) {
+      onlyKeys(params, [
+        "tabId",
+        "ref",
+        "selector",
+        "frameRef",
+        "url",
+        "prefix",
+        "stem",
+        "timeoutMs",
+        "deadline",
+        "maxBytes",
+        "expect",
+      ]);
+      if ([params.ref, params.selector, params.url].filter((x) => x !== undefined).length !== 1)
+        throw invalid("Give exactly one download trigger.");
+      const expected = expectParam(params),
+        first = await targetTab(optionalTabIdParam(params), expected, context, true);
+      const prefix = stringParam(params, "prefix", 1, 200),
+        stem = stringParam(params, "stem", 48, 48);
+      const deadline = params.deadline as number,
+        maxBytes = params.maxBytes as number;
+      return serialized(first.id, () =>
+        exclusiveInput(async () => {
+          const tab = await targetTab(first.id, expected, context, true);
+          cdp.assertNoDialog(tab.id);
+          await ensureVisible(api, inject, tab, visibleWaitMs);
+          const node =
+            params.url === undefined
+              ? await resolveTarget(cdp, refsFor(context), tab.id, params, SELECTOR_MAX_LENGTH)
+              : undefined;
+          return capture.run(tab.id, prefix, stem, deadline, maxBytes, async () => {
+            await targetTab(tab.id, expected, context, true);
+            if (params.url !== undefined) {
+              await api.tabs.update(tab.id, { url: urlParam(params) });
+            } else {
+              const point = await actionablePoint(node!.channel, tab.id, node!.backendNodeId);
+              await clickAt(cdp, tab.id, point, { button: "left", clickCount: 1, modifiers: [] });
+            }
+          });
+        }),
+      );
+    },
     async "tabs.list"(params) {
       onlyKeys(params, []);
       const tabs = await api.tabs.query({});
@@ -1066,6 +1172,8 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     "tabs.close",
     "page.snapshot",
     "dialog.handle",
+    "files.upload",
+    "files.download_release",
   ]);
   const reads = new Set<BrowserCommand>(["page.read", "page.screenshot", "page.wait"]);
   return Object.fromEntries(
