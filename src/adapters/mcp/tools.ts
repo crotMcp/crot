@@ -547,7 +547,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "browser_file_upload",
     title: "Upload files to browser",
     description:
-      "Set 1–16 workspace files (total <=64 MiB) on a file input ref or answer the pending file chooser. Uses immutable private copies retained until document replacement or tab close. Requires browser.control + filesystem.read; autonomous-browser requires user approval. Linux safe-filesystem support required.",
+      "Set 1–16 workspace files (total <=64 MiB) on a file input ref or answer the pending file chooser. Uses immutable private copies retained until document replacement or tab close. Requires browser.control + filesystem.read; autonomous-browser requires user approval. Native safe-filesystem support on Linux/macOS/Windows.",
     inputSchema: BrowserFileUploadInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
     call: (core, ctx, input) => core.browser.fileUpload(ctx, input),
@@ -556,7 +556,7 @@ export const TOOLS: readonly ToolDefinition[] = [
     name: "browser_download",
     title: "Download browser file",
     description:
-      "Capture a selected-tab HTTP(S) attachment by ref/selector click or URL, then atomically save inside workspace. Default overwrite=false, timeout=20000 (max60000), max64MiB. Requires browser.control + filesystem.write. Never touches unrelated downloads. Unsupported dispositions (including filename*), blob/data/new-tab downloads fail closed. Requires Linux safe-filesystem support and owner-configured browser.downloadsDirectory matching the browser default directory.",
+      "Capture a selected-tab HTTP(S) attachment by ref/selector click or URL, then atomically save inside workspace. Default overwrite=false, timeout=20000 (max60000), max64MiB. Requires browser.control + filesystem.write. Never touches unrelated downloads. Unsupported dispositions (including filename*), blob/data/new-tab downloads fail closed. Requires native safe-filesystem support and owner-configured browser.downloadsDirectory matching the browser default directory.",
     inputSchema: BrowserDownloadInputSchema,
     annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
     call: (core, ctx, input) => core.browser.download(ctx, input),

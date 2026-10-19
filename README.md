@@ -20,8 +20,11 @@ saves one proved HTTP(S) attachment atomically; `overwrite:false` by default,
 `filesystem.write`. Both actual operations require approval in an exposed
 `autonomous-browser` session; neither is an exposure source.
 
-**Currently qualified transfer host: Linux only.** Windows/macOS fail closed
-until equivalent safe filesystem primitives exist. Set the owner configuration
+**Transfer hosts: Linux, macOS and Windows.** Core file handling uses native
+descriptor/handle verification and atomic publication on all three; the existing
+Node 20/22 OS CI matrix runs the file-contour integration tests without OS skips.
+Real-browser E2E remains a separate Chromium/Linux witness, not a full branded-browser
+OS matrix. Set the owner configuration
 `browser.downloadsDirectory` to the browser profile's actual default download
 directory (default `~/Downloads`); do not change it through an agent.
 Unsupported dispositions/blob/data/new-tab downloads are not captured by

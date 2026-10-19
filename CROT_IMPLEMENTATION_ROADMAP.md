@@ -803,9 +803,12 @@ today's behaviour.
 **Status: Done in PR #32 (not merged); OD-8: Decided by AD-33.**
 Production implementation, security limits and exact verification matrix:
 [`browser-wp26-transfer-review.md`](docs/design/browser-wp26-transfer-review.md).
-Qualified transfer host: Linux descriptor-relative filesystem; Windows/macOS
-fail closed pending an equivalent safe native primitive. This does not close
-WP-24 owner acceptance or the full branded-browser/OS release matrix.
+Native Core file-contour qualification: Linux, macOS and Windows on Node 20/22
+through the existing six `ci.yml` jobs (`npm test`, no OS skips for the browser
+file integration tests). Linux uses descriptor-relative publication, macOS
+uses native *at syscalls, Windows uses pinned non-reparse handles, owner-only
+DACL/MIC and handle-relative atomic rename. Real Chromium E2E remains Linux;
+this does not close WP-24 owner acceptance or the full branded-browser/OS release matrix.
 
 - **Dependencies:** WP-24 (final acceptance open); OD-8 (**Decided: AD-33**). **Scope:** AD-16 points 11, 12;
   `browser_file_upload` (`browser.control` + `filesystem.read`),

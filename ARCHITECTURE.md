@@ -6091,22 +6091,44 @@ filename callback must prove the same capability before any override. Both
 completion streams and native `danger:safe` are required. Core ACK, failure
 and a bounded lost-ACK timer reclaim only the proved item's browser file.
 Publication uses a verified regular single-link file, `O_NOFOLLOW`, byte count,
-Linux descriptor-relative destination, fsync and atomic link (no overwrite)
-or rename (explicit overwrite). Results/audit omit content, ownership tokens,
+descriptor/handle-relative destination, flush and atomic installation
+(no overwrite by default, explicit replacement only). Results/audit omit content, ownership tokens,
 private staging paths and browser-suggested download names. Audit paths are
 workspace-relative; failures use content-free summaries.
 
-**Qualified host scope:** the race-proof file-transfer filesystem primitive
-is currently implemented on **Linux** using `/proc/self/fd`, `O_DIRECTORY`
-and `O_NOFOLLOW`. Other Core hosts fail closed with `OPERATION_FAILED`; this
-is not Windows/macOS transfer qualification. Browser ≥120 remains the product
-target, not a claim every branded/version/OS combination was tested. Core's
+**Native file-transfer host contract (WP-26 cross-platform qualification):**
+- Linux: `O_NOFOLLOW`, `fstat/lstat` identity and `/proc/self/fd`-anchored
+  destination; fsync + link/rename installs atomically.
+- macOS: `O_NOFOLLOW`, `fstat/lstat` identity and `fcntl(F_GETPATH)` verify the
+  authorized source and held parent. Native `openat`, `linkat`, `renameat`,
+  `unlinkat` operate relative to that descriptor; `/dev/fd` path emulation is
+  not used. Parent identity/workspace membership is revalidated before install.
+- Windows (64-bit local drive paths): use the existing native private-state
+  owner-only DACL/MIC policy, not chmod or inherited-public ACL assertions.
+  `CreateFileW(FILE_FLAG_OPEN_REPARSE_POINT)` pins and verifies every ancestor,
+  with read/write sharing but **no delete sharing**, preventing ancestor
+  replacement/junction redirection. File handles reject reparse/nonregular
+  entries and hardlinks, and volume/file index/size match `lstat`. Source
+  handles also deny writes while copying. Empty output files receive verified
+  private ACLs before bytes; reopened handles must match the created identity.
+  `NtSetInformationFile(FileRenameInformation)` installs from the owned open
+  temporary handle relative to the pinned destination parent; no pathname
+  MoveFile race, no overwrite unless explicitly requested.
+
+`tests/core/browser-files-integration.test.ts` exercises actual BrowserService,
+ExecutionGuard and host filesystem with a controlled BrowserConnection; it and
+BrowserFiles unit tests run with **no OS skips** through `npm test` in all six
+existing `ci.yml` jobs (Linux/macOS/Windows × Node 20/22). This qualifies the
+Core file contour, not a real Chromium extension run on Windows/macOS. Browser
+≥120 remains the product target, not a claim every branded/version/OS
+combination was tested. Core's
 owner-only `browser.downloadsDirectory` must match the profile's actual
 default directory (default `~/Downloads`). No profile-wide behavior changes.
 Unsupported disposition syntax, blob/data/internal sources, new-tab downloads
 and newly created/unverified frame sessions never fall back to URL guessing.
 
 Production tests: `tests/core/browser-files.test.ts`,
+`tests/core/browser-files-integration.test.ts`,
 `extension/test/download-capture.test.ts`, ownership ledger tests and
 `tests-e2e/browser/wp26.e2e.test.ts`. Real Chromium covers ref/chooser upload,
 lazy reads after source mutation, document/tab cleanup, protected/secret/outside

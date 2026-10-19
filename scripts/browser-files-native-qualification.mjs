@@ -25,7 +25,7 @@ try {
   else {
     const result = JSON.parse(readFileSync(report, "utf8"));
     const cases = result.testResults.flatMap((s) => s.assertionResults);
-    if (cases.length < 28 || cases.some((c) => c.status !== "passed"))
+    if (cases.length < 30 || cases.some((c) => c.status !== "passed"))
       throw new Error("Native browser file qualification requires every case passed, no skipped/pending cases.");
     if (process.env.GITHUB_WORKSPACE)
       copyFileSync(report, path.join(process.env.RUNNER_TEMP ?? directory, "crot-browser-files-native.json"));

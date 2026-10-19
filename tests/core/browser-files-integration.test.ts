@@ -22,6 +22,8 @@ const ORIGIN = "https://files.example.test";
 class ControlledBrowser implements BrowserConnection {
   uploads: BrowserCommandParams["files.upload"][] = [];
   downloads = 0;
+  body: string | Buffer = CONTENT;
+  onResolve?: () => Promise<void>;
   constructor(readonly downloadsDirectory: string) {}
   onDownload?: (file: string) => Promise<void>;
   state(): BrowserConnectionState {
@@ -32,7 +34,10 @@ class ControlledBrowser implements BrowserConnection {
     };
   }
   async request(command: BrowserCommand, raw: unknown): Promise<unknown> {
-    if (command === "tabs.resolve") return { tabId: 7, url: ORIGIN + "/page" };
+    if (command === "tabs.resolve") {
+      await this.onResolve?.();
+      return { tabId: 7, url: ORIGIN + "/page" };
+    }
     if (command === "page.read")
       return { tabId: 7, url: ORIGIN + "/page", title: "", format: "text", content: "untrusted", truncated: false };
     if (command === "files.upload") {
@@ -44,12 +49,12 @@ class ControlledBrowser implements BrowserConnection {
     this.downloads++;
     const p = raw as BrowserCommandParams["files.download"];
     const file = path.join(this.downloadsDirectory, p.prefix, p.stem + "-file.bin");
-    await writeFile(file, CONTENT, { mode: 0o600 });
+    await writeFile(file, this.body, { mode: 0o600 });
     await this.onDownload?.(file);
     return {
       tabId: 7,
       originalName: "file.bin",
-      size: Buffer.byteLength(CONTENT),
+      size: Buffer.byteLength(this.body),
       mimeType: "application/octet-stream",
     };
   }
@@ -149,6 +154,54 @@ describe("WP-26 native Core file contour (Linux/macOS/Windows, no OS skips)", ()
       expect(browser.uploads).toEqual([]);
     },
   );
+  it("rejects a source ancestor substituted after guard resolution, before staging (TOCTOU)", async () => {
+    const { rename } = await import("node:fs/promises");
+    const inputs = path.join(dirs.workspace, "inputs");
+    await mkdir(inputs);
+    await writeFile(path.join(inputs, "source.bin"), CONTENT);
+    await writeFile(path.join(dirs.outside, "source.bin"), "OUTSIDE_NEVER_UPLOADED");
+    browser.onResolve = async () => {
+      browser.onResolve = undefined;
+      await rename(inputs, inputs + "-old");
+      await linkDirectory(dirs.outside, inputs);
+    };
+    const pending = upload(["inputs/source.bin"]);
+    await ui.next();
+    ui.approveLast();
+    await expect(pending).rejects.toHaveProperty("code", "PERMISSION_DENIED");
+    expect(browser.uploads).toEqual([]);
+    expect(
+      await readdir(uploadRoot).catch((e) => {
+        if (e.code === "ENOENT") return [];
+        throw e;
+      }),
+    ).toEqual([]);
+  });
+  it("never exposes a partial destination during native publication of a multi-chunk file", async () => {
+    browser.body = Buffer.alloc(8 * 1024 * 1024, 0x5a);
+    const target = path.join(dirs.workspace, "result.bin"),
+      observed: Promise<void>[] = [];
+    const timer = setInterval(() => {
+      observed.push(
+        lstat(target).then(
+          (s) => {
+            expect(s.size).toBe(browser.body.length);
+          },
+          (e) => {
+            expect(e.code).toBe("ENOENT");
+          },
+        ),
+      );
+    }, 1);
+    try {
+      await download();
+    } finally {
+      clearInterval(timer);
+      await Promise.all(observed);
+    }
+    expect((await readFile(target)).equals(browser.body as Buffer)).toBe(true);
+    expect(await readdir(downloadRoot)).toEqual([]);
+  });
   it("atomically publishes exact bytes; rejects no-overwrite; permits explicit replacement", async () => {
     browser.onDownload = async () => {
       await expect(lstat(path.join(dirs.workspace, "result.bin"))).rejects.toThrow();

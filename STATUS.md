@@ -15,8 +15,12 @@ Immutable upload staging, no-follow / descriptor-bound atomic publication,
 overwrite:false, cleanup и реальные gates AD-23.8 реализованы и покрыты тестами.
 Подробная матрица и воспроизведение: [WP-26](docs/design/browser-wp26-transfer-review.md).
 
-**Граница квалификации:** файловый hand-over — Linux (`/proc/self/fd`);
-Windows/macOS отказывают безопасно, а не используют check-then-open fallback.
+**Файловый Core-контур:** Linux (`/proc/self/fd`), macOS (`F_GETPATH` и
+`openat/linkat/renameat`) и Windows (owner-only DACL/MIC, pinned handles без
+delete sharing, запрет reparse/hardlinks и handle-relative atomic rename).
+Нативные integration-тесты Core/ExecutionGuard с контролируемым BrowserConnection
+запускаются без OS skip в шести заданиях CI: три ОС × Node 20/22. Это не
+подмена Linux Chromium E2E заявлением о полной branded-browser/OS матрице.
 Для скачивания `browser.downloadsDirectory` должен совпадать с каталогом профиля.
 Опасная классификация проверяется fault injection, не настоящим malware scanning.
 WP-24 owner acceptance, WP-27 и полная browser/OS/release-матрица не закрыты.

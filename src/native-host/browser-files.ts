@@ -41,9 +41,9 @@ export async function canonicalDescriptor(fd: number): Promise<string> {
   if (process.platform === "linux") return readlink(`/proc/self/fd/${fd}`);
   if (process.platform !== "darwin") return fail("descriptor platform");
   const lib = (await ffi()).load("/usr/lib/libSystem.B.dylib");
-  const get = lib.func("int fcntl(int fd, int command, void *buffer)");
+  const get = lib.func("int fcntl(int fd, int command, ...)");
   const out = Buffer.alloc(1024);
-  if (get(fd, 50 /* F_GETPATH */, out) !== 0) return fail("descriptor path");
+  if (get(fd, 50 /* F_GETPATH */, "void *", out) !== 0) return fail("descriptor path");
   return out.subarray(0, out.indexOf(0)).toString("utf8");
 }
 export async function openTransferCreate(file: string, protection: PrivateFileProtection): Promise<TransferFile> {
@@ -138,7 +138,7 @@ export async function publishDarwin(
   const parentPath = path.dirname(destination.absolute);
   const parent = await open(parentPath, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
   const lib = (await ffi()).load("/usr/lib/libSystem.B.dylib");
-  const create = lib.func("int openat(int dir, str name, int flags, uint32_t mode)");
+  const create = lib.func("int openat(int dir, str name, int flags, ...)");
   const rename = lib.func("int renameat(int fromdir, str from, int todir, str to)");
   const link = lib.func("int linkat(int fromdir, str from, int todir, str to, int flags)");
   const unlink = lib.func("int unlinkat(int dir, str name, int flags)");
@@ -163,6 +163,7 @@ export async function publishDarwin(
       parent.fd,
       tempName,
       fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW,
+      "unsigned int",
       0o600,
     );
     if (fd < 0) fail("temporary create");
@@ -424,16 +425,27 @@ async function privateWindowsOutput(
   } finally {
     await empty.close();
   }
-  await protection.protectFile!(file);
-  if (!(await protection.inspect(file)).ownerOnly) fail("temporary DACL");
-  const output = parent.open(name, true, true);
+  let output: ReturnType<typeof parent.open> | undefined;
   try {
+    await protection.protectFile!(file);
+    if (!(await protection.inspect(file)).ownerOnly) fail("temporary DACL");
+    output = parent.open(name, true, true);
     const actual = await output.stat();
     if (actual.dev !== expected.dev || actual.ino !== expected.ino || actual.size !== 0 || actual.nlink !== 1)
       fail("temporary identity");
     return output;
   } catch (e) {
-    await output.close();
+    // Reopen only for identity verification. Never delete a substituted entry.
+    // The normal path still holds the output handle for all bytes + publication.
+    try {
+      output ??= parent.open(name, true, true);
+      const actual = await output.stat();
+      if (actual.dev === expected.dev && actual.ino === expected.ino) output.remove();
+    } catch {
+      /* Inaccessible/substituted entries are not ours to remove. */
+    } finally {
+      await output?.close();
+    }
     throw e;
   }
 }

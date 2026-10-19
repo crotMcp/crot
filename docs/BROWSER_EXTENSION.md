@@ -63,9 +63,15 @@ opened and no public server is involved.
 
 ## File transfers (WP-26 / AD-33)
 
-- **Host requirement:** Linux with `/proc/self/fd`, `O_NOFOLLOW` and
-  `O_DIRECTORY`; Windows/macOS Core hosts fail with `OPERATION_FAILED`, no
-  unsafe path-open fallback. This does not qualify every browser/OS/version.
+- **Core transfer hosts:** Linux, macOS and Windows (local drive paths).
+  Linux uses `/proc/self/fd` + `O_NOFOLLOW`/`O_DIRECTORY`; macOS verifies
+  descriptors with `F_GETPATH` and publishes through native `openat/linkat/renameat`.
+  Windows uses native owner-only DACL/MIC protection, `OPEN_REPARSE_POINT`,
+  checked volume/file identity and single-link files; ancestor handles deny
+  delete sharing, publication renames the owned open file relative to its held
+  parent handle. There is no path-check-then-MoveFile fallback. Native Core
+  integration runs on all three OSes / Node 20 and 22 in CI; full browser E2E
+  is a separate Linux Chromium witness, not every browser/OS/version.
 - Owner config `browser.downloadsDirectory` is an absolute canonical directory
   matching the profile's actual default download directory; default
   `~/Downloads`. CROT never changes browser-wide download behavior. A mismatch

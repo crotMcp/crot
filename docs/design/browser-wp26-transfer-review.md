@@ -33,10 +33,15 @@ evidence; it is no longer the feature's implementation status.
 
 ## Qualification and limits
 
-**File-transfer Core host is currently Linux only.** `/proc/self/fd`,
-O_DIRECTORY and O_NOFOLLOW provide the destination-descriptor primitive.
-Windows/macOS return OPERATION_FAILED, never an unsafe check-then-open fallback.
-This explicit AD-33 fail-closed scope is not full product/OS qualification.
+**Native Core transfer hosts: Linux, macOS and Windows.** Linux retains its
+`/proc/self/fd` descriptor-relative primitive. macOS uses `O_NOFOLLOW`,
+`fstat/lstat`, `F_GETPATH` and native *at publication syscalls. Windows uses the
+existing native owner-only DACL/MIC protection, non-reparse ancestor handles
+without delete sharing, regular/single-link identity checks and native
+handle-relative rename. No per-OS rejection or unsafe pathname fallback.
+Native integration exercises real Core/ExecutionGuard/filesystem with a controlled
+BrowserConnection in all six existing OS/Node CI jobs; that scope is deliberately
+distinct from the real Chromium E2E witness (Linux).
 Owner config browser.downloadsDirectory must match the actual browser profile's
 default directory (default ~/Downloads); CROT never changes profile-wide behavior.
 
@@ -69,8 +74,14 @@ fixtures, headed under Xvfb (no shared/user profile):
 | Destination/staging substitution, symlink, hardlink, size and permissions | BrowserFiles unit tests; native no-follow primitives |
 | Event order, ambiguity, unproved/foreign items | Production capture + exact ownership unit tests |
 
-Full local `npm run check`: passed (Core 1995 passed / 216 platform-dependent
-skips; extension 183 passed; new non-Linux primitive test is skipped on Linux). Full headed
+Native file contour: 30 tests (10 BrowserFiles + 20 real Core integration),
+no OS skips; `npm run test:browser-files:native` rejects skipped/pending cases
+and prints platform/architecture/Node evidence. The existing `ci.yml` `npm test`
+steps include these same tests on Ubuntu, macOS and Windows, Node 20 and 22.
+
+Full local `npm run check`: Core/extension suite counts are recorded in the
+final PR validation; platform-dependent skips elsewhere are not native file
+qualification passes. Full headed
 `npm run test:e2e:browser`: **5 files, 49 passed / 3 existing opt-in skips**;
 WP-26 **11/11**. The opt-in skipped tests are not counted as passed.
 Local Electron smoke lacked libgtk-3 and was skipped; native L1/other-OS
