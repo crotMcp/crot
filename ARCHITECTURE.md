@@ -6003,3 +6003,71 @@ Availability is observed, not guessed: status starts `available:false` /
 an untargeted tab. `browser_status`, control overview and tray share this fact.
 Automated evidence and outstanding headed/branded-browser qualification are
 separate in `docs/design/browser-wp25.md`; WP-24 acceptance is not closed here.
+
+### AD-33 — WP-26 / OD-8: response-bound ownership capability, not URL correlation
+
+**Decision before implementation.** Authorized by the curator to amend AD-16
+points 3 and 12 without weakening unrelated-download isolation. This selects
+the hand-over design; it does not claim WP-26, AD-23.8 or its tests complete.
+
+1. A capture has one explicit tab and a bounded lifetime. The extension arms
+   only that tab and its verified child debugger sessions. Fixed built-in code
+   uses response-stage `Fetch.enable`, `Fetch.continueResponse`,
+   `Fetch.continueRequest` (unchanged continuation) and `Fetch.disable`.
+   These methods are added to the compiled allowlist for this implementation
+   only; there is no generic interception/header API for agents or pages.
+   Browser/Runtime domains, response-body extraction, request replay and
+   profile-wide download behavior remain prohibited.
+2. Before continuing an eligible HTTP(S) download response, the extension
+   inserts a fresh cryptographically unpredictable, single-use ownership
+   capability into its Content-Disposition filename. This is a deliberately
+   injected identifier, not a guess from the server's filename. It is bound
+   to this command, its connection, frame/session and intercepted request.
+   Each response has a distinct capability; no token is reused or sent to the
+   server, exposed in agent results or recorded in audit. The original
+   disposition, effective filename suffix and browser danger checks must be
+   preserved; malformed or unsupported dispositions fail closed rather than
+   manufacture a benign extension. Bytes, cookies, redirects, HTTP method and
+   POST data are not fetched again or replaced.
+3. An item is owned only when both the target-tab CDP download event and the
+   downloads filename callback carry that exact capability. Event order may
+   differ: the filename callback can be held for the bounded capture deadline.
+   URL, order, elapsed time and uniqueness of a URL candidate are never
+   ownership evidence. An item without the capability receives an unchanged
+   filename suggestion and is never read, renamed, moved, canceled or exposed.
+   A second event bearing a consumed capability is an error, not a new owner.
+4. Only the proved item may receive Core's unguessable staging destination.
+   Its dangerous suffix is preserved also in staging. Core constructs and
+   validates the expected location from its own nonce and bounded validated
+   metadata; it never opens an arbitrary browser-reported path. Both the exact
+   CDP GUID and the exact downloads id must report successful completion and
+   the item must be safe before hand-over. Failures, cancellation, timeouts,
+   ambiguity or danger never publish bytes into the workspace. Cleanup is
+   restricted to the proved item's private staging location.
+5. Core retains the existing ExecutionGuard, both required capabilities,
+   protected/secret path checks, approval binding and audit policy. Uploads
+   use immutable private copies, not workspace source paths. Download publish
+   uses verified regular-file descriptors, no-follow/reparse checks, exact
+   byte counts, destination-parent revalidation and atomic installation with
+   no replacement unless overwrite was authorized. An unsupported platform
+   primitive fails closed; lstat alone is not a race-proof open.
+6. Capture remains limited to downloads attributable to the selected tab's
+   frame tree during the command. No unmarked item is used as a fallback.
+   In particular blob/data/browser-internal downloads, a newly opened tab or
+   a browser/version that cannot carry the capability are not captured by
+   this mechanism and fail without touching their items. This limitation
+   must be explicit in tool documentation and negative tests; HTTP(S) click
+   and URL triggers must both pass real-browser acceptance.
+7. Acceptance includes adversarial event orders, simultaneous identical URL
+   and filename downloads in another tab, target OOP frames, redirects,
+   disposition parsing/suffix preservation, interrupted/dangerous downloads,
+   workspace/path substitution and both real autonomous-browser approval
+   gates. A successful isolated spike is not production E2E qualification.
+
+Initial local feasibility witness: Chrome for Testing 153.0.8010.12 on Linux,
+headless, isolated throw-away profile, unchanged native download behavior.
+A target response was marked via chrome.debugger Fetch.continueResponse; its
+capability appeared in Page.downloadWillBegin and onDeterminingFilename.
+A concurrent other-tab download of the identical URL and original filename
+remained unmarked and received no filename override. This is one witness,
+not evidence for the entire browser/OS/version matrix or the full package.
