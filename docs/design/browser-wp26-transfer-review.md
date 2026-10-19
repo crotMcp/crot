@@ -1,11 +1,95 @@
-# WP-26 — download hand-over review
+# WP-26 — production upload/download and OD-8 acceptance
 
-Status: **AD-33 selected; identity-bridge witness passed; WP-26 runtime
-integration and acceptance incomplete; not Ready for review**.
+Status: **WP-26 Done in PR #32 (not merged); OD-8 Decided by AD-33**.
+Production commit: `4cc717184b3d3d6739b5a89e6af0b0edd24b1529`.
 Base: `main` `e197f18475901992ce1fb389616de015dba20f4b` (PR #31 merged).
-The curator authorized an architecture amendment. AD-33 in ARCHITECTURE.md
-now selects a response-bound capability mechanism for OD-8. This does not
-waive acceptance criteria or mark WP-26 / AD-23 point 8 complete.
+The accepted identity proof at `8920529` is retained below as historical
+evidence; it is no longer the feature's implementation status.
+
+## Production contract
+
+- Both tools are registered in MCP and run through BrowserService, one
+  ExecutionGuard authorization/audit path and the real native bridge. Upload
+  requires browser.control + filesystem.read; download requires browser.control
+  + filesystem.write. Neither introduces exposure.
+- Upload: 1–16 files / 64 MiB total, workspace boundary plus protected/secret
+  checks, canonical source with no-follow descriptor and immutable private
+  read-only copy. Ref and pending chooser both use DOM.setFileInputFiles.
+  Copies survive mutation of the original and are released on frame/document
+  replacement, tab close or Core shutdown. Definite precondition errors clean
+  immediately; indeterminate applies keep their copies until lifecycle release.
+- Download: one extension-wide capture queue, target's existing verified
+  frame/session tree, response-injected 192-bit capability, exact GUID + native
+  numeric id proof. Unknown same-URL files always receive unchanged suggest()
+  and are never read/moved/canceled. Only the proved id receives staging.
+- Both completion streams + native danger safe are mandatory. Core opens only
+  its nonce-derived expected regular single-link file, using O_NOFOLLOW and
+  exact size. Descriptor-anchored temporary copy, fsync and atomic installation
+  publish into savePath. Default no-overwrite uses link; explicit replacement
+  uses rename. Interrupt/danger/error clean only owned bytes. Core ACK and a
+  60 s lost-ACK cleanup bound the browser hand-over lifetime.
+- Audit: relative workspace paths and sizes; no contents, ownership tokens,
+  private staging paths or page-suggested download names.
+
+## Qualification and limits
+
+**File-transfer Core host is currently Linux only.** `/proc/self/fd`,
+O_DIRECTORY and O_NOFOLLOW provide the destination-descriptor primitive.
+Windows/macOS return OPERATION_FAILED, never an unsafe check-then-open fallback.
+This explicit AD-33 fail-closed scope is not full product/OS qualification.
+Owner config browser.downloadsDirectory must match the actual browser profile's
+default directory (default ~/Downloads); CROT never changes profile-wide behavior.
+
+Only supported HTTP(S) status-200 responses, one simple bounded ASCII filename
+in Content-Disposition and already-verified sessions are captured. Redirects
+continue unchanged. filename*, ambiguous dispositions, blob/data/internal,
+new-tab/new-unverified-session downloads fail closed without taking unknown
+items. The original dangerous suffix is preserved; Safe Browsing is not
+disabled. Malware scanner effectiveness is not claimed by synthetic danger
+fault injection.
+
+## Production acceptance evidence
+
+Local Linux / Chromium 153.0.8010.12, isolated throw-away profiles and HTTP
+fixtures, headed under Xvfb (no shared/user profile):
+
+| Acceptance | Evidence |
+| --- | --- |
+| Upload ref + intercepted chooser | Real MCP → Core → native bridge → Chromium |
+| Lazy-read immutable bytes after original mutation | Real Chromium page reads retained File |
+| Sandbox outside/protected/secret path denial | Real tools; no browser hand-over |
+| Upload document/frame/tab lifetime | Chromium navigation/tab removal; unit child-frame/detach tests |
+| Click + URL download; overwrite:false + explicit overwrite | Real tools, exact file bytes, destination absent while in flight |
+| OOP child frame upload + download | Real cross-site Chromium iframe |
+| Concurrent foreign identical URL, foreign first | Real second tab, foreign filename/history untouched; foreign bytes never read |
+| Interrupted transfer cleanup | Real socket interruption; no workspace/staging artifact |
+| Unsafe native classification cleanup | Real browser with explicitly test-only search-result fault injection, plus unit event tests; not malware-scan qualification |
+| AD-23.8 both real tools | Exposed autonomous-browser: missing provider denies; pending approval blocks; matching approval executes |
+| Audit content/path secrecy | Actual Core audit events checked after successes and denials |
+| Destination/staging substitution, symlink, hardlink, size and permissions | BrowserFiles unit tests; native no-follow primitives |
+| Event order, ambiguity, unproved/foreign items | Production capture + exact ownership unit tests |
+
+Full local `npm run check`: passed (Core 1995 passed / 215 platform-dependent
+skips; extension 179 passed; new non-Linux primitive test is skipped on Linux). Full headed
+`npm run test:e2e:browser`: **5 files, 49 passed / 3 existing opt-in skips**;
+WP-26 **11/11**. The opt-in skipped tests are not counted as passed.
+Local Electron smoke lacked libgtk-3 and was skipped; native L1/other-OS
+qualification is supplied by dedicated CI, not this local host.
+CI must be verified on the final PR head; 11/11 on 8920529 is historical, not
+evidence for later code. Merge remains exclusively the user's action.
+
+Reproduce:
+
+```sh
+npm ci
+npm run check
+CROT_E2E_CHROME=/path/to/chromium CROT_E2E_CHROME_ARGS=--no-sandbox xvfb-run -a npm run test:e2e:browser
+```
+
+The container-specific no-sandbox flag is only for this isolated test host;
+it is not a production browser configuration recommendation.
+
+## Historical design investigation and initial witness
 
 ## Required invariant
 
@@ -79,8 +163,8 @@ original filename, including dangerous suffixes, is retained. Unsupported
 or ambiguous disposition syntax fails closed.
 
 `extension/src/download-ownership.ts` implements only this ownership ledger;
-it is not yet wired into production command handlers. The extension manifest
-and production CDP allowlist are unchanged. The helper alone does not perform
+at that commit it was not yet wired into production command handlers. At that
+commit the extension manifest and production CDP allowlist were unchanged. The helper alone does not perform
 workspace I/O, acquire approvals, implement cancellation, or establish the
 full causal scope of a command's trigger.
 
@@ -119,16 +203,10 @@ passed. A first four-scenario attempt also exposed a transient profile cleanup
 ENOTEMPTY; bounded Node rm retries were added and all four scenarios reran
 successfully. Neither failure is hidden or counted as a successful run.
 
-## Verification status and outstanding work
+## Historical verification status at 8920529 (superseded)
 
-These results prove the tested identity bridge, not the complete feature.
-Production browser_file_upload and browser_download remain unimplemented.
-Immutable upload staging, safe download publication, lifecycle cleanup,
-interruption/danger handling, full trigger/response binding, protected path
-checks and real exposed autonomous-browser approval-gate E2E remain pending.
-
-Neither npm run check nor npm run test:e2e:browser has passed for this work.
-The full source/test checkout is not present locally. Both GitHub check-runs
-and combined commit-status reads returned 403 with the current connection,
-so CI 11/11 is unknown, not green. PR #32 remains Draft and must not be merged
-as a completed WP-26 or AD-23.8 delivery.
+At the identity-witness commit, runtime integration and real approval gates
+were not implemented, and the first private-repository check reads returned
+403. The repository was subsequently made public; checks on 8920529 were
+verified 11/11 green. That witness alone did not complete WP-26. The production
+implementation and separate acceptance evidence below supersede this status.

@@ -5,6 +5,23 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
+## WP-26 — Upload/download: Done в PR #32, не слит
+
+Production-инструменты `browser_file_upload` и `browser_download` подключены
+через MCP, Core, ExecutionGuard, native bridge и расширение. OD-8 **Decided**,
+AD-33: точный одноразовый идентификатор связывает CDP GUID с DownloadItem;
+URL/время/имя сервера не используются как доказательство принадлежности.
+Immutable upload staging, no-follow / descriptor-bound atomic publication,
+overwrite:false, cleanup и реальные gates AD-23.8 реализованы и покрыты тестами.
+Подробная матрица и воспроизведение: [WP-26](docs/design/browser-wp26-transfer-review.md).
+
+**Граница квалификации:** файловый hand-over — Linux (`/proc/self/fd`);
+Windows/macOS отказывают безопасно, а не используют check-then-open fallback.
+Для скачивания `browser.downloadsDirectory` должен совпадать с каталогом профиля.
+Опасная классификация проверяется fault injection, не настоящим malware scanning.
+WP-24 owner acceptance, WP-27 и полная browser/OS/release-матрица не закрыты.
+CI проверяется на HEAD PR; package Done не означает merge или релиз продукта.
+
 ## WP-25 — Browser lifecycle
 
 Реализованы диалоги и `browser_dialog_handle`, 60-секундное безопасное
@@ -145,7 +162,7 @@ changed).
   §7.1 / AD-16 markers are unchanged (only an approved owner AD edit).
 - **Outside WP-24, implemented in WP-25:** dialogs, file chooser interception,
   background/ref/fullPage screenshots and tab groups.
-- **Still planned, not implemented by WP-25:** upload and download (WP-26, OD-8);
+- **Outside WP-25:** upload and download now implemented by WP-26 (AD-33, Linux host scope);
   remote explicit `tabId`, `openedBy`, two-agent ordering tests (WP-27).
 
 ## Другие реализованные компоненты и оставшиеся задачи
@@ -206,21 +223,17 @@ amendments of AD-19 point 7 and residual risk D. User docs updated for WP-31
   - control center: every preset applied, refusal while busy, rollback when
     a new Core cannot be built, audit record first
     (`tests/service/control-center.test.ts`).
-- **Upload/download gate (AD-23 point 8):** the rule
-  `autonomous-browser-upload` gates `browser.file_upload` in every scope and
-  is covered by rule-set tests (defensive, it matches nothing today); a
-  download will need `filesystem.write`, which `autonomous-browser` keeps
-  gated in an exposed scope, as `require-approval` does. Neither operation
-  exists before WP-26 (`browser_file_upload`, `browser_download`), so the
-  end-to-end check of the real gates is part of the WP-26 acceptance
-  (roadmap WP-26 card) and is not claimed by WP-31.
+- **Upload/download gate (AD-23 point 8):** verified by WP-26 real MCP/Core/
+  Chromium E2E in an exposed `autonomous-browser` session: both deny without
+  provider, wait for approval and execute after matching approval. Upload's
+  explicit operation rule and download's `filesystem.write` rule remain intact.
 - **Accepted, not closed:** a process of the same OS user with an
   unconfined local shell can write the state files directly (AD-19 residual
   risk D); a forged full-control opt-in still applies only to the pairing it
   names (AD-23 point 6).
 - **Release blockers outside WP-31:** remaining platform/release qualification
   beyond AD-30/31 evidence; remote operations on any unprepared machine remain
-  `CONFINEMENT_UNAVAILABLE`; the real upload/download gates remain WP-26.
+  `CONFINEMENT_UNAVAILABLE`; the real upload/download gates are verified by WP-26.
 
 **WP-30 — Device tunnel adapter** (merged into `main` through PR #20;
 WP-31 starts from `main` `63a7d63`; ARCHITECTURE.md §27 AD-22, device
@@ -479,7 +492,7 @@ WP-25/26/27. Это приоритизация существующих зада
 | **WP-29 follow-up — следующий исполнительный WP** | WP-28 и OD-3/4/5 решены; relay и WP-30 уже в main | WP-29 Partial: per-client/device rate/concurrency, per-source connections/handshakes, registration rate, deregistration/key rotation/orphan registration, load/backpressure. До публичного WP-38 — выполнить либо явно переназначить допустимые пункты в WP-39; этим docs PR ничего не переназначается |
 | **WP-24 — ближайшая незакрытая браузерная приёмка, параллельно** | WP-18 решён; PR #22–#26 уже в main | Код и автоматические тесты есть; PR #26 (`289f500`) исправляет default-load timeout. Ручная проверка сигнала, C1 partial/unreproduced и итоговая приёмка владельца открыты; G5/H и B4/E5/windows не обнуляются |
 | WP-25 / WP-27 | Завершённая база WP-24; WP-27 также WP-19 (Done) | Разработка может опираться на слитый код, но зависимость приёмки WP-24 не считается закрытой. WP-25: код и автоматическая квалификация — docs/design/browser-wp25.md; ручная headed/branded-матрица остаётся открытой. WP-27: remote tabId/openedBy/two-agent ordering ещё не выполнены |
-| WP-26 | WP-24 и **OD-8** | OD-8 download hand-over ещё не решён; нужны upload/download и реальные AD-23.8 approval gates. Нельзя объявить gate проверенным по WP-31 rule-set тестам |
+| WP-26 | WP-24 и **OD-8** | **Done в PR #32**: OD-8 / AD-33 decided; production инструменты и реальные AD-23.8 E2E, Linux host scope |
 | WP-23b | WP-21 Done; платформенное решение OD-9 принято AD-29 | Done: macOS Seatbelt/Keychain, AD-31 и зафиксированная Node20/22 CI-квалификация; более широкая матрица не объявляется проверенной |
 | WP-38 | WP-28, завершение/явное согласование открытого WP-29; WP-36 hook может быть stub по карточке | Подготовку TLS/IdP/deployment можно вести; публичный staging блокируют перечисленные WP-29 задачи. Live WorkOS, pin identity environment, payload-free logs, external OAuth/tool run ещё не подтверждены; RFC 9207 — условие G4 или отдельный принятый AD |
 | WP-32 | **WP-24…WP-27, WP-30, WP-31, WP-38** | WP-30/31 Done, но browser acceptance и staging открыты. Нужны автоматический сквозной набор, ≥4 реальных remote клиентов × версии, macOS/Windows прогоны и измерение client timeouts; локальные тесты не подменяют staging |
@@ -509,7 +522,7 @@ WP-25/26/27. Это приоритизация существующих зада
 | Device deregistration and key rotation at the relay; a registration stays orphaned if the device fails to store its binding after registering | AD-22 open question 3 — relay side, WP-29 scope (not WP-30); listed in `docs/RELAY.md` "Known limitations" |
 | Remote full-control opt-in: implemented per-principal effect, pairing-bound | Decided by AD-23 point 6 and AD-19 point 7 (`69408c3`); implemented in PR #21 (merged as `9ce0574`): bound to the device id and account of its pairing and kept across restarts |
 | Per-principal permission profile: implemented by AD-23, not a remaining global-grants blocker | Decided by ARCHITECTURE.md §27 AD-23 (§26 question 25, `69408c3`); implemented in PR #21 (merged as `9ce0574`) |
-| Preset `autonomous-browser` (implemented on main) | AD-23 point 5; implemented in PR #21 (merged as `9ce0574`); its upload gate is not verified end to end until an upload operation exists (AD-23 point 8, WP-26) |
+| Preset `autonomous-browser` (implemented on main) | AD-23 point 5; implemented in PR #21 (merged as `9ce0574`); actual upload/download gates verified end to end by WP-26 (AD-23 point 8) |
 | Unconfined same-user processes can read the control credential / write state and act like the tray | AD-19 residual risk D (amended by WP-31); confined Linux children: closed by WP-23a; qualified Windows children: closed by WP-23c/AD-30; admitted macOS children: AD-31; `full_control` and unrelated same-user processes: open |
 | Tray packaging, signing and autostart (Electron is a dev dependency today) | WP-34 |
 | Identity provider and the token claims carrying the subject, account, device and `clientId` | Decided by ARCHITECTURE.md §27 AD-21 (roadmap OD-2): WorkOS AuthKit; `sub` → principal id and `accountId`, device id in `aud`, `client_id` → `clientId`; implemented on the device by WP-28 |
@@ -526,6 +539,6 @@ WP-25/26/27. Это приоритизация существующих зада
 | Limit remote agents to tabs they opened | §26 question 14 (opened by AD-16; not required for v1) |
 | WP-24 final owner acceptance (manual background/site results recorded; C1 and timeout confirmation still open) | WP-24 |
 | Debugger notice in headed Chrome/Edge/Brave on all OS; enterprise policies blocking `chrome.debugger` | WP-25 |
-| Download hand-over mechanism (staging in the download directory or stream over the bridge) | OD-8 before WP-26; not decided by this PR |
+| Download hand-over mechanism (staging in the download directory or stream over the bridge) | **Decided by AD-33**, implemented in PR #32 (Linux host scope) |
 | Store acceptance of the `debugger` permission | WP-35 |
 | How a preset change is applied by the supervised service (reload or restart) | Decided by AD-23 point 10: a new Core, switched only while idle; refused while busy; restored settings and the previous Core if the new Core cannot be built; implemented in PR #21 (merged as `9ce0574`) |

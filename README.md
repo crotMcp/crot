@@ -7,6 +7,28 @@ standard MCP interface.
 **`ARCHITECTURE.md` is the source of truth for the product architecture.** This
 README describes the current implementation and how to run it.
 
+## Browser files — WP-26
+
+`browser_file_upload({tabId?, ref?, paths})` uploads 1–16 workspace files
+(max 64 MiB total) to a file input ref or a pending intercepted chooser.
+It requires `browser.control` + `filesystem.read` and uses immutable private
+copies, never the agent's pathname in Chromium.
+
+`browser_download({tabId?, ref?|selector?|url?, savePath, overwrite?, timeoutMs?})`
+saves one proved HTTP(S) attachment atomically; `overwrite:false` by default,
+20 s timeout (max 60 s), 64 MiB. It requires `browser.control` +
+`filesystem.write`. Both actual operations require approval in an exposed
+`autonomous-browser` session; neither is an exposure source.
+
+**Currently qualified transfer host: Linux only.** Windows/macOS fail closed
+until equivalent safe filesystem primitives exist. Set the owner configuration
+`browser.downloadsDirectory` to the browser profile's actual default download
+directory (default `~/Downloads`); do not change it through an agent.
+Unsupported dispositions/blob/data/new-tab downloads are not captured by
+guessing URLs. See [setup, safety and limits](docs/BROWSER_EXTENSION.md) and
+[production acceptance](docs/design/browser-wp26-transfer-review.md).
+PR #32 is separate from the user's merge and from full-product acceptance.
+
 ## macOS L1 — WP-23b / AD-31
 
 В этой ветке PR #30 реализован производственный `macos-seatbelt`; пакет
@@ -106,8 +128,8 @@ protected by the same Core permissions/approvals. See
 Chrome/Edge/Brave Chromium ≥120 (AD-32); this is not a fully tested branded/OS matrix.
 
 Not implemented / not accepted yet: browser WP-24 final manual acceptance,
-WP-25 headed/branded qualification, WP-26 upload/download and WP-27 remote
-multi-agent rules; OD-8 download hand-over; dedicated Docker commands
+WP-25 headed/branded qualification, WP-27 remote
+multi-agent rules; wider WP-26 host/browser qualification; dedicated Docker commands
 beyond docker.use and Git network tools (still usable via shell); general
 per-host/process/container egress policy beyond the existing L1 network on/off;
 public staging/production deployment, account/entitlement service, signed
