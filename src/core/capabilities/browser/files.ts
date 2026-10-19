@@ -1,8 +1,17 @@
 import { constants } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { chmod, lstat, mkdir, open, readdir, readlink, realpath, rm, link, rename, unlink } from "node:fs/promises";
+import { chmod, lstat, open, readdir, readlink, realpath, rm, link, rename, unlink } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
+import {
+  browserPrivateProtection,
+  openTransferRead,
+  openTransferCreate,
+  verifyTransferIdentity,
+  publishDarwin,
+  publishWindows,
+  type TransferFile,
+} from "../../../native-host/browser-files.js";
 import type { PrivateFileProtection } from "../../platform/types.js";
 import type { ResolvedPath, Workspace } from "../../workspace/workspace.js";
 import { CrotError } from "../../errors.js";
@@ -35,15 +44,14 @@ export class BrowserFiles {
     readonly workspace: Workspace,
     readonly uploadRoot: string,
     readonly downloadRoot: string,
-    private readonly protection: PrivateFileProtection,
+    private protection: PrivateFileProtection,
   ) {}
 
   private async ready(): Promise<void> {
     if (this.closed) fail("Browser file staging is closed.");
-    // A descriptor-relative parent is required for publication, not a check-then-open pathname.
-    if (process.platform !== "linux" || !constants.O_NOFOLLOW || !constants.O_DIRECTORY)
-      fail("Safe browser file transfers require Linux descriptor-relative filesystem support on this host.");
+
     this.initialized ??= (async () => {
+      this.protection = await browserPrivateProtection(this.protection);
       for (const root of [this.uploadRoot, this.downloadRoot]) {
         const before = await lstat(root).catch((e: NodeJS.ErrnoException) => {
           if (e.code !== "ENOENT") throw e;
@@ -72,7 +80,7 @@ export class BrowserFiles {
     await this.ready();
     const token = nonce(),
       dir = path.join(root, process.pid + "-" + token);
-    await mkdir(dir, { mode: 0o700 });
+    await this.protection.ensureDirectory(dir);
     this.pending.add(dir);
     return { token, dir };
   }
@@ -86,24 +94,20 @@ export class BrowserFiles {
     try {
       for (let i = 0; i < sources.length; i++) {
         const source = sources[i]!;
-        const input = await open(source.absolute, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        const input = await openTransferRead(source.absolute);
         try {
           const info = await input.stat();
           if (!info.isFile() || info.nlink < 1) fail("Upload source is not a regular file.");
           // The descriptor must name the authorized canonical source, not a swapped ancestor.
-          if ((await readlink(`/proc/self/fd/${input.fd}`)) !== source.absolute) fail("Upload source changed.");
+          await verifyTransferIdentity(source.absolute, info);
           total += info.size;
           if (total > BROWSER_FILE_BYTES_MAX)
             throw new CrotError("LIMIT_EXCEEDED", "Browser file byte limit exceeded.");
           const folder = path.join(dir, String(i));
-          await mkdir(folder, { mode: 0o700 });
+          await this.protection.ensureDirectory(folder);
           const name = path.basename(source.absolute),
             target = path.join(folder, name);
-          const output = await open(
-            target,
-            constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
-            0o600,
-          );
+          const output = await openTransferCreate(target, this.protection);
           try {
             await copy(input, output, info.size);
             await output.sync();
@@ -162,12 +166,29 @@ export class BrowserFiles {
     const file = path.join(lease.directory, lease.stem + "-" + name);
     const entry = await lstat(file);
     if (!entry.isFile() || entry.isSymbolicLink() || entry.size !== size) fail("Invalid browser staging file.");
-    const source = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const source = await openTransferRead(file);
     let parent: FileHandle | undefined, temp: string | undefined;
     try {
       const info = await source.stat();
-      if (!info.isFile() || info.dev !== entry.dev || info.ino !== entry.ino || info.nlink !== 1 || info.size !== size)
-        fail("Browser staging file changed.");
+      await verifyTransferIdentity(file, info);
+      if (!info.isFile() || info.nlink !== 1 || info.size !== size) fail("Browser staging file changed.");
+      if (process.platform === "win32") {
+        await publishWindows(
+          source,
+          size,
+          destination,
+          overwrite,
+          this.workspace,
+          ".crot-publish-" + nonce(),
+          this.protection,
+          copy,
+        );
+        return;
+      }
+      if (process.platform === "darwin") {
+        await publishDarwin(source, size, destination, overwrite, this.workspace, ".crot-publish-" + nonce(), copy);
+        return;
+      }
       parent = await open(
         path.dirname(destination.absolute),
         constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
@@ -227,7 +248,7 @@ export class BrowserFiles {
     this.pending.clear();
   }
 }
-async function copy(source: FileHandle, destination: FileHandle, size: number): Promise<void> {
+async function copy(source: TransferFile, destination: TransferFile, size: number): Promise<void> {
   const buffer = Buffer.allocUnsafe(64 * 1024);
   let offset = 0;
   while (offset < size) {

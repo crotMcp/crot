@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { BrowserFiles, BROWSER_FILE_BYTES_MAX } from "../../src/core/capabilities/browser/files.js";
 import { createPrivateFileProtection } from "../../src/core/platform/private-files.js";
 import { Workspace } from "../../src/core/workspace/workspace.js";
-import { makeTempDirs, type TempDirs } from "../helpers.js";
+import { makeTempDirs, linkDirectory, type TempDirs } from "../helpers.js";
 
-describe.runIf(process.platform === "linux")("BrowserFiles descriptor-bound staging", () => {
+describe("BrowserFiles descriptor-bound staging", () => {
   let dirs: TempDirs, ws: Workspace, files: BrowserFiles;
   beforeEach(async () => {
     dirs = await makeTempDirs();
@@ -33,7 +33,7 @@ describe.runIf(process.platform === "linux")("BrowserFiles descriptor-bound stag
     const upload = await files.upload([await ws.resolve("fixture.txt")]);
     await writeFile(path.join(ws.root, "fixture.txt"), "changed");
     expect(await readFile(upload.paths[0]!, "utf8")).toBe("original");
-    expect((await stat(upload.paths[0]!)).mode & 0o777).toBe(0o400);
+    if (process.platform !== "win32") expect((await stat(upload.paths[0]!)).mode & 0o777).toBe(0o400);
     expect(upload.files).toEqual([{ name: "fixture.txt", size: 8 }]);
     await files.release("unrelated");
     expect(await readFile(upload.paths[0]!, "utf8")).toBe("original");
@@ -42,9 +42,10 @@ describe.runIf(process.platform === "linux")("BrowserFiles descriptor-bound stag
   });
   it("rejects a swapped symlink and nonregular source without leftovers", async () => {
     const source = await ws.resolve("source");
-    await symlink("missing", source.absolute);
+    if (process.platform === "win32") await linkDirectory(dirs.outside, source.absolute);
+    else await symlink("missing", source.absolute);
     await expect(files.upload([source])).rejects.toThrow();
-    await expect(files.upload([await ws.resolve(".")])).rejects.toThrow(/regular/);
+    await expect(files.upload([await ws.resolve(".")])).rejects.toThrow(/regular|identity|reparse/);
     expect(await readdir(files.uploadRoot)).toEqual([]);
   });
   it("publishes exact bytes atomically, refuses overwrite by default and permits explicit replacement", async () => {
@@ -65,7 +66,8 @@ describe.runIf(process.platform === "linux")("BrowserFiles descriptor-bound stag
     if (kind === "symlink") {
       const { unlink } = await import("node:fs/promises");
       await unlink(s.file);
-      await symlink(path.join(ws.root, "secret"), s.file);
+      if (process.platform === "win32") await linkDirectory(dirs.outside, s.file);
+      else await symlink(path.join(ws.root, "secret"), s.file);
     }
     if (kind === "hardlink") await link(s.file, path.join(ws.root, "other"));
     await expect(
@@ -86,13 +88,14 @@ describe.runIf(process.platform === "linux")("BrowserFiles descriptor-bound stag
     const dest = await ws.resolve("dir/result");
     const { rmdir } = await import("node:fs/promises");
     await rmdir(dir);
-    await symlink(dirs.outside, dir);
+    await linkDirectory(dirs.outside, dir);
     await expect(files.publish(s.lease, "file.bin", s.size, dest, false)).rejects.toThrow();
     await expect(stat(path.join(dirs.outside, "result"))).rejects.toThrow();
   });
   it("refuses insecure roots and oversized metadata", async () => {
     await mkdir(files.uploadRoot, { mode: 0o755 });
     await chmod(files.uploadRoot, 0o755);
+    // On Windows chmod does not express a DACL: inherited public ACL must be rejected too.
     await expect(files.download()).rejects.toThrow(/private/);
   });
   it("bounds metadata and cleans all owned leases on shutdown", async () => {
@@ -105,24 +108,3 @@ describe.runIf(process.platform === "linux")("BrowserFiles descriptor-bound stag
     await expect(files.download()).rejects.toThrow(/closed/);
   });
 });
-
-it.runIf(process.platform !== "linux")(
-  "fails closed on hosts without the qualified descriptor-relative primitive",
-  async () => {
-    const dirs = await makeTempDirs();
-    try {
-      const ws = await Workspace.open(dirs.workspace);
-      const store = new BrowserFiles(
-        ws,
-        path.join(dirs.outside, "uploads"),
-        path.join(dirs.outside, "CROT-private-staging"),
-        createPrivateFileProtection(process.platform === "win32"),
-      );
-      await expect(store.download()).rejects.toMatchObject({ code: "OPERATION_FAILED" });
-      expect(await readdir(dirs.outside)).toEqual([]);
-      await store.close();
-    } finally {
-      await dirs.cleanup();
-    }
-  },
-);
