@@ -207,10 +207,26 @@ describe.runIf(process.platform === "linux")("WP-26 real MCP → guard → nativ
   it("ignores a concurrent identical-URL download in another tab", async () => {
     const s = await fresh();
     const foreign = (await call<{ tabId: number }>("browser_tab_open", { url: page(), active: false })).tabId;
+    const existing = new Set((await witness.downloads()).map((item) => item.id));
     await witness.foreignDownload(foreign, fixture.origin + "/wp26-file");
     await call("browser_download", { tabId, ref: ref(s, "Download fixture"), savePath: "race.bin" });
-    const items = await witness.downloads();
-    expect(items.some((i) => path.basename(i.filename) === "fixture.bin" && i.state === "complete")).toBe(true);
+    // Chromium may finish the unrelated disk write after our captured stream has completed.
+    // Observe browser metadata only; neither wait by reading the file nor touch its lifecycle.
+    let items = await witness.downloads();
+    const unrelated = () =>
+      items.filter(
+        (i) =>
+          !existing.has(i.id) &&
+          i.url === fixture.origin + "/wp26-file" &&
+          !i.filename.includes("CROT-private-staging"),
+      );
+    for (let attempt = 0; attempt < 100 && !unrelated().some((i) => i.state === "complete"); attempt++) {
+      await h.sleep(50);
+      items = await witness.downloads();
+    }
+    expect(unrelated()).toHaveLength(1);
+    expect(unrelated()[0]).toMatchObject({ state: "complete" });
+    expect(path.basename(unrelated()[0]!.filename)).toMatch(/^fixture(?: \(\d+\))?\.bin$/);
     expect(items.filter((i) => i.filename.includes("CROT-private-staging")).length).toBeGreaterThan(0);
     // Deliberately never open, move, cancel or read the foreign file.
     await call("browser_tab_close", { tabId: foreign });
