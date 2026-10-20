@@ -12,6 +12,7 @@ import { SANDBOX_FORBIDDEN_CAPABILITIES, type PermissionMode, type PermissionPol
  * resolved paths (target files, working directories, ...).
  */
 export interface AuthorizationRequest {
+  readonly operation?: string;
   readonly context: AuthContext;
   readonly capability: Capability;
   readonly paths?: readonly ResolvedPath[];
@@ -379,7 +380,10 @@ export class PermissionEngine {
         };
       }
     }
-    if (WRITE_CAPABILITIES.has(request.capability) && this.protectedPaths.length > 0) {
+    if (
+      (WRITE_CAPABILITIES.has(request.capability) || request.operation === "browser.file_upload") &&
+      this.protectedPaths.length > 0
+    ) {
       for (const p of request.paths ?? []) {
         const hit = this.protectedPaths.find((guarded) => this.contains(p.absolute, guarded));
         if (hit) {

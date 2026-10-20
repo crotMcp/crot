@@ -32,6 +32,27 @@ interface Expect {
 
 /** Parameters of each command Core sends to the extension. */
 export interface BrowserCommandParams {
+  "files.chooser": { readonly tabId: number } & Expect;
+  "files.download_release": { readonly stem: string };
+  "files.upload": {
+    readonly tabId?: number;
+    readonly ref?: string;
+    readonly chooserNonce?: string;
+    readonly token: string;
+    readonly paths: readonly string[];
+  } & Expect;
+  "files.download": {
+    readonly tabId?: number;
+    readonly ref?: string;
+    readonly selector?: string;
+    readonly frameRef?: string;
+    readonly url?: string;
+    readonly prefix: string;
+    readonly stem: string;
+    readonly deadline: number;
+    readonly timeoutMs: number;
+    readonly maxBytes: number;
+  } & Expect;
   "dialog.handle": { readonly tabId?: number; readonly accept: boolean; readonly promptText?: string } & Expect;
   "tabs.list": Record<string, never>;
   /**
@@ -112,6 +133,10 @@ interface Settle {
 export type BrowserCommand = keyof BrowserCommandParams;
 
 export const BROWSER_COMMANDS: readonly BrowserCommand[] = [
+  "files.chooser",
+  "files.download_release",
+  "files.upload",
+  "files.download",
   "dialog.handle",
   "tabs.list",
   "tabs.resolve",
@@ -164,6 +189,7 @@ export interface BrowserRequestOptions {
 
 export interface BrowserConnection {
   state(): BrowserConnectionState;
+  onUploadReleased?(listener: (token: string, connectionId: string) => void): () => void;
   onDialogDismissed?(
     listener: (event: { tabId: number; dialogType: string; connectionId: string }) => void,
   ): () => void;

@@ -2,10 +2,12 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    reporters: ["default", "./tests/browser-files-reporter.ts"],
     ...(process.platform === "darwin"
       ? {
           reporters: [
             "default",
+            "./tests/browser-files-reporter.ts",
             ...(process.env.GITHUB_ACTIONS === "true" ? ["github-actions"] : []),
             "./tests/macos-l1-reporter.ts",
           ],
@@ -18,6 +20,7 @@ export default defineConfig({
           fileParallelism: false,
           reporters: [
             "default",
+            "./tests/browser-files-reporter.ts",
             ...(process.env.GITHUB_ACTIONS === "true" ? ["github-actions"] : []),
             "./tests/stage6a-reporter.ts",
           ],

@@ -27,6 +27,8 @@ export interface OperationDescriptor {
   readonly capability: Capability | readonly Capability[];
   /** Every path the operation touches (targets, working directories). */
   readonly paths?: readonly ResolvedPath[];
+  /** Display-only audit paths; authorization always uses resolved paths. */
+  readonly auditPaths?: readonly string[];
   /** Every network destination the operation contacts (network.access only). */
   readonly network?: readonly NetworkTarget[];
   /** Audit-safe summary of the operation. Never include file contents, output or secrets. */
@@ -175,7 +177,7 @@ export class ExecutionGuard {
       capabilities,
       principal: context.principal,
       ...(context.requestId !== undefined ? { requestId: context.requestId } : {}),
-      paths: (op.paths ?? []).map((p) => p.absolute),
+      paths: op.auditPaths ?? (op.paths ?? []).map((p) => p.absolute),
       ...(op.network !== undefined && op.network.length > 0 ? { network: op.network.map(auditTarget) } : {}),
       ...(op.details !== undefined ? { details: op.details } : {}),
     };
@@ -186,7 +188,13 @@ export class ExecutionGuard {
         ...base,
         outcome,
         durationMs: Date.now() - started,
-        ...(error !== undefined ? { error: summarizeError(error) } : {}),
+        ...(error !== undefined
+          ? {
+              error: op.auditPaths
+                ? { code: summarizeError(error).code, message: "Browser file operation denied or failed." }
+                : summarizeError(error),
+            }
+          : {}),
         ...(approval !== undefined ? { approval } : {}),
       });
 
@@ -348,6 +356,7 @@ export class ExecutionGuard {
   ): PermissionDeniedError | undefined {
     for (const capability of capabilities) {
       const decision = this.engine.authorize({
+        ...(op.operation === "browser.file_upload" ? { operation: op.operation } : {}),
         context,
         capability,
         paths: op.paths ?? [],

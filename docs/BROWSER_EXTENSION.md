@@ -61,6 +61,54 @@ Rules:
 The bridge and the relay communicate over local IPC only; no TCP port is
 opened and no public server is involved.
 
+## File transfers (WP-26 / AD-33)
+
+- **Core transfer hosts:** Linux, macOS and Windows (local drive paths).
+  Linux uses `/proc/self/fd` + `O_NOFOLLOW`/`O_DIRECTORY`; macOS verifies
+  descriptors with `F_GETPATH` and publishes through native `openat/linkat/renameat`.
+  Windows uses native owner-only DACL/MIC protection, `OPEN_REPARSE_POINT`,
+  checked volume/file identity and single-link files; ancestor handles deny
+  delete sharing, publication renames the owned open file relative to its held
+  parent handle. There is no path-check-then-MoveFile fallback. Native Core
+  integration runs on all three OSes / Node 20 and 22 in CI; full browser E2E
+  is a separate Linux Chromium witness, not every browser/OS/version.
+- Owner config `browser.downloadsDirectory` is an absolute canonical directory
+  matching the profile's actual default download directory; default
+  `~/Downloads`. CROT never changes browser-wide download behavior. A mismatch
+  fails without reading a browser-reported absolute path. Both staging roots
+  are CROT-secret/protected, owner-only.
+- `browser_file_upload`: `tabId?`, input `ref?`, `paths` (1–16 workspace
+  files, 64 MiB total). No ref answers a pending intercepted chooser only;
+  JavaScript dialogs cannot be bypassed. Multiple files require a multiple
+  input. `browser.control` + `filesystem.read`; canonical source resolution,
+  protected/secret denial and immutable read-only private copies. Copies live
+  until top-level document replacement, tab close or Core shutdown; dead-process
+  leases are reclaimed on restart/next use. Result: tabId, names and sizes.
+- `browser_download`: `tabId?`, exactly one `ref` / `selector` / HTTP(S) `url`,
+  optional selector `frameRef`, workspace `savePath`, `overwrite:false`,
+  `timeoutMs:20000` (max 60000), 64 MiB maximum. Requires `browser.control` +
+  `filesystem.write`. The download directory must already be configured as
+  above; parent workspace directory must exist. Result only size/mimeType.
+- Capture uses only the selected tab's verified sessions and the AD-33 random
+  response capability in both CDP and native filename events; foreign same-URL
+  items are never renamed, read, moved or canceled. Capture is serialized with
+  a bounded queue. Complete GUID + complete numeric id + danger safe are
+  required before no-follow byte-count validation and atomic publication.
+  Default no-overwrite uses atomic link installation; explicit overwrite uses
+  atomic rename. Core ACK / lost-ACK timer clean up only the proved download.
+- Supported responses: HTTP(S), status 200, one simple ASCII
+  `Content-Disposition: attachment; filename="file.ext"` (or inline with the
+  same bounded syntax), verified existing frames, preserving original suffix.
+  Ordinary redirects pass unchanged. `filename*`, ambiguous/multiple headers,
+  blob/data/internal, newly opened tabs and unverified new frame sessions
+  fail closed; there is no replay, response-body extraction or generic Fetch
+  API. An uncaptured native item is left alone, even on timeout.
+- Upload/download are not exposure sources. In an exposed
+  `autonomous-browser` session both actual paths require the user's matching
+  approval; absent UI denies. Audit records only workspace-relative paths and
+  sizes, never bytes, private paths, capabilities or page-suggested filenames.
+  See [test evidence](design/browser-wp26-transfer-review.md).
+
 ## Setup
 
 Requirements: a built checkout (`npm install`, `npm run build`), Node.js 20 or
@@ -170,6 +218,8 @@ from the extensions page) with the prefix `CROT: `.
 | `browser_tabs_list` | `browser.read` | `tabs.list` |
 | `browser_page_read` | `browser.read` | `page.read` |
 | `browser_screenshot` | `browser.read` | `page.screenshot` |
+| `browser_file_upload` | `browser.control` + `filesystem.read` | `files.upload` |
+| `browser_download` | `browser.control` + `filesystem.write` | `files.download` |
 | `browser_dialog_handle` | `browser.control` | `dialog.handle` |
 | `browser_tab_open` | `browser.control` | `tabs.open` |
 | `browser_navigate` | `browser.control` | `tabs.navigate` |
@@ -242,7 +292,8 @@ through a fixed, extension-built command surface (AD-16 point 3):
   Input, Page (lifecycle, frame tree, history, reload, dialogs, chooser interception, screenshot), `Target.setAutoAttach`
   event-only `Network.enable` and `Emulation.setFocusEmulationEnabled` (so
   keys and focus reach the page while the user works in another window). No
-  `Runtime.*`, `Debugger.*`, `Fetch.*`, storage, cookie, other emulation or
+  `Runtime.*`, `Debugger.*`, generic `Fetch.*` (only the four fixed AD-33
+  response-stage methods are allowed), storage, cookie, other emulation or
   target-creation method can be sent; no host- or agent-supplied code runs in
   the page.
 - **Attach on demand** to a tab when a Browser v1 command needs it; detached
@@ -351,8 +402,7 @@ through a fixed, extension-built command surface (AD-16 point 3):
   content-free `browser.dialog_auto_dismissed` record is audited, stamped by
   the host with the current connection. Notices cannot initiate operations,
   carry page content or select an actor; the bridge limits them to 120/min.
-  File choosers never open the OS picker while intercepted; only dismissal
-  is available until file upload in WP-26. Closing a tab safely dismisses its
+  File choosers never open the OS picker while intercepted; `browser_file_upload` may supply workspace copies or `browser_dialog_handle` may dismiss. Closing a tab safely dismisses its
   pending alert/chooser. If closing itself opens beforeunload, the result is
   `closed:false, dialog:{type:"beforeunload"}`: it never silently confirms.
 - **Debugger status (WP-25).** External detach invalidates references and
@@ -590,8 +640,7 @@ CROT again.
 - Browser v1 is implemented in part (WP-24: CDP backend, snapshot and refs,
   trusted input, frames including out-of-process frames, open shadow roots,
   waits, history), plus WP-25 dialogs, chooser interception, background/ref/
-  full-page screenshots, debugger status and CROT groups. Not yet: file upload
-  and download (WP-26, `downloads` permission), explicit remote `tabId` and
+  full-page screenshots, debugger status and CROT groups. WP-26 adds file upload/download with `downloads` permission (Linux transfer host). Not yet: explicit remote `tabId` and
   `openedBy` (WP-27). `tabGroups` is now requested. Arbitrary JavaScript and OS-level input stay excluded.
 - Elements in closed shadow roots may appear (the snapshot follows the
   accessibility tree) but are not guaranteed. A frame-limited snapshot of an

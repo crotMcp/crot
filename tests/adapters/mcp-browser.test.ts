@@ -48,8 +48,14 @@ const CONTROL_TOOLS: Record<string, Record<string, unknown>> = {
   browser_set_checked: { tabId: 7, ref: "e4", checked: true },
   browser_history: { tabId: 7, action: "back" },
 };
+const FILE_TOOLS: Record<string, Record<string, unknown>> = {
+  browser_file_upload: { tabId: 7, ref: "e1", paths: ["fixture.txt"] },
+  browser_download: { tabId: 7, url: PAGE_URL, savePath: "result.bin" },
+};
 const ALL_TOOLS: Record<string, Record<string, unknown>> = { ...READ_TOOLS, ...CONTROL_TOOLS };
 const OPERATIONS: Record<string, string> = {
+  browser_file_upload: "browser.file_upload",
+  browser_download: "browser.download",
   browser_dialog_handle: "browser.dialog_handle",
   browser_status: "browser.status",
   browser_tabs_list: "browser.tabs_list",
@@ -166,8 +172,8 @@ describe("MCP browser tools", () => {
     await connect({});
     const { tools } = await client!.listTools();
     const names = tools.map((t) => t.name).filter((n) => n.startsWith("browser_"));
-    expect(names.sort()).toEqual(Object.keys(ALL_TOOLS).sort());
-    expect(TOOLS.filter((t) => t.name.startsWith("browser_"))).toHaveLength(20);
+    expect(names.sort()).toEqual(Object.keys({ ...ALL_TOOLS, ...FILE_TOOLS }).sort());
+    expect(TOOLS.filter((t) => t.name.startsWith("browser_"))).toHaveLength(22);
     for (const t of tools.filter((x) => x.name.startsWith("browser_"))) {
       expect(t.inputSchema.type).toBe("object");
       expect(t.description).toContain(t.name in READ_TOOLS ? "browser.read" : "browser.control");
@@ -179,7 +185,7 @@ describe("MCP browser tools", () => {
   it("denies every browser tool in SANDBOX by default, before the bridge is used", async () => {
     const browser = new FakeBrowser();
     await connect({}, browser);
-    for (const [name, args] of Object.entries(ALL_TOOLS)) {
+    for (const [name, args] of Object.entries({ ...ALL_TOOLS, ...FILE_TOOLS })) {
       const { isError, body } = await call(name, args);
       expect(isError, name).toBe(true);
       expect(body.error.code, name).toBe("PERMISSION_DENIED");
@@ -196,7 +202,7 @@ describe("MCP browser tools", () => {
     for (const [name, args] of Object.entries(READ_TOOLS)) {
       expect((await callRaw(name, args)).isError, name).toBeFalsy();
     }
-    for (const [name, args] of Object.entries(CONTROL_TOOLS)) {
+    for (const [name, args] of Object.entries({ ...CONTROL_TOOLS, ...FILE_TOOLS })) {
       const { isError, body } = await call(name, args);
       expect(isError, name).toBe(true);
       expect(body.error.code, name).toBe("PERMISSION_DENIED");

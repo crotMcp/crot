@@ -239,9 +239,9 @@ All paths end in the same Core pipeline; no path bypasses it.
 | Native Host (OS platform layer) | device, inside `crot-mcp` | OS-specific Platform implementations (Windows AppContainer + Job, ACLs, AD-30) | **[Implemented]** |
 | Browser bridge | device, inside `crot-mcp` | local IPC endpoint, handshake, request/response | **[Implemented]** |
 | `crot-browser-relay` | device, started by the browser | native-messaging host; forwards frames only | **[Implemented]** |
-| CROT Browser Extension | user's browser | fixed browser commands | **[Partial]** v1: WP-24 CDP implementation/tested on main, manual acceptance open; WP-25 implemented (AD-32; qualification limits recorded); WP-26/27 pending |
+| CROT Browser Extension | user's browser | fixed browser commands | **[Partial]** v1: WP-24 CDP implementation/tested on main, manual acceptance open; WP-25 implemented (AD-32; qualification limits recorded); WP-26 implemented (AD-33; Linux file-transfer host qualification); WP-27 pending |
 | MCP client connectors / external MCP gateway | device, outside Core | connections to external MCP servers | **[Target]**, post-v1 (AD-13) |
-| Confirmation mechanism | Core interface + Tray UI | explicit approval and presets | **[Implemented]** mechanism WP-15, Tray WP-22, per-principal presets WP-31; real upload/download gates await WP-26 |
+| Confirmation mechanism | Core interface + Tray UI | explicit approval and presets | **[Implemented]** mechanism WP-15, Tray WP-22, per-principal presets WP-31; real upload/download gates verified in WP-26 (AD-23.8) |
 | CROT local service (sidecar) | device, background | one long-running `crot-mcp` service per user; stdio clients attach through a thin shim; authenticated local control channel | **[Implemented]** (WP-20, §27 AD-17); autostart/installer registration **[Target]** (WP-34) |
 | CROT Tray app | device | approvals and device controls | **[Implemented]** WP-22; packaging/autostart **[Target]** WP-34 |
 | Installer / packages | device | Linux, Windows, macOS installation | **[Target]**, v1 |
@@ -707,7 +707,7 @@ packages, their order and dependencies are in
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
 24. Command confinement L1 (Linux, macOS, Windows) [Partial: Linux implemented (WP-23a, §27 AD-20); Windows implemented (WP-23c, AD-30); macOS implemented (WP-23b, AD-31; qualification scope recorded)]
-25. Browser contract v1                           [Partial: WP-24 implementation/tested, manual acceptance open; WP-25 implemented (AD-32; qualification limits recorded); WP-26/27 pending; contract AD-16 unchanged]
+25. Browser contract v1                           [Partial: WP-24 implementation/tested, manual acceptance open; WP-25 implemented (AD-32; qualification limits recorded); WP-26 implemented (AD-33; Linux file-transfer host qualification); WP-27 pending; contract AD-16 unchanged]
 26. Jobs, artifacts, optional components          [Target, post-v1 foundation, §26 q16–17]
 27. Media operations and rendering                [Target, post-v1, §26 q18–19]
 28. External service connections                 [Target, post-v1, §26 q20–21]
@@ -791,7 +791,7 @@ Boundaries:
 | User tokens | identity provider + local verifier | token holders | audience/account/device-bound verifier (AD-21), unchanged Principal boundary | **[Partial]** WP-28 device side tested with emulated IdP; live environment/RFC 9207 condition open |
 | Device | device credential | other devices, cloned installs | device identity/binding, local revocation (§20) | **[Partial]** WP-28 device side implemented; relay deregistration/key rotation WP-29 open |
 | Commercial | local execution | commercial service | entitlements never enter local authorization (§23) | **[Target]** |
-| User confirmation | user via Tray provider | agent, page/tool content | §21, AD-5…11/19/23 | **[Implemented]** mechanism, UI and presets; upload/download E2E pending WP-26 |
+| User confirmation | user via Tray provider | agent, page/tool content | §21, AD-5…11/19/23 | **[Implemented]** mechanism, UI and presets; upload/download E2E verified in WP-26 (AD-23.8) |
 | Untrusted content (prompt injection) | Core (session exposure) | web pages, HTTP responses, later external MCP results | §27 AD-12: session exposure from source operations; effectful operations in an exposed session need approval | **[Implemented]** (WP-16b) |
 
 Cross-cutting rule: **untrusted content never becomes a local command by
@@ -1026,10 +1026,10 @@ The tray app is a UI; control logic stays in Core/service.
 | Streamable HTTP, loopback, local token | **[Implemented]** |
 | Native Host (OS platform layer) | **[Implemented]** |
 | Browser bridge, relay, extension (Chromium), basic commands | **[Implemented]** |
-| Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | **[Partial]** AD-16 unchanged; WP-24 implementation/tested including PR #26, manual acceptance open; WP-25 implemented (AD-32; qualification limits recorded); WP-26/27 pending |
+| Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | **[Partial]** AD-16 unchanged; WP-24 implementation/tested including PR #26, manual acceptance open; WP-25 implemented (AD-32; qualification limits recorded); WP-26 implemented (AD-33; Linux file-transfer host qualification); WP-27 pending |
 | Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); request pipeline **[Implemented]** (WP-19: sessionless 2026-07-28, supported versions, principal kinds by entry point, exposure scopes, persisted remote exposure); verifier **[Implemented]** (WP-28); relay **[Partial]** (WP-29, AD-22: relay side of the tunnel implemented; per-client rate limits and the load test open); device tunnel: device side **[Implemented]** (WP-30, AD-22 device side: registration at pairing, handshake, streams, limits, deadline and cancellation) |
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
-| User confirmations | **[Implemented]** (mechanism: WP-15, §27 AD-5…AD-11; tray provider and preset selection: WP-22, §27 AD-19); *Autonomous browser* preset and remote profile **[Implemented]** (WP-31); actual upload/download gate E2E remains WP-26 |
+| User confirmations | **[Implemented]** (mechanism: WP-15, §27 AD-5…AD-11; tray provider and preset selection: WP-22, §27 AD-19); *Autonomous browser* preset and remote profile **[Implemented]** (WP-31); actual upload/download gate E2E verified in WP-26 (AD-23.8) |
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | Provider, claim model, revocation model and device resource URI decided (§27 AD-21: WorkOS AuthKit); device side **[Implemented]** (WP-28: verifier, pairing, device id and credential, unpair, re-grant; development environment only); staging/production environments **[Target]** (WP-38, WP-39); provider-side revocation and accounts **[Target]** (WP-36) |
 | Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); Cloud Relay v1 and the relay side of the tunnel **[Partial]** (WP-29, §27 AD-22; per-client rate limits and the load test open); device tunnel: device side **[Implemented]** (WP-30, §27 AD-22, [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)); deployment WP-38/WP-39 **[Target]** |
@@ -2720,7 +2720,7 @@ authentication and permission prompts. These are open items for WP-24…WP-26
      load-state counting (no bodies, headers or cookies). Forbidden in every
      case: `Runtime.evaluate`, `Runtime.compileScript`,
      `Runtime.callFunctionOn` or `Page.addScriptToEvaluateOnNewDocument` with
-     any text that did not ship in the extension, the `Debugger`, `Fetch`,
+     any text that did not ship in the extension, the `Debugger`, `Fetch` (except the four fixed AD-33 response-stage methods),
      `Storage`, `Browser`, `SystemInfo` and `Emulation` permission and
      override methods, `Network.getCookies` / `getResponseBody` /
      interception, `Target.createTarget`, `Target.createBrowserContext` and
@@ -2999,7 +2999,7 @@ authentication and permission prompts. These are open items for WP-24…WP-26
       size and MIME type, not contents and not the page-suggested file name.
     - Core takes the file over from the browser only from a staging location
       it created for this command (an unguessable name in the browser's
-      download directory, or a stream over the bridge; chosen in WP-26). It
+      download directory, selected by AD-33 / OD-8 in WP-26). It
       never reads a path just because the browser reported it: the file must be
       a regular file at the expected staging location, opened without
       following symlinks; the staging copy is removed afterwards.
@@ -5137,10 +5137,10 @@ enforced (§26 question 25).
    unavailable (AD-20); no mode or preset bypasses this. WP-23b/c remain
    separate work packages.
 8. **Uploads.** `autonomous-browser` gates local file uploads by the
-   operation `browser.file_upload` (rule `autonomous-browser-upload`). No
-   such operation exists before WP-26, so the rule is defensive; the work
-   package that adds the operation must prove the gate end to end. Until
-   then the real upload path is not verified.
+   operation `browser.file_upload` (rule `autonomous-browser-upload`). WP-26 implements the actual operation and verifies both upload and download
+   end to end in an exposed `autonomous-browser` session: no provider denies
+   both; neither executes while approval is pending; matching subject approval
+   permits execution. Download remains gated through `filesystem.write`.
 9. **Who can change it.** Only the user through the authenticated control
    channel (AD-17, AD-19). No MCP tool, browser page, relay request or tunnel
    frame reaches a setter, and approvals stay with the approval provider for
@@ -5173,8 +5173,8 @@ protected state files by an unconfined process of the same OS user.
 
 **Implementation status (documentation reconciliation at e23b7b9).** WP-31
 **Done, merged** as PR #21 (`9ce0574`). Points 1–7 and 9–12 are implemented
-and covered by tests. Point 8: the defensive gate exists, but actual
-upload/download execution paths and their end-to-end acceptance remain WP-26.
+and covered by tests. Point 8 was subsequently verified by WP-26 production MCP → Core → extension
+Chromium tests, including no-provider denial and approval-bound execution.
 No numbered decision clause is changed by this status correction.
 
 > **Контекст истории.** AD-24…AD-28 — исторические эксперименты, не production backend. Отрицательные результаты и ограничения ниже сохранены; действующее Windows L1 — AD-30.
@@ -6003,3 +6003,138 @@ Availability is observed, not guessed: status starts `available:false` /
 an untargeted tab. `browser_status`, control overview and tray share this fact.
 Automated evidence and outstanding headed/branded-browser qualification are
 separate in `docs/design/browser-wp25.md`; WP-24 acceptance is not closed here.
+
+### AD-33 — WP-26 / OD-8: response-bound ownership capability, not URL correlation
+
+**Decision before implementation.** Authorized by the curator to amend AD-16
+points 3 and 12 without weakening unrelated-download isolation. This selects
+the hand-over design. Production implementation and qualification are recorded
+below, separately from the initial spike.
+
+1. A capture has one explicit tab and a bounded lifetime. The extension arms
+   only that tab and its verified child debugger sessions. Fixed built-in code
+   uses response-stage `Fetch.enable`, `Fetch.continueResponse`,
+   `Fetch.continueRequest` (unchanged continuation) and `Fetch.disable`.
+   These methods are added to the compiled allowlist for this implementation
+   only; there is no generic interception/header API for agents or pages.
+   Browser/Runtime domains, response-body extraction, request replay and
+   profile-wide download behavior remain prohibited.
+2. Before continuing an eligible HTTP(S) download response, the extension
+   inserts a fresh cryptographically unpredictable, single-use ownership
+   capability into its Content-Disposition filename. This is a deliberately
+   injected identifier, not a guess from the server's filename. It is bound
+   to this command, its connection, frame/session and intercepted request.
+   Each response has a distinct capability; no token is reused or sent to the
+   server, exposed in agent results or recorded in audit. The original
+   disposition, effective filename suffix and browser danger checks must be
+   preserved; malformed or unsupported dispositions fail closed rather than
+   manufacture a benign extension. Bytes, cookies, redirects, HTTP method and
+   POST data are not fetched again or replaced.
+3. An item is owned only when both the target-tab CDP download event and the
+   downloads filename callback carry that exact capability. Event order may
+   differ: the filename callback can be held for the bounded capture deadline.
+   URL, order, elapsed time and uniqueness of a URL candidate are never
+   ownership evidence. An item without the capability receives an unchanged
+   filename suggestion and is never read, renamed, moved, canceled or exposed.
+   A second event bearing a consumed capability is an error, not a new owner.
+4. Only the proved item may receive Core's unguessable staging destination.
+   Its dangerous suffix is preserved also in staging. Core constructs and
+   validates the expected location from its own nonce and bounded validated
+   metadata; it never opens an arbitrary browser-reported path. Both the exact
+   CDP GUID and the exact downloads id must report successful completion and
+   the item must be safe before hand-over. Failures, cancellation, timeouts,
+   ambiguity or danger never publish bytes into the workspace. Cleanup is
+   restricted to the proved item's private staging location.
+5. Core retains the existing ExecutionGuard, both required capabilities,
+   protected/secret path checks, approval binding and audit policy. Uploads
+   use immutable private copies, not workspace source paths. Download publish
+   uses verified regular-file descriptors, no-follow/reparse checks, exact
+   byte counts, destination-parent revalidation and atomic installation with
+   no replacement unless overwrite was authorized. An unsupported platform
+   primitive fails closed; lstat alone is not a race-proof open.
+6. Capture remains limited to downloads attributable to the selected tab's
+   frame tree during the command. No unmarked item is used as a fallback.
+   In particular blob/data/browser-internal downloads, a newly opened tab or
+   a browser/version that cannot carry the capability are not captured by
+   this mechanism and fail without touching their items. This limitation
+   must be explicit in tool documentation and negative tests; HTTP(S) click
+   and URL triggers must both pass real-browser acceptance.
+7. Acceptance includes adversarial event orders, simultaneous identical URL
+   and filename downloads in another tab, target OOP frames, redirects,
+   disposition parsing/suffix preservation, interrupted/dangerous downloads,
+   workspace/path substitution and both real autonomous-browser approval
+   gates. A successful isolated spike is not production E2E qualification.
+
+Initial local feasibility witness: Chrome for Testing 153.0.8010.12 on Linux,
+headless, isolated throw-away profile, unchanged native download behavior.
+A target response was marked via chrome.debugger Fetch.continueResponse; its
+capability appeared in Page.downloadWillBegin and onDeterminingFilename.
+A concurrent other-tab download of the identical URL and original filename
+remained unmarked and received no filename override. This is one witness,
+not evidence for the entire browser/OS/version matrix or the full package.
+
+
+**WP-26 implementation and qualification.** Both production tools now run through
+MCP → BrowserService → ExecutionGuard → native bridge → extension. OD-8 is
+**Decided (AD-33)**. Upload uses `DOM.setFileInputFiles` by document-bound ref or
+intercepted chooser, 1–16 files / 64 MiB total per command; staged copies are
+read-only and retained until top-level document replacement, tab close or Core
+shutdown. Content-free release notices carry only a Core-issued random token
+and are accepted only from the issuing connection. Dead-process leases are
+reclaimed on next staging initialization; live processes' leases are untouched.
+
+Download capture is serialized extension-wide, at most 16 queued requests,
+20 s default / 60 s maximum absolute deadline, 64 MiB bound. Target HTTP(S)
+responses with one supported ASCII Content-Disposition filename are marked;
+bytes/session/redirect chain are not replayed. CDP frame/session/GUID and
+filename callback must prove the same capability before any override. Both
+completion streams and native `danger:safe` are required. Core ACK, failure
+and a bounded lost-ACK timer reclaim only the proved item's browser file.
+Publication uses a verified regular single-link file, `O_NOFOLLOW`, byte count,
+descriptor/handle-relative destination, flush and atomic installation
+(no overwrite by default, explicit replacement only). Results/audit omit content, ownership tokens,
+private staging paths and browser-suggested download names. Audit paths are
+workspace-relative; failures use content-free summaries.
+
+**Native file-transfer host contract (WP-26 cross-platform qualification):**
+- Linux: `O_NOFOLLOW`, `fstat/lstat` identity and `/proc/self/fd`-anchored
+  destination; fsync + link/rename installs atomically.
+- macOS: `O_NOFOLLOW`, `fstat/lstat` identity and `fcntl(F_GETPATH)` verify the
+  authorized source and held parent. Native `openat`, `linkat`, `renameat`,
+  `unlinkat` operate relative to that descriptor; `/dev/fd` path emulation is
+  not used. Parent identity/workspace membership is revalidated before install.
+- Windows (64-bit local drive paths): use the existing native private-state
+  owner-only DACL/MIC policy, not chmod or inherited-public ACL assertions.
+  `CreateFileW(FILE_FLAG_OPEN_REPARSE_POINT)` pins and verifies every ancestor,
+  with read/write sharing but **no delete sharing**, preventing ancestor
+  replacement/junction redirection. File handles reject reparse/nonregular
+  entries and hardlinks, and volume/file index/size match `lstat`. Source
+  handles also deny writes while copying. Empty output files receive verified
+  private ACLs before bytes; reopened handles must match the created identity.
+  `NtSetInformationFile(FileRenameInformation)` installs from the owned open
+  temporary handle relative to the pinned destination parent; no pathname
+  MoveFile race, no overwrite unless explicitly requested.
+
+`tests/core/browser-files-integration.test.ts` exercises actual BrowserService,
+ExecutionGuard and host filesystem with a controlled BrowserConnection; it and
+BrowserFiles unit tests run with **no OS skips** through `npm test` in all six
+existing `ci.yml` jobs (Linux/macOS/Windows × Node 20/22). This qualifies the
+Core file contour, not a real Chromium extension run on Windows/macOS. Browser
+≥120 remains the product target, not a claim every branded/version/OS
+combination was tested. Core's
+owner-only `browser.downloadsDirectory` must match the profile's actual
+default directory (default `~/Downloads`). No profile-wide behavior changes.
+Unsupported disposition syntax, blob/data/internal sources, new-tab downloads
+and newly created/unverified frame sessions never fall back to URL guessing.
+
+Production tests: `tests/core/browser-files.test.ts`,
+`tests/core/browser-files-integration.test.ts`,
+`extension/test/download-capture.test.ts`, ownership ledger tests and
+`tests-e2e/browser/wp26.e2e.test.ts`. Real Chromium covers ref/chooser upload,
+lazy reads after source mutation, document/tab cleanup, protected/secret/outside
+paths, click/URL downloads, OOP frames, same-URL foreign-first isolation, atomic
+publication, overwrite refusal, interrupted cleanup and both actual AD-23.8
+approval gates. Unsafe native classification is an explicitly labeled fault
+injection on real Chromium plus unit event tests, not malware-scanner
+qualification. Package completion does not close WP-24 owner acceptance,
+WP-27 multi-agent work, full browser/OS qualification or release gates.

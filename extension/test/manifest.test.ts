@@ -37,8 +37,16 @@ describe("extension manifest", () => {
   });
 
   it("requests only the permissions the commands need", () => {
-    expect(manifest.permissions).toEqual(["nativeMessaging", "tabs", "scripting", "alarms", "debugger", "tabGroups"]);
-    // `downloads` (WP-26) are added by their work packages.
+    expect(manifest.permissions).toEqual([
+      "nativeMessaging",
+      "tabs",
+      "scripting",
+      "alarms",
+      "debugger",
+      "tabGroups",
+      "downloads",
+    ]);
+    // downloads is used only by the exact-owned WP-26 capture.
     // Scripting and captureVisibleTab need host access; the extension itself refuses non-http(s) pages.
     expect(manifest.host_permissions).toEqual(["<all_urls>"]);
     for (const key of [

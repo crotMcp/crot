@@ -167,6 +167,11 @@ export const HttpConfigSchema = z
 export const BrowserConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
+    downloadsDirectory: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Owner-configured absolute browser download directory; defaults to ~/Downloads."),
   })
   .strict();
 

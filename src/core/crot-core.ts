@@ -1,3 +1,5 @@
+import { BrowserFiles } from "./capabilities/browser/files.js";
+import { homedir } from "node:os";
 import path from "node:path";
 import type { ServiceStatus } from "./service-status.js";
 import { ApprovalBroker } from "./approvals/broker.js";
@@ -257,7 +259,17 @@ export class CrotCore {
     const resolveAll = async (paths: readonly string[]) => [
       ...new Set(await Promise.all(paths.map(async (p) => (await workspace.resolve(path.resolve(p))).absolute))),
     ];
-    const secretPaths = await resolveAll(options.secretPaths ?? []);
+    const uploadRoot = path.join(platform.info.directories.state, "browser-files");
+    const downloadsDir = config.browser.downloadsDirectory
+      ? expandHome(config.browser.downloadsDirectory)
+      : path.join(homedir(), "Downloads");
+    if (!path.isAbsolute(downloadsDir))
+      throw new CrotError("CONFIG_ERROR", "browser.downloadsDirectory must be absolute.");
+    const downloadRoot = path.join(downloadsDir, "CROT-private-staging");
+    const secretPaths = await resolveAll([
+      ...(options.secretPaths ?? []),
+      ...(config.browser.enabled ? [uploadRoot, downloadRoot] : []),
+    ]);
     const protectedPaths = await resolveAll([...guarded, ...secretPaths]);
     const permissions = new PermissionEngine(policy, {
       protectedPaths,
@@ -354,6 +366,7 @@ export class CrotCore {
       secretPaths,
     });
     const browser = new BrowserService({
+      files: new BrowserFiles(workspace, uploadRoot, downloadRoot, platform.privateFiles),
       onDialogDismissed: (event) => {
         void audit
           .record({
@@ -421,6 +434,7 @@ export class CrotCore {
       await this.git.shutdown();
       await this.docker.shutdown();
       await this.guard.drain(SHUTDOWN_DRAIN_MS);
+      await this.browser.closeFiles();
       await this.audit.close?.();
     })();
     return this.shuttingDown;

@@ -83,6 +83,7 @@ export const BROWSER_DIALOG_TYPES = ["alert", "confirm", "prompt", "beforeunload
 export type BrowserDialogType = (typeof BROWSER_DIALOG_TYPES)[number];
 /** Content-free telemetry only: cannot initiate a Core operation (AD-32). */
 export type BrowserNotice =
+  | { readonly type: "browser_notice"; readonly event: "upload_released"; readonly token: string }
   | {
       readonly type: "browser_notice";
       readonly event: "dialog_auto_dismissed";
@@ -402,6 +403,13 @@ export function parseBrowserMessage(value: unknown): BrowserToHostMessage {
       return { type: "hello", protocol: value.protocol, browser: { name, version, extensionVersion } };
     }
     case "browser_notice": {
+      if (
+        value.event === "upload_released" &&
+        typeof value.token === "string" &&
+        /^[a-f0-9]{48}$/.test(value.token) &&
+        Object.keys(value).every((k) => ["type", "event", "token"].includes(k))
+      )
+        return { type: "browser_notice", event: "upload_released", token: value.token };
       if (
         value.event === "cdp_status" &&
         typeof value.available === "boolean" &&
