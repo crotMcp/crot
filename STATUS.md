@@ -5,7 +5,7 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
-## WP-27 — Done в этой ветке, не слит
+## WP-27 — Done, PR #33 слит (`ca6280a`)
 
 Обязательный explicit `tabId` для remote проверяется до authorize/bridge.
 Core и расширение исполняют повкладочный FIFO по `(connectionId, tabId)`:
@@ -39,7 +39,7 @@ delete sharing, запрет reparse/hardlinks и handle-relative atomic rename)
 подмена Linux Chromium E2E заявлением о полной branded-browser/OS матрице.
 Для скачивания `browser.downloadsDirectory` должен совпадать с каталогом профиля.
 Опасная классификация проверяется fault injection, не настоящим malware scanning.
-WP-24 engineering gate закрыт; WP-27 выполнен в этой ветке. Полная
+WP-24 engineering gate закрыт; WP-27 слит в PR #33. Полная
 browser/OS/release-матрица этим не закрывается.
 CI проверяется на HEAD PR; package Done не означает merge или релиз продукта.
 
@@ -291,12 +291,9 @@ side). User docs:
   the ARCHITECTURE.md status markers §2.4, §19 item 18, §22 and the two
   §25 rows now record the device side of the tunnel as implemented
   (commit `01f4a20`).
-- **Not WP-30, open with their own packages:** the relay has no device
-  deregistration or key rotation, and a registration stays orphaned if the
-  device fails to store its binding after registering (AD-22 open
-  question 3; relay side, WP-29 scope, see `docs/RELAY.md` "Known
-  limitations"); the 5 s margin of the OD-5 decision is measured against
-  real client timeouts by WP-32 (AD-22 open question 5).
+- **WP-29 completion:** signed deregistration and recoverable registration
+  compensation now resolve AD-22 question 3. Re-pair rotates to a new id/key.
+  Real-client OD-5 timeout measurements remain WP-32 (question 5).
 
 Tests: `tests/cloud-relay/device-tunnel.test.ts` (real relay → tunnel →
 relay entry → Core: SDK clients of every supported version, parallel and
@@ -308,21 +305,17 @@ secret-free logs) and `tests/cloud-relay/device-registration.test.ts`
 setup only: the L1 ARM jobs pull `alpine:3.20` from `public.ecr.aws` with
 retries (Docker Hub rate limit).
 
-**WP-29 — Cloud Relay v1, relay side — partial** (merged into `main`,
-`515fcb9`; ARCHITECTURE.md
-§27 AD-22, included as the PR's first commit because it had not been merged
-yet). User docs: [`docs/RELAY.md`](docs/RELAY.md). WP-29 is **not complete**:
-the open items below are release-blocking (before WP-38 exposes a public
-relay); they do not block WP-30.
-
-- **Open WP-29 items:** per-client / per-device request rate and
-  concurrency limits at the relay (AD-15 point 10, WP-29 scope "size/rate
-  limits"); per-source limits on connections and pending handshakes (the
-  256 pending-handshake limit is global); a registration rate limit per
-  account; device deregistration and key rotation with the orphaned-
-  registration case (AD-22 open question 3); the load/backpressure test of
-  the WP-29 card. Either done in a WP-29 follow-up PR or explicitly
-  reassigned to WP-39.
+**WP-29 — Cloud Relay v1 — Done in this PR, not merged.** Original relay
+base `515fcb9`; completion starts from PR #33 merge `ca6280a`. Configurable
+client/device request rates and concurrency before body buffering; global
+concurrency; peer TCP/pending handshake and verified account registration
+limits. Fresh signed deregistration deletes PRM/routing and closes tunnels;
+verified private inactive intent enables durable pairing compensation after
+failed/lost registration or final binding failure. Local unpair never waits
+for network cleanup. Re-pair rotates device id/key; no in-place key replacement.
+Criterion-level evidence: [WP-29](docs/design/relay-wp29-completion.md).
+Public staging (WP-38), entitlement service (WP-36), multi-instance/capacity
+qualification (WP-39) and real-client acceptance (WP-32) remain separate.
 
 - **Tunnel protocol, shared code** (`src/tunnel/`): `crot-tunnel.v1` frame
   codec, limits, close/RESET/GOAWAY codes, header validation and hop-by-hop
@@ -503,20 +496,20 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 ## Next — зависимости, не очередь слитых PR
 
 По существующему правилу roadmap §8.4 сначала выбирается незавершённая,
-разблокированная задача цепочки B: **WP-29 follow-up**, а не WP-32 напрямую.
-Это устраняет уже известные блокеры публичного staging. Параллельный ближайший
-браузерный gate WP-24 закрыт, WP-27 выполнен в этой ветке; полная ручная
+разблокированная задача цепочки B после WP-29: **WP-38**, а не WP-32 напрямую.
+WP-29 устранил инженерные relay-блокеры; само публичное staging ещё не развёрнуто. Параллельный ближайший
+браузерный gate WP-24 закрыт, WP-27 слит в PR #33; полная ручная
 headed/branded квалификация WP-25 остаётся отдельной. Это приоритизация существующих задач, не новое архитектурное решение
 и не перенос их критериев. WP-23b реализован по AD-31; это не закрывает остальные условия G4.
 
 | Задача | Реальные зависимости | Текущее состояние / открытые блокеры |
 | --- | --- | --- |
-| **WP-29 follow-up — следующий исполнительный WP** | WP-28 и OD-3/4/5 решены; relay и WP-30 уже в main | WP-29 Partial: per-client/device rate/concurrency, per-source connections/handshakes, registration rate, deregistration/key rotation/orphan registration, load/backpressure. До публичного WP-38 — выполнить либо явно переназначить допустимые пункты в WP-39; этим docs PR ничего не переназначается |
+| WP-29 completion | WP-28 and OD-3/4/5 decided; base `ca6280a` (PR #33) | **Done in this PR**, not merged; limits, signed deregistration/rollback and load/backpressure. Evidence: docs/design/relay-wp29-completion.md |
 | WP-24 | WP-18; PR #22–#26 | **Done**: финальная инженерная матрица docs/acceptance/WP-24-final-engineering-gate.md; ранее пройденные ручные и CI проверки сохранены |
-| WP-25 / WP-27 | WP-24 Done; WP-27 также WP-19 Done | WP-27 **Done в этой ветке**, unit + real Chromium E2E. WP-25 headed/branded UX-матрица остаётся открытой |
+| WP-25 / WP-27 | WP-24 Done; WP-27 также WP-19 Done | WP-27 **Done, merged PR #33**, unit + real Chromium E2E. WP-25 headed/branded UX-матрица остаётся открытой |
 | WP-26 | WP-24 и OD-8 | **Done**, PR #32 merged; AD-33, реальные AD-23.8 E2E, нативный Core file contour на трёх ОС × Node 20/22 |
 | WP-23b | WP-21 Done; платформенное решение OD-9 принято AD-29 | Done: macOS Seatbelt/Keychain, AD-31 и зафиксированная Node20/22 CI-квалификация; более широкая матрица не объявляется проверенной |
-| WP-38 | WP-28, завершение/явное согласование открытого WP-29; WP-36 hook может быть stub по карточке | Подготовку TLS/IdP/deployment можно вести; публичный staging блокируют перечисленные WP-29 задачи. Live WorkOS, pin identity environment, payload-free logs, external OAuth/tool run ещё не подтверждены; RFC 9207 — условие G4 или отдельный принятый AD |
+| **WP-38 — следующий исполнительный WP** | WP-28 и WP-29 Done; WP-36 hook может быть stub | Public staging не проверен: TLS/deployment, live WorkOS, pin identity environment, payload-free logs и внешний OAuth/tool run. RFC 9207 — условие G4 или отдельный принятый AD |
 | WP-32 | **WP-24…WP-27, WP-30, WP-31, WP-38** | WP-30/31 Done, но browser acceptance и staging открыты. Нужны автоматический сквозной набор, ≥4 реальных remote клиентов × версии, macOS/Windows прогоны и измерение client timeouts; локальные тесты не подменяют staging |
 | WP-35 / WP-34 / WP-33 | WP-35: WP-24/25/26, OD-10 store IDs; WP-34: сервис/Tray/L1 и WP-35; WP-33: WP-32 + RC от WP-34 + WP-38 | Возможна подготовка, но publication, подписанная поставка/autostart и независимое security review не объявляются выполненными |
 
@@ -540,8 +533,8 @@ headed/branded квалификация WP-25 остаётся отдельно�
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
 | Revoking a client's authorization at the identity provider from the tray (best effort after the device-side revocation; hook exists, reports "not available") | WP-36 (CROT account service holds the provider credentials) |
 | No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); no release configuration pins an identity environment, so every build honours the development override until then | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
-| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side by WP-30 (PR #20, merged); AD-22 open questions 1–8 remain |
-| Device deregistration and key rotation at the relay; a registration stays orphaned if the device fails to store its binding after registering | AD-22 open question 3 — relay side, WP-29 scope (not WP-30); listed in `docs/RELAY.md` "Known limitations" |
+| Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side by WP-30 (PR #20, merged); AD-22 question 3 resolved by WP-29; other questions remain |
+| Device deregistration, re-pair and orphan registration | AD-22 question 3 resolved by WP-29: fresh signed removal, durable inactive registration intent/compensation; re-pair changes id/key (AD-21). Offline unpair remains locally effective even if relay cleanup fails |
 | Remote full-control opt-in: implemented per-principal effect, pairing-bound | Decided by AD-23 point 6 and AD-19 point 7 (`69408c3`); implemented in PR #21 (merged as `9ce0574`): bound to the device id and account of its pairing and kept across restarts |
 | Per-principal permission profile: implemented by AD-23, not a remaining global-grants blocker | Decided by ARCHITECTURE.md §27 AD-23 (§26 question 25, `69408c3`); implemented in PR #21 (merged as `9ce0574`) |
 | Preset `autonomous-browser` (implemented on main) | AD-23 point 5; implemented in PR #21 (merged as `9ce0574`); actual upload/download gates verified end to end by WP-26 (AD-23 point 8) |
@@ -556,7 +549,7 @@ headed/branded квалификация WP-25 остаётся отдельно�
 | Vendor API facts (YouTube, ElevenLabs, TikTok, Canva) | unverified; confirmed by WP-60, WP-62 and the first step of WP-58/WP-59 ([`docs/design/integration-map.md`](docs/design/integration-map.md)) |
 | Transport matcher to gate loopback HTTP separately from stdio | ARCHITECTURE.md §26 question 12 (not required for v1) |
 | Relay/tunnel timeouts for gated requests and bounded browser waits | Decided by ARCHITECTURE.md §27 AD-22 points 12–13 (§26 question 13); relay side implemented (WP-29); device side WP-30 (PR #20): a request ends 5 s before the exchange deadline (OD-5, recorded in ARCHITECTURE.md by `37b3126`); measured client timeouts WP-32 (AD-22 open question 5) |
-| Relay request rate and concurrency limits, per-source connection and handshake limits, registration rate limit, relay load test | Open WP-29 items (AD-15 point 10; ARCHITECTURE.md §27 AD-22, Implementation (WP-29)); release-blocking before WP-38 exposes a public relay, or reassigned to WP-39 |
+| Relay request/concurrency/source/registration limits and load/backpressure | Implemented and tested by WP-29; see docs/design/relay-wp29-completion.md. Public deployment/capacity qualification remain WP-38/39 |
 | Approval policy in general (beyond presets) | §26 question 6 |
 | Limit remote agents to tabs they opened | §26 question 14 (opened by AD-16; not required for v1) |
 | Debugger notice in headed Chrome/Edge/Brave on all OS; enterprise policies blocking `chrome.debugger` | WP-25 |

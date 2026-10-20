@@ -245,7 +245,7 @@ All paths end in the same Core pipeline; no path bypasses it.
 | CROT local service (sidecar) | device, background | one long-running `crot-mcp` service per user; stdio clients attach through a thin shim; authenticated local control channel | **[Implemented]** (WP-20, §27 AD-17); autostart/installer registration **[Target]** (WP-34) |
 | CROT Tray app | device | approvals and device controls | **[Implemented]** WP-22; packaging/autostart **[Target]** WP-34 |
 | Installer / packages | device | Linux, Windows, macOS installation | **[Target]**, v1 |
-| CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Partial]** WP-29 code/tested, limits/load/registration follow-ups open; WP-30 device tunnel and WP-31 remote profile implemented; staging WP-38 and acceptance WP-32 pending |
+| CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Implemented]** WP-29 relay, limits/load and signed deregistration; WP-30 device tunnel and WP-31 remote profile implemented; staging WP-38 and acceptance WP-32 pending |
 | Identity provider (third party) | cloud | token issuer, behind the verifier seam | **[Partial]** WorkOS selected AD-21, device verifier/pairing WP-28 implemented with emulated tests; live staging/production unverified (WP-38/39) |
 | Account & Commercial service | cloud | accounts, subscriptions, plans, licensing, entitlements, device limits | **[Target]** (v1: entitlements checked at the relay only, AD-13) |
 | User / device / account | identities | see §20 | **[Partial]** local and verified remote principals, device binding implemented WP-28; cloud account service WP-36 pending |
@@ -701,7 +701,7 @@ packages, their order and dependencies are in
 ```text
 16. User confirmations                            [Implemented: mechanism WP-15, Tray WP-22, presets WP-31; upload/download E2E WP-26]
 17. Identity, accounts and device binding         [Partial: WP-28 device side implemented; live cloud environments/accounts pending, §20]
-18. Remote mode and CROT Cloud Relay              [Partial: relay v1 (WP-29) and the device side of the tunnel (WP-30) implemented, §27 AD-22; remote profile (WP-31) implemented; WP-29 follow-ups, acceptance (WP-32) and deployment (WP-38/WP-39) pending, v1 (mandatory), §22]
+18. Remote mode and CROT Cloud Relay              [Partial: relay v1 (WP-29) and the device side of the tunnel (WP-30) implemented, §27 AD-22; remote profile (WP-31) implemented; acceptance (WP-32) and deployment (WP-38/WP-39) pending, v1 (mandatory), §22]
 19. External MCP gateway (CROT as MCP client)     [Target, post-v1, §18]
 20. Tray app and supervised local service         [Partial: service WP-20 and Tray WP-22 implemented; packaging/autostart WP-34 pending, §24]
 21. Dedicated Git/Docker capabilities             [Partial: git.read (WP-10, §27 AD-1), git.write (WP-11, §27 AD-2) and docker.use (WP-12, §27 AD-3) implemented; Git network operations Target, §5]
@@ -788,9 +788,9 @@ Boundaries:
 | Local transports | Core | other local programs | stdio parent only; loopback HTTP with bearer token, Host/Origin checks | **[Implemented]** |
 | Browser | Core | bridge, relay, extension, browser, web pages | token-authenticated IPC, browser cannot initiate, fixed commands, result validation; page content untrusted | **[Implemented]** (basic commands; the browser contract v1, §7.1, keeps the same enforcement) |
 | External MCP | Core | external servers, their tools and data | §18 | **[Target]** (post-v1, AD-13) |
-| Remote access | local CROT | relay, remote clients, network | §22, AD-15/22/23; qualified L1 AD-20/30 | **[Partial]** WP-29 code, WP-30/31 implemented; WP-29 follow-ups, WP-38/32 and full v1 gates pending |
+| Remote access | local CROT | relay, remote clients, network | §22, AD-15/22/23; qualified L1 AD-20/30 | **[Partial]** WP-29/30/31 implemented; WP-38/32 and full v1 gates pending |
 | User tokens | identity provider + local verifier | token holders | audience/account/device-bound verifier (AD-21), unchanged Principal boundary | **[Partial]** WP-28 device side tested with emulated IdP; live environment/RFC 9207 condition open |
-| Device | device credential | other devices, cloned installs | device identity/binding, local revocation (§20) | **[Partial]** WP-28 device side implemented; relay deregistration/key rotation WP-29 open |
+| Device | device credential | other devices, cloned installs | device identity/binding, local revocation (§20) | **[Implemented]** WP-28 binding and WP-29 signed deregistration; re-pair rotates device id/key (AD-21) |
 | Commercial | local execution | commercial service | entitlements never enter local authorization (§23) | **[Target]** |
 | User confirmation | user via Tray provider | agent, page/tool content | §21, AD-5…11/19/23 | **[Implemented]** mechanism, UI and presets; upload/download E2E verified in WP-26 (AD-23.8) |
 | Untrusted content (prompt injection) | Core (session exposure) | web pages, HTTP responses, later external MCP results | §27 AD-12: session exposure from source operations; effectful operations in an exposed session need approval | **[Implemented]** (WP-16b) |
@@ -1028,12 +1028,12 @@ The tray app is a UI; control logic stays in Core/service.
 | Native Host (OS platform layer) | **[Implemented]** |
 | Browser bridge, relay, extension (Chromium), basic commands | **[Implemented]** |
 | Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | **[Partial]** AD-16 unchanged; WP-24 engineering gate closed (criterion evidence recorded); WP-25 implemented (AD-32; branded qualification limits remain); WP-26 implemented (AD-33; native Linux/macOS/Windows Core file contour); WP-27 implemented (remote tabId, FIFO, openedBy) |
-| Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); request pipeline **[Implemented]** (WP-19: sessionless 2026-07-28, supported versions, principal kinds by entry point, exposure scopes, persisted remote exposure); verifier **[Implemented]** (WP-28); relay **[Partial]** (WP-29, AD-22: relay side of the tunnel implemented; per-client rate limits and the load test open); device tunnel: device side **[Implemented]** (WP-30, AD-22 device side: registration at pairing, handshake, streams, limits, deadline and cancellation) |
+| Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); request pipeline **[Implemented]** (WP-19: sessionless 2026-07-28, supported versions, principal kinds by entry point, exposure scopes, persisted remote exposure); verifier **[Implemented]** (WP-28); relay **[Implemented]** (WP-29, AD-22: limits, deregistration and load/backpressure verified); device tunnel: device side **[Implemented]** (WP-30, AD-22 device side: registration at pairing, handshake, streams, limits, deadline and cancellation) |
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
 | User confirmations | **[Implemented]** (mechanism: WP-15, §27 AD-5…AD-11; tray provider and preset selection: WP-22, §27 AD-19); *Autonomous browser* preset and remote profile **[Implemented]** (WP-31); actual upload/download gate E2E verified in WP-26 (AD-23.8) |
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
 | OAuth/OIDC identity, accounts, device binding | Provider, claim model, revocation model and device resource URI decided (§27 AD-21: WorkOS AuthKit); device side **[Implemented]** (WP-28: verifier, pairing, device id and credential, unpair, re-grant; development environment only); staging/production environments **[Target]** (WP-38, WP-39); provider-side revocation and accounts **[Target]** (WP-36) |
-| Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); Cloud Relay v1 and the relay side of the tunnel **[Partial]** (WP-29, §27 AD-22; per-client rate limits and the load test open); device tunnel: device side **[Implemented]** (WP-30, §27 AD-22, [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)); deployment WP-38/WP-39 **[Target]** |
+| Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); Cloud Relay v1 and the relay side of the tunnel **[Implemented]** (WP-29, §27 AD-22; limits, signed deregistration and load/backpressure verified); device tunnel: device side **[Implemented]** (WP-30, §27 AD-22, [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)); deployment WP-38/WP-39 **[Target]** |
 | Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); Windows **[Implemented]** (WP-23c, AD-30; Server2025 x64 Node20/22); macOS **[Implemented]** (WP-23b, AD-31; exact CI scope in macOS report) |
 | Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
 | Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
@@ -4612,7 +4612,28 @@ two independently deployed components and its time limits. Facts at `main`
    (else the binding is not written, as for any pairing failure).
    Device side: WP-30 (`src/identity/relay-registration.ts`, called by
    pairing after the pairing token passed the device's own checks).
-   Removal of registrations after unpair is open question 3.
+   **WP-29 completion contract (resolves open question 3):** before this POST,
+   the device stores and reads back its private key plus an inactive private
+   `device-binding.json.registration` intent. This intent grants no access.
+   The final binding is committed only after registration and the existing
+   control audit. Failure, cancellation or a lost registration response uses
+   signed compensation; if the relay is unreachable the intent/key survive
+   restart and are retried before another pairing (fail closed).
+
+   `GET /d/<deviceId>/deregister` issues a random 32-byte, single-use challenge
+   valid for 30 s, bound to the exact current registry record (global cache
+   at most 1024). `POST` sends `{challenge, proof}`: Ed25519 over
+   `crot-device-deregister-v1\0<deviceId>\0<relayHost>\0<challenge bytes>`.
+   Tunnel proofs, other keys/hosts/ids, expired/replayed challenges fail.
+   Conditional durable removal cannot delete a replacement registration;
+   success (204) invalidates routing, closes all device tunnels and makes
+   subsequent PRM lookups 404. Already absent is 404 (client cleanup success).
+   Neither a pairing token nor private key is transmitted or stored at the relay.
+   Local unpair revokes immediately and deletes the key; a captured removal-only
+   signer sends best-effort deregistration after tunnel GOAWAY `unpaired`,
+   without holding up the local result. Offline unpair can leave a stale relay
+   record, never local authority; account-side administration remains WP-36.
+   Re-pairing rotates to a fresh device id/key, not an in-place key replacement.
 
 5. **Framing.** Frame = 6-byte header + payload, the WebSocket message
    length delimits it:
@@ -5028,8 +5049,9 @@ two independently deployed components and its time limits. Facts at `main`
    corporate networks.
 2. Certificate pinning of the relay (operational risk of pin rotation vs.
    protection against a mis-issued certificate).
-3. Removal of relay registrations after unpair (the device holds no token
-   then): via the CROT account service (WP-36) or expiry after inactivity.
+3. **Resolved by WP-29:** fresh signed deregistration and durable inactive
+   registration compensation (point 4). Account-side management remains WP-36;
+   re-pair uses a new id/key under AD-21, not in-place rotation.
 4. Detection of a cloned device key beyond supersession counting.
 5. Measured request timeouts of the supported clients (WP-32); whether
    progress notifications during approval waits are worth adding later.
@@ -5055,47 +5077,47 @@ two independently deployed components and its time limits. Facts at `main`
 - It does not define jobs, artifacts, progress or out-of-band transfers
   (OD-15, OD-17).
 
-**Implementation (WP-29).** **[Partial]** — relay side (`src/tunnel/`,
-`src/cloud-relay/`, `src/bin/crot-cloud-relay.ts`; operator docs
-[`docs/RELAY.md`](docs/RELAY.md)). Implemented: registration (point 4,
-pairing client only), PRM, admission, routing, handshake, framing, streams,
-flow control, liveness, draining, versioning, limits, deadline, outcomes and
-validation (points 2–3, 5–15). Notes, none of which relaxes this decision:
+**Implementation (WP-29).** **[Implemented]** — relay side (`src/tunnel/`,
+`src/cloud-relay/`, `src/bin/crot-cloud-relay.ts`), operator guide
+[`docs/RELAY.md`](docs/RELAY.md), criterion evidence
+[`docs/design/relay-wp29-completion.md`](docs/design/relay-wp29-completion.md).
+Registration/PRM/admission, routing, handshake, framing, streams, credit flow,
+liveness/draining, deadlines and explicit outcomes remain unchanged.
 
-- *Bounded unauthenticated resources.* The WebSocket endpoint retains at
-  most one message (64 KiB + header) per connection however a peer
-  fragments or segments it, and answers only the latest WebSocket-level
-  ping while the peer does not read its output; at most 256 handshakes are pending; a body the relay does
-  not forward (refusals before admission) is dropped and the connection
-  closed if it is not complete within 10 s; registration checks the token
-  before reading its body.
-- *Open WP-29 items (release-blocking, before WP-38 exposes a public
-  relay):* per-client / per-device request rate and concurrency limits at
-  the relay (AD-15 point 10; buffered bodies without length are bounded
-  only by the device's stream limit after admission and by the deadline),
-  per-source limits on connections and pending handshakes (the 256 limit is
-  global), a registration rate limit per account, and the load/backpressure
-  test of the WP-29 card. Owned by WP-29 follow-up or WP-39 (capacity and
-  rate limits); WP-29 is not complete until they are done or explicitly
-  reassigned.
-- *Later work packages:* entitlement hook default "entitled" until WP-36;
-  no deregistration or key rotation (open question 3, WP-36/WP-39);
-  single relay instance with a file registry (open question 8, WP-39); no
-  CORS/`OPTIONS` (open question 7); the binary is not in `package.json`
-  `bin` and ships in the device package's `dist` (WP-34/WP-38).
+- Configurable sliding-window rates: client/device 120/600 requests per minute;
+  registration 10 per account/minute, after verified pairing-client authentication.
+  Concurrency reserves slots **before** reading unknown-length bodies: defaults
+  client 4, device 32, global 64 (device bounded by advertised maxStreams).
+  Client fairness also caps at half the tunnel stream budget (minimum 1) and
+  half the connection credit in stream windows (4), reserving headroom for peers.
+  Request rate excess returns 429, concurrency excess 503; both carry
+  `Retry-After: 1` and `CROT-Request-Outcome: not_executed` before tunnel OPEN.
+- Source peer-address limits default to 64 TCP connections and 8 pending
+  handshakes; the global 256 pending cap remains. Spoofed forwarded headers
+  never change source identity. Behind a load balancer this is a shared peer
+  quota; deployment must also enforce real source quotas at the edge.
+- Rate state is cardinality-bounded (default 10,000 keys per counter), expires
+  on reuse and fails closed on exhaustion. Chunked buffering remains 4 MiB
+  per admitted exchange with release on abort/finish; admission and credit
+  byte counts are observable as aggregates, without identities/payloads.
+- Fresh signed deregistration, conditional durable registry deletion, in-flight
+  handshake revocation and durable pairing compensation implement point 4.
+- Real socket load/regression tests: four unread slow streams from one client
+  plus 48 data-bearing exchanges from eight others; credit window and cleanup
+  assertions. This is deterministic isolation qualification, not an RSS/capacity
+  benchmark or evidence of a deployed production service.
+- Later packages remain explicit: entitlement default stub WP-36, single-instance
+  file registry/multi-instance WP-39, public staging WP-38 and real-client/timeouts
+  WP-32; no CORS/OPTIONS or in-place key replacement is added here.
 
-**Implementation (WP-30).** **[Partial]** — device side
-(`src/service/remote-tunnel.ts`, `src/identity/relay-registration.ts`;
-user docs [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)). Implemented:
-registration at pairing (point 4), handshake with the device credential
-and the pinned relay host (point 3), streams into the unchanged relay
-entry point with only the two checks of point 7 replaced, limits and
-flow control (points 6, 8, 11), liveness, reconnect and `GOAWAY`
-(point 9), version refusal (point 10), deadline and cancellation without
-replay (points 12–13, OD-5 as recorded in point 12). Open: no
-deregistration, and a registration stays orphaned if the device fails to
-store its binding after registering (open question 3); measured client
-timeouts (open question 5, WP-32).
+**Implementation (WP-30).** **[Implemented]** — device side
+(`src/service/remote-tunnel.ts`, `src/identity/relay-registration.ts`),
+[`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md). Outbound authenticated tunnel,
+unchanged relay entry pipeline, streams/limits/credit, liveness/reconnect,
+deadline and cancellation without replay are implemented. WP-29 completion
+adds verified pre-registration persistence, recoverable signed compensation
+and best-effort unpair deregistration after local revocation/GOAWAY. Measured
+remote-client timeouts remain WP-32 (open question 5).
 
 ### AD-23. Per-principal permission profile: one PermissionEngine resolves exactly one profile per request; remote principals get a narrowed profile; remote full control is bound to its pairing and persists across restarts (WP-31; decides §26 question 25)
 

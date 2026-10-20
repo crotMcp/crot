@@ -20,15 +20,18 @@
  *   written (reported to the user, as client revocation does, AD-19 point 8).
  * - The device key is generated before the pairing finishes, because the
  *   relay registers its public key during pairing (AD-22 point 4; WP-30).
- *   The pairing stages the seed in memory only (`stageDeviceKey`); `pair`
- *   for that same device id stores it. Without a staged key `pair` generates
- *   one as before.
+ *   Before registration the seed and an inactive recovery intent are stored
+ *   and read back. They survive failed registration/commit until signed
+ *   compensation succeeds. Without a staged key `pair` generates one.
  */
+import { rm } from "node:fs/promises";
+import type { RemovalCredential } from "../identity/relay-registration.js";
 import type { KeyObject } from "node:crypto";
 import {
   devicePublicKey,
   deviceKeyFromSeed,
   signTunnelProof,
+  signDeregistrationProof,
   type DevicePublicKey,
 } from "../identity/device-credential.js";
 import { isDeviceId, isRelayHost } from "../identity/device-id.js";
@@ -143,6 +146,8 @@ export class DeviceBindingStore {
     } catch (error) {
       return make(stored, `the device key cannot be read: ${message(error)}`);
     }
+    // A crash after the binding commit can leave its now-obsolete inactive intent.
+    await rm(file + ".registration", { force: true }).catch(() => undefined);
     return make(stored, undefined, key);
   }
 
@@ -171,10 +176,52 @@ export class DeviceBindingStore {
     return this.paired && this.key ? devicePublicKey(this.key) : undefined;
   }
 
+  /** Durable, inactive intent and verified secret BEFORE any remote registration. */
+  async prepareRegistration(deviceId: string, seed: string, relayHost: string): Promise<void> {
+    if (this.paired || this.failure) throw new Error("not unpaired");
+    if (!isDeviceId(deviceId) || !isRelayHost(relayHost)) throw new Error("invalid registration intent");
+    deviceKeyFromSeed(seed);
+    await this.secrets.write("device-key", seed);
+    if ((await this.secrets.read("device-key")) !== seed) throw new Error("device key readback failed");
+    const text = JSON.stringify({ version: 1, deviceId, relayHost }) + "\n";
+    await writeStateFile(this.file + ".registration", text, this.privateFiles);
+    const read = await readStateFile(this.file + ".registration");
+    if (read.kind !== "text" || read.text !== text) throw new Error("registration intent readback failed");
+    this.stageDeviceKey(deviceId, seed);
+  }
+
+  /** A pending intent is never an active binding or tunnel credential. */
+  async pendingRegistration(): Promise<RemovalCredential | undefined> {
+    if (this.paired) return undefined;
+    const read = await readStateFile(this.file + ".registration");
+    if (read.kind === "missing") return undefined;
+    const value = JSON.parse(read.text) as { version?: number; deviceId?: unknown; relayHost?: unknown };
+    if (value.version !== 1 || !isDeviceId(value.deviceId) || !isRelayHost(value.relayHost))
+      throw new Error("invalid registration intent");
+    const seed = await this.secrets.read("device-key");
+    if (!seed) throw new Error("pending registration key missing");
+    const key = deviceKeyFromSeed(seed),
+      deviceId = value.deviceId,
+      relayHost = value.relayHost;
+    return { deviceId, relayHost, prove: (challenge) => signDeregistrationProof(key, deviceId, relayHost, challenge) };
+  }
+  async clearRegistration(): Promise<void> {
+    await rm(this.file + ".registration", { force: true });
+    if (!this.paired) await this.secrets.backend.delete("device-key");
+  }
+  removalCredential(): RemovalCredential | undefined {
+    const paired = this.paired,
+      key = this.key;
+    if (!paired || !key) return undefined;
+    const { deviceId, relayHost } = paired;
+    return { deviceId, relayHost, prove: (challenge) => signDeregistrationProof(key, deviceId, relayHost, challenge) };
+  }
+
   /**
    * Record a completed pairing: a new device key in the secret store first,
-   * then the binding. Only from the unpaired state; on any failure nothing
-   * changes (a key written before a failed binding write is removed).
+   * then the binding. Only from the unpaired state; failure leaves no active
+   * binding. A pending registration retains its key for signed compensation;
+   * a legacy local-only failed write removes its unused key.
    */
   async pair(binding: Omit<PairedBinding, "pairedAt">, environment: IdentityEnvironment): Promise<PairedBinding> {
     const staged = this.staged?.deviceId === binding.deviceId ? this.staged.seed : undefined;
@@ -192,11 +239,13 @@ export class DeviceBindingStore {
     try {
       await writeStateFile(this.file, serialize({ state: "paired", ...paired }), this.privateFiles);
     } catch (error) {
-      await this.secrets.backend.delete("device-key").catch(() => undefined);
+      const pending = await this.pendingRegistration().catch(() => undefined);
+      if (!pending) await this.secrets.backend.delete("device-key").catch(() => undefined);
       throw error;
     }
     this.stored = { state: "paired", ...paired };
     this.key = key;
+    await rm(this.file + ".registration", { force: true }).catch(() => undefined);
     return paired;
   }
 
@@ -208,6 +257,7 @@ export class DeviceBindingStore {
    * without its key is unavailable (fail closed).
    */
   async unpair(): Promise<{ readonly persisted: boolean; readonly keyRemoved: boolean; readonly errors: string[] }> {
+    const wasPaired = this.stored.state === "paired";
     this.staged = undefined;
     this.stored = { state: "unpaired", unpairedAt: new Date(this.now()).toISOString() };
     this.failure = undefined;
@@ -219,6 +269,13 @@ export class DeviceBindingStore {
     } catch (error) {
       persisted = false;
       errors.push(`the device binding could not be written: ${message(error)}`);
+    }
+    if (wasPaired) {
+      try {
+        await rm(this.file + ".registration", { force: true });
+      } catch (error) {
+        errors.push(`obsolete registration intent could not be removed: ${message(error)}`);
+      }
     }
     let keyRemoved = true;
     try {

@@ -62,7 +62,7 @@ export const TUNNEL_CLOSED_NOTE =
   "The relay tunnel is closed: remote mode is off or this device is not paired in the active identity environment.";
 
 /** Methods after which remote reachability may have changed. */
-const REMOTE_METHODS: ReadonlySet<string> = new Set(["remote.setMode", "device.unpair", "pairing.start"]);
+const REMOTE_METHODS: ReadonlySet<string> = new Set(["remote.setMode", "pairing.start"]);
 
 /**
  * The control center with the tunnel's state in the overview and a hook
@@ -70,7 +70,11 @@ const REMOTE_METHODS: ReadonlySet<string> = new Set(["remote.setMode", "device.u
  */
 export class TunnelControlCenter extends ControlCenter {
   tunnelView: (() => string | undefined) | undefined;
-  onRemoteChange: (() => void) | undefined;
+  onRemoteChange: (() => void | Promise<void>) | undefined;
+
+  protected override async afterLocalUnpair(): Promise<void> {
+    await this.onRemoteChange?.();
+  }
 
   override handle(connection: ControlConnection, request: ControlRequest): ReturnType<ControlCenter["handle"]> {
     const result = super.handle(connection, request);

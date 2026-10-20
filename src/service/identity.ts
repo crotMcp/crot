@@ -10,8 +10,8 @@
  * reaches Core except, through the verifier, the verified facts of a token.
  *
  * Pairing registers the new device at the relay (AD-22 point 4; WP-30): the
- * device key is generated first, its public key is registered with the
- * verified pairing token, and only then is the key staged for the binding.
+ * device key and an inactive rollback intent are durably verified before
+ * registration; failures compensate with a fresh signed removal request.
  */
 import type { AccessTokenVerifier } from "../adapters/http/auth.js";
 import { canonicalDeviceUri, generateDeviceId, protectedResourceMetadataUrl } from "../identity/device-id.js";
@@ -20,7 +20,11 @@ import { createIdentityHttp, type IdentityHttp } from "../identity/http.js";
 import { IssuerKeySet } from "../identity/jwks.js";
 import { devicePublicKey, deviceKeyFromSeed } from "../identity/device-credential.js";
 import { startPairing, type PairingFlow, type PairingOutcome } from "../identity/pairing.js";
-import { registerDeviceAtRelay, relayRegistrationUrl } from "../identity/relay-registration.js";
+import {
+  deregisterDeviceAtRelay,
+  registerDeviceAtRelay,
+  relayRegistrationUrl,
+} from "../identity/relay-registration.js";
 import { OAuthAccessTokenVerifier, UnavailableTokenVerifier, type TokenRejection } from "../identity/verifier.js";
 import type { DeviceBindingStore, TunnelCredentialResult } from "./device-binding.js";
 import { generateSecret } from "./secrets/store.js";
@@ -50,6 +54,8 @@ export class DeviceIdentity {
   private readonly keys: IssuerKeySet | undefined;
   private readonly http: IdentityHttp;
   private flow: PairingFlow | undefined;
+  private registration: Promise<unknown> | undefined;
+  private recovery: Promise<boolean> = Promise.resolve(true);
   private readonly rejections = new Map<TokenRejection, number>();
 
   constructor(private readonly options: DeviceIdentityOptions) {
@@ -81,6 +87,7 @@ export class DeviceIdentity {
         options.log(`identity: rejected a remote access token (${reason})`);
       },
     });
+    this.recovery = this.rollbackPairing();
   }
 
   /** Token rejections since start, by reason (diagnostics). */
@@ -124,6 +131,8 @@ export class DeviceIdentity {
   async startPairing(onOutcome: (outcome: PairingOutcome, deviceId: string) => void): Promise<PendingPairing> {
     if (!this.environment || !this.keys) throw new Error(this.unavailableReason ?? "no identity environment");
     if (this.flow) return this.pending!;
+    await this.recovery;
+    if (!(await this.rollbackPairing())) throw new Error("pending relay registration cleanup unavailable; retry later");
     const metadata = await this.keys.metadata();
     const environment = this.environment;
     const deviceId = generateDeviceId();
@@ -135,32 +144,67 @@ export class DeviceIdentity {
       http: this.http,
       keys: this.keys,
       deviceId,
-      register: async (accessToken) => {
-        const result = await registerDeviceAtRelay({
-          http: this.http,
-          url: relayRegistrationUrl(environment.relayHost, deviceId),
-          accessToken,
-          publicKey,
-        });
-        if (!result.ok) {
-          const detail = `${result.reason}${result.status !== undefined ? ` (status ${result.status})` : ""}`;
-          this.options.log(`identity: the relay did not register the device: ${detail}`);
-          return { ok: false, detail };
-        }
-        this.options.binding.stageDeviceKey(deviceId, seed);
-        this.options.log(`identity: device ${result.created ? "registered" : "already registered"} at the relay`);
-        return { ok: true };
+      register: (accessToken) => {
+        const run = async () => {
+          await this.options.binding.prepareRegistration(deviceId, seed, environment.relayHost);
+          const result = await registerDeviceAtRelay({
+            http: this.http,
+            url: relayRegistrationUrl(environment.relayHost, deviceId),
+            accessToken,
+            publicKey,
+          });
+          if (!result.ok) {
+            const detail = `${result.reason}${result.status !== undefined ? ` (status ${result.status})` : ""}`;
+            this.options.log(`identity: the relay did not register the device: ${detail}`);
+            return { ok: false as const, detail };
+          }
+          this.options.binding.stageDeviceKey(deviceId, seed);
+          this.options.log(`identity: device ${result.created ? "registered" : "already registered"} at the relay`);
+          return { ok: true as const };
+        };
+        const pending = run();
+        this.registration = pending;
+        return pending;
       },
       ...(this.options.pairingTimeoutMs !== undefined ? { timeoutMs: this.options.pairingTimeoutMs } : {}),
       ...(this.options.now ? { now: this.options.now } : {}),
     });
     this.flow = flow;
-    void flow.outcome.then((outcome) => {
+    void flow.outcome.then(async (outcome) => {
+      if (!outcome.ok) {
+        await this.registration?.catch(() => undefined);
+        await this.rollbackPairing(flow.deviceId);
+        this.options.binding.clearStagedKey(flow.deviceId);
+      }
       if (this.flow === flow) this.flow = undefined;
-      if (!outcome.ok) this.options.binding.clearStagedKey(flow.deviceId);
       onOutcome(outcome, flow.deviceId);
     });
     return this.pending!;
+  }
+
+  /** Compensation survives a failed final binding write via a durable inactive intent. */
+  async rollbackPairing(deviceId?: string): Promise<boolean> {
+    try {
+      const pending = await this.options.binding.pendingRegistration();
+      if (!pending || (deviceId !== undefined && pending.deviceId !== deviceId)) return true;
+      if (!(await deregisterDeviceAtRelay(this.http, pending))) {
+        this.options.log("identity: registration cleanup pending; retry pairing when relay is reachable");
+        return false;
+      }
+      await this.options.binding.clearRegistration();
+      return true;
+    } catch {
+      this.options.log("identity: registration cleanup failed; durable intent retained");
+      return false;
+    }
+  }
+  /** Capture a removal-only signer before local unpair destroys the device credential. */
+  prepareDeregistration(): () => Promise<void> {
+    const credential = this.options.binding.removalCredential();
+    return async () => {
+      if (credential && !(await deregisterDeviceAtRelay(this.http, credential)))
+        this.options.log("identity: best-effort relay deregistration unavailable; local device remains unpaired");
+    };
   }
 
   cancelPairing(): boolean {

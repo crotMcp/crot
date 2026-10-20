@@ -55,6 +55,7 @@ node dist/bin/crot-cloud-relay.js --config relay.json
 | `host`, `port` | Listen address (default `0.0.0.0:8443`) |
 | `registryFile` | Device registry (JSON, written atomically, mode 0600) |
 | `tls` | Optional; without it the relay speaks plain HTTP and TLS must terminate in front of it |
+| `limits` | Optional admission settings; defaults and effective fairness bounds below |
 | `exchangeDeadlineMs` | Absolute exchange deadline, 60 000…900 000 ms (AD-22 point 12, default 15 min); the device ends a request 5 s before it (OD-5) |
 
 When TLS terminates at a load balancer, its idle timeout must be at least the
@@ -68,6 +69,7 @@ WP-38 (staging) and WP-39 (production). The binary is not yet listed in
 | --- | --- | --- |
 | `/.well-known/oauth-protected-resource/d/<id>/mcp` | GET | Protected resource metadata (AD-21 point 6); 404 for unregistered devices |
 | `/d/<id>/register` | POST | Device registration (pairing token of the owner; body `{"publicKey": <Ed25519 JWK>}`) |
+| `/d/<id>/deregister` | GET, POST | Fresh device-key challenge and signed removal; no pairing bearer |
 | `/d/<id>/mcp` | POST, GET, DELETE | MCP endpoint, forwarded to the device |
 | `/.crot/tunnel` | GET (WebSocket upgrade) | Device tunnel, subprotocol `crot-tunnel.v1` |
 | `/.crot/health` | GET | `{"status":"ok"}` (`shutting_down` while closing) |
@@ -86,11 +88,67 @@ created, `200` same account and same key again (idempotent), `409` a
 different account or key, `400` bad body or key, `401` with
 `WWW-Authenticate` for a missing or invalid token, `403` another client's
 token, `408` body not received within 10 s, `413` for a body above 4 KiB.
-There is no deregistration yet (AD-22 open question 3).
+Valid pairing-client tokens are limited per `sub` before reading the body:
+excess returns `429`, `Retry-After: 1`, `CROT-Request-Outcome: not_executed`.
 
 The device calls this endpoint during pairing, after it has verified the
 pairing token itself (WP-30, `src/identity/relay-registration.ts`); only
 `201` and `200` complete pairing.
+
+### Signed deregistration and pairing compensation
+
+`GET /d/<id>/deregister` returns `{challenge}` (32 cryptographically random
+bytes, base64url, 30 s, single use, bound to the exact current registry record).
+`POST` accepts `{challenge, proof}` with a 64-byte Ed25519 signature over
+`crot-device-deregister-v1\0<deviceId>\0<relayHost>\0<challenge bytes>`.
+Tunnel proofs, different keys/hosts/ids, expiry and replay are rejected.
+Proofs and challenges never enter logs. A successful conditional durable
+removal returns 204, removes routing/PRM (subsequent lookup 404) and closes
+active tunnels. Already absent returns 404; the device treats this as successful
+cleanup. Challenge cache: 1024 total; removal endpoint: 30/source/minute.
+
+Before any register POST, the device stores/read-verifies its secret key and a
+private inactive registration intent. Failed/cancelled/lost registration or final
+binding commit is compensated with this signed protocol. Unavailable cleanup
+retains the intent/key across restart; the next pairing cannot overwrite it.
+A committed binding discards the inactive intent. No pairing bearer is retained.
+Local unpair captures only a removal signer, revokes locally/deletes the stored
+key, closes the tunnel with GOAWAY unpaired, then sends best-effort removal.
+Network delay never holds the local unpair result.
+
+### Admission configuration (`limits`)
+
+All values are positive safe integers. Rate objects require both `max` and
+`windowMs`; omitted settings use these defaults. Unknown settings fail startup.
+
+| Setting | Default | Scope |
+| --- | --- | --- |
+| `clientRequests` | `{ "max": 120, "windowMs": 60000 }` | `(deviceId, clientId)` |
+| `deviceRequests` | `{ "max": 600, "windowMs": 60000 }` | device |
+| `accountRegistrations` | `{ "max": 10, "windowMs": 60000 }` | verified pairing-token `sub` |
+| `clientConcurrency` | 4 | active exchanges **and** pending body buffers/client |
+| `deviceConcurrency` | 32 | active exchanges and pending body buffers/device |
+| `globalConcurrency` | 64 | all admitted exchanges/body buffers |
+| `sourceConnections` | 64 | concurrent TCP sockets per peer address, including pre-HTTP |
+| `sourceHandshakes` | 8 | pending tunnel handshakes per peer; global 256 remains |
+| `counterKeys` | 10000 | maximum identity keys retained per rate counter |
+
+Client concurrency is also capped at half the device's advertised stream
+budget (minimum 1) and half the 8 MiB connection credit in 1 MiB stream windows
+(4). Device concurrency is capped by advertised maxStreams; configuration
+requires client ≤ device ≤ global. This reserves stream/credit headroom so a
+single slow client does not exhaust the shared tunnel. Rates return 429 and
+concurrency returns 503, both `Retry-After: 1`/`not_executed`, before tunnel OPEN.
+Slots are reserved before reading chunked bodies and released on finish/abort.
+Chunked body max remains 4 MiB/exchange; global admission bounds simultaneous
+body assembly (transient concatenation copies are additional bounded memory).
+Counter capacity exhaustion fails closed; expired entries are reclaimed.
+
+**Source means TCP peer address, never Forwarded/X-Forwarded-For.** A load
+balancer makes its users share a peer quota; WP-38 deployment must additionally
+enforce real-source limits at the edge, not relax trust in forwarded headers.
+The pre-TLS socket cap can close a TLS connection before an HTTP response is
+possible. Pending-handshake HTTP refusals carry 503/Retry-After/not_executed.
 
 ### Client admission
 
@@ -124,7 +182,7 @@ or restate clarified AD-22 points:
   Only handshakes with a valid proof count; a failed proof is closed `4401`
   and never uses up the device's allowance (the device id is public). At
   most 256 handshakes are pending at once (further upgrades get `503`); this
-  limit is global, per-source limits are an open item.
+  global cap is supplemented by the configurable per-peer TCP and pending caps below.
 - **WebSocket endpoint limits**: one connection retains at most one message
   (64 KiB + header), however the peer fragments it or splits it into TCP
   segments; while a peer does not read its output, only its latest
@@ -166,7 +224,8 @@ has started a response, a failure can only abort the HTTP response.
 | `unauthorized` | 401 | not_executed | missing or invalid token |
 | `not_entitled` | 403 | not_executed | entitlement hook refuses |
 | `device_offline` | 503 | not_executed | no tunnel (Remote mode off, offline, draining) |
-| `busy` | 503 + `Retry-After` | not_executed | device's stream limit reached |
+| `request_rate_limited` | 429 + `Retry-After: 1` | not_executed | client/device sliding window exhausted |
+| `busy` | 503 + `Retry-After` | not_executed | admission concurrency or device's stream limit reached |
 | `refused` | 503 + `Retry-After` | not_executed | device `RESET refused` or stream above `lastStream` |
 | `request_too_large` | 413 | not_executed | body above 4 MiB |
 | `headers_too_large` | 431 | not_executed | header block does not fit one frame |
@@ -188,24 +247,19 @@ reduced to a safe vocabulary (`[A-Za-z0-9_./:-]{1,64}`, otherwise
 `invalid`). Tokens, other headers, bodies, paths, query strings, challenges
 and proofs are never logged (tested).
 
-## Known limitations
+## Qualification and remaining scope
 
-- The device side is WP-30 (PR #20, Done/merged; relay WP-29 remains Partial; see
-  [DEVICE_TUNNEL.md](DEVICE_TUNNEL.md)).
-- Single relay instance: routing is in memory; multi-instance routing is
-  open (AD-22 open question 8).
-- No deregistration and no key rotation (AD-22 open question 3); a
-  registration whose device failed to store its binding stays orphaned.
-- **Open WP-29 items (release-blocking before a public relay, WP-38):** no
-  per-client or per-device request rate or concurrency limit beyond the
-  device's stream limit (bodies without `Content-Length` are buffered before
-  that limit applies); no per-source connection or handshake limit; no
-  registration rate limit per account; no load test.
-- No CORS / `OPTIONS` handling: browser-based clients cannot use the relay
-  yet (AD-22 open question 7).
-- The relay code is built into the device package's `dist` (not in `bin`);
-  separate packaging is WP-34/WP-38.
-- Entitlement is a hook with an allow-all default (WP-36).
-- Per-principal permission profiles are implemented on the device (WP-31,
-  AD-23), never authorized by the relay. Public deployment/E2E acceptance
-  are still WP-38/WP-32, not implied by merged relay/tunnel code.
+WP-29 completion evidence, reproduction and test mapping:
+[relay-wp29-completion.md](design/relay-wp29-completion.md). Real socket tests
+exercise four unread slow streams alongside 48 data-bearing requests from
+other clients; this does **not** claim production throughput or RSS capacity.
+
+- Single relay instance and file registry; multi-instance routing/capacity is WP-39.
+- Re-pair rotates to a new id/key (AD-21); no in-place key replacement.
+- Offline local unpair remains immediate but best-effort remote removal can fail,
+  leaving a stale relay record. It cannot re-enable the locally revoked device.
+  Account-side management/revocation is WP-36.
+- No CORS/OPTIONS for browser-based clients (AD-22 question 7).
+- Entitlement is still an allow-all hook until WP-36; relay is not an authorizer.
+- Binary packaging is WP-34/38; public staging and real-client/timeouts acceptance
+  remain WP-38/32, not implied by green component tests.

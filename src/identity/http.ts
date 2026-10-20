@@ -8,16 +8,18 @@
  *   another origin's keys).
  * - Bounded: a timeout and a response size limit.
  * - No ambient credentials: nothing but the explicit form fields is sent.
- * - The one exception to "issuer only" is the device's registration at the
- *   relay during pairing (AD-22 point 4; WP-30): a JSON POST carrying the
- *   pairing access token as an explicit bearer, with the same limits.
+ * - Relay registration uses an explicit pairing bearer; deregistration uses
+ *   a fresh device-key proof with no bearer. Both use the same HTTPS limits.
  */
 
 const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_MAX_BYTES = 256 * 1024;
 
 export class IdentityHttpError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
     super(message);
     this.name = "IdentityHttpError";
   }
@@ -35,6 +37,8 @@ export interface IdentityHttp {
    * a client without it cannot register, so pairing fails closed.
    */
   postJsonWithBearer?(url: string, bearer: string, body: unknown): Promise<{ status: number }>;
+  /** Bounded JSON POST without bearer: fresh signed deregistration only. */
+  postJson?(url: string, body: unknown): Promise<{ status: number }>;
 }
 
 export interface IdentityHttpOptions {
@@ -98,7 +102,7 @@ export function createIdentityHttp(options: IdentityHttpOptions = {}): IdentityH
       const response = await request(url, { method: "GET", headers: { Accept: "application/json" } });
       if (response.status !== 200) {
         await response.body?.cancel().catch(() => undefined);
-        throw new IdentityHttpError(`unexpected status ${response.status}`);
+        throw new IdentityHttpError(`unexpected status ${response.status}`, response.status);
       }
       const text = await readLimited(response, maxBytes);
       try {
@@ -121,6 +125,15 @@ export function createIdentityHttp(options: IdentityHttpOptions = {}): IdentityH
         body = undefined;
       }
       return { status: response.status, body };
+    },
+    async postJson(url, body) {
+      const response = await request(url, {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      await readLimited(response, maxBytes);
+      return { status: response.status };
     },
     async postJsonWithBearer(url, bearer, body) {
       const response = await request(url, {

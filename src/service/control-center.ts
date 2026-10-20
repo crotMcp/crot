@@ -760,6 +760,7 @@ export class ControlCenter implements RemoteAdmission {
     return this.serial(async () => {
       const environment = this.host.identity.environment;
       const fail = async (reason: string) => {
+        await this.host.identity.rollbackPairing(deviceId);
         this.lastPairingFailure = { reason, at: new Date().toISOString() };
         await this.auditBestEffort("pairing", outcome.ok ? "failed" : "refused", {
           reason,
@@ -813,6 +814,7 @@ export class ControlCenter implements RemoteAdmission {
       return { ok: true, unchanged: true };
     }
     this.host.identity.cancelPairing();
+    const deregister = this.host.identity.prepareDeregistration();
     const result = await binding.unpair();
     let ended = { sessions: 0, requests: 0 };
     for (const client of this.host.clients.list()) {
@@ -828,6 +830,9 @@ export class ControlCenter implements RemoteAdmission {
     });
     this.host.log("control: device unpaired");
     this.stateChanged();
+    void this.afterLocalUnpair()
+      .then(deregister)
+      .catch(() => undefined);
     const warnings = [...result.errors, ...reset.warnings, ...(warning ? [warning] : [])];
     return {
       ok: true,
@@ -837,6 +842,9 @@ export class ControlCenter implements RemoteAdmission {
       ...(warnings.length > 0 ? { warning: warnings.join("; ") } : {}),
     };
   }
+
+  /** Network teardown/cleanup runs after local revocation and never delays its result. */
+  protected async afterLocalUnpair(): Promise<void> {}
 
   private pairingView(): PairingView {
     const identity = this.host.identity;

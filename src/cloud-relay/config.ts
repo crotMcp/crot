@@ -3,12 +3,14 @@
  * `crot-cloud-relay --config <file>`; deployment environments are WP-38
  * (staging) and WP-39 (production).
  */
+import { relayLimits, type RelayLimits } from "./limits.js";
 import { isRelayHost } from "../identity/device-id.js";
 import { isClientId, isIssuer } from "../identity/environment.js";
 import { DEFAULT_EXCHANGE_DEADLINE_MS, MIN_EXCHANGE_DEADLINE_MS } from "../tunnel/protocol.js";
 
 export interface RelayConfig {
   readonly relayHost: string;
+  readonly limits: RelayLimits;
   readonly issuer: string;
   /** `client_id` of the environment's pairing client; only its tokens register devices (AD-22 point 4). */
   readonly pairingClientId: string;
@@ -21,6 +23,7 @@ export interface RelayConfig {
 }
 
 const FIELDS = [
+  "limits",
   "relayHost",
   "issuer",
   "pairingClientId",
@@ -66,6 +69,7 @@ export function parseRelayConfig(value: unknown): RelayConfig {
   )
     throw new Error("exchangeDeadlineMs must be between 60000 and 900000 (AD-22 point 12)");
   return {
+    limits: relayLimits(v.limits),
     relayHost: v.relayHost,
     issuer: v.issuer,
     pairingClientId: v.pairingClientId,

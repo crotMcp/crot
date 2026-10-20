@@ -243,8 +243,12 @@ describe("relay → device tunnel → local CROT (WP-30 acceptance)", () => {
   });
 
   it("parallel requests are multiplexed and all complete; streams are released", async () => {
-    const token = h.clientToken(paired);
-    const results = await Promise.all(Array.from({ length: 10 }, () => initialize(token)));
+    // Ten independent clients exercise multiplexing without exceeding the per-client fairness cap.
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        initialize(h.as.token({ resource: paired.uri, sub: paired.accountId, clientId: "parallel-" + i })),
+      ),
+    );
     for (const res of results) {
       expect(res.status).toBe(200);
       await res.text();
