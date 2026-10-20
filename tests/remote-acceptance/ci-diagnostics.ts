@@ -4,7 +4,10 @@ beforeEach(() => {
   if (!process.env.GITHUB_ACTIONS) return;
   onTestFailed(({ task }) => {
     for (const error of task.result?.errors ?? []) {
-      const message = String(error.message)
+      const message = `${task.name}: ${String(error.message)}\n${String(error.stack ?? "")
+        .split("\n")
+        .slice(0, 4)
+        .join("\n")}`
         .replace(/[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}\.[A-Za-z0-9_-]{15,}/g, "[redacted JWT]")
         .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
         .slice(-3500)

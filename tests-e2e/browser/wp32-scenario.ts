@@ -34,7 +34,11 @@ export async function remoteBrowserScenario(requireL1 = false): Promise<void> {
           return r;
         };
 
-        await eventually(async () => (await c.call("browser_status")).state === "connected", 10000);
+        await eventually(
+          async () => (await c.call("browser_status")).state === "connected",
+          10000,
+          "Chromium extension/native bridge connection",
+        );
         const tabId = (await call("browser_tab_open", { url: fixture.origin + "/wp32.html" })).tabId as number;
         await call("browser_navigate", { tabId, url: fixture.origin + "/wp32.html?remote=1" });
         const snap = await call("browser_snapshot", { tabId });

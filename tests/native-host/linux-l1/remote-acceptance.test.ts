@@ -1,5 +1,8 @@
 /** Included by the existing mandatory L1 CI command; no extra workflow or secret needed. */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { createRequire } from "node:module";
 import { expect, it } from "vitest";
 import { RemoteAcceptance } from "../../remote-acceptance/harness.js";
@@ -32,12 +35,22 @@ it.runIf(required)(
 it.runIf(required && process.arch === "x64")(
   "WP-32 combined project + real Chromium + actual L1 matrix",
   async () => {
-    // x64 hosted Ubuntu has Google Chrome. Unlike optional arm64 browser checks this is mandatory.
-    const chrome = ["google-chrome", "chromium", "chromium-browser"]
-      .map((name) => spawnSync("which", [name], { encoding: "utf8" }))
-      .find((r) => r.status === 0)
-      ?.stdout.trim();
-    expect(chrome, "a real browser is required on the x64 L1 qualification runner").toBeTruthy();
+    // Branded Google Chrome no longer guarantees --load-extension support.
+    // Use the same Chrome for Testing distribution as the mandatory browser CI job.
+    const browserDir = await mkdtemp(path.join(tmpdir(), "crot-wp32-chrome-"));
+    let chrome: string;
+    try {
+      const output = execFileSync(
+        "npx",
+        ["--yes", "@puppeteer/browsers", "install", "chrome@stable", "--path", browserDir],
+        { encoding: "utf8", timeout: 120000 },
+      );
+      chrome = output.trim().split("\n").at(-1)!.split(" ").slice(1).join(" ");
+      expect(chrome, "Chrome for Testing must install; no optional skip").toBeTruthy();
+    } catch (error) {
+      await rm(browserDir, { recursive: true, force: true });
+      throw error;
+    }
     const tsc = createRequire(import.meta.url).resolve("typescript/bin/tsc");
     execFileSync(process.execPath, [tsc, "-p", "tsconfig.build.json"], { stdio: "inherit" });
     execFileSync(process.execPath, [tsc, "-p", "extension/tsconfig.json"], { stdio: "inherit" });
@@ -55,6 +68,7 @@ it.runIf(required && process.arch === "x64")(
       const { remoteBrowserScenario } = await import("../../../tests-e2e/browser/wp32-scenario.js");
       await remoteBrowserScenario(true);
     } finally {
+      await rm(browserDir, { recursive: true, force: true });
       for (const [key, value] of [
         ["CROT_E2E_CHROME", saved.chrome],
         ["CROT_E2E_CHROME_ARGS", saved.args],
@@ -65,5 +79,5 @@ it.runIf(required && process.arch === "x64")(
       }
     }
   },
-  240000,
+  300000,
 );

@@ -17,10 +17,14 @@ import type { ControlEvent, ControlOverview } from "../../src/service/protocol.j
 import { CrotService } from "../../src/service/service.js";
 import { TestAuthorizationServer, TEST_RELAY, PAIRING_CLIENT } from "../identity/test-authorization-server.js";
 
-export async function eventually(check: () => boolean | Promise<boolean>, timeout = 10000): Promise<void> {
+export async function eventually(
+  check: () => boolean | Promise<boolean>,
+  timeout = 10000,
+  label = "condition",
+): Promise<void> {
   const until = Date.now() + timeout;
   while (!(await check())) {
-    if (Date.now() > until) throw new Error("WP-32 condition timed out");
+    if (Date.now() > until) throw new Error(`WP-32 ${label} timed out`);
     await new Promise((r) => setTimeout(r, 100));
   }
 }
@@ -177,12 +181,16 @@ export class RemoteAcceptance {
     const authorization = await this.fetch(pairing.authorizationUrl, { redirect: "manual" });
     const callback = await globalThis.fetch(authorization.headers.get("location")!);
     await callback.text();
-    await eventually(async () => ((await this.ask("overview")) as ControlOverview).pairing.state === "paired");
+    await eventually(
+      async () => ((await this.ask("overview")) as ControlOverview).pairing.state === "paired",
+      10000,
+      "device pairing",
+    );
     const overview = (await this.ask("overview")) as ControlOverview;
     this.deviceId = overview.pairing.device!.deviceId;
     this.uri = `https://${TEST_RELAY}/d/${this.deviceId}/mcp`;
     await this.ask("remote.setMode", { enabled: true });
-    await eventually(() => this.relay.status().tunnels.ready === 1);
+    await eventually(() => this.relay.status().tunnels.ready === 1, 10000, "WSS tunnel readiness");
     return this;
   }
   ask(method: string, params?: Record<string, unknown>): Promise<unknown> {
