@@ -1,4 +1,5 @@
 /** The existing real-Docker L1 jobs qualify WP-38's actual image, not just its example JSON. */
+import "../../remote-acceptance/ci-diagnostics.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";

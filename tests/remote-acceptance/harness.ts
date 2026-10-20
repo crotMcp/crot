@@ -1,4 +1,5 @@
 /** WP-32: real HTTPS sockets, OAuth issuance, relay, WSS tunnel and CrotService. Only the IdP is emulated. */
+import "./ci-diagnostics.js";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import https from "node:https";
