@@ -26,6 +26,10 @@ it.runIf(required)(
           await client.close();
         }
       }
+      if (process.env.GITHUB_ACTIONS)
+        console.log(
+          "\n::notice title=WP-32 remote L1 qualification::All three protocol revisions executed a real confined shell; payload AppArmor label verified.",
+        );
     } finally {
       await h.stop();
     }

@@ -39,9 +39,9 @@ responses travel over an authenticated ControlClient connection.
 
 | Negotiated revision | SDK | require-approval | autonomous-browser |
 | --- | --- | --- | --- |
-| 2026-07-28 | `@modelcontextprotocol/client` 2.3, pinned modern/sessionless | Same complete remote scenario | Same complete remote scenario |
-| 2025-11-25 | `@modelcontextprotocol/sdk` 1.31 | Same complete remote scenario | Same complete remote scenario |
-| 2025-06-18 | `@modelcontextprotocol/sdk` 1.31 | Same complete remote scenario | Same complete remote scenario |
+| 2026-07-28 | `@modelcontextprotocol/client` 2.3, pinned modern/sessionless | **PASS** — complete remote scenario | **PASS** — complete remote scenario |
+| 2025-11-25 | `@modelcontextprotocol/sdk` 1.31 | **PASS** — complete remote scenario | **PASS** — complete remote scenario |
+| 2025-06-18 | `@modelcontextprotocol/sdk` 1.31 | **PASS** — complete remote scenario | **PASS** — complete remote scenario |
 
 The 1.x SDK has no legacy revision-pinning option. A **test-only** fetch adapter
 changes only the advertised `initialize.params.protocolVersion`. The real SDK
@@ -126,6 +126,30 @@ The unchanged CI workflow set has eleven jobs: six OS/Node jobs, four installed
 L1 jobs, one real-Chromium job. A reviewed revision is qualified only when all
 eleven checks are green. Local Linux browser rows and root tests are evidence,
 not a substitute for the installed-L1 or other-OS jobs.
+
+## Recorded automatic qualification
+
+The implementation revision [`7a30f2f3`](https://github.com/mysteriumpersonae/crot-mcp/commit/7a30f2f3f4b9feec657381a8b8773e65718a278c)
+completed **11/11 successful checks** in [PR #35](https://github.com/mysteriumpersonae/crot-mcp/pull/35):
+
+| Qualification | Actual result | Verifiable run |
+| --- | --- | --- |
+| Linux/macOS/Windows × Node 20/22 | All six jobs passed, including root TLS/project/OAuth/negative/deadline/release tests | [Core matrix](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39378752842) |
+| Installed Ubuntu L1: 22.04/24.04 × x64/arm64 | All four jobs passed; real remote shell executes for all three protocol revisions on every runner | [L1 matrix](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39378752929) |
+| Combined browser/project + actual L1, x64 | Both x64 jobs passed all six protocol/preset rows; shell success mandatory, not a refusal substitute | [22.04](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39378752929/job/118482735138), [24.04](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39378752929/job/118482735341) |
+| WP-38 actual container | Both x64 jobs built the Dockerfile, validated compose tmpfs and verified TLS health from the non-root read-only image | Same x64 L1 jobs, `staging-container.test.ts` |
+| Complete real-browser regression and six remote rows | Real Chrome for Testing job passed | [Chromium job](https://github.com/mysteriumpersonae/crot-mcp/actions/runs/39378752935/job/118482735640) |
+| Local full check | 2058 Core tests and 186 extension tests passed; 218 existing platform/installed-L1 selections skipped in this non-L1 developer environment | `npm run check` |
+| Local full real-browser regression | 55 passed, three pre-existing platform placeholders skipped (58 total); WP-32's single test executes six complete rows | `npm run test:e2e:browser`, Chrome for Testing 155, fresh Xvfb 1280×1024 |
+
+The final evidence/diagnostic-only follow-up is also subject to the same eleven
+required checks before this PR becomes Ready for review. Current head results
+are linked directly by the PR; the record above identifies the exact tested
+implementation rather than implying qualification of a moving branch name.
+Branded Google Chrome is not relied on for command-line unpacked extension
+loading: x64 installed-L1 jobs install Chrome for Testing, like browser CI.
+The concurrent foreign-download regression observes browser metadata until the
+unrelated download completes; it neither reads nor changes the unrelated file.
 
 ## Public staging and four-client manual acceptance — not executed
 

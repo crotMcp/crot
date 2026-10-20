@@ -136,6 +136,10 @@ export async function remoteBrowserScenario(requireL1 = false): Promise<void> {
       // Shell scripts are intentionally part of the command audit (not file contents/output).
       if (canary !== "WP32_L1_CANARY") expect(audit).not.toContain(canary);
     }
+    if (process.env.GITHUB_ACTIONS)
+      console.log(
+        `\n::notice title=WP-32 remote browser qualification::Six protocol/preset rows passed: real HTTPS/WSS SDK, control approvals, Chromium form/dialog/popup/upload/download bytes, Git and two-client FIFO. Successful installed-L1 shell required: ${requireL1}.`,
+      );
   } finally {
     for (const c of clients) await c.close().catch(() => undefined);
     await h?.stop();

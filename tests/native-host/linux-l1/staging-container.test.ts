@@ -84,6 +84,10 @@ it.runIf(required)(
       const inspection = JSON.parse((await docker("inspect", name)).stdout)[0];
       expect(inspection.Config.User).toBe("10001:10001");
       expect(inspection.HostConfig.ReadonlyRootfs).toBe(true);
+      if (process.env.GITHUB_ACTIONS)
+        console.log(
+          "\n::notice title=WP-38 container qualification::Actual Dockerfile built; compose tmpfs verified; image served CA/hostname-verified TLS health as uid 10001 with read-only rootfs.",
+        );
     } finally {
       await docker("rm", "--force", name).catch(() => undefined);
       await docker("image", "rm", image).catch(() => undefined);
