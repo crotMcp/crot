@@ -45,7 +45,7 @@ describe("BrowserFiles descriptor-bound staging", () => {
     if (process.platform === "win32") await linkDirectory(dirs.outside, source.absolute);
     else await symlink("missing", source.absolute);
     await expect(files.upload([source])).rejects.toThrow();
-    await expect(files.upload([await ws.resolve(".")])).rejects.toThrow(/regular|identity|reparse/);
+    await expect(files.upload([await ws.resolve(".")])).rejects.toMatchObject({ code: "OPERATION_FAILED" });
     expect(await readdir(files.uploadRoot)).toEqual([]);
   });
   it("publishes exact bytes atomically, refuses overwrite by default and permits explicit replacement", async () => {
