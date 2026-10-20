@@ -245,7 +245,7 @@ All paths end in the same Core pipeline; no path bypasses it.
 | CROT local service (sidecar) | device, background | one long-running `crot-mcp` service per user; stdio clients attach through a thin shim; authenticated local control channel | **[Implemented]** (WP-20, §27 AD-17); autostart/installer registration **[Target]** (WP-34) |
 | CROT Tray app | device | approvals and device controls | **[Implemented]** WP-22; packaging/autostart **[Target]** WP-34 |
 | Installer / packages | device | Linux, Windows, macOS installation | **[Target]**, v1 |
-| CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Implemented]** WP-29 relay, limits/load and signed deregistration; WP-30 device tunnel and WP-31 remote profile implemented; staging WP-38 and acceptance WP-32 pending |
+| CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Implemented]** WP-29 relay, limits/load and signed deregistration; WP-30 device tunnel and WP-31 remote profile implemented; WP-38 repo artifacts and automatic WP-32 suite implemented; public staging/manual compatibility pending |
 | Identity provider (third party) | cloud | token issuer, behind the verifier seam | **[Partial]** WorkOS selected AD-21, device verifier/pairing WP-28 implemented with emulated tests; live staging/production unverified (WP-38/39) |
 | Account & Commercial service | cloud | accounts, subscriptions, plans, licensing, entitlements, device limits | **[Target]** (v1: entitlements checked at the relay only, AD-13) |
 | User / device / account | identities | see §20 | **[Partial]** local and verified remote principals, device binding implemented WP-28; cloud account service WP-36 pending |
@@ -649,6 +649,26 @@ The v1 milestone is the client-independent end-to-end acceptance suite
 The agent must be able to perform real development and browser work.
 
 The MVP must be part of the final architecture, not disposable prototype code.
+
+### WP-32 / WP-38 implementation evidence
+
+The automatic acceptance suite is implemented in `tests/remote-acceptance/` and
+`tests-e2e/browser/wp32*`: real HTTPS/WSS, OAuth/PKCE/JWKS, SDK clients for all
+three revisions, both presets, authenticated control-channel approval, actual
+project/Git/browser file bytes, negatives and log scrubbing. Installed x64 Linux
+L1 CI additionally runs the same full scenario with confined shell execution
+required. Other OS jobs qualify the TLS/project contour, not a complete native
+browser/L1 stack. See `docs/acceptance/WP-32-acceptance.md` for the evidence map,
+measured 5-second device deadline margin, SDK/approval timeout precedence and
+external-client compatibility template.
+
+WP-38 repository deployment artifacts and the explicit release identity builder
+are implemented (`docs/STAGING.md`). A pinned emitted build ignores the dev
+identity override; plain development builds remain unpinned. This does not pin
+an invented live issuer or assert public deployment. **Overall WP-32/WP-38 remain
+Partial** until public staging/live identity qualification and at least four
+external-client runs meet their original criteria. No safety boundary, L1
+requirement, manual compatibility criterion or release gate is waived.
 
 ## 15. Development Principles
 
@@ -4451,7 +4471,8 @@ user docs [`docs/IDENTITY.md`](docs/IDENTITY.md)). Implementation notes,
 none of which relaxes this decision:
 
 - *Environment pinning (point 5).* Release builds pin their environment in
-  `RELEASE_IDENTITY_ENVIRONMENT`; none is pinned yet (WP-38, WP-39). Only
+  `RELEASE_IDENTITY_ENVIRONMENT`; WP-38 now supplies the explicit pinned artifact
+  builder (`docs/STAGING.md`), while plain development builds remain unpinned. Only
   while none is pinned, a development environment may be named by the
   service's environment variable `CROT_IDENTITY_DEV_ENVIRONMENT` (a JSON
   file: issuer, relay host, pairing client); it is never taken from the

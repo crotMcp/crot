@@ -1,0 +1,10 @@
+{
+  "environment": "staging",
+  "relayHost": "relay.staging.example.com",
+  "issuer": "https://auth.staging.example.com",
+  "pairingClientId": "REPLACE_WITH_PUBLIC_PAIRING_CLIENT_ID",
+  "host": "0.0.0.0",
+  "port": 8443,
+  "registryFile": "/state/devices.json",
+  "tls": { "certFile": "/config/tls.crt", "keyFile": "/config/tls.key" }
+}

@@ -5,3 +5,7 @@ coverage/
 *.tsbuildinfo
 .crot/
 .DS_Store
+
+# WP-38 local deployment secrets and pinned build artifacts
+/deploy/staging/config/
+/dist-release/

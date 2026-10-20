@@ -1,0 +1,16 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>WP32 remote acceptance</title>
+<label>Name<input id="name" aria-label="Name"></label>
+<label>Choice<select id="choice" aria-label="Choice"><option value="a">Alpha</option><option value="b">Beta</option></select></label>
+<label><input id="check" type="checkbox">Consent</label>
+<button id="submit">Submit form</button><output id="result"></output>
+<button id="dialog">Show dialog</button><button id="popup">Open child</button>
+<input id="files" aria-label="Upload fixture" type="file">
+<button id="read">Read upload</button><a id="download" href="/wp26-file">Download fixture</a>
+<button id="one">One</button><button id="two">Two</button><output id="order">ORDER:</output>
+<script>
+submit.onclick=()=>{result.textContent=document.getElementById('name').value+':'+choice.value+':'+check.checked;fetch('/event?type=wp32-form&value='+encodeURIComponent(result.textContent))};
+dialog.onclick=()=>alert('WP32_DIALOG_CANARY');
+popup.onclick=()=>window.open('/wp32.html?child=1','_blank');
+read.onclick=async()=>fetch('/event?type=wp32-upload&data='+encodeURIComponent(await files.files[0].text()));
+for(const [id,v] of [['one','1'],['two','2']]) document.getElementById(id).onclick=()=>{document.getElementById('order').textContent+=v;fetch('/event?type=wp32-fifo&value='+v)};
+</script></html>

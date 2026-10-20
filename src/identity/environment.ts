@@ -20,6 +20,8 @@
  */
 import { readFile } from "node:fs/promises";
 import { isRelayHost } from "./device-id.js";
+import { RELEASE_IDENTITY_ENVIRONMENT } from "./release-environment.js";
+export { RELEASE_IDENTITY_ENVIRONMENT } from "./release-environment.js";
 
 export const DEV_ENVIRONMENT_VARIABLE = "CROT_IDENTITY_DEV_ENVIRONMENT";
 /** Largest accepted development environment file. */
@@ -43,12 +45,6 @@ export interface IdentityEnvironment {
     readonly scope: string;
   };
 }
-
-/**
- * The release environment pinned in this build. None yet: staging is
- * configured by WP-38, production by WP-39 (AD-21 point 1).
- */
-export const RELEASE_IDENTITY_ENVIRONMENT: IdentityEnvironment | undefined = undefined;
 
 export type ResolvedEnvironment =
   | { readonly ok: true; readonly environment: IdentityEnvironment; readonly notes: readonly string[] }

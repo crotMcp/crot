@@ -200,3 +200,14 @@ WP-38:
 - `token_type` `Bearer`, token lifetime as configured (≤ 5 minutes), and the
   claims used for `sub`/`accountId`;
 - whether AuthKit returns `iss` in authorization responses (RFC 9207, above).
+
+## Pinned artifact delivery (WP-38 / N3)
+
+`environment.ts` re-exports the development sentinel from
+`release-environment.ts`. `npm run build:release -- --environment <public-json>
+--out dist-release` replaces only the emitted sentinel with validated, frozen
+release data. In that artifact the dev override is ignored without reading the
+file. Plain `npm run build` retains development behavior. The mechanism is tested
+against the actual emitted module; it does not assert that any live tenant is
+approved. See [STAGING.md](STAGING.md) for trusted operator input, distribution
+and the remaining live-provider gates.
