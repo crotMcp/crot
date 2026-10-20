@@ -34,6 +34,7 @@ interface Account {
   expiresAt?: number;
   trialUsed: boolean;
   subscriptionId?: string;
+  retiredSubscriptions?: string[];
   devices: Device[];
 }
 interface State {
@@ -50,8 +51,33 @@ const only = (v: object, keys: string[]) => Object.keys(v).every((k) => keys.inc
 const LIMITS: Record<Plan, number> = { free: 0, trial: 2, pro: 5, team: 20 };
 const validId = (v: unknown): v is string => typeof v === "string" && /^[\x21-\x7e]{1,512}$/.test(v);
 
+/** Cloud boundary for replacing the single-host durable adapter with transactional shared storage. */
+export interface CommercialService {
+  snapshot(accountId: string): CommercialView;
+  devices(
+    accountId: string,
+  ): ReadonlyArray<{ deviceId: string; registeredAt: number; revoked: boolean; clients: ClientMetadata[] }>;
+  deviceState(accountId: string, deviceId: string): "entitled" | "not_entitled" | "device_revoked";
+  isRevoked(deviceId: string): boolean;
+  onChange(fn: () => void): () => void;
+  startTrial(accountId: string): Promise<boolean>;
+  register(
+    accountId: string,
+    deviceId: string,
+    commit: () => Promise<"created" | "unchanged" | "conflict">,
+  ): Promise<RegistrationDecision>;
+  revoke(accountId: string, deviceId: string): Promise<boolean>;
+  noteClient(accountId: string, deviceId: string, clientId: string, sessionId?: string): Promise<void>;
+  revokeProvider(
+    accountId: string,
+    deviceId: string,
+    clientId?: string,
+  ): Promise<"requested" | "failed" | "not_available">;
+  billing(provider: BillingProvider, raw: Buffer, signature: string): Promise<boolean>;
+}
+
 /** One serial transaction domain for quota, subscription and revocation, with durable-before-visible writes. */
-export class AccountService {
+export class AccountService implements CommercialService {
   private state: State = { version: 1, accounts: [], events: [] };
   private queue: Promise<unknown> = Promise.resolve();
   private readonly listeners = new Set<() => void>();
@@ -91,13 +117,25 @@ export class AccountService {
       devices = new Set<string>();
     for (const a of state.accounts) {
       if (
-        !only(a, ["accountId", "plan", "status", "expiresAt", "trialUsed", "subscriptionId", "devices"]) ||
+        !only(a, [
+          "accountId",
+          "plan",
+          "status",
+          "expiresAt",
+          "trialUsed",
+          "subscriptionId",
+          "retiredSubscriptions",
+          "devices",
+        ]) ||
         !validId(a.accountId) ||
         accounts.has(a.accountId) ||
         !["free", "trial", "pro", "team"].includes(a.plan) ||
         !["active", "past_due", "canceled", "expired"].includes(a.status) ||
         typeof a.trialUsed !== "boolean" ||
-        (a.expiresAt !== undefined && !Number.isSafeInteger(a.expiresAt)) ||
+        (a.expiresAt !== undefined && (!Number.isSafeInteger(a.expiresAt) || a.expiresAt < 0)) ||
+        (a.plan !== "free" && a.expiresAt === undefined) ||
+        (a.retiredSubscriptions !== undefined &&
+          (!Array.isArray(a.retiredSubscriptions) || a.retiredSubscriptions.some((id) => !validId(id)))) ||
         (a.subscriptionId !== undefined && !validId(a.subscriptionId)) ||
         !Array.isArray(a.devices)
       )
@@ -205,6 +243,9 @@ export class AccountService {
       .some((d) => d.deviceId === deviceId);
     return d && admitted && this.view(a).entitled ? "entitled" : "not_entitled";
   }
+  isRevoked(deviceId: string): boolean {
+    return this.state.accounts.some((a) => a.devices.some((d) => d.deviceId === deviceId && d.revoked));
+  }
   onChange(fn: () => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
@@ -298,6 +339,14 @@ export class AccountService {
       // Verification + authoritative provider read are inside the transaction, avoiding reordered reads.
       const update = await provider.verifyAndResolve(raw, signature);
       if (!update || state.events.includes(update.eventId)) return false;
+      if (
+        state.accounts.some(
+          (a) =>
+            a.accountId !== update.accountId &&
+            (a.subscriptionId === update.subscriptionId || a.retiredSubscriptions?.includes(update.subscriptionId)),
+        )
+      )
+        throw new Error("subscription ownership conflict");
       this.apply(this.account(state, update.accountId), update);
       state.events.push(update.eventId);
       if (state.events.length > 10_000) state.events.shift();
@@ -311,10 +360,15 @@ export class AccountService {
       !validId(u.subscriptionId) ||
       !["pro", "team"].includes(u.plan) ||
       !["active", "past_due", "canceled", "expired"].includes(u.status) ||
-      !Number.isSafeInteger(u.expiresAt)
+      !Number.isSafeInteger(u.expiresAt) ||
+      u.expiresAt < 0
     )
       throw new Error("invalid subscription update");
-    if (a.subscriptionId && a.subscriptionId !== u.subscriptionId && this.view(a).entitled) return;
+    if (a.retiredSubscriptions?.includes(u.subscriptionId)) return;
+    if (a.subscriptionId && a.subscriptionId !== u.subscriptionId) {
+      if (this.view(a).entitled) return;
+      a.retiredSubscriptions = [...(a.retiredSubscriptions ?? []), a.subscriptionId];
+    }
     a.subscriptionId = u.subscriptionId;
     a.plan = u.plan;
     a.status = u.status;

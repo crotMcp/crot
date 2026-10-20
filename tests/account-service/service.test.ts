@@ -266,3 +266,54 @@ describe("OD-11 admission compatibility", () => {
     ["0.1.0-beta", false],
   ])("version %s admission %s", (v, result) => expect(versionAtLeast(v, "0.1.0")).toBe(result));
 });
+
+it("retired subscriptions cannot reactivate or change account owners, including after restart", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "crot-retired-"));
+  dirs.push(dir);
+  const file = path.join(dir, "accounts");
+  let a = await AccountService.open(file);
+  await activate(a);
+  await activate(a, { eventId: "evt_cancel_1", status: "canceled" });
+  await activate(a, { eventId: "evt_new", subscriptionId: "sub_2", plan: "team" });
+  await activate(a, { eventId: "evt_cancel_2", subscriptionId: "sub_2", plan: "team", status: "canceled" });
+  a = await AccountService.open(file);
+  await activate(a, { eventId: "evt_old_late", subscriptionId: "sub_1", status: "active" });
+  expect(a.snapshot("user_01")).toMatchObject({ plan: "team", status: "canceled", entitled: false });
+  await expect(activate(a, { eventId: "evt_transfer", accountId: "foreign", subscriptionId: "sub_2" })).rejects.toThrow(
+    "ownership",
+  );
+  expect(a.snapshot("foreign").entitled).toBe(false);
+});
+
+it("commercial state rejects content-shaped fields and non-expiring paid plans", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "crot-schema-"));
+  dirs.push(dir);
+  const file = path.join(dir, "accounts");
+  const a = await AccountService.open(file);
+  await activate(a);
+  const doc = JSON.parse(await readFile(file, "utf8"));
+  doc.accounts[0].path = "/private/PROJECT_CANARY";
+  await writeFile(file, JSON.stringify(doc));
+  await expect(AccountService.open(file)).rejects.toThrow("invalid commercial account");
+  delete doc.accounts[0].path;
+  delete doc.accounts[0].expiresAt;
+  await writeFile(file, JSON.stringify(doc));
+  await expect(AccountService.open(file)).rejects.toThrow("invalid commercial account");
+});
+
+it("provider failure is explicit and never undoes local cloud revocation", async () => {
+  const a = new AccountService({
+    revoker: {
+      revokeSession: async () => {
+        throw new Error("SECRET_CANARY");
+      },
+    },
+  });
+  await a.startTrial("user_01");
+  const id = generateDeviceId();
+  await a.register("user_01", id, commit);
+  await a.noteClient("user_01", id, "client_A", "session_A");
+  await a.revoke("user_01", id);
+  expect(await a.revokeProvider("user_01", id)).toBe("failed");
+  expect(a.deviceState("user_01", id)).toBe("device_revoked");
+});

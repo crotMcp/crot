@@ -141,7 +141,7 @@ export class HostConnection {
     if (message.type === "welcome") {
       if (this.connected) return this.drop(port, "protocol error: unexpected welcome");
       if (message.protocol !== BRIDGE_PROTOCOL_VERSION)
-        return this.drop(port, "unsupported protocol version " + message.protocol);
+        return this.drop(port, "update required: unsupported protocol version " + message.protocol);
       clearTimeout(this.welcomeTimer);
       this.welcomeTimer = undefined;
       this.connected = true;

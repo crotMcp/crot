@@ -168,3 +168,13 @@ describe("log records", () => {
     expect(JSON.parse(lines[0]!)).toMatchObject({ event: "x", code: "invalid" });
   });
 });
+
+it("OD-12 operational fields cannot carry project paths or tab URLs", () => {
+  expect(
+    sanitizeRecord({
+      event: "exchange",
+      mcpMethod: "/private/PROJECT_CANARY",
+      software: "https://secret.example/CANARY",
+    }),
+  ).toMatchObject({ mcpMethod: "invalid", software: "invalid" });
+});

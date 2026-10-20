@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AccountHttp } from "../../src/account-service/http.js";
 import { AccountService } from "../../src/account-service/service.js";
 import { StripeBillingProvider } from "../../src/account-service/billing.js";
 import { signDeregistrationProof, signManagementProof, signTunnelProof } from "../../src/identity/device-credential.js";
@@ -90,6 +91,8 @@ describe("WP-36 actual cloud admission and owner API", () => {
     expect((await owner(`/devices/${p.deviceId}/revoke`, { body: {} })).status).toBe(200);
     expect(await device.whenClosed()).toMatchObject({ code: 4403, reason: "device_revoked" });
     expect(await h!.registry.get(p.deviceId)).toBeUndefined();
+    const again = await h!.connect(p);
+    expect(await again.whenClosed()).toMatchObject({ code: 4403, reason: "device_revoked" });
     expect((await fetch(h!.origin + `/.well-known/oauth-protected-resource/d/${p.deviceId}/mcp`)).status).toBe(404);
     expect((await h!.post(p)).status).toBe(404);
     expect((await h!.registerRaw(p.deviceId, h!.pairingToken(p), { publicKey: p.publicKey })).body.error).toBe(
@@ -277,4 +280,57 @@ describe("WP-36 actual cloud admission and owner API", () => {
     expect(denied.headers.get("CROT-Request-Outcome")).toBe("not_executed");
     await waitFor(() => h!.relay.isOnline(p.deviceId));
   });
+});
+
+it("MCP bodies never enter the account HTTP handler or commercial storage; hostile log fields are redacted", async () => {
+  const accounts = await start();
+  await accounts.startTrial("user_01");
+  const { paired: p } = await h!.ready({
+    onOpen: (stream) => {
+      void stream.bodyDone().then(() => {
+        stream.respond(200, [["content-type", "application/json"]]);
+        void stream.write(Buffer.from('{"jsonrpc":"2.0","id":1,"result":{}}'), true);
+      });
+    },
+  });
+  const handler = vi.spyOn(AccountHttp.prototype, "handle");
+  try {
+    const r = await h!.post(
+      p,
+      '{"jsonrpc":"2.0","id":1,"method":"ping","params":{"path":"/private/PROJECT_CANARY","body":"BODY_CANARY"}}',
+      { "mcp-method": "/private/PROJECT_CANARY" },
+    );
+    expect(r.status).toBe(200);
+    await r.text();
+    expect(handler).not.toHaveBeenCalled();
+    expect(JSON.stringify(accounts.devices("user_01"))).not.toContain("CANARY");
+    expect(h!.logText()).not.toContain("CANARY");
+  } finally {
+    handler.mockRestore();
+  }
+});
+
+it("team-to-pro webhook downgrade immediately closes only over-limit tunnels", async () => {
+  const accounts = await start();
+  const update = {
+    eventId: "evt_team",
+    accountId: "user_01",
+    subscriptionId: "sub_1",
+    plan: "team" as const,
+    status: "active" as const,
+    expiresAt: Date.now() + 86400000,
+  };
+  const provider = { checkout: async () => "https://checkout.stripe.com/test", verifyAndResolve: async () => update };
+  await accounts.billing(provider, Buffer.from("{}"), "test");
+  const devices = [];
+  for (let i = 0; i < 7; i++) devices.push(await h!.ready());
+  await accounts.billing(
+    { ...provider, verifyAndResolve: async () => ({ ...update, eventId: "evt_pro", plan: "pro" as const }) },
+    Buffer.from("{}"),
+    "test",
+  );
+  for (const { device } of devices.slice(5))
+    expect(await device.whenClosed()).toMatchObject({ code: 4403, reason: "not_entitled" });
+  expect(devices.slice(0, 5).every(({ paired }) => h!.relay.isOnline(paired.deviceId))).toBe(true);
+  expect((await h!.post(devices[6]!.paired)).status).toBe(403);
 });

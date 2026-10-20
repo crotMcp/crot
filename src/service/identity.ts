@@ -211,22 +211,26 @@ export class DeviceIdentity {
 
   private commercialCache: { deviceId: string; view: CommercialStatus } | undefined;
   private commercialAttempt = 0;
-  private commercialPending = false;
+  private commercialPending: Promise<void> | undefined;
   commercialStatus(): CommercialStatus {
     const paired = this.pairedHere();
     if (!paired) return { state: "unknown" };
     const now = (this.options.now ?? Date.now)();
-    if (!this.commercialPending && now - this.commercialAttempt > 60_000) {
-      this.commercialAttempt = now;
-      this.commercialPending = true;
-      void this.refreshCommercial().finally(() => {
-        this.commercialPending = false;
-      });
-    }
     const cached = this.commercialCache;
     return cached?.deviceId === paired.deviceId && now - (cached.view.checkedAt ?? 0) <= 120_000
       ? cached.view
       : { state: "unknown" };
+  }
+  async refreshCommercialIfNeeded(): Promise<void> {
+    if (!this.pairedHere()) return;
+    const now = (this.options.now ?? Date.now)();
+    if (!this.commercialPending && now - this.commercialAttempt > 60_000) {
+      this.commercialAttempt = now;
+      this.commercialPending = this.refreshCommercial().finally(() => {
+        this.commercialPending = undefined;
+      });
+    }
+    await this.commercialPending;
   }
   private async management(action: "account_status" | "revoke_client", clientId = ""): Promise<unknown> {
     const credential = this.options.binding.managementCredential();

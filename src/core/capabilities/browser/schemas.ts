@@ -558,7 +558,7 @@ export type BrowserTabCloseResult = z.output<typeof BrowserTabCloseResultSchema>
  * - in_use: another live CROT instance owns the bridge; only browser
  *   operations are unavailable here.
  */
-export type BrowserBridgeState = "disabled" | "waiting" | "connected" | "in_use";
+export type BrowserBridgeState = "disabled" | "waiting" | "connected" | "in_use" | "update_required";
 
 export interface BrowserStatus {
   readonly state: BrowserBridgeState;

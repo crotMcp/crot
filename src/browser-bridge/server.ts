@@ -200,6 +200,8 @@ export class BrowserBridge implements BrowserConnection {
     return bridge;
   }
 
+  private updateRequired = false;
+
   state(): BrowserConnectionState {
     if (this.extension)
       return {
@@ -208,6 +210,7 @@ export class BrowserBridge implements BrowserConnection {
         connectionId: this.extension.connectionId,
         cdp: this.extension.cdp ?? { available: false, reason: "not_probed" },
       };
+    if (this.updateRequired) return { kind: "update_required" };
     return this.server || this.closed ? { kind: "waiting" } : { kind: "in_use" };
   }
 
@@ -421,9 +424,7 @@ export class BrowserBridge implements BrowserConnection {
           if (phase === "auth") {
             const auth = parseRelayAuth(message);
             if (auth.protocol !== BRIDGE_PROTOCOL_VERSION)
-              throw new BrowserProtocolError(
-                "Update required: unsupported relay protocol version " + auth.protocol + ".",
-              );
+              throw new BrowserProtocolError("Unsupported relay protocol version " + auth.protocol + ".");
             if (!tokensEqual(auth.token, this.token)) {
               refuse("invalid bridge token");
               return;
@@ -432,10 +433,20 @@ export class BrowserBridge implements BrowserConnection {
           } else if (phase === "hello") {
             const hello = parseBrowserMessage(message);
             if (hello.type !== "hello") throw new BrowserProtocolError("Expected hello.");
-            if (hello.protocol !== BRIDGE_PROTOCOL_VERSION)
-              throw new BrowserProtocolError(
-                "Update required: unsupported extension protocol version " + hello.protocol + ".",
-              );
+            if (hello.protocol !== BRIDGE_PROTOCOL_VERSION) {
+              this.updateRequired = true;
+              // A welcome with the host's major lets the extension explicitly report update required.
+              for (const frame of encodeHostMessage({
+                type: "welcome",
+                protocol: BRIDGE_PROTOCOL_VERSION,
+                connectionId: randomBytes(16).toString("hex"),
+              }))
+                socket.write(frame);
+              socket.end();
+              this.log("browser bridge: update required (extension protocol mismatch)");
+              return;
+            }
+            this.updateRequired = false;
             if (this.extension) {
               refuse("a browser extension is already connected");
               return;

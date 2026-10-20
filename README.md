@@ -7,6 +7,18 @@ standard MCP interface.
 **`ARCHITECTURE.md` is the source of truth for the product architecture.** This
 README describes the current implementation and how to run it.
 
+## Cloud accounts and device management — WP-36
+
+**Local / Free always works offline without an account or license.** Cloud Relay
+uses a separate AccountService: explicit 14-day Trial (2 devices), Pro (5), Team
+(20), signed Stripe subscription events and hosted checkout. The `/portal` page
+uses provider OAuth PKCE for plan/device/client listing and lost-device revoke.
+Subscription expiry/downgrade ends only remote access; a revoked device loses
+its registration/key and cannot reconnect. Provider secrets stay on the cloud
+host; tray/overview plan state is informational. OD-11/12/13 are decided in
+AD-34. See [account portal, APIs, deployment and acceptance](docs/ACCOUNTS.md).
+Live provider/payment/public-host setup is not claimed by repository tests.
+
 ## Remote acceptance and staging deliverables — WP-32 / WP-38
 
 The automatic SDK → HTTPS relay → WSS device tunnel → CrotService → project +
@@ -895,7 +907,7 @@ its limitations). Not yet implemented:
   AD-20 and qualified Windows AD-30 are implemented, not just path checks.
   General traffic policy is distinct from their implemented network on/off.
 - Live identity environment and public relay deployment/acceptance (WP-38/32),
-  account/provider-side operations WP-36, signed installation/autostart WP-34.
+  live account/provider qualification WP-39 (WP-36 implemented), signed installation/autostart WP-34.
   Device verifier/pairing and the service already exist (WP-28/20).
 
 ## Command confinement (Linux L1)

@@ -43,7 +43,16 @@ export function sanitizeRecord(record: RelayLogRecord): RelayLogRecord {
   const numbers = ["stream", "status", "closeCode", "requestBytes", "responseBytes", "durationMs", "count"] as const;
   for (const k of strings) {
     const v = record[k];
-    if (typeof v === "string") out[k] = safeToken(v)!;
+    if (typeof v !== "string") continue;
+    if (k === "mcpMethod")
+      out[k] =
+        /^(initialize|ping|tools\/(list|call)|resources\/(list|read|subscribe|unsubscribe)|resources\/templates\/list|prompts\/(list|get)|notifications\/(initialized|cancelled)|logging\/setLevel|completion\/complete)$/.test(
+          v,
+        )
+          ? v
+          : "invalid";
+    else if (k === "software") out[k] = /^[a-z][a-z0-9-]{0,24}\/\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(v) ? v : "invalid";
+    else out[k] = /^[A-Za-z0-9_.:-]{1,64}$/.test(v) ? v : "invalid";
   }
   for (const k of numbers) {
     const v = record[k];

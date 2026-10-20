@@ -9,7 +9,7 @@ import { checkAccessToken } from "../identity/verifier.js";
 import type { DeviceRecord } from "../cloud-relay/registry.js";
 import { WindowCounter } from "../cloud-relay/limits.js";
 import type { BillingProvider } from "./billing.js";
-import type { AccountService } from "./service.js";
+import type { CommercialService } from "./service.js";
 
 export class AccountHttp {
   private readonly challenges = new Map<
@@ -19,7 +19,7 @@ export class AccountHttp {
   private readonly rates: WindowCounter;
   constructor(
     private readonly options: {
-      accounts: AccountService;
+      accounts: CommercialService;
       billing?: BillingProvider;
       host: string;
       issuer: string;
@@ -35,6 +35,22 @@ export class AccountHttp {
     },
   ) {
     this.rates = new WindowCounter({ max: 60, windowMs: 60_000 }, options.now, 10_000);
+  }
+  matches(pathname: string): boolean {
+    return (
+      [
+        "/portal",
+        "/portal/callback",
+        "/portal.js",
+        "/portal.css",
+        "/portal/config",
+        "/billing/stripe",
+        "/.well-known/oauth-protected-resource/account",
+      ].includes(pathname) ||
+      pathname === "/account" ||
+      pathname.startsWith("/account/") ||
+      /^\/d\/[a-z2-7]{26}\/(account|clients\/[^/]+\/revoke)$/.test(pathname)
+    );
   }
   async handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
     if (["/portal", "/portal/callback", "/portal.js", "/portal.css", "/portal/config"].includes(pathname)) {
@@ -123,7 +139,7 @@ export class AccountHttp {
     }
     if (managed) {
       const record = await this.options.record(managed[1]!);
-      if (!record) return reply(404, "unknown_device");
+      if (!record || this.options.accounts.isRevoked(record.deviceId)) return reply(404, "unknown_device");
       const action: ManagementAction = managed[2] === "account" ? "account_status" : "revoke_client";
       let clientId = "";
       try {
@@ -163,8 +179,13 @@ export class AccountHttp {
         )
       )
         return reply(403, "invalid_proof");
+      if ((await this.options.record(record.deviceId)) !== record || this.options.accounts.isRevoked(record.deviceId))
+        return reply(404, "unknown_device");
       if (action === "account_status")
-        return reply(200, "account_status", this.options.accounts.snapshot(record.accountId));
+        return reply(200, "account_status", {
+          ...this.options.accounts.snapshot(record.accountId),
+          entitled: this.options.accounts.deviceState(record.accountId, record.deviceId) === "entitled",
+        });
       return reply(200, "provider_revocation", {
         provider: await this.options.accounts.revokeProvider(record.accountId, record.deviceId, clientId),
       });

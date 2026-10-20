@@ -166,6 +166,7 @@ export const BROWSER_COMMANDS: readonly BrowserCommand[] = [
  */
 export type BrowserConnectionState =
   | { readonly kind: "waiting" }
+  | { readonly kind: "update_required" }
   | {
       readonly kind: "connected";
       readonly browser: BrowserInfo;

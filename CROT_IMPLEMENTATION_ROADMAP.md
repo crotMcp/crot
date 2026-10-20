@@ -240,9 +240,9 @@ mcp-crot PR #14 (`8169b1f`). Verified in the tree:
 | --- | --- | --- |
 | Browser | 22 tools; allowlisted chrome.debugger CDP, snapshot/document-bound refs, trusted input, frames/OOPIF, open shadow DOM, waits/history and local per-tab queue; WP-24 code/tests incl. PR #26 | WP-25 headed/branded qualification and broader release matrix; WP-24/26 engineering accepted, WP-27 merged PR #33 |
 | User confirmations | Mechanism complete; product provider `tray` in the service, CROT tray on the control channel (WP-22, AD-19) | Same-user processes can act like the tray (AD-19 residual risk): closed for confined Linux WP-23a and qualified Windows WP-23c/AD-30 children; closed for admitted macOS children by AD-31; open in local `full_control` and for unrelated host processes; tray packaging/autostart (WP-34) |
-| Identity | Device side complete (WP-28, AD-21): OAuth verifier, device id and credential, pairing, unpair, re-grant; tested against an emulated AuthKit environment | No staging/production identity environment (WP-38, WP-39) and no live WorkOS environment exercised yet; provider-side revocation from the tray needs the CROT account service (WP-36); RFC 9207 open condition before G4 |
-| Relay entry point and device tunnel | HTTP pipeline accepts a `relay` entry point; Cloud Relay v1 with the relay side of the AD-22 tunnel, device registration, PRM, token/entitlement admission and outcomes (WP-29, [`docs/RELAY.md`](docs/RELAY.md)); device side complete with registration at pairing (WP-30 **Done**, merged in PR #20; [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)) | WP-29 now covers signed deregistration and recoverable registration rollback; re-pair rotates id/key (AD-21); client timeouts of the OD-5 margin measured in WP-32; not deployed (WP-38, WP-39); single relay instance (AD-22 open question 8); entitlement hook stubbed (WP-36); bounded client/device/source admission and load/backpressure tests implemented by WP-29 |
-| Remote exposure lifecycle | Persisted, fail-closed; per-client reset, revocation and re-grant in the tray, audited, fail closed (WP-22, AD-19; re-grant WP-28) | No revocation at the identity provider from the tray (WP-36; provider-side revocation reaches the device within the AD-21 point 4 bound) |
+| Identity | Device side complete (WP-28, AD-21): OAuth verifier, device id and credential, pairing, unpair, re-grant; tested against an emulated AuthKit environment | No staging/production identity environment (WP-38, WP-39) and no live WorkOS environment exercised yet; provider-side revocation from the tray now uses AccountService (WP-36; live WorkOS unqualified); RFC 9207 open condition before G4 |
+| Relay entry point and device tunnel | HTTP pipeline accepts a `relay` entry point; Cloud Relay v1 with the relay side of the AD-22 tunnel, device registration, PRM, token/entitlement admission and outcomes (WP-29, [`docs/RELAY.md`](docs/RELAY.md)); device side complete with registration at pairing (WP-30 **Done**, merged in PR #20; [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)) | WP-29 now covers signed deregistration and recoverable registration rollback; re-pair rotates id/key (AD-21); client timeouts of the OD-5 margin measured in WP-32; not deployed (WP-38, WP-39); single relay instance (AD-22 open question 8); real cloud-only entitlement admission implemented (WP-36 / AD-34); bounded client/device/source admission and load/backpressure tests implemented by WP-29 |
+| Remote exposure lifecycle | Persisted, fail-closed; per-client reset, revocation and re-grant in the tray, audited, fail closed (WP-22, AD-19; re-grant WP-28) | Best-effort server-only provider revocation implemented (WP-36; provider-side revocation reaches the device within the AD-21 point 4 bound) |
 | Process lifecycle | One per-user service (on demand from the shim, or managed by an OS supervisor), shim, control channel (WP-20, AD-17) | No autostart registration / supervisor files (WP-34); background processes are owned by the service, not by the client that started them (follow-up) |
 | Child-process environment | Allowlist for `shell.execute` / `process.manage` plus `environment.allow`; overrides cannot copy withheld variables; Docker and Git keep their rules (WP-21, AD-18) | — |
 | Secrets | OS secret store (Keychain, DPAPI, Secret Service) with owner-only file fallback; verified migration; denied to all CROT tools (WP-21, AD-18) | Unconfined commands can still use the OS store as the user (AD-18 residual risk): closed for Linux WP-23a and qualified Windows WP-23c (AD-30) workspace mode; closed for admitted macOS (WP-23b/AD-31); open in `full_control` |
@@ -255,8 +255,8 @@ remaining platform qualification beyond AD-30/31 evidence; WP-25 branded-browser
 (including OD-8); WP-29 completion is recorded in this PR;
 live staging/production identity and relay environments WP-38/39; real remote
 acceptance WP-32; independent security review WP-33; signed installers, updates,
-autostart and extension publication WP-34/35; accounts, plans, billing,
-entitlements/device management WP-36; final privacy/security/legal docs WP-37
+autostart and extension publication WP-34/35; live commercial operation (WP-36
+implementation is complete; provider/merchant qualification WP-39); final privacy/security/legal docs WP-37
 and release process WP-40. Existing Linux/qualified Windows/macOS L1 (AD-20/30/31), WP-24 CDP,
 WP-28 device identity, WP-30 tunnel and WP-31 profiles are not missing code.
 None of them proves the remaining live deployment/manual/release gates.
@@ -293,7 +293,7 @@ Original observations N1/N2 below are retained as historical audit evidence, not
 | --- | --- | --- |
 | N1 | AD-18 and AD-19 (scope, residual risks, AD-19 point 10) still say "until L1 (WP-23)" / "L1 not available until WP-23". Since AD-20 / WP-23a the tray and `crot_status` report the real L1 state, and the residual risks are closed for confined Linux and qualified Windows children (AD-20/30). Original AD texts are preserved, with explicit current-scope cross-references | Windows current-scope cross-reference supplied by AD-30 and this docs reconciliation; macOS WP-23b still open |
 | N2 | Windows installer-shipped components are now known: owner-provisioned DLL/Node/manifest in AD-30. Source/CI delivery works; packaging/signing is WP-34. macOS shipping details await WP-23b | WP-34 explicitly depends on Windows WP-23c components, in addition to Linux WP-23a; no speculative macOS packaging decision |
-| N3 | WP-28 card scope lists "provider-side revocation"; AD-21 point 4 makes it best effort and forbids a provider client secret on devices, so the device cannot call the provider. WP-28 ships a hook reporting "not available"; the AD-21 point 4 (a) bound holds without it. WP-38 now supplies a tested pinned release-artifact builder that ignores `CROT_IDENTITY_DEV_ENVIRONMENT`; plain development builds remain unpinned. Live staging/production identity approval and shipping only selected pinned artifacts remain release gates (AD-21 point 5) | WP-36 (provider-side revocation through the account service); WP-38/WP-39 pin the environment and WP-34 ships only pinned builds — release-gate item before G4 |
+| N3 | WP-28 card scope lists "provider-side revocation"; AD-21 point 4 makes it best effort and forbids a provider client secret on devices, so the device cannot call the provider. WP-28 ships a hook reporting "not available"; the AD-21 point 4 (a) bound holds without it. WP-38 now supplies a tested pinned release-artifact builder that ignores `CROT_IDENTITY_DEV_ENVIRONMENT`; plain development builds remain unpinned. Live staging/production identity approval and shipping only selected pinned artifacts remain release gates (AD-21 point 5) | WP-36 implemented provider-side session revocation through the account service (AD-34; live provider qualification remains WP-39); WP-38/WP-39 pin the environment and WP-34 ships only pinned builds — release-gate item before G4 |
 | N4 | §6.2 forbade "work on … other post-v1 items" for every card. The expanded product goal (§2.7) schedules post-v1 milestones (phases 5–8) that may run in parallel; §6.2 now allows them only as their own WPs, after their OD/AD, without changing or blocking any release-blocking WP | this roadmap (§6.2 amended explicitly) |
 
 ### 2.7 Expanded product goal (reassessment)
@@ -473,7 +473,7 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-33 | 3 | External security review and fixes | WP-32, WP-34 (release-candidate build), WP-38 | M (+fix time) | yes | with WP-37 | Not started |
 | WP-34 | 4 | Installers, signing, updates, autostart, supply chain | WP-20, WP-22, WP-23a, WP-23b (AD-31 runtime), WP-23c (AD-30 component delivery) (L1 components, AD-20 point 3), WP-35 (IDs), OD-1, OD-10, OD-11 | L | yes | with phase 3 | Not started |
 | WP-35 | 4 | Extension publication | WP-24, WP-25, WP-26 (prep: now) | M | yes | early | Not started |
-| WP-36 | 4 | Accounts, plans, billing, entitlements, device management | WP-28, WP-29, OD-13 | M–L | yes | with phase 3 | Not started |
+| WP-36 | 4 | Accounts, plans, billing, entitlements, device management | WP-28, WP-29, OD-13 | M–L | yes | with phase 3 | Done |
 | WP-37 | 4 | Documentation, privacy/security docs, legal | content from all WPs; final after WP-33 | M | yes | ongoing | Not started |
 | WP-39 | 4 | Production cloud and operational readiness | WP-38, WP-36, OD-12 | L | yes | with WP-33 | Not started |
 | WP-40 | 4 | Release candidate, beta and GA release | all RB WPs | M | yes | — | Not started |
@@ -1092,6 +1092,11 @@ claimed by WP-31.
 - **RB:** yes. **Parallel:** early, alongside phase 3.
 
 #### WP-36 — Accounts, plans, billing, entitlements, device management
+
+- **Status: Done (repository implementation)** — PR #36, AD-34; final-head
+  check/Chromium E2E and 11/11 CI are required before Ready for review.
+  [API, deployment and acceptance matrix](docs/ACCOUNTS.md). Live WorkOS/Stripe
+  and public host/financial/legal qualification remain owner release gates.
 
 - **Objective:** a user can sign up, choose a plan, pay, manage devices and
   revoke a lost device; the relay admits only entitled devices.

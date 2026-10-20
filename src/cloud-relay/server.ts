@@ -17,7 +17,7 @@
  * minimal health check.
  */
 import type { AuthorizationServerMetadata } from "../identity/authorization-server.js";
-import { AccountService } from "../account-service/service.js";
+import { AccountService, type CommercialService } from "../account-service/service.js";
 import { AccountHttp } from "../account-service/http.js";
 import type { BillingProvider } from "../account-service/billing.js";
 import { versionAtLeast } from "./versions.js";
@@ -57,7 +57,7 @@ import {
   type RequestOutcome,
 } from "../tunnel/protocol.js";
 import { acceptWebSocket } from "../tunnel/websocket.js";
-import { jsonLineLogger, safeToken, type RelayLogger, type RelayLogRecord } from "./log.js";
+import { jsonLineLogger, safeToken, sanitizeRecord, type RelayLogger, type RelayLogRecord } from "./log.js";
 import { isDevicePublicKey, type DeviceRecord, type DeviceRegistry } from "./registry.js";
 import {
   DEFAULT_TUNNEL_TIMING,
@@ -102,7 +102,7 @@ export interface CloudRelayOptions {
   readonly registry: DeviceRegistry;
   /** Explicit transport-test admission seam. Production uses AccountService, default Free/denied. */
   readonly entitlement?: (record: DeviceRecord) => Entitlement | Promise<Entitlement>;
-  readonly accounts?: AccountService;
+  readonly accounts?: CommercialService;
   readonly billing?: BillingProvider;
   readonly portalClientIds?: readonly string[];
   readonly portalMetadata?: () => Promise<AuthorizationServerMetadata>;
@@ -276,7 +276,7 @@ export class CloudRelay {
   private readonly removalChallenges = new Map<string, { record: DeviceRecord; expires: number }>();
   private readonly authenticatedRecords = new WeakMap<RelayTunnel, DeviceRecord>();
 
-  readonly accounts: AccountService;
+  readonly accounts: CommercialService;
   private readonly accountHttp: AccountHttp;
   private readonly stopAccounts: () => void;
   private readonly expiryTimer: NodeJS.Timeout;
@@ -297,7 +297,8 @@ export class CloudRelay {
       options.now ?? Date.now,
       this.limits.counterKeys,
     );
-    this.log = options.log ?? jsonLineLogger();
+    const logger = options.log ?? jsonLineLogger();
+    this.log = (record) => logger(sanitizeRecord(record));
     this.now = options.now ?? Date.now;
     this.timing = { ...DEFAULT_TUNNEL_TIMING, ...options.timing };
     this.deadlineMs = options.exchangeDeadlineMs ?? DEFAULT_EXCHANGE_DEADLINE_MS;
@@ -437,7 +438,7 @@ export class CloudRelay {
     const target = req.url ?? "";
     const q = target.indexOf("?");
     const pathname = q === -1 ? target : target.slice(0, q);
-    if (await this.accountHttp.handle(req, res, pathname)) return;
+    if (this.accountHttp.matches(pathname) && (await this.accountHttp.handle(req, res, pathname))) return;
     let m: RegExpExecArray | null;
     if ((m = MCP_PATH.exec(pathname))) return this.exchange(req, res, m[1]!);
     if ((m = PRM_PATH.exec(pathname))) return this.metadata(req, res, m[1]!);
@@ -898,6 +899,7 @@ export class CloudRelay {
     const refuse = (closeCode: number, reason: string): HandshakeDecision => ({ ok: false, closeCode, reason });
     if (!isDeviceId(hello.deviceId)) return refuse(CloseCode.UNAUTHORIZED, "unauthorized");
     const record = await this.options.registry.get(hello.deviceId);
+    if (!record && this.accounts.isRevoked(hello.deviceId)) return refuse(CloseCode.FORBIDDEN, "device_revoked");
     if (!record || !verifyTunnelProof(record.publicKey, hello.deviceId, this.options.relayHost, challenge, hello.proof))
       return refuse(CloseCode.UNAUTHORIZED, "unauthorized");
     // Counted only after the proof: the device id in HELLO is public (it is in every client's URI), so
