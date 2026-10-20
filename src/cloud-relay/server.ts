@@ -16,11 +16,14 @@
  * pairing (AD-22 point 4), the tunnel endpoint (AD-22 points 2–3) and a
  * minimal health check.
  */
+import { randomBytes } from "node:crypto";
+import { WindowCounter, relayLimits, type RelayLimits, type RateLimit } from "./limits.js";
+export type { RateLimit } from "./limits.js";
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
-import { verifyTunnelProof } from "../identity/device-credential.js";
+import { verifyDeregistrationProof, verifyTunnelProof } from "../identity/device-credential.js";
 import { canonicalDeviceUri, isDeviceId, isRelayHost, protectedResourceMetadataUrl } from "../identity/device-id.js";
 import { isClientId } from "../identity/environment.js";
 import type { SigningKeySource } from "../identity/jwks.js";
@@ -76,11 +79,6 @@ const DISCARD_BODY_MS = 10_000;
 
 export type Entitlement = "entitled" | "not_entitled" | "blocked";
 
-export interface RateLimit {
-  readonly max: number;
-  readonly windowMs: number;
-}
-
 export interface CloudRelayOptions {
   /** The relay host of the canonical device URI (AD-21 point 5). */
   readonly relayHost: string;
@@ -111,6 +109,7 @@ export interface CloudRelayOptions {
    */
   readonly discardBodyMs?: number;
   readonly timing?: Partial<TunnelTiming>;
+  readonly limits?: Partial<RelayLimits>;
   /** Authenticated tunnel handshakes per device (close 4429 beyond; failed proofs do not count). Default 30 per minute. */
   readonly handshakeRate?: RateLimit;
   /** Supersessions per device (close 4409 beyond). Default 10 per hour (AD-22 point 9). */
@@ -121,37 +120,12 @@ export interface RelayStatus {
   readonly tunnels: { readonly handshake: number; readonly ready: number; readonly draining: number };
   readonly openStreams: number;
   readonly devicesOnline: number;
-}
-
-/** Sliding-window counter per key. */
-class WindowCounter {
-  private readonly hits = new Map<string, number[]>();
-  constructor(
-    private readonly limit: RateLimit,
-    private readonly now: () => number,
-  ) {}
-  /** Record a hit unless over the limit; returns the wait in ms when refused. */
-  take(key: string): number | undefined {
-    const now = this.now();
-    if (this.hits.size > 10_000) this.prune(now);
-    const list = (this.hits.get(key) ?? []).filter((t) => now - t < this.limit.windowMs);
-    if (list.length >= this.limit.max) {
-      this.hits.set(key, list);
-      return Math.max(1, this.limit.windowMs - (now - list[0]!));
-    }
-    list.push(now);
-    this.hits.set(key, list);
-    return undefined;
-  }
-  /** Forget keys without hits in the window (bounded memory under random device ids). */
-  private prune(now: number): void {
-    for (const [key, list] of this.hits) if (list.every((t) => now - t >= this.limit.windowMs)) this.hits.delete(key);
-  }
-  /** Whether a hit would be over the limit (without recording it). */
-  full(key: string): boolean {
-    const now = this.now();
-    return (this.hits.get(key) ?? []).filter((t) => now - t < this.limit.windowMs).length >= this.limit.max;
-  }
+  readonly admission: {
+    readonly clients: number;
+    readonly requests: number;
+    readonly bufferedRequestBytes: number;
+    readonly uncreditedResponseBytes: number;
+  };
 }
 
 interface Refusal {
@@ -276,10 +250,37 @@ export class CloudRelay {
   private readonly tunnels = new Set<RelayTunnel>();
   private server: Server | undefined;
   private closing = false;
+  private bufferedRequestBytes = 0;
+  private activeRequests = 0;
+  private readonly limits: RelayLimits;
+  private readonly clientRates: WindowCounter;
+  private readonly deviceRates: WindowCounter;
+  private readonly registrationRates: WindowCounter;
+  private readonly removalRates: WindowCounter;
+  private readonly rejectedSockets = new WeakSet<Duplex>();
+  private readonly sources = new Map<string, number>();
+  private readonly pendingSources = new Map<string, number>();
+  private readonly clients = new Map<string, number>();
+  private readonly devices = new Map<string, number>();
+  private readonly removalChallenges = new Map<string, { record: DeviceRecord; expires: number }>();
+  private readonly authenticatedRecords = new WeakMap<RelayTunnel, DeviceRecord>();
 
   constructor(private readonly options: CloudRelayOptions) {
     if (!isRelayHost(options.relayHost)) throw new Error("relayHost must be a lowercase DNS name");
     if (!isClientId(options.pairingClientId)) throw new Error("pairingClientId must be a non-empty client id");
+    this.limits = relayLimits(options.limits);
+    this.clientRates = new WindowCounter(this.limits.clientRequests, options.now ?? Date.now, this.limits.counterKeys);
+    this.deviceRates = new WindowCounter(this.limits.deviceRequests, options.now ?? Date.now, this.limits.counterKeys);
+    this.registrationRates = new WindowCounter(
+      this.limits.accountRegistrations,
+      options.now ?? Date.now,
+      this.limits.counterKeys,
+    );
+    this.removalRates = new WindowCounter(
+      { max: 30, windowMs: 60_000 },
+      options.now ?? Date.now,
+      this.limits.counterKeys,
+    );
     this.log = options.log ?? jsonLineLogger();
     this.now = options.now ?? Date.now;
     this.timing = { ...DEFAULT_TUNNEL_TIMING, ...options.timing };
@@ -309,6 +310,21 @@ export class CloudRelay {
     server.headersTimeout = 60_000;
     server.timeout = 0;
     server.keepAliveTimeout = 5_000;
+    // Peer address only; never trust spoofable Forwarded/X-Forwarded-For headers.
+    server.on("connection", (socket) => {
+      const source = socket.remoteAddress ?? "unknown";
+      const count = this.sources.get(source) ?? 0;
+      if (count >= this.limits.sourceConnections) {
+        this.rejectedSockets.add(socket);
+        socket.end(
+          "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\nCROT-Request-Outcome: not_executed\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+          () => socket.destroy(),
+        );
+        return;
+      }
+      this.sources.set(source, count + 1);
+      socket.once("close", () => this.release(this.sources, source));
+    });
     server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => this.upgrade(req, socket, head));
     server.on("clientError", (_error, socket: Duplex) => {
       if (!socket.destroyed) socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
@@ -336,7 +352,17 @@ export class CloudRelay {
       if (phase !== "closed") tunnels[phase]++;
       openStreams += t.openStreams;
     }
-    return { tunnels, openStreams, devicesOnline: this.routes.size };
+    return {
+      tunnels,
+      openStreams,
+      devicesOnline: this.routes.size,
+      admission: {
+        clients: this.clients.size,
+        requests: [...this.devices.values()].reduce((a, b) => a + b, 0),
+        bufferedRequestBytes: this.bufferedRequestBytes,
+        uncreditedResponseBytes: [...this.tunnels].reduce((a, t) => a + t.uncreditedResponseBytes, 0),
+      },
+    };
   }
 
   /** Whether a device has a routable tunnel. */
@@ -360,6 +386,7 @@ export class CloudRelay {
   // ---- HTTP ------------------------------------------------------------------
 
   private handle(req: IncomingMessage, res: ServerResponse): void {
+    if (this.rejectedSockets.has(req.socket)) return;
     this.route(req, res).catch(() => {
       this.log({ event: "relay.internal_error" });
       if (!res.headersSent) {
@@ -376,6 +403,7 @@ export class CloudRelay {
     let m: RegExpExecArray | null;
     if ((m = MCP_PATH.exec(pathname))) return this.exchange(req, res, m[1]!);
     if ((m = PRM_PATH.exec(pathname))) return this.metadata(req, res, m[1]!);
+    if ((m = /^\/d\/([a-z2-7]{26})\/deregister$/.exec(pathname))) return this.deregister(req, res, m[1]!);
     if ((m = REGISTER_PATH.exec(pathname))) return this.register(req, res, m[1]!);
     this.discard(req);
     if (pathname === HEALTH_PATH && req.method === "GET") {
@@ -483,6 +511,10 @@ export class CloudRelay {
     // A valid token for this device URI, but not from a pairing: a client may not register (bind) a device.
     if (checked.token.clientId !== this.options.pairingClientId)
       return respond(403, "not_pairing_client", { error: "pairing_client_required" });
+    if (this.registrationRates.take(checked.token.subject) !== undefined) {
+      this.discard(req);
+      return writeRefusal(res, { ...REFUSALS.busy, status: 429, code: "registration_rate_limited" });
+    }
     const body = await readBody(req, MAX_REGISTER_BODY, this.discardBodyMs);
     if (body === "too_large") return respond(413, "too_large", { error: "request_too_large" });
     if (body === "timeout") return respond(408, "timeout", { error: "request_timeout" });
@@ -505,6 +537,85 @@ export class CloudRelay {
     if (result === "conflict") return respond(409, "conflict", { error: "already_registered" });
     const stored = (await this.options.registry.get(deviceId))!;
     return respond(result === "created" ? 201 : 200, result, { deviceId, registeredAt: stored.registeredAt });
+  }
+
+  private readonly revokedRecords = new WeakSet<DeviceRecord>();
+  private release(map: Map<string, number>, key: string): void {
+    const left = (map.get(key) ?? 1) - 1;
+    if (left > 0) map.set(key, left);
+    else map.delete(key);
+  }
+
+  /** Fresh single-use, short-lived challenge, tied to this exact registry record. */
+  private async deregister(req: IncomingMessage, res: ServerResponse, deviceId: string): Promise<void> {
+    const record = await this.record(deviceId);
+    if (!record) {
+      this.discard(req);
+      return writeRefusal(res, REFUSALS.not_found);
+    }
+    const source = req.socket.remoteAddress ?? "unknown";
+    if (this.removalRates.take(source) !== undefined) {
+      this.discard(req);
+      return writeRefusal(res, { ...REFUSALS.busy, status: 429 });
+    }
+    for (const [key, value] of this.removalChallenges)
+      if (value.expires <= this.now()) this.removalChallenges.delete(key);
+    if (req.method === "GET") {
+      this.discard(req);
+      if (this.removalChallenges.size >= 1024) return writeRefusal(res, REFUSALS.busy);
+      const challenge = randomBytes(32).toString("base64url");
+      this.removalChallenges.set(challenge, { record, expires: this.now() + 30_000 });
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify({ challenge }));
+      return;
+    }
+    if (req.method !== "POST") {
+      this.discard(req);
+      return writeRefusal(res, REFUSALS.method_not_allowed, { allow: "GET, POST" });
+    }
+    const body = await readBody(req, MAX_REGISTER_BODY, this.discardBodyMs);
+    if (typeof body === "string") {
+      this.discard(req);
+      return writeRefusal(res, REFUSALS.bad_request);
+    }
+    let value: { challenge?: unknown; proof?: unknown };
+    try {
+      value = JSON.parse(body.toString("utf8")) as typeof value;
+    } catch {
+      return writeRefusal(res, REFUSALS.bad_request);
+    }
+    if (!value || typeof value.challenge !== "string" || typeof value.proof !== "string")
+      return writeRefusal(res, REFUSALS.bad_request);
+    const pending = this.removalChallenges.get(value.challenge);
+    const proof = Buffer.from(value.proof, "base64url");
+    if (
+      !pending ||
+      pending.record !== record ||
+      pending.expires <= this.now() ||
+      proof.length !== 64 ||
+      !verifyDeregistrationProof(
+        record.publicKey,
+        deviceId,
+        this.options.relayHost,
+        Buffer.from(value.challenge, "base64url"),
+        proof,
+      )
+    )
+      return writeRefusal(res, {
+        status: 403,
+        code: "invalid_proof",
+        outcome: "not_executed",
+        message: "Invalid removal proof",
+      });
+    this.removalChallenges.delete(value.challenge);
+    if (!(await this.options.registry.remove(record))) return writeRefusal(res, REFUSALS.not_found);
+    this.revokedRecords.add(record);
+    for (const t of this.tunnels) if (t.deviceId === deviceId) t.terminate(CloseCode.GOING_AWAY, "unpaired");
+    this.routes.delete(deviceId);
+    for (const [key, v] of this.removalChallenges) if (v.record === record) this.removalChallenges.delete(key);
+    this.log({ event: "device.deregister", deviceId, status: 204 });
+    res.writeHead(204, { "cache-control": "no-store" });
+    res.end();
   }
 
   // ---- forwarding ------------------------------------------------------------
@@ -552,52 +663,97 @@ export class CloudRelay {
       return this.unauthorized(res, deviceId, true);
     }
     if ((await this.entitled(record)) !== "entitled") return refuse(REFUSALS.not_entitled);
-    const admittedAt = this.now();
-    const declared = req.headers["content-length"];
-    const length = declared === undefined ? undefined : Number(declared);
-    if (length !== undefined && (!Number.isSafeInteger(length) || length < 0)) return refuse(REFUSALS.bad_request);
-    if (length !== undefined && length > MAX_REQUEST_BODY_BYTES) return refuse(REFUSALS.request_too_large);
-    const headers = endToEndHeaders(req.rawHeaders);
-    // A body without a length is read completely first, so the size limit is enforced before forwarding.
-    let buffered: Buffer | undefined;
-    if (length === undefined && req.headers["transfer-encoding"] !== undefined) {
-      // Within the exchange deadline (AD-22 point 12), which starts at admission.
-      const body = await readBody(req, MAX_REQUEST_BODY_BYTES, this.deadlineMs - (this.now() - admittedAt));
-      if (body === "aborted") return;
-      if (body === "too_large") return refuse(REFUSALS.request_too_large);
-      if (body === "timeout") return refuse(REFUSALS.request_timeout);
-      buffered = body;
-    }
-    const noBody = buffered ? buffered.length === 0 : !length;
-    const tunnel = this.routes.get(deviceId);
-    if (!tunnel || !tunnel.routable) return refuse(REFUSALS.device_offline);
-    const ex = new Exchange(res, summary, started, this.log, this.now, this.stallMs);
-    const opened = tunnel.open(
-      { method, path: req.url ?? "", headers, deadlineMs: this.deadlineMs - (this.now() - admittedAt) },
-      noBody,
-      ex,
-    );
-    if (!opened.ok)
-      return refuse(
-        opened.reason === "busy"
-          ? REFUSALS.busy
-          : opened.reason === "headers_too_large"
-            ? REFUSALS.headers_too_large
-            : REFUSALS.device_offline,
+    if (req.destroyed || res.destroyed) return;
+    const admissionTunnel = this.routes.get(deviceId);
+    if (!admissionTunnel?.routable || this.revokedRecords.has(record)) return refuse(REFUSALS.device_offline);
+    const clientKey = JSON.stringify([deviceId, checked.token.clientId]);
+    if (this.clientRates.take(clientKey) !== undefined || this.deviceRates.take(deviceId) !== undefined)
+      return refuse({ ...REFUSALS.busy, status: 429, code: "request_rate_limited" });
+    if (
+      this.activeRequests >= this.limits.globalConcurrency ||
+      (this.clients.get(clientKey) ?? 0) >=
+        Math.min(
+          this.limits.clientConcurrency,
+          Math.max(1, Math.floor(admissionTunnel.maxStreams / 2)),
+          Math.floor(INITIAL_CONNECTION_WINDOW / INITIAL_STREAM_WINDOW / 2),
+        ) ||
+      (this.devices.get(deviceId) ?? 0) >= Math.min(this.limits.deviceConcurrency, admissionTunnel.maxStreams)
+    )
+      return refuse(REFUSALS.busy);
+    this.activeRequests++;
+    this.clients.set(clientKey, (this.clients.get(clientKey) ?? 0) + 1);
+    this.devices.set(deviceId, (this.devices.get(deviceId) ?? 0) + 1);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      this.activeRequests--;
+      this.release(this.clients, clientKey);
+      this.release(this.devices, deviceId);
+    };
+    res.once("close", release);
+    res.once("finish", release);
+    try {
+      const admittedAt = this.now();
+      const declared = req.headers["content-length"];
+      const length = declared === undefined ? undefined : Number(declared);
+      if (length !== undefined && (!Number.isSafeInteger(length) || length < 0)) return refuse(REFUSALS.bad_request);
+      if (length !== undefined && length > MAX_REQUEST_BODY_BYTES) return refuse(REFUSALS.request_too_large);
+      const headers = endToEndHeaders(req.rawHeaders);
+      // A body without a length is read completely first, so the size limit is enforced before forwarding.
+      let buffered: Buffer | undefined;
+      if (length === undefined && req.headers["transfer-encoding"] !== undefined) {
+        // Within the exchange deadline (AD-22 point 12), which starts at admission.
+        const body = await readBody(
+          req,
+          MAX_REQUEST_BODY_BYTES,
+          this.deadlineMs - (this.now() - admittedAt),
+          (delta) => {
+            this.bufferedRequestBytes += delta;
+          },
+        );
+        if (body === "aborted") return;
+        if (body === "too_large") return refuse(REFUSALS.request_too_large);
+        if (body === "timeout") return refuse(REFUSALS.request_timeout);
+        buffered = body;
+      }
+      const noBody = buffered ? buffered.length === 0 : !length;
+      const tunnel = this.routes.get(deviceId);
+      if (!tunnel || !tunnel.routable || tunnel !== admissionTunnel || this.revokedRecords.has(record))
+        return refuse(REFUSALS.device_offline);
+      const ex = new Exchange(res, summary, started, this.log, this.now, this.stallMs);
+      const opened = tunnel.open(
+        { method, path: req.url ?? "", headers, deadlineMs: this.deadlineMs - (this.now() - admittedAt) },
+        noBody,
+        ex,
       );
-    ex.attach(opened.stream, tunnel.tunnelId, this.deadlineMs - (this.now() - admittedAt));
-    if (buffered) {
-      for (let i = 0; i < buffered.length; i += MAX_DATA_PAYLOAD)
-        opened.stream.write(buffered.subarray(i, i + MAX_DATA_PAYLOAD));
-      if (!noBody) opened.stream.end();
-      ex.requestBytes = buffered.length;
-    } else if (!noBody) ex.pipeRequest(req);
-    else req.resume();
+      if (!opened.ok)
+        return refuse(
+          opened.reason === "busy"
+            ? REFUSALS.busy
+            : opened.reason === "headers_too_large"
+              ? REFUSALS.headers_too_large
+              : REFUSALS.device_offline,
+        );
+      ex.attach(opened.stream, tunnel.tunnelId, this.deadlineMs - (this.now() - admittedAt));
+      if (buffered) {
+        for (let i = 0; i < buffered.length; i += MAX_DATA_PAYLOAD)
+          opened.stream.write(buffered.subarray(i, i + MAX_DATA_PAYLOAD));
+        if (!noBody) opened.stream.end();
+        ex.requestBytes = buffered.length;
+      } else if (!noBody) ex.pipeRequest(req);
+      else req.resume();
+    } catch (error) {
+      release();
+      throw error;
+    }
+    // Body buffering and every refusal hold a slot until their response finishes/closes.
   }
 
   // ---- tunnel ----------------------------------------------------------------
 
   private upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
+    if (this.rejectedSockets.has(socket)) return;
     const target = req.url ?? "";
     if (target !== TUNNEL_PATH || this.closing) {
       socket.end(
@@ -605,9 +761,13 @@ export class CloudRelay {
       );
       return;
     }
-    if (this.status().tunnels.handshake >= MAX_PENDING_HANDSHAKES) {
+    const source = req.socket.remoteAddress ?? "unknown";
+    if (
+      (this.pendingSources.get(source) ?? 0) >= this.limits.sourceHandshakes ||
+      this.status().tunnels.handshake >= MAX_PENDING_HANDSHAKES
+    ) {
       socket.end(
-        "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 5\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
+        "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\nCROT-Request-Outcome: not_executed\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
       );
       return;
     }
@@ -630,6 +790,14 @@ export class CloudRelay {
       ws.close(CloseCode.UNSUPPORTED_VERSION, unsupportedVersionReason(SUPPORTED_MAJORS));
       return;
     }
+    this.pendingSources.set(source, (this.pendingSources.get(source) ?? 0) + 1);
+    let pending = true;
+    const releasePending = () => {
+      if (pending) {
+        pending = false;
+        this.release(this.pendingSources, source);
+      }
+    };
     const tunnel = new RelayTunnel(ws, {
       relayHost: this.options.relayHost,
       versions: SUPPORTED_MAJORS,
@@ -646,11 +814,15 @@ export class CloudRelay {
       log: this.log,
       now: this.now,
       authenticate: (hello, challenge, t) => this.authenticate(hello, challenge, t),
-      onReady: (t) => this.onReady(t),
+      onReady: (t) => {
+        releasePending();
+        this.onReady(t);
+      },
       onUnroutable: (t) => {
         if (t.deviceId && this.routes.get(t.deviceId) === t) this.routes.delete(t.deviceId);
       },
       onClosed: (t) => {
+        releasePending();
         this.tunnels.delete(t);
         if (t.deviceId && this.routes.get(t.deviceId) === t) this.routes.delete(t.deviceId);
       },
@@ -677,11 +849,17 @@ export class CloudRelay {
       this.log({ event: "tunnel.supersession_limit", deviceId: hello.deviceId });
       return refuse(CloseCode.SUPERSEDED_TOO_OFTEN, "superseded_too_often");
     }
+    this.authenticatedRecords.set(_tunnel, record);
     return { ok: true, features: [] };
   }
 
   private onReady(tunnel: RelayTunnel): void {
     const deviceId = tunnel.deviceId!;
+    // A deregistration can finish while asynchronous entitlement/proof admission is pending.
+    if (this.revokedRecords.has(this.authenticatedRecords.get(tunnel)!)) {
+      tunnel.terminate(CloseCode.UNAUTHORIZED, "unpaired");
+      return;
+    }
     const previous = this.routes.get(deviceId);
     this.routes.set(deviceId, tunnel);
     if (previous && previous !== tunnel) {
@@ -699,6 +877,7 @@ function readBody(
   req: IncomingMessage,
   max: number,
   timeoutMs: number,
+  observe?: (delta: number) => void,
 ): Promise<Buffer | "too_large" | "aborted" | "timeout"> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
@@ -708,7 +887,8 @@ function readBody(
       if (done) return;
       done = true;
       clearTimeout(timer);
-      if (typeof result === "string") chunks.length = 0;
+      observe?.(-size);
+      chunks.length = 0;
       resolve(result);
     };
     const timer = setTimeout(() => finish("timeout"), Math.max(1, timeoutMs));
@@ -716,6 +896,7 @@ function readBody(
     req.on("data", (chunk: Buffer) => {
       if (done) return;
       size += chunk.length;
+      observe?.(chunk.length);
       if (size > max) return finish("too_large");
       chunks.push(chunk);
     });

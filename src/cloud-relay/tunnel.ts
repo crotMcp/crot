@@ -222,6 +222,11 @@ export class RelayTunnel {
     return this.state === "ready" && !this.localGoAway && !this.peerGoAway && !this.closing;
   }
 
+  /** Response bytes withheld from window credit (not an RSS estimate). */
+  get uncreditedResponseBytes(): number {
+    return INITIAL_CONNECTION_WINDOW - this.recvConnWindow;
+  }
+
   get openStreams(): number {
     return this.streams.size;
   }

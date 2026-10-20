@@ -19,10 +19,11 @@ The device tunnel is the client side of the relay–device tunnel (ARCHITECTURE.
 
 - **When.** During pairing, after the pairing access token has passed every existing check (signature, `iss`, `aud` = the new device's canonical URI, validity times, `sub`, `client_id`), the device registers itself at the relay (`src/identity/relay-registration.ts`).
 - **Request.** `POST https://<relayHost>/d/<deviceId>/register` with the pairing token as bearer and `{"publicKey": <Ed25519 JWK>}` as the only body field. It goes through `IdentityHttp`: HTTPS only, no redirects, no ambient credentials, a timeout and a response size limit.
-- **Result.** `201` (created) and `200` (same account and key again) complete pairing. Any other answer (`401`, `403`, `409`, `400`/`408`/`413`, other statuses) or an unreachable relay fails pairing with `relay_registration_failed`; the device is not paired and the new device key is discarded. A token that fails the device's own checks is never sent to the relay.
+- **Result.** `201` (created) and `200` (same account and key again) complete pairing. Any other answer (`401`, `403`, `409`, `400`/`408`/`413`, other statuses) or an unreachable relay fails pairing with `relay_registration_failed`; the device is not paired; signed compensation removes any possible remote registration. The private inactive intent/key are retained if cleanup is unreachable, not discarded prematurely. A token that fails the device's own checks is never sent to the relay.
 - **Authority.** The relay checks the token itself and binds the device id to the account and the key. It decides nothing else; every request is still verified on the device.
 - **Secrets.** Neither the token nor the relay's response body appears in results, errors or logs.
-- **Not covered (AD-22 open question 3).** There is no deregistration: unpairing does not remove the registration at the relay, and if storing the binding fails after a successful registration, that registration remains orphaned.
+- **Durable preflight (WP-29).** Before the register POST, store and read back the secret seed and private inactive `device-binding.json.registration` intent. Neither authorizes requests nor starts a tunnel. On failure/cancellation/lost response/final commit failure, compensate with a fresh signed deregistration; retain key/intent across restart if unavailable. Startup and the next pairing retry cleanup; a new pairing fails closed rather than overwriting unresolved ownership. A committed binding removes its obsolete intent.
+- **Deregistration (AD-22 question 3 resolved).** GET a fresh 32-byte challenge (30 s, single use), POST an Ed25519 proof in the separate `crot-device-deregister-v1` domain bound to id/relay/challenge. No token is stored or needed. The relay conditionally removes the exact record, stops routing/closes tunnels and returns 404 for subsequent PRM requests. Local unpair captures a removal-only signer before deleting the secret, finishes local revocation immediately, sends GOAWAY unpaired, then best-effort removal without delaying the control result. Offline removal may leave stale relay metadata, never local authority. Re-pair uses a fresh id/key; no in-place key replacement.
 
 ## Safety properties
 
@@ -78,3 +79,12 @@ Local stdio and loopback HTTP are not affected.
 - `409` for an already registered device, `403` for a token of another client, `401` for an expired token, and a token for another account
 - the request shape (method, no redirects, no credentials, bearer, body), an invalid URL and an unreachable relay (no token in the result)
 - pairing end to end (registration, then the tunnel online, no token in logs); a refused or failing registration fails pairing, and a rejected token never reaches the relay
+
+
+WP-29 completion adds `tests/cloud-relay/load.test.ts` (rate, admission-before-buffer,
+peer caps and credit isolation under real socket load),
+`tests/cloud-relay/deregistration.test.ts` (proof/replay/persistence and real
+pairing rollback), `tests/identity/binding.test.ts` (post-commit crash intent),
+and `tests/service/control-center.test.ts` (local unpair/control queue do not
+wait for network; teardown precedes removal). See the
+[criterion evidence](design/relay-wp29-completion.md).

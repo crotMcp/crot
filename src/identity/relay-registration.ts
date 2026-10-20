@@ -11,11 +11,11 @@
  *   credentials, a timeout and a response size limit.
  * - The result never contains the token or the relay's response body; a
  *   network error is reported without its message.
- * - There is no deregistration (AD-22 open question 3).
+ * - Deregistration uses a fresh, domain-separated device-key proof, never a token.
  */
 import type { DevicePublicKey } from "./device-credential.js";
 import { isDeviceId, isRelayHost } from "./device-id.js";
-import { isHttpsUrl, type IdentityHttp } from "./http.js";
+import { IdentityHttpError, isHttpsUrl, type IdentityHttp } from "./http.js";
 
 export type RelayRegistrationFailure =
   | "invalid_url"
@@ -59,4 +59,25 @@ export async function registerDeviceAtRelay(options: {
   if (status === 409) return { ok: false, reason: "conflict", status };
   if (status === 400 || status === 408 || status === 413) return { ok: false, reason: "rejected", status };
   return { ok: false, reason: "unexpected_status", status };
+}
+
+export interface RemovalCredential {
+  readonly deviceId: string;
+  readonly relayHost: string;
+  prove(challenge: Uint8Array): Buffer;
+}
+/** Best effort, bounded HTTPS; no token, private key or response body escapes. */
+export async function deregisterDeviceAtRelay(http: IdentityHttp, credential: RemovalCredential): Promise<boolean> {
+  if (!http.postJson) return false;
+  const url = relayRegistrationUrl(credential.relayHost, credential.deviceId).replace(/register$/, "deregister");
+  try {
+    const value = (await http.getJson(url)) as { challenge?: unknown };
+    if (!value || typeof value.challenge !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(value.challenge)) return false;
+    const challenge = Buffer.from(value.challenge, "base64url");
+    const proof = credential.prove(challenge).toString("base64url");
+    const result = await http.postJson(url, { challenge: value.challenge, proof });
+    return result.status === 204;
+  } catch (error) {
+    return error instanceof IdentityHttpError && error.status === 404;
+  }
 }

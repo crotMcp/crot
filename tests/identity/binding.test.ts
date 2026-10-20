@@ -126,6 +126,18 @@ describe("device binding", () => {
     await expect(binding.pair({ ...binding.paired! }, testEnvironment())).rejects.toThrow(/unpaired/);
   });
 
+  it("cleans a post-commit crash intent before a subsequent unpair and pairing", async () => {
+    const { binding, keys, deviceId } = await openBinding(dirs.outside);
+    const file = path.join(dirs.outside, DEVICE_BINDING_FILE_NAME);
+    const intent = JSON.stringify({ version: 1, deviceId, relayHost: testEnvironment().relayHost });
+    await writeFile(file + ".registration", intent);
+    const reopened = await DeviceBindingStore.open(file, privateFiles, keys);
+    expect(reopened.paired).toEqual(binding.paired);
+    await expect(readFile(file + ".registration")).rejects.toMatchObject({ code: "ENOENT" });
+    await reopened.unpair();
+    expect(await reopened.pendingRegistration()).toBeUndefined();
+  });
+
   it("the tunnel proof is bound to the device, the relay and the challenge", async () => {
     const { binding, deviceId } = await openBinding(dirs.outside);
     const env = testEnvironment();

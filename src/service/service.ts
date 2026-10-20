@@ -491,7 +491,7 @@ export class CrotService {
         });
         this.tunnel = tunnel;
         control.tunnelView = () => tunnel.view();
-        control.onRemoteChange = () => void tunnel.sync();
+        control.onRemoteChange = () => tunnel.sync();
         await tunnel.sync();
         tunnel.watch();
       }

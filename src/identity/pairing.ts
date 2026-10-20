@@ -57,6 +57,7 @@ export type PairingOutcome =
  */
 export type PairingRegistration = (
   accessToken: string,
+  accountId: string,
 ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly detail: string }>;
 
 export interface PairingFlowOptions {
@@ -190,7 +191,7 @@ export async function startPairing(options: PairingFlowOptions): Promise<Pairing
     if (options.register) {
       let registered: Awaited<ReturnType<PairingRegistration>>;
       try {
-        registered = await options.register(body.access_token);
+        registered = await options.register(body.access_token, checked.token.subject);
       } catch {
         registered = { ok: false, detail: "registration failed" };
       }

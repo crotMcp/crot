@@ -4,8 +4,8 @@
  * A record binds a device id to the account that paired it and the device's
  * public tunnel key (`DevicePublicKey`, WP-28). A device id registers once:
  * the same account and key again is an idempotent repeat, anything else is a
- * conflict. Nothing secret is stored (no token, no private key). Removal
- * after unpair is AD-22 open question 3 and not implemented.
+ * conflict. Nothing secret is stored (no token, no private key). Fresh
+ * device-key proof permits conditional removal of the exact registered record.
  */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -27,6 +27,7 @@ export interface DeviceRegistry {
   get(deviceId: string): Promise<DeviceRecord | undefined>;
   register(record: DeviceRecord): Promise<RegisterResult>;
   count(): Promise<number>;
+  remove(expected: DeviceRecord): Promise<boolean>;
 }
 
 /** Whether `value` is an Ed25519 public JWK with exactly the members of `DevicePublicKey`. */
@@ -61,6 +62,12 @@ export class MemoryDeviceRegistry implements DeviceRegistry {
     if (decided) return decided;
     this.records.set(record.deviceId, record);
     return "created";
+  }
+
+  async remove(expected: DeviceRecord): Promise<boolean> {
+    if (this.records.get(expected.deviceId) !== expected) return false;
+    this.records.delete(expected.deviceId);
+    return true;
   }
 
   async count(): Promise<number> {
@@ -116,6 +123,21 @@ export class FileDeviceRegistry extends MemoryDeviceRegistry {
         }
       }
       return result;
+    });
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  override async remove(expected: DeviceRecord): Promise<boolean> {
+    const run = this.queue.then(async () => {
+      if (!(await super.remove(expected))) return false;
+      try {
+        await this.persist();
+      } catch (error) {
+        this.records.set(expected.deviceId, expected);
+        throw error;
+      }
+      return true;
     });
     this.queue = run.catch(() => undefined);
     return run;

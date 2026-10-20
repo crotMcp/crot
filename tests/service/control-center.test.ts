@@ -17,6 +17,7 @@ import { RemoteClientRegistry, REMOTE_CLIENTS_FILE_NAME } from "../../src/servic
 import { createTestCore, isWindows, makeTempDirs, waitFor, type TempDirs } from "../helpers.js";
 import type { DeviceBindingStore } from "../../src/service/device-binding.js";
 import { DeviceIdentity } from "../../src/service/identity.js";
+import { TunnelControlCenter } from "../../src/service/remote-tunnel.js";
 import { openBinding } from "../identity/helpers.js";
 
 /**
@@ -122,7 +123,9 @@ async function build(
   return { core, handle: handle! };
 }
 
-async function setup(options: { configured?: UntrustedContentSetting; rules?: unknown[] } = {}): Promise<void> {
+async function setup(
+  options: { configured?: UntrustedContentSetting; rules?: unknown[]; tunnel?: boolean } = {},
+): Promise<void> {
   configured = options.configured ?? "require-approval";
   rules = options.rules ?? [];
   settings = await DeviceSettingsStore.open(path.join(dirs.outside, SERVICE_SETTINGS_FILE_NAME), privateFiles);
@@ -136,7 +139,8 @@ async function setup(options: { configured?: UntrustedContentSetting; rules?: un
     ControlCenter.remoteProfile(settings, binding),
   );
   holder = new CoreHolder(initial.core, initial.handle);
-  center = new ControlCenter({
+  const Center = options.tunnel ? TunnelControlCenter : ControlCenter;
+  center = new Center({
     holder,
     settings,
     clients,
@@ -630,5 +634,39 @@ describe("tray provider (AD-19 point 3)", () => {
     expect(overview.confinement).toMatchObject({ mechanism: "none", available: false, reason: "not_implemented" });
     expect(overview.cdp).toEqual({ available: false, reason: "not_probed" });
     expect(overview.browser).toMatchObject({ state: "connected", name: "Chrome", version: "130.0.0.0" });
+  });
+});
+
+describe("WP-29 local unpair and background deregistration ordering", () => {
+  it("returns local revocation without network wait; teardown finishes before signed cleanup starts", async () => {
+    await setup({ tunnel: true });
+    const events: string[] = [];
+    let releaseTeardown!: () => void;
+    let releaseNetwork!: () => void;
+    const teardown = new Promise<void>((r) => {
+      releaseTeardown = r;
+    });
+    const network = new Promise<void>((r) => {
+      releaseNetwork = r;
+    });
+    (center as TunnelControlCenter).onRemoteChange = async () => {
+      expect(binding.view()).toEqual({ state: "unpaired" });
+      events.push("teardown");
+      await teardown;
+      events.push("goaway-finished");
+    };
+    vi.spyOn(DeviceIdentity.prototype, "prepareDeregistration").mockReturnValue(async () => {
+      events.push("deregister");
+      await network;
+    });
+    expect(await ask(new Conn(), { method: "device.unpair" })).toMatchObject({ ok: true, keyRemoved: true });
+    expect(events).toEqual(["teardown"]);
+    expect(binding.tunnelCredential(undefined)).toMatchObject({ ok: false });
+    releaseTeardown();
+    await waitFor(() => events.includes("deregister"));
+    expect(events).toEqual(["teardown", "goaway-finished", "deregister"]);
+    // Even an unavailable/never-finishing relay does not occupy the control queue.
+    expect(await ask(new Conn(), { method: "device.unpair" })).toMatchObject({ ok: true, unchanged: true });
+    releaseNetwork();
   });
 });

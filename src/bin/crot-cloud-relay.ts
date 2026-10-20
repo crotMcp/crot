@@ -23,6 +23,7 @@ async function main(): Promise<void> {
   const log = jsonLineLogger();
   const keys = new IssuerKeySet({ issuer: config.issuer, http: createIdentityHttp() });
   const relay = new CloudRelay({
+    limits: config.limits,
     relayHost: config.relayHost,
     issuer: config.issuer,
     pairingClientId: config.pairingClientId,

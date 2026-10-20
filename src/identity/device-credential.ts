@@ -10,7 +10,9 @@
  *
  * The credential proves to the relay which device holds the tunnel; it never
  * authenticates an MCP request (every request carries its own client token).
- * It signs only domain-separated tunnel challenges, so it cannot be used as
+ * It signs only domain-separated tunnel and deregistration challenges, never
+ * arbitrary messages. The removal domain is `crot-device-deregister-v1`;
+ * the two proof types are not interchangeable. It cannot be used as
  * a general signing oracle: the signed message is
  * `crot-device-tunnel-v1 \0 <deviceId> \0 <relayHost> \0 <challenge>`.
  * The relay protocol that sends the challenge is WP-29/WP-30.
@@ -75,6 +77,33 @@ export function verifyTunnelProof(
   try {
     const key = createPublicKey({ key: { ...publicKey }, format: "jwk" });
     return verify(null, tunnelProofMessage(deviceId, relayHost, challenge), key, proof);
+  } catch {
+    return false;
+  }
+}
+
+/** Removal proofs cannot be replayed as tunnel authentication (or vice versa). */
+function removalMessage(deviceId: string, relayHost: string, challenge: Uint8Array): Buffer {
+  if (challenge.byteLength !== 32) throw new Error("invalid removal challenge");
+  return Buffer.concat([Buffer.from(`crot-device-deregister-v1\0${deviceId}\0${relayHost}\0`), Buffer.from(challenge)]);
+}
+export function signDeregistrationProof(key: KeyObject, deviceId: string, host: string, challenge: Uint8Array): Buffer {
+  return sign(null, removalMessage(deviceId, host, challenge), key);
+}
+export function verifyDeregistrationProof(
+  key: DevicePublicKey,
+  deviceId: string,
+  host: string,
+  challenge: Uint8Array,
+  proof: Uint8Array,
+): boolean {
+  try {
+    return verify(
+      null,
+      removalMessage(deviceId, host, challenge),
+      createPublicKey({ key: { ...key }, format: "jwk" }),
+      proof,
+    );
   } catch {
     return false;
   }
