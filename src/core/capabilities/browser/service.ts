@@ -1,3 +1,6 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { TabQueue } from "./tab-queue.js";
+import type { ExposureScope } from "../../auth/principal.js";
 import { z as fileZ } from "zod";
 import { BROWSER_FILE_BYTES_MAX, type BrowserFiles } from "./files.js";
 import type { ResolvedPath } from "../../workspace/workspace.js";
@@ -156,7 +159,23 @@ export interface BrowserServiceDeps {
 export class BrowserService {
   private readonly timeoutMs: number;
   private readonly pending = new Set<AbortController>();
-  private readonly inFlight = new Map<number | "active", number>();
+  private readonly queues = new TabQueue();
+  private readonly executing = new AsyncLocalStorage<{ tabId: number; connectionId: string }>();
+  private ownershipConnection: string | undefined;
+  private readonly owners = new Map<number, ExposureScope | string>();
+  private readonly defaultScope: ExposureScope = Object.freeze({ id: "embedded" });
+
+  private scope(context: AuthContext): ExposureScope | string {
+    const scope = context.exposureScope ?? context.session ?? this.defaultScope;
+    return scope.remoteKey ?? scope;
+  }
+  private ownership(): void {
+    const id = this.connectionId();
+    if (id !== this.ownershipConnection) {
+      this.owners.clear();
+      this.ownershipConnection = id;
+    }
+  }
   /** Role, name and frame of the refs of the last snapshots (AD-16 points 10, 16). */
   private readonly refs = new RefDescriptions();
   private readonly uploadConnections = new Map<string, string>();
@@ -207,7 +226,21 @@ export class BrowserService {
       NO_TARGET("List the open browser tabs"),
       async () => {
         const raw = await this.send("tabs.list", {});
-        return validate(BrowserTabsListResultSchema, raw, "tabs.list");
+        const result = validate(BrowserTabsListResultSchema, raw, "tabs.list");
+        this.ownership();
+        const live = new Set(result.tabs.map((t) => t.tabId));
+        for (const id of this.owners.keys()) if (!live.has(id)) this.owners.delete(id);
+        const scope = this.scope(context);
+        return {
+          tabs: result.tabs.map((t) => ({
+            ...t,
+            openedBy: this.owners.has(t.tabId)
+              ? this.owners.get(t.tabId) === scope
+                ? ("this-context" as const)
+                : ("crot" as const)
+              : ("other" as const),
+          })),
+        };
       },
     );
   }
@@ -474,8 +507,10 @@ export class BrowserService {
     context: AuthContext,
     input: BrowserFileUploadInput,
   ): Promise<{ tabId: number; files: { name: string; size: number }[] }> {
-    const args = parseInput(BrowserFileUploadInputSchema, input),
-      store = this.fileStore();
+    const args = parseInput(BrowserFileUploadInputSchema, input);
+    if (context.principal.kind === "remote" && args.tabId === undefined)
+      throw new CrotError("INVALID_INPUT", "Remote browser commands require an explicit tabId.");
+    const store = this.fileStore();
     const paths = await Promise.all(args.paths.map((p) => store.workspace.resolve(p)));
     let chooser: { nonce: string; frameOrigin: string } | undefined;
     const bindChooser = async (subject: ApprovalBrowserSubject): Promise<readonly ApprovalEffect[]> => {
@@ -563,8 +598,10 @@ export class BrowserService {
     );
   }
   async download(context: AuthContext, input: BrowserDownloadInput): Promise<{ size: number; mimeType: string }> {
-    const args = parseInput(BrowserDownloadInputSchema, input),
-      store = this.fileStore();
+    const args = parseInput(BrowserDownloadInputSchema, input);
+    if (context.principal.kind === "remote" && args.tabId === undefined)
+      throw new CrotError("INVALID_INPUT", "Remote browser commands require an explicit tabId.");
+    const store = this.fileStore();
     const destination = await store.workspace.resolve(args.savePath);
     const details: Record<string, unknown> = {
       tabId: tabRef(args.tabId),
@@ -866,29 +903,16 @@ export class BrowserService {
     return Math.max(this.timeoutMs, (timeoutMs ?? BROWSER_WAIT_DEFAULT_MS) + BROWSER_WAIT_MARGIN_MS);
   }
 
-  /**
-   * Bound the commands in flight for one tab (the extension runs them one at a
-   * time, in order). Beyond BROWSER_TAB_QUEUE_MAX Core refuses with RESOURCE_BUSY.
-   */
-  private async perTab<T>(tabId: number | undefined, run: () => Promise<T>): Promise<T> {
-    const key = tabId ?? "active";
-    const count = this.inFlight.get(key) ?? 0;
-    if (count >= BROWSER_TAB_QUEUE_MAX)
-      throw new CrotError("RESOURCE_BUSY", "Too many browser commands are queued for this tab.");
-    this.inFlight.set(key, count + 1);
-    try {
-      return await run();
-    } finally {
-      const left = (this.inFlight.get(key) ?? 1) - 1;
-      if (left === 0) this.inFlight.delete(key);
-      else this.inFlight.set(key, left);
-    }
+  // The operation-level queue in run() includes staging, result validation and settle.
+  private async perTab<T>(_tabId: number | undefined, run: () => Promise<T>): Promise<T> {
+    return run();
   }
 
   /** Refuse new browser operations and cancel the ones waiting for the browser. Idempotent. */
   shutdown(): void {
     this.unsubscribe?.();
     this.closed = true;
+    this.queues.clear();
     for (const controller of this.pending) controller.abort();
     this.pending.clear();
   }
@@ -910,6 +934,8 @@ export class BrowserService {
   ): Promise<T> {
     let bound: ApprovalBrowserSubject | undefined;
     const target = approval.target;
+    if (context.principal.kind === "remote" && target && "tabId" in target && target.tabId === undefined)
+      throw new CrotError("INVALID_INPUT", "Remote browser commands require an explicit tabId.");
     const bind =
       target === undefined
         ? undefined
@@ -940,7 +966,73 @@ export class BrowserService {
       },
       async () => {
         try {
-          return await execute(bound);
+          const connectionId = bound?.connectionId ?? this.connectionId();
+          this.ownership();
+          const complete = async (): Promise<T> => {
+            const result = await execute(bound);
+            if (connectionId !== this.connectionId()) return result;
+            const record = result as Record<string, unknown>;
+            if (operation === "browser.tab_open" && typeof record.tabId === "number")
+              this.owners.set(record.tabId, this.scope(context));
+            if (operation === "browser.tab_close" && record.closed === true && typeof record.tabId === "number")
+              this.owners.delete(record.tabId);
+            if (Array.isArray(record.newTabs) && record.newTabs.length > 0 && target && "tabId" in target) {
+              const parent = this.executing.getStore()?.tabId;
+              const tabs = validate(
+                BrowserTabsListResultSchema,
+                await this.send("tabs.list", {}, undefined, connectionId),
+                "tabs.list",
+              );
+              for (const child of tabs.tabs)
+                if (record.newTabs.includes(child.tabId) && child.openerTabId === parent)
+                  this.owners.set(child.tabId, this.scope(context));
+            }
+            return result;
+          };
+          if (!target || !("tabId" in target)) return await complete();
+          const connection = bound ? this.boundConnection(bound) : this.requireConnection();
+          const state = connection.state();
+          if (state.kind !== "connected") throw new CrotError("BROWSER_NOT_CONNECTED", WAITING_DETAIL);
+          const id = bound?.connectionId ?? state.connectionId;
+          let tabId = bound?.tabId ?? target.tabId;
+          if (tabId === undefined) {
+            const resolved = validate(
+              BrowserTabActionResultSchema,
+              await this.send("tabs.resolve", {}, undefined, id),
+              "tabs.resolve",
+            );
+            tabId = resolved.tabId;
+          }
+          const concreteTab = tabId;
+          return await this.queues.run(
+            `${id}:${concreteTab}`,
+            async () => {
+              if (context.signal?.aborted)
+                throw new CrotError("OPERATION_FAILED", "Browser command cancelled before execution.");
+              if (bound) {
+                this.boundConnection(bound);
+                try {
+                  const current = validate(
+                    BrowserTabActionResultSchema,
+                    await this.send("tabs.resolve", { tabId: concreteTab }, undefined, id),
+                    "tabs.resolve",
+                  );
+                  if (current.tabId !== concreteTab || normalizedHttpOrigin(current.url) !== bound.origin)
+                    throw new ApprovalBindingError("The tab origin changed while the command was queued.");
+                } catch (error) {
+                  if (error instanceof ApprovalBindingError) throw error;
+                  throw new ApprovalBindingError("The approved tab is no longer available.");
+                }
+              } else if (this.connectionId() !== id) {
+                throw new CrotError(
+                  "BROWSER_NOT_CONNECTED",
+                  "The browser connection changed while the command was queued.",
+                );
+              }
+              return this.executing.run({ tabId: concreteTab, connectionId: id }, complete);
+            },
+            context.signal,
+          );
         } catch (e) {
           if (paths && !(e instanceof CrotError))
             throw new CrotError("OPERATION_FAILED", "Browser file transfer failed; private staging was not published.");
@@ -1051,6 +1143,11 @@ export class BrowserService {
     connectionId: string | undefined = bound?.connectionId,
     timeoutMs: number = this.timeoutMs,
   ): Promise<unknown> {
+    const active = this.executing.getStore();
+    if (active && command !== "tabs.list" && command !== "files.download_release") {
+      params = { ...params, tabId: active.tabId };
+      connectionId ??= active.connectionId;
+    }
     const connection = bound ? this.boundConnection(bound) : this.requireConnection();
     const controller = new AbortController();
     this.pending.add(controller);

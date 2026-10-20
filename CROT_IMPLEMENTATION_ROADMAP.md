@@ -27,7 +27,9 @@
 > `docs/acceptance/WP-24-manual-run-3.md`: 16 pass, 4 partial, 2 fail;
 > run-3 fixes merged in PR #25 (`32334aa`). Runs 4 and 5/follow-up recorded:
 > B4/E5/windows and G5/H passed; C1 partial. Default-load timeout signalling
-> merged in PR #26 (`289f500`); manual acceptance open.
+> merged in PR #26 (`289f500`). WP-24 engineering gate is now closed; see
+> `docs/acceptance/WP-24-final-engineering-gate.md`. WP-27 is implemented in
+> its separate PR; full branded-browser release qualification stays open.
 > Status claims below were checked against the repository tree, the source
 > files named, the CI workflows and the merged history, not taken from earlier
 > plans.
@@ -123,7 +125,9 @@ Non-negotiables used throughout this roadmap:
 
 **WP-23c — Done**, merge PR #27 `e23b7b9`; AD-30. Windows qualification,
 not whole-product acceptance: see docs/L1.md and the eight-criterion evidence.
-**WP-24 — implemented/merged, acceptance open** (including PR #26 `289f500`).
+**WP-24 — Done, engineering gate closed**, including PR #26 and recorded owner runs; see `docs/acceptance/WP-24-final-engineering-gate.md`.
+**WP-26 — Done, merged PR #32** (`386bf3b`), native Core file contour qualified on all three OS × Node 20/22.
+**WP-27 — Done in this PR**, not merged; evidence in `docs/design/browser-wp27.md`.
 
 **Earlier component state (not a completion claim for WP-29):**
 
@@ -131,7 +135,7 @@ not whole-product acceptance: see docs/L1.md and the eight-criterion evidence.
 (`515fcb9`); **Partial**, open items in `STATUS.md` and §6.1. The device
 side is **WP-30**, Done and merged (PR #20). WP-31 is Done and merged
 (PR #21, `9ce0574`). WP-24 (Browser v1 CDP backend) is implemented and merged
-(PR #22, `d273473`; run-1 fixes in PR #23, run-2 fixes in PR #24); its manual acceptance is still open. Before that:
+(PR #22, `d273473`; run-1 fixes in PR #23, run-2 fixes in PR #24); its engineering acceptance is closed by the criterion-level gate. Before that:
 
 **WP-28 — Identity and device binding** (§27 AD-21), merged in crot-mcp
 PR #16 (`4d574f0`); details in `STATUS.md` and `docs/IDENTITY.md`. The
@@ -222,7 +226,7 @@ mcp-crot PR #14 (`8169b1f`). Verified in the tree:
 | Approval-gate mechanism (broker, rules, subject digest, gated guard path, tab/origin/`connectionId` binding, expected-subject check) | `src/core/approvals`, bridge, extension; `docs/design/approval-gates.md` | AD-5…AD-11 |
 | Untrusted-content exposure and the `untrusted-content` rule | `src/core/approvals/exposure.ts` | AD-12 |
 | Remote request pipeline (sessionless + legacy, principal kinds, exposure scopes, persisted remote exposure) | see §2.1 | AD-15 |
-| Browser bridge, `crot-browser-relay`, MV3 extension, `browser install`; 19 browser tools, CDP/ref/trusted input (WP-24 code/tests; acceptance open) | `src/browser-bridge`, `extension/`, `src/cli/browser-install.ts` | §7 |
+| Browser bridge, `crot-browser-relay`, MV3 extension, `browser install`; 22 browser tools, CDP/ref/trusted input (WP-24 engineering accepted; WP-27 implemented) | `src/browser-bridge`, `extension/`, `src/cli/browser-install.ts` | §7 |
 | Real-browser E2E (Linux, Chrome for Testing, Xvfb) | `tests-e2e/browser`, `.github/workflows/browser-e2e.yml` | — |
 | Lint/format/typecheck/test gate `npm run check`; CI on Ubuntu, macOS, Windows × Node 20, 22, L1 on Ubuntu 22.04/24.04 x86_64/arm64, real Chromium | `.github/workflows/ci.yml`, `.github/workflows/l1.yml` | — |
 | Contracts: remote request contract, browser contract v1 | ARCHITECTURE.md §27 | AD-15, AD-16 |
@@ -231,7 +235,7 @@ mcp-crot PR #14 (`8169b1f`). Verified in the tree:
 
 | Area | What exists | Gap to v1 |
 | --- | --- | --- |
-| Browser | 19 tools; allowlisted chrome.debugger CDP, snapshot/document-bound refs, trusted input, frames/OOPIF, open shadow DOM, waits/history and local per-tab queue; WP-24 code/tests incl. PR #26 | Final manual WP-24 acceptance (timeout/C1/owner review); WP-25 dialogs/chooser/background screenshot/tab group; WP-26 files + OD-8; WP-27 remote tabId/openedBy/two-agent ordering |
+| Browser | 22 tools; allowlisted chrome.debugger CDP, snapshot/document-bound refs, trusted input, frames/OOPIF, open shadow DOM, waits/history and local per-tab queue; WP-24 code/tests incl. PR #26 | WP-25 headed/branded qualification and broader release matrix; WP-24/26 engineering accepted, WP-27 implemented in this PR |
 | User confirmations | Mechanism complete; product provider `tray` in the service, CROT tray on the control channel (WP-22, AD-19) | Same-user processes can act like the tray (AD-19 residual risk): closed for confined Linux WP-23a and qualified Windows WP-23c/AD-30 children; closed for admitted macOS children by AD-31; open in local `full_control` and for unrelated host processes; tray packaging/autostart (WP-34) |
 | Identity | Device side complete (WP-28, AD-21): OAuth verifier, device id and credential, pairing, unpair, re-grant; tested against an emulated AuthKit environment | No staging/production identity environment (WP-38, WP-39) and no live WorkOS environment exercised yet; provider-side revocation from the tray needs the CROT account service (WP-36); RFC 9207 open condition before G4 |
 | Relay entry point and device tunnel | HTTP pipeline accepts a `relay` entry point; Cloud Relay v1 with the relay side of the AD-22 tunnel, device registration, PRM, token/entitlement admission and outcomes (WP-29, [`docs/RELAY.md`](docs/RELAY.md)); device side complete with registration at pairing (WP-30 **Done**, merged in PR #20; [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)) | Not WP-30: no relay-side deregistration or key rotation and the orphaned-registration risk (AD-22 open question 3, WP-29); client timeouts of the OD-5 margin measured in WP-32; not deployed (WP-38, WP-39); single relay instance (AD-22 open question 8); entitlement hook stubbed (WP-36); no client rate/concurrency limits and no load test yet (open WP-29 items) |
@@ -244,7 +248,7 @@ mcp-crot PR #14 (`8169b1f`). Verified in the tree:
 
 ### 2.4 Missing or not accepted for v1 (do not confuse with merged code)
 
-remaining platform qualification beyond AD-30/31 evidence; final WP-24 manual acceptance and remaining browser WP-25/26/27
+remaining platform qualification beyond AD-30/31 evidence; WP-25 branded-browser manual qualification and remaining release gates
 (including OD-8); open WP-29 security/load/registration follow-ups;
 live staging/production identity and relay environments WP-38/39; real remote
 acceptance WP-32; independent security review WP-33; signed installers, updates,
@@ -378,7 +382,7 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | OD-5 | **Decided by ARCHITECTURE.md §27 AD-22 points 12–13:** §26 Q13: relay/tunnel timeouts for gated requests (approval up to 300 s) and bounded browser waits; behaviour towards clients with shorter timeouts. The device-side margin (a request ends 5 s before the exchange deadline) is recorded in AD-22 by commit `37b3126` (WP-30, PR #20); measured client timeouts are WP-32 | Remote multi-step tasks with approvals must not fail silently | WP-29, WP-30, WP-32 | Before WP-30 is merged — **met** |
 | OD-6 | Windows L1 | **Decided: AD-30**, AppContainer + Job + DACL, durable lease / LOCAL Docker | WP-34: упаковка/подпись | **Closed (WP-23c)** |
 | OD-7 | How a preset / remote-profile change is applied by the service (reload vs restart) | Policy immutability (AD-5, AD-10) vs usability | WP-22, WP-31 | **Decided by AD-19 point 5 (WP-22):** device state in `service-settings.json`; a new Core with the new policy, only while Core is idle; WP-31 adds the `autonomous-browser` rule set and the remote profile on the same mechanism |
-| OD-8 | Response-bound single-use ownership capability and controlled staging: AD-33; selected before implementation | Exact response capability, production staging and real approval E2E; Linux host qualification explicit | — | **Decided: AD-33; implemented in WP-26** |
+| OD-8 | Response-bound single-use ownership capability and controlled staging: AD-33; selected before implementation | Exact response capability, production staging and real approval E2E; native Linux/macOS/Windows Core file-contour qualification explicit | — | **Decided: AD-33; implemented in WP-26** |
 | OD-9 | Матрица v1 | Windows **Closed: AD-30**, Server2025 x64 Node20/22; неквалифицированные конфигурации unavailable. Linux AD-20; macOS **Closed: AD-31** (target matrix separate from CI coverage); browser **Closed: AD-32**, Chrome/Edge/Brave Chromium ≥120 (manual qualification tracked separately) | WP-23b, WP-34, WP-37 | Windows/macOS/browser decisions closed; qualification limits retained |
 | OD-10 | Store extension IDs vs native-host `allowed_origins` (Chrome Web Store and Edge Add-ons may assign different IDs; current manifest pins `bllcepanlhojbddfbbpegmnokpaakool`) and custody of the extension signing key | The native host must allow exactly the published extensions and nothing else | WP-34, WP-35 | When store items are created (WP-35 start) |
 | OD-11 | Version-compatibility policy across extension (store auto-updates), local service, tray and relay/tunnel protocol; minimum supported versions; whether the relay may refuse outdated devices | Independent update channels can break the chain; refusing devices at the relay is admission, which must stay distinct from authorization (AD-15 p.10) | WP-29, WP-34, WP-39 | Before WP-34 — AD if the relay gains an admission rule |
@@ -453,10 +457,10 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-23a | 2 | L1 Linux | WP-21, AD-20 (OD-9 Linux part and OD-14 decided) | M | yes | with 23b/c | **Done** (AD-20; PR #6, `e1d1f61`) |
 | WP-23b | 2 | L1 macOS | WP-21, OD-9 | M | yes | with 23a/c | **Done** — AD-31; production Seatbelt, Keychain boundary, guardian, Docker; native Node20/22 evidence and limits in macOS report |
 | WP-23c | 2 | L1 Windows: AppContainer + Job | WP-21, OD-9 | L | yes | with 23a/b | **Done** — AD-30; production Core, whole-lease recovery, LOCAL Docker; все 8 критериев, CI 11/11 |
-| WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | **Merged** (PR #22–#25): implemented incl. out-of-process frames and element/frame-origin approval subjects; manual runs 1–5/follow-up recorded; B4/E5/windows and G5/H passed by owner; default-load timeout signalling merged in PR #26 (`289f500`); C1 partial, final acceptance open |
-| WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 (acceptance open) | M | yes | with 26, 27 | Implemented; automated qualification in docs/design/browser-wp25.md; headed/manual matrix acceptance open |
-| WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | **Done in PR #32**, not merged; Linux file-transfer host scope (AD-33) |
-| WP-27 | 2B | Browser: per-tab queue, explicit `tabId` for remote, `openedBy` | WP-24 | S–M | yes | with 25, 26 | Not started |
+| WP-24 | 2B | Browser: CDP backend, snapshot/refs, trusted input, frames, shadow DOM, waits, history | WP-18 | L | yes | now | **Merged** (PR #22–#25): implemented incl. out-of-process frames and element/frame-origin approval subjects; manual runs 1–5/follow-up recorded; B4/E5/windows and G5/H passed by owner; default-load timeout signalling merged in PR #26 (`289f500`); C1 demo mismatch retained as a limitation; **Done**, final engineering gate recorded |
+| WP-25 | 2B | Browser: dialogs, file chooser, background screenshots, debugger lifecycle, tab group | WP-24 (engineering gate closed) | M | yes | with 26, 27 | Implemented; automated qualification in docs/design/browser-wp25.md; headed/manual matrix acceptance open |
+| WP-26 | 2B | Browser: upload and download | WP-24, OD-8 | M | yes | with 25, 27 | **Done, merged PR #32**; native Linux/macOS/Windows Core file contour (AD-33) |
+| WP-27 | 2B | Browser: per-tab queue, explicit `tabId` for remote, `openedBy` | WP-24 | S–M | yes | with 25, 26 | **Done in this PR**; FIFO/remote/ownership unit and real Chromium E2E |
 | WP-28 | 3 | Identity and device binding | WP-17, OD-2 (decided: AD-21); WP-21 (device key storage) and WP-22 (pairing UI) for final steps | L | yes | starts now | **Done** (AD-21; crot-mcp PR #16, `4d574f0`) |
 | WP-29 | 3 | Cloud Relay v1 | WP-28 (verifier facts), OD-3 (decided: AD-21), OD-4 (decided: AD-22) | XL | yes | with phase 1/2/2B | **Partial** (crot-mcp PR #19, AD-22 as its first commit): relay side done; open — client rate/concurrency limits, per-source connection/handshake limits, registration rate limit, load test (before WP-38), device deregistration and key rotation with the orphaned-registration case (AD-22 open question 3) |
 | WP-30 | 3 | Device tunnel adapter | WP-20, WP-28, WP-29, OD-5 (decided: AD-22) | M–L | yes | — | **Done** (PR #20, merged): outbound `crot-tunnel.v1` with the WP-28 device credential, pinned relay host, refusals and reconnect; streams enter the unchanged relay entry point (tokens, ExecutionGuard, PermissionEngine, approvals, audit); multiplexing, streaming, cancellation, deadlines, loss without replay; registration at pairing (AD-22 point 4); OD-5 recorded in AD-22 points 12–13 (`37b3126`) and the §2.4/§19/§22/§25 status markers updated (`01f4a20`). Not WP-30: relay-side deregistration / key rotation and the orphaned registration (AD-22 open question 3, WP-29); measured client timeouts (WP-32) |
@@ -776,12 +780,14 @@ today's behaviour.
   B4/E5/windows and G5/H passed; C1 partial. Local Chromium reproduces
   missing default-load loadTimedOut before commit; fixed in
   PR #26 (`289f500`, already on main) without weakening page restrictions.
-  Manual confirmation and final owner acceptance remain open.
+  **Done:** criterion-level engineering gate closed in
+  `docs/acceptance/WP-24-final-engineering-gate.md`. No additional mandatory
+  owner-only criterion exists in this card; historical observations are preserved.
 - **RB:** yes. **Parallel:** now, with phase 1 and 3.
 
 #### WP-25 — Dialogs, file chooser, background screenshots, debugger lifecycle, CROT tab group
 
-- **Dependencies:** WP-24 (implementation merged; final acceptance open). **Scope:** AD-16 points 3 (lifecycle, availability
+- **Dependencies:** WP-24 (Done). **Scope:** AD-16 points 3 (lifecycle, availability
   in `browser_status`), 4 (tab group), 9, 13; `browser_dialog_handle`,
   `BROWSER_DIALOG_OPEN`; `tabGroups` permission.
 - **Acceptance / tests:** E2E for `alert`, `confirm`, `prompt`,
@@ -808,9 +814,9 @@ through the existing six `ci.yml` jobs (`npm test`, no OS skips for the browser
 file integration tests). Linux uses descriptor-relative publication, macOS
 uses native *at syscalls, Windows uses pinned non-reparse handles, owner-only
 DACL/MIC and handle-relative atomic rename. Real Chromium E2E remains Linux;
-this does not close WP-24 owner acceptance or the full branded-browser/OS release matrix.
+the separate WP-24 gate is now closed by recorded evidence; the full branded-browser/OS release matrix remains open.
 
-- **Dependencies:** WP-24 (final acceptance open); OD-8 (**Decided: AD-33**). **Scope:** AD-16 points 11, 12;
+- **Dependencies:** WP-24 (Done); OD-8 (**Decided: AD-33**). **Scope:** AD-16 points 11, 12;
   `browser_file_upload` (`browser.control` + `filesystem.read`),
   `browser_download` (`browser.control` + `filesystem.write`); `downloads`
   permission.
@@ -825,12 +831,15 @@ this does not close WP-24 owner acceptance or the full branded-browser/OS releas
 
 #### WP-27 — Multi-agent safety
 
-- **Dependencies:** WP-24 (final acceptance open; WP-19 done). **Scope:** AD-16 points 4, 8, 14:
+- **Dependencies:** WP-24 (Done; WP-19 Done). **Scope:** AD-16 points 4, 8, 14:
   bounded per-tab FIFO after the approval gate (`RESOURCE_BUSY`), mirrored in
   the extension; `tabId` required for `kind: "remote"`; `openedBy`.
 - **Acceptance / tests:** two concurrent agents on separate and shared tabs do
   not interfere (E2E); `INVALID_INPUT` for a remote principal without
   `tabId`; binding checked at queue front.
+- **Status: Done in this PR**, not merged. Production Core/extension FIFO,
+  remote validation and scope-relative ownership are implemented; qualification
+  and limits: `docs/design/browser-wp27.md`.
 - **RB:** yes. **Parallel:** with WP-25, WP-26.
 
 ### 6.6 Phase 3 — Remote access
@@ -1187,9 +1196,9 @@ WP-23b implementation is Done under AD-31; wider target-matrix evidence and othe
 are Done/merged, **WP-29 remains Partial** despite merge. The executable next
 step is its follow-up, then qualified WP-38 staging. WP-32 → WP-33 → WP-40
 is the downstream path, not a claim these tasks are unblocked now.
-WP-24 implementation (including PR #26) is merged but manual acceptance is
-open; WP-25 qualification and WP-27 must be dealt with before browser prerequisites
-for WP-32 can be marked Done. The browser/publication branch is:
+WP-24 engineering acceptance is closed; WP-26 is merged and WP-27 is
+implemented in this PR. WP-25 branded-browser qualification and the other
+WP-32 dependencies remain separate; green component CI is not a full release. The browser/publication branch is:
 
 ```text
 C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-34 (L, RC build) ─► WP-33
@@ -1200,7 +1209,7 @@ C: WP-24 (L) ─► WP-25 (M) / WP-26 (M) ─► WP-35 (M, store IDs) ─► WP-
 | Class | WPs |
 | --- | --- |
 | Sequential on critical path | Done: WP-20…22, WP-28/30/31. Remaining: WP-29 follow-up → WP-38 → WP-32 → WP-33 → WP-40 (browser prerequisites required too) |
-| Parallelizable now | WP-24 acceptance; macOS wider platform qualification (AD-31); WP-38/35 preparation, WP-37 drafting, WP-19b. WP-23c Done |
+| Parallelizable now | WP-25 branded-browser qualification; macOS wider platform qualification (AD-31); WP-38/35 preparation, WP-37 drafting, WP-19b. WP-23c Done |
 | Parallel after prerequisites | WP-25 ∥ WP-26 ∥ WP-27 after accepted WP-24 (WP-26 also OD-8); WP-38 public staging after WP-29 blockers; WP-34/36/39/33 only with their stated prerequisites |
 | Release blockers | every WP except WP-19b |
 | Optional / non-blocking | WP-19b; §26 Q12 transport matcher; §26 Q14 tab-scope matcher |
@@ -1227,16 +1236,16 @@ HEAD `main`. WP-23b принят куратором и слит по AD-31; AD-3
 По существующему правилу roadmap §8.4 сначала выбирается незавершённая,
 разблокированная задача цепочки B: **WP-29 follow-up**, а не WP-32 напрямую.
 Это устраняет уже известные блокеры публичного staging. Параллельный ближайший
-браузерный шаг — завершить **приёмку WP-24**, прежде чем засчитывать зависимости
-WP-25/26/27. Это приоритизация существующих задач, не новое архитектурное решение
+браузерный gate WP-24 закрыт по матрице доказательств; WP-27 выполнен в этой ветке.
+Матрица branded/browser UX WP-25 и остальные release-gates остаются отдельными. Это приоритизация существующих задач, не новое архитектурное решение
 и не перенос их критериев. WP-23b реализован по AD-31; это не закрывает остальные условия G4.
 
 | Задача | Реальные зависимости | Текущее состояние / открытые блокеры |
 | --- | --- | --- |
 | **WP-29 follow-up — следующий исполнительный WP** | WP-28 и OD-3/4/5 решены; relay и WP-30 уже в main | WP-29 Partial: per-client/device rate/concurrency, per-source connections/handshakes, registration rate, deregistration/key rotation/orphan registration, load/backpressure. До публичного WP-38 — выполнить либо явно переназначить допустимые пункты в WP-39; этим docs PR ничего не переназначается |
-| **WP-24 — ближайшая незакрытая браузерная приёмка, параллельно** | WP-18 решён; PR #22–#26 уже в main | Код и автоматические тесты есть; PR #26 (`289f500`) исправляет default-load timeout. Ручная проверка сигнала, C1 partial/unreproduced и итоговая приёмка владельца открыты; G5/H и B4/E5/windows не обнуляются |
-| WP-25 / WP-27 | Завершённая база WP-24; WP-27 также WP-19 (Done) | Разработка может опираться на слитый код, но зависимость приёмки WP-24 не считается закрытой. WP-25: код и автоматическая квалификация — docs/design/browser-wp25.md; ручная headed/branded-матрица остаётся открытой. WP-27: remote tabId/openedBy/two-agent ordering ещё не выполнены |
-| WP-26 | WP-24 и **OD-8** | **Done in PR #32**: AD-33 / OD-8 decided; production upload/download и реальные AD-23.8 gates проверяются E2E; Linux host scope, остальные платформы fail closed |
+| WP-24 | WP-18; PR #22–#26 | **Done**, инженерная приёмка по docs/acceptance/WP-24-final-engineering-gate.md; ручные отчёты сохранены |
+| WP-25 / WP-27 | WP-24 Done; WP-19 Done | WP-27 **Done в этой ветке**, unit/Chromium E2E; WP-25 headed/branded qualification остаётся открытой |
+| WP-26 | WP-24 и OD-8 | **Done**, merged PR #32; AD-33, native Linux/macOS/Windows Core file contour и реальные AD-23.8 E2E |
 | WP-23b | WP-21 Done; платформенное решение OD-9 принято AD-29 | Done: Seatbelt/Keychain, AD-31 и зафиксированная Node20/22 CI-квалификация; более широкая матрица не объявляется проверенной |
 | WP-38 | WP-28, завершение/явное согласование открытого WP-29; WP-36 hook может быть stub по карточке | Подготовку TLS/IdP/deployment можно вести; публичный staging блокируют перечисленные WP-29 задачи. Live WorkOS, pin identity environment, payload-free logs, external OAuth/tool run ещё не подтверждены; RFC 9207 — условие G4 или отдельный принятый AD |
 | WP-32 | **WP-24…WP-27, WP-30, WP-31, WP-38** | WP-30/31 Done, но browser acceptance и staging открыты. Нужны автоматический сквозной набор, ≥4 реальных remote клиентов × версии, macOS/Windows прогоны и измерение client timeouts; локальные тесты не подменяют staging |

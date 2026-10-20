@@ -436,8 +436,21 @@ through a fixed, extension-built command surface (AD-16 point 3):
   `about:blank`) it gets a new `frameRef` and the old one is stale. Take the
   snapshot after the frame has loaded (`browser_wait` with a `ref` of an
   element in it, or for `loadState`).
-- **Per-tab queue.** Commands on one tab run one at a time in order, at most
-  16 queued (then `RESOURCE_BUSY`), in the extension and in Core.
+- **Per-tab FIFO (WP-27).** All tab-targeted commands, including reads and
+  settle, run one at a time by `(connectionId, tabId)` in Core and extension:
+  one running plus 16 waiting, then immediate `RESOURCE_BUSY`. Approval waits
+  do not hold a slot. A queued cancellation frees its slot without acting.
+  Approved tab/origin/connection are checked at queue head. Other tabs and
+  status/list/open run concurrently. Physical input's short visibility/dispatch
+  critical section does not hold a tab's settle or wait phase.
+- **Remote targeting.** Remote principals must supply `tabId` for every tab
+  operation; omission is `INVALID_INPUT` before authorization or bridge access.
+  Local defaults remain, pinned to a concrete tab for queueing; refs always
+  require `tabId`.
+- **Agent context.** `browser_tabs_list.openedBy` is `this-context`, `crot` or
+  `other`, relative to the caller's exposure scope. Direct opens and verified
+  opener children are attributed; closure/reconnection clears ownership.
+  This field is informational, never permission or exclusive ownership.
 - `browser_tabs_list` reports `openerTabId`; a click that opens a pop-up
   reports it in `newTabs`.
 
@@ -640,8 +653,7 @@ CROT again.
 - Browser v1 is implemented in part (WP-24: CDP backend, snapshot and refs,
   trusted input, frames including out-of-process frames, open shadow roots,
   waits, history), plus WP-25 dialogs, chooser interception, background/ref/
-  full-page screenshots, debugger status and CROT groups. WP-26 adds file upload/download with `downloads` permission (Linux transfer host). Not yet: explicit remote `tabId` and
-  `openedBy` (WP-27). `tabGroups` is now requested. Arbitrary JavaScript and OS-level input stay excluded.
+  full-page screenshots, debugger status and CROT groups. WP-26 adds file upload/download with `downloads` permission (native Linux/macOS/Windows Core file contour). WP-27 adds explicit remote `tabId`, per-tab FIFO and `openedBy`. `tabGroups` is now requested. Arbitrary JavaScript and OS-level input stay excluded.
 - Elements in closed shadow roots may appear (the snapshot follows the
   accessibility tree) but are not guaranteed. A frame-limited snapshot of an
   out-of-process frame and `browser_wait` text conditions cover that frame's
@@ -656,8 +668,9 @@ CROT again.
   close-during-wait and native windows; CodePen back remains partial.
   [Run 5 / follow-up](acceptance/WP-24-manual-run-5.md) reports audit and
   approvals passed, including no-UI fail closed. Default-load timeout
-  signalling is fixed here; manual confirmation, C1 and final review
-  keep acceptance open.
+  signalling has a real delayed-commit regression; the
+  [final engineering gate](acceptance/WP-24-final-engineering-gate.md) closes
+  mandatory WP-24 criteria, preserving the historical C1 demo limitation.
 - The "… started debugging this browser" notice is Chrome's own and is shown
   in **every** window of the browser, including windows of other Chrome
   profiles where the extension is not installed: the browser shows it for the
@@ -667,7 +680,8 @@ CROT again.
   connection ends, or after 5 minutes without commands on a tab.
 - Input needs a visible page: CROT activates the tab (and restores or, last,
   focuses its window) for page input commands, which the user sees. Dialog handling, screenshots and grouping do not activate tabs. Two
-  agents driving different tabs of one window take turns.
+  agents share only the physical input delivery critical section; their
+  tab operations and settle/wait phases are independent.
 - Native `<select>` on macOS: selection uses keys on the focused select;
   where the platform opens the pop-up instead, the command fails (the
   post-condition) rather than reporting a selection. Not verified on macOS.
@@ -689,7 +703,8 @@ and pending chooser state; no OS accessibility automation is claimed.
 
 Remaining manual qualification: headed debugger infobar / user-cancel UX in
 Chrome, Edge and Brave on Linux, macOS and Windows; actual enterprise policies;
-minimum-version / HiDPI / occluded-window variants; WP-24 final owner acceptance.
+minimum-version / HiDPI / occluded-window variants. WP-24 engineering
+acceptance is closed by its separate criterion-level evidence record.
 None is reported as passed merely because CI is green. Store acceptance and
 signed distribution remain WP-35 / WP-34. See
 [`design/browser-wp25.md`](design/browser-wp25.md) for the evidence map.

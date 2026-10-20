@@ -5,7 +5,23 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
-## WP-26 — Upload/download: Done в PR #32, не слит
+## WP-27 — Done в этой ветке, не слит
+
+Обязательный explicit `tabId` для remote проверяется до authorize/bridge.
+Core и расширение исполняют повкладочный FIFO по `(connectionId, tabId)`:
+одна операция и 16 ожидающих, `RESOURCE_BUSY`, отмена без действия,
+полная фаза settle. Approval wait не держит очередь; привязка origin/tab/
+connection проверяется в голове. `openedBy` основан на exposureScope,
+включая подтверждённые opener-попапы; поле не даёт прав.
+Матрица тестов и ограничения: [WP-27](docs/design/browser-wp27.md).
+
+Предварительный **gate WP-24 закрыт** по проверяемым критериям, без
+выдуманного owner sign-off: [доказательства](docs/acceptance/WP-24-final-engineering-gate.md).
+Демо C1 не возвращает форму собственной ссылкой Back; зависание не повторилось
+в шести реальных submit-циклах. Timeout-сигнал подтверждён строгим E2E.
+Полная branded/browser UX матрица WP-25 и продуктовые release-gates открыты.
+
+## WP-26 — Upload/download: Done, PR #32 слит (`386bf3b`)
 
 Production-инструменты `browser_file_upload` и `browser_download` подключены
 через MCP, Core, ExecutionGuard, native bridge и расширение. OD-8 **Decided**,
@@ -23,7 +39,8 @@ delete sharing, запрет reparse/hardlinks и handle-relative atomic rename)
 подмена Linux Chromium E2E заявлением о полной branded-browser/OS матрице.
 Для скачивания `browser.downloadsDirectory` должен совпадать с каталогом профиля.
 Опасная классификация проверяется fault injection, не настоящим malware scanning.
-WP-24 owner acceptance, WP-27 и полная browser/OS/release-матрица не закрыты.
+WP-24 engineering gate закрыт; WP-27 выполнен в этой ветке. Полная
+browser/OS/release-матрица этим не закрывается.
 CI проверяется на HEAD PR; package Done не означает merge или релиз продукта.
 
 ## WP-25 — Browser lifecycle
@@ -33,7 +50,7 @@ CI проверяется на HEAD PR; package Done не означает merge
 отмена при detach и отчётность CDP, группы CROT. Квалификация и границы:
 [`docs/design/browser-wp25.md`](docs/design/browser-wp25.md).
 База этой ветки — merge PR #30 `e072e61`; это не SHA будущего merge WP-25.
-Автоматическая готовность и ручная приёмка различаются: WP-24 owner acceptance,
+Автоматическая готовность и ручная приёмка различаются:
 headed-матрица Chrome/Edge/Brave на трёх ОС и настоящие корпоративные политики
 не объявлены пройденными. OD-9 browser **decision closed by AD-32** (Chromium ≥120),
 но это не полная квалификация матрицы и не коммерческий релиз.
@@ -81,10 +98,10 @@ Node → Node → Node, настоящий CROT-6A/HTTP-token. OD-6 и Windows O
 закрыты AD-30. Все 8 критериев — в design-документе; поставка, ограничения
 матрицы и остаточный риск AD-20.14 — docs/L1.md.
 
-## WP-24 — реализация слита, ручная приёмка открыта
+## WP-24 — Done, инженерная приёмка закрыта
 
 **WP-24 — Browser v1: CDP backend, snapshot and refs, trusted input,
-frames, shadow DOM, waits, history — implemented, merged; acceptance open**
+frames, shadow DOM, waits, history — Done, engineering gate closed**
 (PR #22 merged into `main` as `d273473`; started from `main` `9ce0574`).
 Manual run 1 fixes merged in PR #23 (`96dde26`); manual run 2 fixes merged in
 PR #24 (`a101008`). Manual run 3 is recorded in
@@ -93,7 +110,7 @@ run-3 fixes merged in PR #25 (`32334aa`). Manual
 [runs 4](docs/acceptance/WP-24-manual-run-4.md) and
 [5 / follow-up](docs/acceptance/WP-24-manual-run-5.md) are recorded.
 Default-load timeout signalling is in main after PR #26 (`289f500`);
-manual confirmation and acceptance remain open. User docs: [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)
+engineering gate is closed by the recorded criterion-level matrix. User docs: [`docs/BROWSER_EXTENSION.md`](docs/BROWSER_EXTENSION.md)
 ("Browser v1: CDP backend"), [`docs/BROWSER_E2E.md`](docs/BROWSER_E2E.md)
 ("Browser v1 suite"). Normative contract: ARCHITECTURE.md §27 AD-16 (not
 changed).
@@ -161,13 +178,14 @@ changed).
   succeeded before restricted snapshots. Local Chromium reproduces default
   load expiry without loadTimedOut; fixed in merged PR #26 (`289f500`) without weakening
   page access restrictions.
-- **Not done — WP-24 acceptance still open:** manual timeout-signal confirmation,
-  C1's partial/unreproduced incident and final owner review. ARCHITECTURE.md
-  §7.1 / AD-16 markers are unchanged (only an approved owner AD edit).
+- **Final engineering disposition:** mandatory card criteria passed; see
+  `docs/acceptance/WP-24-final-engineering-gate.md`. C1 demo behaviour and
+  external incident provenance are retained limitations, not invented fixes.
+  No additional mandatory owner-only criterion was found in the card.
 - **Outside WP-24, implemented in WP-25:** dialogs, file chooser interception,
   background/ref/fullPage screenshots and tab groups.
-- **Outside WP-25:** upload and download now implemented by WP-26 (AD-33, Linux host scope);
-  remote explicit `tabId`, `openedBy`, two-agent ordering tests (WP-27).
+- **Outside WP-25:** upload/download implemented by WP-26 (AD-33, native Core Linux/macOS/Windows);
+  remote explicit `tabId`, `openedBy`, two-agent ordering implemented by WP-27.
 
 ## Другие реализованные компоненты и оставшиеся задачи
 
@@ -487,16 +505,16 @@ shim, local control channel** (mcp-crot PR #16, `92cce3b`; AD-17,
 По существующему правилу roadmap §8.4 сначала выбирается незавершённая,
 разблокированная задача цепочки B: **WP-29 follow-up**, а не WP-32 напрямую.
 Это устраняет уже известные блокеры публичного staging. Параллельный ближайший
-браузерный шаг — завершить **приёмку WP-24**, прежде чем засчитывать зависимости
-WP-25/26/27. Это приоритизация существующих задач, не новое архитектурное решение
+браузерный gate WP-24 закрыт, WP-27 выполнен в этой ветке; полная ручная
+headed/branded квалификация WP-25 остаётся отдельной. Это приоритизация существующих задач, не новое архитектурное решение
 и не перенос их критериев. WP-23b реализован по AD-31; это не закрывает остальные условия G4.
 
 | Задача | Реальные зависимости | Текущее состояние / открытые блокеры |
 | --- | --- | --- |
 | **WP-29 follow-up — следующий исполнительный WP** | WP-28 и OD-3/4/5 решены; relay и WP-30 уже в main | WP-29 Partial: per-client/device rate/concurrency, per-source connections/handshakes, registration rate, deregistration/key rotation/orphan registration, load/backpressure. До публичного WP-38 — выполнить либо явно переназначить допустимые пункты в WP-39; этим docs PR ничего не переназначается |
-| **WP-24 — ближайшая незакрытая браузерная приёмка, параллельно** | WP-18 решён; PR #22–#26 уже в main | Код и автоматические тесты есть; PR #26 (`289f500`) исправляет default-load timeout. Ручная проверка сигнала, C1 partial/unreproduced и итоговая приёмка владельца открыты; G5/H и B4/E5/windows не обнуляются |
-| WP-25 / WP-27 | Завершённая база WP-24; WP-27 также WP-19 (Done) | Разработка может опираться на слитый код, но зависимость приёмки WP-24 не считается закрытой. WP-25: код и автоматическая квалификация — docs/design/browser-wp25.md; ручная headed/branded-матрица остаётся открытой. WP-27: remote tabId/openedBy/two-agent ordering ещё не выполнены |
-| WP-26 | WP-24 и **OD-8** | **Done в PR #32**: OD-8 / AD-33 decided; production инструменты и реальные AD-23.8 E2E, Linux host scope |
+| WP-24 | WP-18; PR #22–#26 | **Done**: финальная инженерная матрица docs/acceptance/WP-24-final-engineering-gate.md; ранее пройденные ручные и CI проверки сохранены |
+| WP-25 / WP-27 | WP-24 Done; WP-27 также WP-19 Done | WP-27 **Done в этой ветке**, unit + real Chromium E2E. WP-25 headed/branded UX-матрица остаётся открытой |
+| WP-26 | WP-24 и OD-8 | **Done**, PR #32 merged; AD-33, реальные AD-23.8 E2E, нативный Core file contour на трёх ОС × Node 20/22 |
 | WP-23b | WP-21 Done; платформенное решение OD-9 принято AD-29 | Done: macOS Seatbelt/Keychain, AD-31 и зафиксированная Node20/22 CI-квалификация; более широкая матрица не объявляется проверенной |
 | WP-38 | WP-28, завершение/явное согласование открытого WP-29; WP-36 hook может быть stub по карточке | Подготовку TLS/IdP/deployment можно вести; публичный staging блокируют перечисленные WP-29 задачи. Live WorkOS, pin identity environment, payload-free logs, external OAuth/tool run ещё не подтверждены; RFC 9207 — условие G4 или отдельный принятый AD |
 | WP-32 | **WP-24…WP-27, WP-30, WP-31, WP-38** | WP-30/31 Done, но browser acceptance и staging открыты. Нужны автоматический сквозной набор, ≥4 реальных remote клиентов × версии, macOS/Windows прогоны и измерение client timeouts; локальные тесты не подменяют staging |
@@ -541,8 +559,7 @@ WP-25/26/27. Это приоритизация существующих зада
 | Relay request rate and concurrency limits, per-source connection and handshake limits, registration rate limit, relay load test | Open WP-29 items (AD-15 point 10; ARCHITECTURE.md §27 AD-22, Implementation (WP-29)); release-blocking before WP-38 exposes a public relay, or reassigned to WP-39 |
 | Approval policy in general (beyond presets) | §26 question 6 |
 | Limit remote agents to tabs they opened | §26 question 14 (opened by AD-16; not required for v1) |
-| WP-24 final owner acceptance (manual background/site results recorded; C1 and timeout confirmation still open) | WP-24 |
 | Debugger notice in headed Chrome/Edge/Brave on all OS; enterprise policies blocking `chrome.debugger` | WP-25 |
-| Download hand-over mechanism (staging in the download directory or stream over the bridge) | **Decided by AD-33**, implemented in PR #32 (Linux host scope) |
+| Download hand-over mechanism (staging in the download directory or stream over the bridge) | **Decided by AD-33**, implemented in merged PR #32 (native Linux/macOS/Windows Core qualification) |
 | Store acceptance of the `debugger` permission | WP-35 |
 | How a preset change is applied by the supervised service (reload or restart) | Decided by AD-23 point 10: a new Core, switched only while idle; refused while busy; restored settings and the previous Core if the new Core cannot be built; implemented in PR #21 (merged as `9ce0574`) |

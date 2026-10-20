@@ -1,10 +1,12 @@
 # Real-browser E2E of the browser bridge
 
-Four suites run against a real Chromium:
+Six suites run against a real Chromium:
 `tests-e2e/browser/real-browser.e2e.test.ts` (the chain and legacy tools),
 `browser-v1.e2e.test.ts` and `browser-layout.e2e.test.ts` (WP-24 contract and
 layout regressions), and `wp25.e2e.test.ts` (dialogs, background screenshots,
-debugger lifecycle and CROT groups; AD-16 / AD-32).
+debugger lifecycle and CROT groups; AD-16 / AD-32), `wp26.e2e.test.ts`
+(file upload/download and AD-23.8), and `wp27.e2e.test.ts` (multi-agent
+FIFO, remote tabId and openedBy).
 
 `tests-e2e/browser/real-browser.e2e.test.ts` checks the existing browser chain
 (ARCHITECTURE.md §16) against a **real Chromium**, end to end:
@@ -232,9 +234,25 @@ and explicit gaps (headed branded-browser / OS matrix, actual policy,
 minimum-version and HiDPI variants). Linux headless results do not qualify
 macOS / Windows UI. Skipped tests are never counted as passes.
 
-Not covered here (later packages): upload / download (WP-26), two concurrent
-agents and remote `tabId` (WP-27). WP-24 manual acceptance remains separate:
-see [`acceptance/WP-24-manual-run-1.md`](acceptance/WP-24-manual-run-1.md).
+### WP-26 and WP-27 suites
+
+`wp26.e2e.test.ts` covers production file staging, ref/chooser upload, click/URL
+download, exact ownership with a same-URL unrelated download, cleanup and real
+AD-23.8 approval gates. Native Core filesystem qualification on all three OSes
+is separate from this Linux browser harness.
+
+`wp27.e2e.test.ts` adds five tests using real MCP clients with distinct trusted
+context adapters, real Core/guard, bridge, extension and Chromium. They cover
+remote validation on all 19 tab tools, explicit-tab reads, three-way openedBy
+including a popup, independent tabs, shared-tab FIFO, overflow/cancellation,
+approval-wait independence and queue-front origin rebinding denial. These
+adapters do not qualify a deployed OAuth/tunnel service.
+
+Local verification: six suites, **54 passed**, three existing opt-in skips;
+WP-27 itself has **5 passed, no skips**. Skips are not acceptance evidence.
+WP-24 engineering acceptance is recorded in the
+[criterion matrix](acceptance/WP-24-final-engineering-gate.md); the separate
+WP-25/G3 branded-browser debugger-notice matrix remains open.
 
 Local run without a display (as used during WP-24):
 

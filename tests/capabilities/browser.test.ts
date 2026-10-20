@@ -28,6 +28,8 @@ function defaultResponse(command: BrowserCommand, p: Record<string, unknown>): u
   switch (command) {
     case "tabs.list":
       return { tabs: [{ tabId: 1, windowId: 1, url: PAGE_URL, title: "Example", active: true, status: "complete" }] };
+    case "tabs.resolve":
+      return { tabId, url: PAGE_URL };
     case "tabs.open":
       return { tabId: 7, url: p.url };
     case "tabs.navigate":
@@ -153,13 +155,19 @@ describe("BrowserService authorization", () => {
     for (const [operation, , run] of CONTROL_OPS) {
       await expect(run(service), operation).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
     }
-    expect(fake.calls.map((c) => c.command)).toEqual(["tabs.list", "page.read", "page.screenshot"]);
+    expect(fake.calls.filter((c) => c.command !== "tabs.resolve").map((c) => c.command)).toEqual([
+      "tabs.list",
+      "page.read",
+      "page.screenshot",
+    ]);
   });
 
   it("allows browser.control in SANDBOX when listed explicitly", async () => {
     const { service, fake } = setup({ capabilities: ["browser.read", "browser.control"] });
     for (const [operation, , run] of ALL_OPS) await expect(run(service), operation).resolves.toBeDefined();
-    expect(fake.calls.map((c) => c.command)).toEqual(ALL_OPS.flatMap(([, command]) => (command ? [command] : [])));
+    expect(fake.calls.filter((c) => c.command !== "tabs.resolve").map((c) => c.command)).toEqual(
+      ALL_OPS.flatMap(([, command]) => (command ? [command] : [])),
+    );
   });
 
   it("FULL_CONTROL grants every browser operation", async () => {
@@ -260,7 +268,7 @@ describe("BrowserService input validation", () => {
     await expect(service.screenshot(ctx, { format: "jpeg", quality: 70 })).resolves.toMatchObject({
       mimeType: "image/jpeg",
     });
-    expect(fake.calls[0]?.params).toEqual({ format: "jpeg", quality: 70 });
+    expect(fake.calls.at(-1)?.params).toEqual({ tabId: 1, format: "jpeg", quality: 70 });
   });
 });
 
@@ -437,7 +445,7 @@ describe("BrowserService page reading", () => {
       content: "a\u00e9\u00e9",
       truncated: true,
     });
-    expect(fake.calls[0]?.params).toMatchObject({ maxBytes: 5 });
+    expect(fake.calls.at(-1)?.params).toMatchObject({ maxBytes: 5 });
     await expect(service.readPage(ctx, { maxBytes: 2 })).resolves.toMatchObject({ content: "a", truncated: true });
   });
 

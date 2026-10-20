@@ -167,7 +167,7 @@ describe("extension commands", () => {
     expect(result).toEqual({ tabId: 100, url: "https://new.example/landing" });
     ok(BrowserTabActionResultSchema, result);
     expect(fake.tabsOnUpdated.listeners.size).toBe(0);
-    expect(fake.tabsOnRemoved.listeners.size).toBe(0);
+    expect(fake.tabsOnRemoved.listeners.size).toBe(1); // persistent queue lifecycle listener
   });
 
   it("default tab_open reports loadTimedOut when the http document has not committed", async () => {
@@ -177,7 +177,7 @@ describe("extension commands", () => {
     expect(opened).toEqual({ tabId: 100, url: "https://slow.example/", loadTimedOut: true });
     expect((await failure(handlers["page.snapshot"]({ tabId: 100 }))).code).toBe("BROWSER_PAGE_RESTRICTED");
     expect(fake.tabsOnUpdated.listeners.size).toBe(0);
-    expect(fake.tabsOnRemoved.listeners.size).toBe(0);
+    expect(fake.tabsOnRemoved.listeners.size).toBe(1); // persistent queue lifecycle listener
   });
 
   it("answers anyway when the page does not finish loading in time", async () => {

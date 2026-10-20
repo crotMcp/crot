@@ -239,7 +239,7 @@ All paths end in the same Core pipeline; no path bypasses it.
 | Native Host (OS platform layer) | device, inside `crot-mcp` | OS-specific Platform implementations (Windows AppContainer + Job, ACLs, AD-30) | **[Implemented]** |
 | Browser bridge | device, inside `crot-mcp` | local IPC endpoint, handshake, request/response | **[Implemented]** |
 | `crot-browser-relay` | device, started by the browser | native-messaging host; forwards frames only | **[Implemented]** |
-| CROT Browser Extension | user's browser | fixed browser commands | **[Partial]** v1: WP-24 CDP implementation/tested on main, manual acceptance open; WP-25 implemented (AD-32; qualification limits recorded); WP-26 implemented (AD-33; Linux file-transfer host qualification); WP-27 pending |
+| CROT Browser Extension | user's browser | fixed browser commands | **[Partial]** v1: WP-24 engineering gate closed (criterion evidence recorded); WP-25 implemented (AD-32; branded qualification limits remain); WP-26 implemented (AD-33; native Linux/macOS/Windows Core file contour); WP-27 implemented (remote tabId, FIFO, openedBy) |
 | MCP client connectors / external MCP gateway | device, outside Core | connections to external MCP servers | **[Target]**, post-v1 (AD-13) |
 | Confirmation mechanism | Core interface + Tray UI | explicit approval and presets | **[Implemented]** mechanism WP-15, Tray WP-22, per-principal presets WP-31; real upload/download gates verified in WP-26 (AD-23.8) |
 | CROT local service (sidecar) | device, background | one long-running `crot-mcp` service per user; stdio clients attach through a thin shim; authenticated local control channel | **[Implemented]** (WP-20, §27 AD-17); autostart/installer registration **[Target]** (WP-34) |
@@ -414,13 +414,14 @@ identity and explicit `tabId`, per-tab sequencing, dialogs, files, screenshots,
 isolation, approvals and the two presets. This section lists the requirements;
 AD-16 is the normative contract that implements them.
 
-Implemented today (`docs/BROWSER_EXTENSION.md`): `browser_status`,
-`browser_tabs_list`, `browser_page_read` (`innerText` / `outerHTML`),
-`browser_screenshot` (active tab only), `browser_tab_open`, `browser_navigate`,
-`browser_tab_activate`, `browser_tab_close`, `browser_click`
-(`element.click()`, synthetic) and `browser_type` (text fields only), all
-addressing elements with `querySelector` in the main frame. This supports
-"open and read" and simple actions, not multi-step tasks.
+Implemented (`docs/BROWSER_EXTENSION.md`): WP-24 refs, trusted CDP input,
+frames/OOPIF, open shadow DOM, waits/history; WP-25 dialogs/chooser,
+background screenshots and lifecycle; WP-26 upload/download (native Core file
+contour on Linux/macOS/Windows); WP-27 explicit remote `tabId`, per-tab FIFO
+and context-relative `openedBy`. Legacy selector forms remain compatible.
+WP-24 criterion-level engineering acceptance is recorded in
+`docs/acceptance/WP-24-final-engineering-gate.md`; the full branded-browser
+notice / release matrix remains separate. This is not a release declaration.
 
 Required for v1:
 
@@ -707,7 +708,7 @@ packages, their order and dependencies are in
 22. Network access for CROT requests               [Implemented: network.access (WP-13, §27 AD-4)]
 23. OS-level egress control for processes/Docker  [Target, post-v1, §27 AD-4]
 24. Command confinement L1 (Linux, macOS, Windows) [Partial: Linux implemented (WP-23a, §27 AD-20); Windows implemented (WP-23c, AD-30); macOS implemented (WP-23b, AD-31; qualification scope recorded)]
-25. Browser contract v1                           [Partial: WP-24 implementation/tested, manual acceptance open; WP-25 implemented (AD-32; qualification limits recorded); WP-26 implemented (AD-33; Linux file-transfer host qualification); WP-27 pending; contract AD-16 unchanged]
+25. Browser contract v1                           [Partial: WP-24 engineering gate closed (criterion evidence recorded); WP-25 implemented (AD-32; branded qualification limits remain); WP-26 implemented (AD-33; native Linux/macOS/Windows Core file contour); WP-27 implemented (remote tabId, FIFO, openedBy); contract AD-16 unchanged]
 26. Jobs, artifacts, optional components          [Target, post-v1 foundation, §26 q16–17]
 27. Media operations and rendering                [Target, post-v1, §26 q18–19]
 28. External service connections                 [Target, post-v1, §26 q20–21]
@@ -1026,7 +1027,7 @@ The tray app is a UI; control logic stays in Core/service.
 | Streamable HTTP, loopback, local token | **[Implemented]** |
 | Native Host (OS platform layer) | **[Implemented]** |
 | Browser bridge, relay, extension (Chromium), basic commands | **[Implemented]** |
-| Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | **[Partial]** AD-16 unchanged; WP-24 implementation/tested including PR #26, manual acceptance open; WP-25 implemented (AD-32; qualification limits recorded); WP-26 implemented (AD-33; Linux file-transfer host qualification); WP-27 pending |
+| Browser contract v1 (element references, real input, frames, dialogs, files, tabs, concurrency; §7.1) | **[Partial]** AD-16 unchanged; WP-24 engineering gate closed (criterion evidence recorded); WP-25 implemented (AD-32; branded qualification limits remain); WP-26 implemented (AD-33; native Linux/macOS/Windows Core file contour); WP-27 implemented (remote tabId, FIFO, openedBy) |
 | Remote MCP request contract (principal kinds, execution context, exposure scope, sessionless MCP) | Contract decided (AD-15, WP-17); request pipeline **[Implemented]** (WP-19: sessionless 2026-07-28, supported versions, principal kinds by entry point, exposure scopes, persisted remote exposure); verifier **[Implemented]** (WP-28); relay **[Partial]** (WP-29, AD-22: relay side of the tunnel implemented; per-client rate limits and the load test open); device tunnel: device side **[Implemented]** (WP-30, AD-22 device side: registration at pairing, handshake, streams, limits, deadline and cancellation) |
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
 | User confirmations | **[Implemented]** (mechanism: WP-15, §27 AD-5…AD-11; tray provider and preset selection: WP-22, §27 AD-19); *Autonomous browser* preset and remote profile **[Implemented]** (WP-31); actual upload/download gate E2E verified in WP-26 (AD-23.8) |
@@ -2606,6 +2607,19 @@ bypassable (legacy versions).
   admission of point 10; the other points are unchanged.
 
 ### AD-16. Browser contract v1: a fixed command set over `chrome.debugger` (CDP) with tab- and document-bound element references, explicit tabs, per-tab serialization and the two approval presets (WP-18)
+
+**Implementation qualification (WP-27).** Core validates remote tab targets
+before authorization or any bridge call. Core and extension queue every tab
+operation by connection/tab, one running plus sixteen waiting, including reads,
+file operations and settle. Approval waits are outside the queue; approved
+subjects are checked again at its head. Queued cancellation frees capacity.
+The extension drops waiting work on disconnect/tab close. Physical input
+visibility and dispatch share only a short delivery critical section, not the
+settle/wait phase; other tabs continue concurrently. Core attributes direct opens
+and verified `newTabs`/`openerTabId` children to AD-15 exposure scopes, never to
+self-reported client names. `openedBy` grants no authority. See
+`tests/core/browser-multi-agent.test.ts`, `extension/test/control.test.ts`,
+`tests-e2e/browser/wp27.e2e.test.ts` and the WP-24 final engineering gate.
 
 **Context.** AD-14 point 2 makes the browser contract v1 (§7.1) release-blocking
 and leaves the technology, the command list and the element-reference model to

@@ -1,0 +1,10 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>WP27 agents</title>
+<button id="one">One</button><button id="two">Two</button><button id="three">Three</button>
+<button id="popup">Open child</button><output id="order">ORDER:</output>
+<script>
+for (const [id, value] of [['one','1'],['two','2'],['three','3']]) document.getElementById(id).onclick = () => {
+  document.getElementById('order').textContent += value;
+  fetch('/event?type=wp27&value='+value);
+};
+document.getElementById('popup').onclick = () => window.open('/wp27.html?child=1');
+</script></html>
