@@ -68,6 +68,8 @@ function defaultReply(request: HostRequest): Reply {
   switch (request.command) {
     case "tabs.list":
       return { ok: true, result: { tabs: TABS } };
+    case "tabs.resolve":
+      return { ok: true, result: { tabId: 7, url: TABS[0]!.url } };
     case "tabs.open":
       return { ok: true, result: { tabId: 11, url: String(params.url) } };
     case "page.read":
@@ -308,7 +310,7 @@ describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => 
 
       const tabs = await crot.call("browser_tabs_list");
       expect(tabs.isError).toBe(false);
-      expect(tabs.body).toEqual({ tabs: TABS });
+      expect(tabs.body).toEqual({ tabs: TABS.map((t) => ({ ...t, openedBy: "other" })) });
 
       const opened = await crot.call("browser_tab_open", { url: "https://example.com/docs" });
       expect(opened.body).toEqual({ tabId: 11, url: "https://example.com/docs" });
@@ -337,8 +339,10 @@ describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => 
       expect(extension.requests.map((r) => [r.command, r.params])).toEqual([
         ["tabs.list", {}],
         ["tabs.open", { url: "https://example.com/docs", active: true }],
-        ["page.read", { format: "text", maxBytes: 10 }],
-        ["page.click", { selector: "#go" }],
+        ["tabs.resolve", {}],
+        ["page.read", { tabId: 7, format: "text", maxBytes: 10 }],
+        ["tabs.resolve", {}],
+        ["page.click", { tabId: 7, selector: "#go" }],
         ["tabs.list", {}],
       ]);
       expect(extension.unexpected).toEqual([]);
@@ -353,7 +357,9 @@ describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => 
       const again = startBuiltRelay();
       await again.handshake();
       await waitFor(async () => (await crot.bridgeState()) === "connected", 10_000);
-      expect((await crot.call("browser_tabs_list")).body).toEqual({ tabs: TABS });
+      expect((await crot.call("browser_tabs_list")).body).toEqual({
+        tabs: TABS.map((t) => ({ ...t, openedBy: "other" })),
+      });
     },
     TIMEOUT,
   );
@@ -400,7 +406,9 @@ describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => 
       await extension.handshake();
       await waitFor(async () => (await crot.bridgeState()) === "connected", 10_000);
 
-      expect((await crot.call("browser_tabs_list")).body).toEqual({ tabs: TABS });
+      expect((await crot.call("browser_tabs_list")).body).toEqual({
+        tabs: TABS.map((t) => ({ ...t, openedBy: "other" })),
+      });
       expect(await crot.errorCode("browser_tab_open", { url: "https://example.com/private/path?q=secret" })).toBe(
         "PERMISSION_DENIED",
       );
@@ -481,19 +489,25 @@ describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => 
       await extension.handshake();
       await waitFor(async () => (await first.bridgeState()) === "connected", 10_000);
       expect(await second.bridgeState()).toBe("connected");
-      expect((await first.call("browser_tabs_list")).body).toEqual({ tabs: TABS });
+      expect((await first.call("browser_tabs_list")).body).toEqual({
+        tabs: TABS.map((t) => ({ ...t, openedBy: "other" })),
+      });
 
       // Each stdio connection keeps its own exposure scope (AD-12, AD-15 point 8): the tab list exposed
       // only the first client, whose write now needs an approval (none available: denied); the second is clean.
       expect((await first.call("fs_write_file", { path: "first.txt", content: "x" })).isError).toBe(true);
       expect((await second.call("fs_write_file", { path: "second.txt", content: "ok" })).isError).toBe(false);
-      expect((await second.call("browser_tabs_list")).body).toEqual({ tabs: TABS });
+      expect((await second.call("browser_tabs_list")).body).toEqual({
+        tabs: TABS.map((t) => ({ ...t, openedBy: "other" })),
+      });
       expect(extension.requests).toHaveLength(2);
 
       // The first client leaving does not affect the second one or the bridge.
       await first.close();
       expect(await second.bridgeState()).toBe("connected");
-      expect((await second.call("browser_tabs_list")).body).toEqual({ tabs: TABS });
+      expect((await second.call("browser_tabs_list")).body).toEqual({
+        tabs: TABS.map((t) => ({ ...t, openedBy: "other" })),
+      });
       expect(second.stderr()).not.toContain("in use");
     },
     TIMEOUT,
@@ -542,7 +556,9 @@ describe("browser extension chain (built crot-mcp + crot-browser-relay)", () => 
       const extension = startRelay(manifest.path, [CROT_EXTENSION_ORIGIN]);
       await extension.handshake();
       await waitFor(async () => (await crot.bridgeState()) === "connected", 10_000);
-      expect((await crot.call("browser_tabs_list")).body).toEqual({ tabs: TABS });
+      expect((await crot.call("browser_tabs_list")).body).toEqual({
+        tabs: TABS.map((t) => ({ ...t, openedBy: "other" })),
+      });
       extension.disconnect();
       expect(await extension.exited).toBe(0);
     },

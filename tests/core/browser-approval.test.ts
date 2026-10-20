@@ -184,7 +184,7 @@ describe("browser approvals (AD-6, AD-8, AD-9, AD-11)", () => {
     expect(stub.performed).toEqual([]);
     ui.approveLast();
     await expect(clicking).resolves.toEqual({ tabId: 7, url: "https://example.com/page" });
-    expect(stub.sent[1]).toEqual({
+    expect(stub.sent.at(-1)).toEqual({
       command: "page.click",
       params: { tabId: 7, selector: "#buy", expect: binding },
       connectionId: CONNECTION_A,
@@ -275,9 +275,16 @@ describe("browser approvals (AD-6, AD-8, AD-9, AD-11)", () => {
     expect(audit.events.every((e) => e.outcome === "denied" && e.approval?.status === "unavailable")).toBe(true);
   });
 
-  it("leaves operations without a matching rule unchanged (no tabs.resolve, no expected subject)", async () => {
+  it("pins the local default tab for FIFO without adding an approval subject", async () => {
     await c().browser.readPage(ctx, {});
-    expect(stub.sent).toEqual([{ command: "page.read", params: { format: "text", maxBytes: 10 * 1024 * 1024 } }]);
+    expect(stub.sent).toEqual([
+      { command: "tabs.resolve", params: {}, connectionId: CONNECTION_A },
+      {
+        command: "page.read",
+        params: { tabId: 7, format: "text", maxBytes: 10 * 1024 * 1024 },
+        connectionId: CONNECTION_A,
+      },
+    ]);
     expect(ui.shown).toHaveLength(0);
   });
 

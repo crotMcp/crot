@@ -121,8 +121,12 @@ Implemented components (not a whole-product acceptance or commercial-release cla
   They are not a deployed or accepted public service: WP-29 limits/load and
   registration follow-ups, live staging WP-38 and E2E acceptance WP-32 remain open.
 - Browser CDP/ref/trusted-input implementation (WP-24) and fixes PR #22–#26
-  are merged and tested. Owner runs 1–5/follow-up are recorded; final manual
-  acceptance (timeout signalling, C1, owner review) remains open.
+  are merged and tested. Owner runs 1–5/follow-up and
+  [final engineering gate](docs/acceptance/WP-24-final-engineering-gate.md)
+  close WP-24 mandatory criteria without claiming a new owner sign-off.
+- WP-27 adds explicit remote `tabId`, bounded per-tab FIFO after approvals
+  (one running + 16 waiting), cancellation and queue-front subject checks,
+  and exposure-scope-relative `openedBy`. [Evidence](docs/design/browser-wp27.md).
 
 WP-25 implements dialogs/file chooser interception, background/ref/fullPage
 screenshots, CDP lifecycle/status and CROT groups; `browser_dialog_handle` is
@@ -130,9 +134,9 @@ protected by the same Core permissions/approvals. See
 [qualification and manual gaps](docs/design/browser-wp25.md). Browser target:
 Chrome/Edge/Brave Chromium ≥120 (AD-32); this is not a fully tested branded/OS matrix.
 
-Not implemented / not accepted yet: browser WP-24 final manual acceptance,
-WP-25 headed/branded qualification, WP-27 remote
-multi-agent rules; wider WP-26 host/browser qualification; dedicated Docker commands
+Not implemented / not accepted yet: WP-25 headed/branded qualification;
+wider browser/OS release qualification (WP-26 native Core file contour already
+passed on Linux/macOS/Windows × Node 20/22); dedicated Docker commands
 beyond docker.use and Git network tools (still usable via shell); general
 per-host/process/container egress policy beyond the existing L1 network on/off;
 public staging/production deployment, account/entitlement service, signed
@@ -140,7 +144,8 @@ installer and autostart. Firefox is not supported. WorkOS live behaviour and
 Windows11/ARM64/Server2022 L1 are not qualified by existing CI.
 
 Next executable package: **WP-29 follow-up** before public WP-38 staging;
-in parallel finish **WP-24 acceptance** before counting WP-25/26/27 prerequisites.
+**WP-24 engineering gate is closed**; WP-27 is implemented in this PR, not merged.
+Full WP-25 branded-browser qualification remains separate.
 WP-32 is blocked by those packages and WP-38, not enabled by one merge.
 See [roadmap §8.4](CROT_IMPLEMENTATION_ROADMAP.md#84-next-wp-selection-rule)
 and [documentation audit](docs/design/post-merge-e23b7b9-doc-audit.md).

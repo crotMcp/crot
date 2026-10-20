@@ -430,6 +430,7 @@ export const BrowserTabInfoSchema = z.object({
   url: ResultUrl,
   title: Title,
   active: z.boolean(),
+  openedBy: z.enum(["this-context", "crot", "other"]).optional(),
   discarded: z.boolean().optional(),
   groupedByCrot: z.boolean().optional(),
   dialog: BrowserDialogSchema.optional(),

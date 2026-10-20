@@ -86,6 +86,7 @@ export type CommandHandler = (params: CommandParams, context?: CommandContext) =
 export type CommandHandlers = Readonly<Record<BrowserCommand, CommandHandler>>;
 
 export interface CommandOptions {
+  readonly onQueueReset?: (reset: () => void) => void;
   readonly loadWaitMs?: number;
   /** CDP sessions (AD-16 point 3); created over `api.debugger` when absent. */
   readonly cdp?: CdpSessions;
@@ -334,29 +335,75 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     }
     return registry;
   }
-  // Per-tab FIFO (AD-16 point 8): commands on one tab run one at a time, bound TAB_QUEUE_MAX.
-  const queues = new Map<number, { tail: Promise<unknown>; size: number }>();
-  async function serialized<T>(tabId: number, run: () => Promise<T>): Promise<T> {
-    const queue = queues.get(tabId) ?? { tail: Promise.resolve(), size: 0 };
-    if (queue.size >= TAB_QUEUE_MAX)
+  // The outer dispatcher queues every tab command, including reads and settle.
+  const queues = new Map<
+    number,
+    { tail: Promise<unknown>; waiting: number; generation: number; reject: Set<(e: Error) => void> }
+  >();
+  let generation = 0;
+  let queueConnection: string | undefined;
+  const resetQueues = (): void => {
+    generation++;
+    for (const queue of queues.values())
+      for (const reject of queue.reject)
+        reject(new ExtensionError("OPERATION_FAILED", "Browser connection closed before command execution."));
+    queues.clear();
+  };
+  options.onQueueReset?.(resetQueues);
+  api.tabs.onRemoved.addListener((id) => {
+    const queue = queues.get(id);
+    if (queue)
+      for (const reject of queue.reject) reject(new ExtensionError("NOT_FOUND", "The tab was closed while queued."));
+    queues.delete(id);
+  });
+  async function enqueue<T>(tabId: number, context: CommandContext | undefined, run: () => Promise<T>): Promise<T> {
+    const id = context?.connectionId();
+    if (id !== queueConnection) {
+      resetQueues();
+      queueConnection = id;
+    }
+    const existing = queues.get(tabId);
+    if (existing && existing.waiting >= TAB_QUEUE_MAX)
       throw new ExtensionError("RESOURCE_BUSY", "Too many browser commands are queued for this tab.");
-    queue.size++;
+    const queue = existing ?? {
+      tail: Promise.resolve(),
+      waiting: 0,
+      generation,
+      reject: new Set<(e: Error) => void>(),
+    };
+    if (existing) queue.waiting++;
     queues.set(tabId, queue);
-    const result = queue.tail.then(run, run);
+    let rejectQueued: (e: Error) => void = () => undefined;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      rejectQueued = reject;
+      queue.reject.add(reject);
+    });
+    const result = queue.tail.then(async () => {
+      queue.reject.delete(rejectQueued);
+      if (existing) queue.waiting--;
+      if (queue.generation !== generation || queues.get(tabId) !== queue || context?.connectionId() !== id)
+        throw new ExtensionError("OPERATION_FAILED", "Browser connection or tab changed while queued.");
+      return run();
+    });
     queue.tail = result.then(
       () => undefined,
       () => undefined,
     );
+    const tail = queue.tail;
     try {
-      return await result;
+      return await Promise.race([result, cancelled]);
     } finally {
-      queue.size--;
-      if (queue.size === 0 && queues.get(tabId) === queue) queues.delete(tabId);
+      queue.reject.delete(rejectQueued);
+      if (queues.get(tabId) === queue && queue.tail === tail) queues.delete(tabId);
     }
   }
+  // Legacy inner wrappers are subsumed by the operation-level dispatcher queue.
+  async function serialized<T>(_tabId: number, run: () => Promise<T>): Promise<T> {
+    return run();
+  }
 
-  // Input needs a visible page, and activating one tab hides the others of its window: control
-  // commands of different tabs run one at a time (waits, reads and snapshots are not affected).
+  // Input needs a visible page: serialize only visibility and input dispatch across tabs.
+  // Release this critical section before settle; independent tab operations remain concurrent.
   let inputTail: Promise<unknown> = Promise.resolve();
   function exclusiveInput<T>(run: () => Promise<T>): Promise<T> {
     const result = inputTail.then(run, run);
@@ -651,24 +698,18 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         stem = stringParam(params, "stem", 48, 48);
       const deadline = params.deadline as number,
         maxBytes = params.maxBytes as number;
-      return serialized(first.id, () =>
+      return capture.run(first.id, prefix, stem, deadline, maxBytes, () =>
         exclusiveInput(async () => {
           const tab = await targetTab(first.id, expected, context, true);
           cdp.assertNoDialog(tab.id);
           await ensureVisible(api, inject, tab, visibleWaitMs);
-          const node =
-            params.url === undefined
-              ? await resolveTarget(cdp, refsFor(context), tab.id, params, SELECTOR_MAX_LENGTH)
-              : undefined;
-          return capture.run(tab.id, prefix, stem, deadline, maxBytes, async () => {
-            await targetTab(tab.id, expected, context, true);
-            if (params.url !== undefined) {
-              await api.tabs.update(tab.id, { url: urlParam(params) });
-            } else {
-              const point = await actionablePoint(node!.channel, tab.id, node!.backendNodeId);
-              await clickAt(cdp, tab.id, point, { button: "left", clickCount: 1, modifiers: [] });
-            }
-          });
+          if (params.url !== undefined) {
+            await api.tabs.update(tab.id, { url: urlParam(params) });
+          } else {
+            const node = await resolveTarget(cdp, refsFor(context), tab.id, params, SELECTOR_MAX_LENGTH);
+            const point = await actionablePoint(node.channel, tab.id, node.backendNodeId);
+            await clickAt(cdp, tab.id, point, { button: "left", clickCount: 1, modifiers: [] });
+          }
         }),
       );
     },
@@ -1092,7 +1133,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
       const expected = expectParam(params);
       const refs = refsFor(context);
       const tab = await targetTab(tabId, expected, context, true);
-      // A wait observes; it does not take the tab's command queue (a wait for a new tab may follow a click).
+      // The outer dispatcher holds this tab's queue for the complete wait, including observation.
       return waitFor(api, cdp, refs, tab.id, condition, timeoutMs, timing, limits);
     },
 
@@ -1149,44 +1190,51 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     const refs = refsFor(context);
     const element = options.element ?? true;
     const first = await targetTab(tabId, expected, context, true);
-    return serialized(first.id, () =>
-      exclusiveInput(async () => {
-        // The binding is checked when the command reaches the front of the queue.
-        const tab = await targetTab(first.id, expected, context, true);
-        cdp.assertNoDialog(tab.id);
-        // Input reaches visible pages only: activate the tab (restore its window) first.
-        const activated = await ensureVisible(api, inject, tab, visibleWaitMs);
-        const mainFrameId = await enableEvents(cdp, tab.id);
-        // Keys and focus work as for a focused window while the user works in another application.
-        await cdp.send(tab.id, "Emulation.setFocusEmulationEnabled", { enabled: true });
-        const node = element
-          ? await resolveTarget(cdp, refs, tab.id, params, SELECTOR_MAX_LENGTH)
-          : (undefined as unknown as { backendNodeId: number; channel: CdpChannel });
-        const observer = new TabObserver(api, cdp, tab.id, mainFrameId);
-        try {
-          if (expected) checkTab(expected, await api.tabs.get(tab.id), context);
-          await act(tab.id, node, refs);
-        } catch (error) {
-          observer.dispose();
-          const dialog = cdp.dialog(tab.id);
-          if (error instanceof ExtensionError && error.code === "BROWSER_DIALOG_OPEN" && dialog)
-            return { tabId: tab.id, url: tabUrl(tab), navigated: false, newTabs: [], dialog: { type: dialog.type } };
-          throw error;
-        }
-        if (cdp.dialog(tab.id)) {
-          observer.dispose();
-          return {
+    const finish = await exclusiveInput(async () => {
+      // The binding is checked when the command reaches the front of the queue.
+      const tab = await targetTab(first.id, expected, context, true);
+      cdp.assertNoDialog(tab.id);
+      // Input reaches visible pages only: activate the tab (restore its window) first.
+      const activated = await ensureVisible(api, inject, tab, visibleWaitMs);
+      const mainFrameId = await enableEvents(cdp, tab.id);
+      // Keys and focus work as for a focused window while the user works in another application.
+      await cdp.send(tab.id, "Emulation.setFocusEmulationEnabled", { enabled: true });
+      const node = element
+        ? await resolveTarget(cdp, refs, tab.id, params, SELECTOR_MAX_LENGTH)
+        : (undefined as unknown as { backendNodeId: number; channel: CdpChannel });
+      const observer = new TabObserver(api, cdp, tab.id, mainFrameId);
+      try {
+        if (expected) checkTab(expected, await api.tabs.get(tab.id), context);
+        await act(tab.id, node, refs);
+      } catch (error) {
+        observer.dispose();
+        const dialog = cdp.dialog(tab.id);
+        if (error instanceof ExtensionError && error.code === "BROWSER_DIALOG_OPEN" && dialog)
+          return async () => ({
             tabId: tab.id,
             url: tabUrl(tab),
             navigated: false,
             newTabs: [],
-            dialog: { type: cdp.dialog(tab.id)!.type },
-          };
-        }
+            dialog: { type: dialog.type },
+          });
+        throw error;
+      }
+      if (cdp.dialog(tab.id)) {
+        observer.dispose();
+        return async () => ({
+          tabId: tab.id,
+          url: tabUrl(tab),
+          navigated: false,
+          newTabs: [],
+          dialog: { type: cdp.dialog(tab.id)!.type },
+        });
+      }
+      return async () => {
         const result = await settle(api, observer, waitUntil, timeoutMs, timing, URL_MAX_LENGTH);
-        return activated ? { ...result, activated: true } : result;
-      }),
-    );
+        return activated ? { ...result, activated: true as const } : result;
+      };
+    });
+    return finish();
   }
 
   const exempt = new Set<BrowserCommand>([
@@ -1205,24 +1253,34 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
     Object.entries(handlers).map(([name, handler]) => [
       name,
       async (params: CommandParams, context?: CommandContext) => {
-        if (exempt.has(name as BrowserCommand)) return handler(params, context);
-        const tab = await targetTab(optionalTabIdParam(params), expectParam(params), context, true);
-        cdp.assertNoDialog(tab.id);
-        try {
-          return await cdp.guardDialog(tab.id, () => handler(params, context));
-        } catch (error) {
-          const dialog = cdp.dialog(tab.id);
-          if (
-            !reads.has(name as BrowserCommand) &&
-            error instanceof ExtensionError &&
-            error.code === "BROWSER_DIALOG_OPEN" &&
-            dialog
-          )
-            return { tabId: tab.id, url: tabUrl(await getTab(tab.id)), dialog: { type: dialog.type } };
-          if (error instanceof ExtensionError && error.code === "OPERATION_FAILED") {
-            await getTab(tab.id); // NOT_FOUND for a tab close; external detach remains OPERATION_FAILED.
+        const dispatch = async (): Promise<unknown> => {
+          if (exempt.has(name as BrowserCommand)) return handler(params, context);
+          const tab = await targetTab(optionalTabIdParam(params), expectParam(params), context, true);
+          cdp.assertNoDialog(tab.id);
+          try {
+            return await cdp.guardDialog(tab.id, () => handler(params, context));
+          } catch (error) {
+            const dialog = cdp.dialog(tab.id);
+            if (
+              !reads.has(name as BrowserCommand) &&
+              error instanceof ExtensionError &&
+              error.code === "BROWSER_DIALOG_OPEN" &&
+              dialog
+            )
+              return { tabId: tab.id, url: tabUrl(await getTab(tab.id)), dialog: { type: dialog.type } };
+            if (error instanceof ExtensionError && error.code === "OPERATION_FAILED") {
+              await getTab(tab.id); // NOT_FOUND for a tab close; external detach remains OPERATION_FAILED.
+            }
+            throw error;
           }
-          throw error;
+        };
+        if (["tabs.list", "tabs.resolve", "tabs.open", "files.download_release"].includes(name)) return dispatch();
+        const expected = expectParam(params);
+        const tab = await targetTab(optionalTabIdParam(params), expected, context, false);
+        return enqueue(tab.id, context, () => dispatchWithTab());
+        async function dispatchWithTab(): Promise<unknown> {
+          params = { ...params, tabId: tab.id };
+          return dispatch();
         }
       },
     ]),

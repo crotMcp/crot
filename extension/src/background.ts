@@ -28,12 +28,22 @@ const mac = /mac/i.test(platform);
 /** Debugger sessions (Browser v1, AD-16 point 3); detached when the CROT connection ends. */
 const cdp = new CdpSessions(chrome, { onNotice: (notice) => connection.notify(notice) });
 
+let resetQueues = (): void => undefined;
 const connection = new HostConnection({
   runtime: chrome.runtime,
   browser: detectBrowser(navigator, chrome.runtime.getManifest().version),
-  handlers: createCommandHandlers(chrome, { cdp, mac }),
+  handlers: createCommandHandlers(chrome, {
+    cdp,
+    mac,
+    onQueueReset: (reset) => {
+      resetQueues = reset;
+    },
+  }),
   log: (message) => console.info("CROT: " + message),
-  onDisconnected: () => void cdp.detachAll(),
+  onDisconnected: () => {
+    resetQueues();
+    void cdp.detachAll();
+  },
 });
 
 chrome.runtime.onStartup.addListener(() => connection.ensureConnected());

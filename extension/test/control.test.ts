@@ -381,7 +381,7 @@ describe("Browser v1 commands", () => {
       await gate;
       return { nodeId: 2 };
     });
-    const running = Array.from({ length: TAB_QUEUE_MAX }, () =>
+    const running = Array.from({ length: TAB_QUEUE_MAX + 1 }, () =>
       handlers["page.hover"]({ tabId: 1, selector: "button" }, context).catch((e: unknown) => e),
     );
     await new Promise((r) => setTimeout(r, 10));
@@ -397,5 +397,64 @@ describe("Browser v1 commands", () => {
     const { handlers } = setup();
     const err = await rejects(handlers["page.hover"]({ tabId: 1, ref: "e1" }, { connectionId: () => "c2" }));
     expect(err.code).toBe("BROWSER_STALE_REF");
+  });
+});
+
+describe("WP-27 dispatcher FIFO defence in depth", () => {
+  it("queues reads behind a pending command, but permits another tab and untargeted list", async () => {
+    const { handlers, fake, p } = setup();
+    fake.addTab({ id: 2, active: false, url: "https://example.com/two" });
+    fake.scriptResult = (i) =>
+      i.func.name === "pageVisibility"
+        ? { ok: true, value: "visible" }
+        : { ok: true, value: { content: "read", truncated: false } };
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    p.d.respond(1, "DOM.querySelector", async () => {
+      await gate;
+      return { nodeId: 2 };
+    });
+    const first = handlers["page.hover"]({ tabId: 1, selector: "button" }, context);
+    await new Promise((r) => setTimeout(r, 10));
+    const read = handlers["page.read"]({ tabId: 1, format: "text", maxBytes: 100 }, context);
+    await handlers["page.read"]({ tabId: 2, format: "text", maxBytes: 100 }, context);
+    await handlers["tabs.list"]({}, context);
+    expect(fake.injections.some((i) => i.target.tabId === 1 && i.func.name === "readPageContent")).toBe(false);
+    expect(fake.injections.some((i) => i.target.tabId === 2)).toBe(true);
+    release();
+    await first;
+    await read;
+    expect(fake.injections.some((i) => i.target.tabId === 1 && i.func.name === "readPageContent")).toBe(true);
+  });
+  it.each(["disconnect", "tab close"])("discards queued actions on %s", async (reason) => {
+    const { fake, p, cdp } = setup();
+    let reset = () => {};
+    const handlers = createCommandHandlers(fake.api, {
+      cdp,
+      timing: FAST,
+      onQueueReset: (fn) => {
+        reset = fn;
+      },
+    });
+    let release = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    p.d.respond(1, "DOM.querySelector", async () => {
+      await gate;
+      return { nodeId: 2 };
+    });
+    const first = handlers["page.hover"]({ tabId: 1, selector: "button" }, context).catch((e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 10));
+    const queued = handlers["page.read"]({ tabId: 1, format: "text", maxBytes: 100 }, context).catch((e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 10));
+    if (reason === "disconnect") reset();
+    else await fake.api.tabs.remove(1);
+    expect(await queued).toMatchObject({ code: reason === "disconnect" ? "OPERATION_FAILED" : "NOT_FOUND" });
+    release();
+    await first;
+    expect(fake.injections.filter((i) => i.func.name === "readPageContent")).toHaveLength(0);
   });
 });
