@@ -7,6 +7,16 @@ standard MCP interface.
 **`ARCHITECTURE.md` is the source of truth for the product architecture.** This
 README describes the current implementation and how to run it.
 
+## Remote acceptance and staging deliverables — WP-32 / WP-38
+
+The automatic SDK → HTTPS relay → WSS device tunnel → CrotService → project +
+real Chromium suite covers all three MCP revisions and both approval presets.
+The installed-L1 CI job also requires the complete browser/project scenario
+with real confined shell execution. Public cloud hosting, live WorkOS and four
+external-client manual acceptance remain separate, unclaimed release gates.
+See [acceptance evidence and compatibility template](docs/acceptance/WP-32-acceptance.md)
+and [staging/pinned-build runbook](docs/STAGING.md).
+
 ## Browser files — WP-26
 
 `browser_file_upload({tabId?, ref?, paths})` uploads 1–16 workspace files

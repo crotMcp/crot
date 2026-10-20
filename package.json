@@ -1,7 +1,7 @@
 {
   "name": "crot",
   "version": "0.1.0",
-  "description": "CROT \u2014 universal local AI-agent bridge. Core, permission engine and MCP interface.",
+  "description": "CROT — universal local AI-agent bridge. Core, permission engine and MCP interface.",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -31,7 +31,9 @@
     "test:extension": "vitest run --config extension/vitest.config.ts",
     "test:e2e:browser": "npm run build && npm run build:extension && vitest run --config tests-e2e/vitest.config.ts",
     "tray": "electron dist/tray/main.js",
-    "test:browser-files:native": "node scripts/browser-files-native-qualification.mjs"
+    "test:browser-files:native": "node scripts/browser-files-native-qualification.mjs",
+    "build:release": "node scripts/build-release.mjs",
+    "staging": "node scripts/staging.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",

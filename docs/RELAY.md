@@ -263,3 +263,13 @@ other clients; this does **not** claim production throughput or RSS capacity.
 - Entitlement is still an allow-all hook until WP-36; relay is not an authorizer.
 - Binary packaging is WP-34/38; public staging and real-client/timeouts acceptance
   remain WP-38/32, not implied by green component tests.
+
+## WP-38 staging artifacts and WP-32 automatic acceptance
+
+[STAGING.md](STAGING.md) documents the non-root TLS container/compose, bounded
+metadata-only logging, explicit reset and release-identity artifact builder.
+[WP-32 acceptance](acceptance/WP-32-acceptance.md) maps the actual HTTPS/WSS SDK,
+OAuth, service, project, Chromium, approval and installed-L1 tests. Measured
+SDK/approval timeout precedence is recorded there, not inferred from constants.
+Public staging, live WorkOS and four external-cloud-client runs remain separate
+operational/manual criteria; these repository tests do not claim them complete.

@@ -1,0 +1,8 @@
+{
+  "id": "staging",
+  "issuer": "https://auth.staging.example.com",
+  "relayHost": "relay.staging.example.com",
+  "pairingClientId": "REPLACE_WITH_PUBLIC_PAIRING_CLIENT_ID",
+  "pairingRedirectPort": 0,
+  "pairingScope": "openid"
+}

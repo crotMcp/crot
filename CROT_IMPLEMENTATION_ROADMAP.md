@@ -293,7 +293,7 @@ Original observations N1/N2 below are retained as historical audit evidence, not
 | --- | --- | --- |
 | N1 | AD-18 and AD-19 (scope, residual risks, AD-19 point 10) still say "until L1 (WP-23)" / "L1 not available until WP-23". Since AD-20 / WP-23a the tray and `crot_status` report the real L1 state, and the residual risks are closed for confined Linux and qualified Windows children (AD-20/30). Original AD texts are preserved, with explicit current-scope cross-references | Windows current-scope cross-reference supplied by AD-30 and this docs reconciliation; macOS WP-23b still open |
 | N2 | Windows installer-shipped components are now known: owner-provisioned DLL/Node/manifest in AD-30. Source/CI delivery works; packaging/signing is WP-34. macOS shipping details await WP-23b | WP-34 explicitly depends on Windows WP-23c components, in addition to Linux WP-23a; no speculative macOS packaging decision |
-| N3 | WP-28 card scope lists "provider-side revocation"; AD-21 point 4 makes it best effort and forbids a provider client secret on devices, so the device cannot call the provider. WP-28 ships a hook reporting "not available"; the AD-21 point 4 (a) bound holds without it. Also: no release configuration pins an identity environment yet, so the development override (`CROT_IDENTITY_DEV_ENVIRONMENT`) is honoured by every build until it is pinned (AD-21 point 5) | WP-36 (provider-side revocation through the account service); WP-38/WP-39 pin the environment and WP-34 ships only pinned builds — release-gate item before G4 |
+| N3 | WP-28 card scope lists "provider-side revocation"; AD-21 point 4 makes it best effort and forbids a provider client secret on devices, so the device cannot call the provider. WP-28 ships a hook reporting "not available"; the AD-21 point 4 (a) bound holds without it. WP-38 now supplies a tested pinned release-artifact builder that ignores `CROT_IDENTITY_DEV_ENVIRONMENT`; plain development builds remain unpinned. Live staging/production identity approval and shipping only selected pinned artifacts remain release gates (AD-21 point 5) | WP-36 (provider-side revocation through the account service); WP-38/WP-39 pin the environment and WP-34 ships only pinned builds — release-gate item before G4 |
 | N4 | §6.2 forbade "work on … other post-v1 items" for every card. The expanded product goal (§2.7) schedules post-v1 milestones (phases 5–8) that may run in parallel; §6.2 now allows them only as their own WPs, after their OD/AD, without changing or blocking any release-blocking WP | this roadmap (§6.2 amended explicitly) |
 
 ### 2.7 Expanded product goal (reassessment)
@@ -468,8 +468,8 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-29 | 3 | Cloud Relay v1 | WP-28, OD-3/4/5 decided | XL | yes | with phase 1/2/2B | **Done in this PR**, not merged: configurable client/device/source/account limits, fresh signed deregistration, orphan-safe pairing compensation and real socket load/backpressure. Evidence: `docs/design/relay-wp29-completion.md` |
 | WP-30 | 3 | Device tunnel adapter | WP-20, WP-28, WP-29, OD-5 (decided: AD-22) | M–L | yes | — | **Done** (PR #20, merged): outbound `crot-tunnel.v1` with the WP-28 device credential, pinned relay host, refusals and reconnect; streams enter the unchanged relay entry point (tokens, ExecutionGuard, PermissionEngine, approvals, audit); multiplexing, streaming, cancellation, deadlines, loss without replay; registration at pairing (AD-22 point 4); OD-5 recorded in AD-22 points 12–13 (`37b3126`) and the §2.4/§19/§22/§25 status markers updated (`01f4a20`). WP-29 adds signed deregistration and recoverable pairing compensation; measured client timeouts (WP-32) |
 | WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a, WP-30, OD-7, AD-23 (WP-23b/c not a prerequisite: AD-23 point 7) | M | yes | — | **Done, merged** (PR #21, `9ce0574`; code verified at `9ca7b5b`, CI 11/11 green): AD-23 recorded (`69408c3`; point 4 wording `4a654f5`); remote defaults only for `REMOTE_DEFAULT_CAPABILITIES`, with a guard test; the end-to-end check of the real upload/download gates is WP-26 acceptance (AD-23 point 8), not claimed by WP-31 |
-| WP-38 | 3 | Staging cloud environment | WP-29, WP-28 | M | yes | with WP-30/31 | Not started |
-| WP-32 | 3 | Remote E2E acceptance suite and client compatibility | WP-24…WP-27, WP-30, WP-31, WP-38 | L | yes | — | Not started |
+| WP-38 | 3 | Staging cloud environment | WP-29, WP-28 | M | yes | with WP-30/31 | **Partial**: repository delivery implemented (`docs/STAGING.md`); public/live staging pending |
+| WP-32 | 3 | Remote E2E acceptance suite and client compatibility | WP-24…WP-27, WP-30, WP-31, WP-38 | L | yes | — | **Partial**: automatic TLS/SDK/project/Chromium/L1 suite implemented; ≥4 external-client compatibility runs pending |
 | WP-33 | 3 | External security review and fixes | WP-32, WP-34 (release-candidate build), WP-38 | M (+fix time) | yes | with WP-37 | Not started |
 | WP-34 | 4 | Installers, signing, updates, autostart, supply chain | WP-20, WP-22, WP-23a, WP-23b (AD-31 runtime), WP-23c (AD-30 component delivery) (L1 components, AD-20 point 3), WP-35 (IDs), OD-1, OD-10, OD-11 | L | yes | with phase 3 | Not started |
 | WP-35 | 4 | Extension publication | WP-24, WP-25, WP-26 (prep: now) | M | yes | early | Not started |
@@ -991,14 +991,21 @@ claimed by WP-31.
 
 #### WP-38 — Staging cloud environment (new)
 
+- **Status: Partial — repository deliverables implemented.** TLS container/compose,
+  fixed-scope lifecycle and verified health, metadata-only diagnostics, pinned
+  release identity artifact and automated TLS acceptance are implemented.
+  Public hosting/DNS, live WorkOS/RFC 9207 and external-client acceptance remain
+  operational/manual gates. See `docs/STAGING.md` and
+  `docs/acceptance/WP-32-acceptance.md`. No $0 test is claimed as public deployment.
+
 - **Objective:** a publicly reachable, production-like relay, IdP tenant and
   account/entitlement service for acceptance and security review.
 - **Why:** real remote clients run in the cloud and cannot reach a test relay
   on a developer machine (D6).
 - **Dependencies:** WP-28, WP-29; WP-36 hook stubbed until WP-36 lands.
-  WP-29 security/load completion is recorded in this PR; no criteria reassigned.
-  Live WorkOS, environment pinning, log inspection and external OAuth/tool run
-  remain unverified; RFC 9207 is still an open G4 condition.
+  WP-29 security/load completion is merged in PR #34; no criteria reassigned.
+  Environment-pinned artifacts and automatic TLS/log tests are implemented; live
+  WorkOS and external OAuth/tool runs remain unverified; RFC 9207 is still an open G4 condition.
 - **Scope:** TLS domain, deployment automation, secrets management, metadata-
   only logging, test accounts and devices, teardown/reset.
 - **Acceptance:** an external MCP client completes OAuth and calls a tool on a
@@ -1006,6 +1013,15 @@ claimed by WP-31.
 - **RB:** yes (enables WP-32/WP-33). **Parallel:** with WP-30, WP-31.
 
 #### WP-32 — Remote E2E acceptance suite and client compatibility
+
+- **Status: Partial — automatic suite implemented; external compatibility pending.**
+  Real SDK OAuth → HTTPS relay → WSS → CrotService → files/Git + real Chromium,
+  all three revisions × both presets, control-channel approvals, negative cases,
+  log canaries and measured timeout ordering. Installed x64 L1 jobs run the same
+  combined scenario with successful confined shell execution mandatory.
+  Root TLS/project tests run in the existing six OS/Node jobs. Four external
+  clients/live staging are not replaced by emulation. Evidence and manual matrix:
+  `docs/acceptance/WP-32-acceptance.md`.
 
 - **Objective:** prove the complete chain, client-independently (§14,
   AD-14 p.5).
@@ -1248,8 +1264,8 @@ WP-29 устранил инженерные relay-блокеры; само пу�
 | WP-25 / WP-27 | WP-24 Done; WP-19 Done | WP-27 **Done, merged PR #33**, unit/Chromium E2E; WP-25 headed/branded qualification остаётся открытой |
 | WP-26 | WP-24 и OD-8 | **Done**, merged PR #32; AD-33, native Linux/macOS/Windows Core file contour и реальные AD-23.8 E2E |
 | WP-23b | WP-21 Done; платформенное решение OD-9 принято AD-29 | Done: Seatbelt/Keychain, AD-31 и зафиксированная Node20/22 CI-квалификация; более широкая матрица не объявляется проверенной |
-| **WP-38 — следующий исполнительный WP** | WP-28 и WP-29 Done; WP-36 hook может быть stub | Public staging не проверен: TLS/deployment, live WorkOS, pin identity environment, payload-free logs и внешний OAuth/tool run. RFC 9207 — условие G4 или отдельный принятый AD |
-| WP-32 | **WP-24…WP-27, WP-30, WP-31, WP-38** | WP-30/31 Done, но browser acceptance и staging открыты. Нужны автоматический сквозной набор, ≥4 реальных remote клиентов × версии, macOS/Windows прогоны и измерение client timeouts; локальные тесты не подменяют staging |
+| **WP-38 — внешний операционный остаток** | WP-28 и WP-29 Done; WP-36 hook может быть stub | Repo deliverables (TLS deploy/lifecycle, pinned build, automatic payload-free OAuth/tool tests) реализованы; public staging/live WorkOS и внешний OAuth/tool run не подтверждены. RFC 9207 — условие G4 или отдельный принятый AD |
+| WP-32 | **WP-24…WP-27, WP-30, WP-31, WP-38** | WP-30/31 Done; automatic SDK/TLS/project/browser/L1 suite и timeout measurements реализованы. Публичный staging и ≥4 реальных remote клиентов × версии остаются открыты; CI не подменяет внешний прогон |
 | WP-35 / WP-34 / WP-33 | WP-35: WP-24/25/26, OD-10 store IDs; WP-34: сервис/Tray/L1 и WP-35; WP-33: WP-32 + RC от WP-34 + WP-38 | Возможна подготовка, но publication, подписанная поставка/autostart и независимое security review не объявляются выполненными |
 
 4. **Expanded goal (§2.7).** Post-v1 milestone work never displaces the

@@ -1,0 +1,11 @@
+# Allowlisted build context: no private deployment keys, workspace, .git or test data.
+**
+!package.json
+!package-lock.json
+!tsconfig.json
+!tsconfig.build.json
+!src/
+!src/**
+!deploy/
+!deploy/staging/
+!deploy/staging/Dockerfile

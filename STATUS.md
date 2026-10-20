@@ -5,6 +5,28 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
+## WP-32 automatic acceptance / WP-38 repository delivery
+
+Implemented the three-revision × two-preset remote SDK project/browser suite,
+real HTTPS/WSS OAuth/PKCE/JWKS fixture, authenticated control-channel approvals,
+negative authorization, log-canary assertions and measured timeout precedence.
+Native installed-L1 jobs require actual remote command execution; x64 also runs
+the complete Chromium scenario. Standard OS/Node jobs exercise the real TLS,
+service, filesystem and Git contour, not a claimed full cross-OS Chromium matrix.
+
+WP-38 repository artifacts include non-root TLS relay compose/container,
+fixed-project up/status/health/down/confirmed-reset and an actual pinned release
+identity builder which ignores the development override. Plain development
+builds remain unpinned. No live provider metadata is invented or approved here.
+
+**Overall WP-32 and WP-38 remain Partial:** public staging/live WorkOS/RFC 9207,
+operational deploy and ≥4 external remote-client runs remain release gates.
+Evidence, CI paths, timeout measurements and manual table:
+[WP-32 acceptance](docs/acceptance/WP-32-acceptance.md); operator instructions:
+[STAGING](docs/STAGING.md). This iteration requires no paid hosting or owner
+infrastructure action to complete its automatic scope. WP-29 is merged in PR #34
+(`11177b8`), not an outstanding prerequisite.
+
 ## WP-27 — Done, PR #33 слит (`ca6280a`)
 
 Обязательный explicit `tabId` для remote проверяется до authorize/bridge.
@@ -388,7 +410,7 @@ ARCHITECTURE.md §27 AD-21 with its implementation note). User docs:
   effect, older tokens refused); admission also checks the binding.
   Provider-side revocation from the tray is a hook reporting "not
   available" until WP-36.
-- **Environment:** no release environment is pinned (WP-38/WP-39); a
+- **Environment:** development builds are unpinned; WP-38 now supplies an explicit pinned-artifact builder; a
   development environment comes from `CROT_IDENTITY_DEV_ENVIRONMENT`, which
   every build honours until one is pinned (release-gate item, roadmap §2.6
   N3).
@@ -532,7 +554,7 @@ headed/branded квалификация WP-25 остаётся отдельно�
 | `secrets.store: "auto"` keeps the file fallback once chosen; switching needs `"os"` | AD-18 residual risk |
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
 | Revoking a client's authorization at the identity provider from the tray (best effort after the device-side revocation; hook exists, reports "not available") | WP-36 (CROT account service holds the provider credentials) |
-| No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); no release configuration pins an identity environment, so every build honours the development override until then | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
+| No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); WP-38 supplies pinned release artifacts that ignore the development override, but no live staging/production identity is approved by these emulated tests | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
 | Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side by WP-30 (PR #20, merged); AD-22 question 3 resolved by WP-29; other questions remain |
 | Device deregistration, re-pair and orphan registration | AD-22 question 3 resolved by WP-29: fresh signed removal, durable inactive registration intent/compensation; re-pair changes id/key (AD-21). Offline unpair remains locally effective even if relay cleanup fails |
 | Remote full-control opt-in: implemented per-principal effect, pairing-bound | Decided by AD-23 point 6 and AD-19 point 7 (`69408c3`); implemented in PR #21 (merged as `9ce0574`): bound to the device id and account of its pairing and kept across restarts |
