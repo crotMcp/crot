@@ -247,8 +247,8 @@ All paths end in the same Core pipeline; no path bypasses it.
 | Installer / packages | device | Linux, Windows, macOS installation | **[Target]**, v1 |
 | CROT Cloud Relay | cloud | secure connection between remote clients and device | **[Implemented]** WP-29 relay, limits/load and signed deregistration; WP-30 device tunnel and WP-31 remote profile implemented; WP-38 repo artifacts and automatic WP-32 suite implemented; public staging/manual compatibility pending |
 | Identity provider (third party) | cloud | token issuer, behind the verifier seam | **[Partial]** WorkOS selected AD-21, device verifier/pairing WP-28 implemented with emulated tests; live staging/production unverified (WP-38/39) |
-| Account & Commercial service | cloud | accounts, subscriptions, plans, licensing, entitlements, device limits | **[Target]** (v1: entitlements checked at the relay only, AD-13) |
-| User / device / account | identities | see §20 | **[Partial]** local and verified remote principals, device binding implemented WP-28; cloud account service WP-36 pending |
+| Account & Commercial service | cloud | accounts, subscriptions, plans, licensing, entitlements, device limits | **[Implemented]** WP-36 / AD-34: cloud accounts, signed billing, portal, entitlements and device limits; live provider/deployment qualification remains WP-39 |
+| User / device / account | identities | see §20 | **[Partial]** local and verified remote principals, device binding implemented WP-28; cloud account service and lost-device revocation implemented WP-36; live provider/deployment pending |
 
 ## 3. CROT Core
 
@@ -707,8 +707,8 @@ Approximate order (status in brackets):
 11. Browser Extension                             [Implemented]
 12. Unified browser + PC workflows                [Partial: building blocks implemented]
 13. Installer                                     [Target, §24]
-14. Authentication/authorization hardening        [Partial: device verifier/pairing WP-28; live IdP/account service pending, §20]
-15. Commercial account/licensing layer            [Target, §23]
+14. Authentication/authorization hardening        [Partial: WP-28 device + WP-36 cloud account implemented; live IdP pending, §20]
+15. Commercial account/licensing layer            [Implemented WP-36 / AD-34; live operations pending, §23]
 ```
 
 Further target work. The v1 scope is fixed by §27 AD-13 and AD-14: items
@@ -831,9 +831,11 @@ audit event), the replaceable `AccessTokenVerifier` seam and, since WP-28
 device: the OAuth access-token verifier of the relay entry point, device
 identity (device id and Ed25519 device credential), pairing from the tray,
 unpairing and re-grant of revoked clients. **[Target]**: the staging and
-production identity environments (WP-38, WP-39), provider-side revocation
-from the tray (needs the CROT account service, WP-36), accounts, plans and
-device management in the cloud (WP-36). The device tunnel is **[Implemented]**
+production identity environments (WP-38, WP-39). **[Implemented]** WP-36 /
+AD-34: cloud accounts/plans, account portal and device/client API, lost-device
+revocation, cloud-only signed billing and best-effort WorkOS session revocation
+from the tray (only observed verified sid values, no device provider secret).
+Live WorkOS/Stripe qualification is not claimed. The device tunnel is **[Implemented]**
 (WP-30); its public deployment/acceptance is not. The Cloud
 Relay v1 (WP-29, §27 AD-22) checks the same tokens at its entry point.
 
@@ -984,7 +986,8 @@ Boundaries:
 
 ## 23. Commercial Layer
 
-**[Target]** — not implemented.
+**[Implemented]** WP-36 / AD-34 (repository scope; live commercial operation
+not qualified). Local / Free is permanently offline and accountless.
 
 A separate Account & Commercial service (cloud) owns accounts, subscriptions,
 plans, licensing, entitlements, device limits and access to cloud features.
@@ -1000,6 +1003,11 @@ Boundaries:
   without an active subscription.
 - **Data.** The commercial service never receives computer, browser or
   workspace contents.
+
+Implementation/API/deployment and acceptance boundaries: [`docs/ACCOUNTS.md`](docs/ACCOUNTS.md).
+Trial is 14 days / 2 devices; Pro 5; Team 20. Active/unexpired is required for
+remote admission. Lost-device tombstones remove registration/key, close 4403,
+and suppress PRM. Local stdio/loopback never depend on subscription state.
 
 ## 24. Installable Application
 
@@ -1052,10 +1060,10 @@ The tray app is a UI; control logic stays in Core/service.
 | External MCP gateway / MCP client | **[Target]** (post-v1, AD-13) |
 | User confirmations | **[Implemented]** (mechanism: WP-15, §27 AD-5…AD-11; tray provider and preset selection: WP-22, §27 AD-19); *Autonomous browser* preset and remote profile **[Implemented]** (WP-31); actual upload/download gate E2E verified in WP-26 (AD-23.8) |
 | Untrusted-content exposure (prompt-injection mitigation) | **[Implemented]** (WP-16b, §27 AD-12) |
-| OAuth/OIDC identity, accounts, device binding | Provider, claim model, revocation model and device resource URI decided (§27 AD-21: WorkOS AuthKit); device side **[Implemented]** (WP-28: verifier, pairing, device id and credential, unpair, re-grant; development environment only); staging/production environments **[Target]** (WP-38, WP-39); provider-side revocation and accounts **[Target]** (WP-36) |
+| OAuth/OIDC identity, accounts, device binding | Provider, claim model, revocation model and device resource URI decided (§27 AD-21: WorkOS AuthKit); device side **[Implemented]** (WP-28: verifier, pairing, device id and credential, unpair, re-grant; development environment only); staging/production environments **[Target]** (WP-38, WP-39); provider-side revocation, accounts and lost-device portal **[Implemented]** (WP-36 / AD-34; live provider unqualified) |
 | Remote mode, Cloud Relay | Device-side remote switch, client list, reset and revocation **[Implemented]** (WP-22, §27 AD-19); Cloud Relay v1 and the relay side of the tunnel **[Implemented]** (WP-29, §27 AD-22; limits, signed deregistration and load/backpressure verified); device tunnel: device side **[Implemented]** (WP-30, §27 AD-22, [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)); deployment WP-38/WP-39 **[Target]** |
 | Command confinement L1 (Linux, macOS, Windows) | Linux **[Implemented]** (WP-23a, §27 AD-20; Ubuntu 22.04/24.04, x86_64/arm64; components installed by `scripts/l1-install.sh` until WP-34 packages them); Windows **[Implemented]** (WP-23c, AD-30; Server2025 x64 Node20/22); macOS **[Implemented]** (WP-23b, AD-31; exact CI scope in macOS report) |
-| Commercial layer: subscriptions, plans, licensing, entitlements | **[Target]** (v1: entitlements at the relay only, AD-13) |
+| Commercial layer: subscriptions, plans, licensing, entitlements | **[Implemented]** WP-36 / AD-34: Free/Trial/Pro/Team, signed Stripe adapter, portal/device management and real relay admission; live merchant/operations unqualified |
 | Supervised local service, thin stdio shim, local control channel | **[Implemented]** (WP-20, §27 AD-17) |
 | CROT secrets in OS secret storage, child-process environment allowlist | **[Implemented]** (WP-21, §27 AD-18); OS-level protection against unconfined children: Linux **[Implemented]** (L1, WP-23a, §27 AD-20), Windows **[Implemented]** (WP-23c, AD-30); macOS **[Implemented]** (WP-23b, AD-31; exact CI scope in macOS report) |
 | Tray app v1 (approvals, device controls, status) | **[Implemented]** (WP-22, §27 AD-19); same-user processes can act like the tray until L1 (Linux: closed for confined children by WP-23a; qualified Windows: closed by WP-23c, AD-30; macOS: closed for admitted children by WP-23b/AD-31) |
@@ -4504,9 +4512,9 @@ none of which relaxes this decision:
 - *Revocation (point 4).* (a) re-grant is audited first and persisted before
   it takes effect; tokens with `iat` not after the re-grant's second are
   refused (401 `invalid_token`). (b) unpairing is immediate and removes the
-  device key. The tray's best-effort provider-side revocation is a hook that
-  reports "not available" until the CROT account service holds the provider
-  credentials (WP-36); (c) and (d) keep the bound of point 4.
+  device key. WP-36 now connects the tray hook to server-only WorkOS session
+  revocation for observed verified sid metadata; no sid/credentials/offline
+  reports not_available/failed rather than success (AD-34); (c) and (d) keep the bound of point 4.
 
 
 ### AD-22. Relay–device tunnel v1: one outbound WebSocket per device carries multiplexed, unmodified HTTP exchanges with credit-based flow control; every request is bounded in size and time; cancellation and lost responses are explicit; the relay never executes (WP-29/WP-30 preparation; decides roadmap OD-4 and OD-5, §26 question 13)
@@ -5127,7 +5135,8 @@ liveness/draining, deadlines and explicit outcomes remain unchanged.
   plus 48 data-bearing exchanges from eight others; credit window and cleanup
   assertions. This is deterministic isolation qualification, not an RSS/capacity
   benchmark or evidence of a deployed production service.
-- Later packages remain explicit: entitlement default stub WP-36, single-instance
+- WP-36 replaced the historical entitlement stub with real AccountService
+  admission (AD-34). Later packages remain explicit: single-instance
   file registry/multi-instance WP-39, public staging WP-38 and real-client/timeouts
   WP-32; no CORS/OPTIONS or in-place key replacement is added here.
 
@@ -6198,7 +6207,7 @@ WP-27 multi-agent work, full browser/OS qualification or release gates.
 
 ### AD-34 — WP-36: commercial admission, compatibility and diagnostics (OD-11/12/13)
 
-**Approved contract, implementation follows in WP-36.** Local/Free is offline,
+**Approved and implemented in WP-36 (PR #36).** Local/Free is offline,
 accountless and unlimited by commercial state. No entitlement enters Core,
 ExecutionGuard or PermissionEngine. Only the relay and AccountService enforce
 remote admission. Plans: free=0 devices/no remote; trial=14 days/2 devices;
@@ -6215,7 +6224,9 @@ bodies, URLs, file paths or browser data to AccountService.
 BillingProvider is cloud-only. The first concrete adapter is Stripe hosted
 checkout and raw-body timestamped HMAC-SHA256 subscription webhooks; provider
 price IDs and secrets are operator configuration, never device configuration.
-Webhook event IDs are idempotent and per-subscription ordering is monotonic;
+Webhook event IDs are idempotent; serialized authoritative provider reads
+resolve reordered events to current state, retired subscription ids cannot
+reactivate or change account owners;
 unknown/ambiguous events cannot grant access. No card data enters CROT. Portal
 APIs require verified owner OAuth tokens with a distinct account audience and
 client allowlist; device-scoped MCP tokens are not portal credentials. Provider
