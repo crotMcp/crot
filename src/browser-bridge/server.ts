@@ -421,7 +421,9 @@ export class BrowserBridge implements BrowserConnection {
           if (phase === "auth") {
             const auth = parseRelayAuth(message);
             if (auth.protocol !== BRIDGE_PROTOCOL_VERSION)
-              throw new BrowserProtocolError("Unsupported relay protocol version " + auth.protocol + ".");
+              throw new BrowserProtocolError(
+                "Update required: unsupported relay protocol version " + auth.protocol + ".",
+              );
             if (!tokensEqual(auth.token, this.token)) {
               refuse("invalid bridge token");
               return;
@@ -431,7 +433,9 @@ export class BrowserBridge implements BrowserConnection {
             const hello = parseBrowserMessage(message);
             if (hello.type !== "hello") throw new BrowserProtocolError("Expected hello.");
             if (hello.protocol !== BRIDGE_PROTOCOL_VERSION)
-              throw new BrowserProtocolError("Unsupported extension protocol version " + hello.protocol + ".");
+              throw new BrowserProtocolError(
+                "Update required: unsupported extension protocol version " + hello.protocol + ".",
+              );
             if (this.extension) {
               refuse("a browser extension is already connected");
               return;

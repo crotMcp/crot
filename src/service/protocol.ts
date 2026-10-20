@@ -195,7 +195,18 @@ export interface PairingView {
 }
 
 /** Result of `overview` and payload of `state.changed` (AD-19 point 10). */
+export interface CommercialStatus {
+  readonly state: "current" | "unknown";
+  readonly plan?: "free" | "trial" | "pro" | "team";
+  readonly status?: "active" | "past_due" | "canceled" | "expired";
+  readonly entitled?: boolean;
+  readonly deviceCount?: number;
+  readonly maxDevices?: number;
+  readonly checkedAt?: number;
+}
 export interface ControlOverview {
+  /** Informational cloud metadata; never local authorization. Offline is unknown, not denied. */
+  readonly commercial?: CommercialStatus;
   readonly service: {
     readonly state: ServiceStatus["state"];
     readonly pid: number;

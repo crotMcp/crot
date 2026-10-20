@@ -108,3 +108,56 @@ export function verifyDeregistrationProof(
     return false;
   }
 }
+
+export type ManagementAction = "account_status" | "revoke_client";
+function managementMessage(
+  deviceId: string,
+  host: string,
+  action: ManagementAction,
+  clientId: string,
+  challenge: Uint8Array,
+): Buffer {
+  if (
+    !["account_status", "revoke_client"].includes(action) ||
+    challenge.byteLength !== 32 ||
+    clientId.includes("\0") ||
+    clientId.length > 512 ||
+    (action === "account_status" && clientId !== "") ||
+    (action === "revoke_client" && clientId === "")
+  )
+    throw new Error("invalid management challenge");
+  return Buffer.concat([
+    Buffer.from(`crot-device-management-v1\0${deviceId}\0${host}\0${action}\0${clientId}\0`),
+    Buffer.from(challenge),
+  ]);
+}
+export function signManagementProof(
+  key: KeyObject,
+  deviceId: string,
+  host: string,
+  action: ManagementAction,
+  clientId: string,
+  challenge: Uint8Array,
+): Buffer {
+  return sign(null, managementMessage(deviceId, host, action, clientId, challenge), key);
+}
+export function verifyManagementProof(
+  key: DevicePublicKey,
+  deviceId: string,
+  host: string,
+  action: ManagementAction,
+  clientId: string,
+  challenge: Uint8Array,
+  proof: Uint8Array,
+): boolean {
+  try {
+    return verify(
+      null,
+      managementMessage(deviceId, host, action, clientId, challenge),
+      createPublicKey({ key: { ...key }, format: "jwk" }),
+      proof,
+    );
+  } catch {
+    return false;
+  }
+}

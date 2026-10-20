@@ -188,7 +188,7 @@ describe("tunnel handshake (AD-22 points 3, 10, 14)", () => {
       expect(device.ws.protocol).toBe(protocols[0] === "crot-tunnel.v2" ? "crot-tunnel.v2" : undefined);
       expect(await device.whenClosed()).toEqual({
         code: CloseCode.UNSUPPORTED_VERSION,
-        reason: "unsupported_version;supported=v1",
+        reason: "update required;supported=v1",
       });
       expect(device.frames).toHaveLength(0);
     }

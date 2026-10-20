@@ -37,6 +37,7 @@ export interface IdentityHttp {
    * a client without it cannot register, so pairing fails closed.
    */
   postJsonWithBearer?(url: string, bearer: string, body: unknown): Promise<{ status: number }>;
+  postJsonDocument?(url: string, body: unknown): Promise<{ status: number; body: unknown }>;
   /** Bounded JSON POST without bearer: fresh signed deregistration only. */
   postJson?(url: string, body: unknown): Promise<{ status: number }>;
 }
@@ -125,6 +126,21 @@ export function createIdentityHttp(options: IdentityHttpOptions = {}): IdentityH
         body = undefined;
       }
       return { status: response.status, body };
+    },
+    async postJsonDocument(url, body) {
+      const response = await request(url, {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const text = await readLimited(response, maxBytes);
+      let value: unknown;
+      try {
+        value = JSON.parse(text);
+      } catch {
+        value = undefined;
+      }
+      return { status: response.status, body: value };
     },
     async postJson(url, body) {
       const response = await request(url, {

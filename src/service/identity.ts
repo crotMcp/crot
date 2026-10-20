@@ -1,3 +1,5 @@
+import type { CommercialStatus } from "./protocol.js";
+import type { RemoteClientKey } from "../adapters/http/server.js";
 /**
  * The device's identity runtime in the service (ARCHITECTURE.md §27, AD-21;
  * WP-28): the identity environment of this process, the issuer's keys, the
@@ -205,6 +207,86 @@ export class DeviceIdentity {
       if (credential && !(await deregisterDeviceAtRelay(this.http, credential)))
         this.options.log("identity: best-effort relay deregistration unavailable; local device remains unpaired");
     };
+  }
+
+  private commercialCache: { deviceId: string; view: CommercialStatus } | undefined;
+  private commercialAttempt = 0;
+  private commercialPending = false;
+  commercialStatus(): CommercialStatus {
+    const paired = this.pairedHere();
+    if (!paired) return { state: "unknown" };
+    const now = (this.options.now ?? Date.now)();
+    if (!this.commercialPending && now - this.commercialAttempt > 60_000) {
+      this.commercialAttempt = now;
+      this.commercialPending = true;
+      void this.refreshCommercial().finally(() => {
+        this.commercialPending = false;
+      });
+    }
+    const cached = this.commercialCache;
+    return cached?.deviceId === paired.deviceId && now - (cached.view.checkedAt ?? 0) <= 120_000
+      ? cached.view
+      : { state: "unknown" };
+  }
+  private async management(action: "account_status" | "revoke_client", clientId = ""): Promise<unknown> {
+    const credential = this.options.binding.managementCredential();
+    if (!credential || !this.pairedHere() || !this.http.postJsonDocument)
+      throw new Error("cloud management unavailable");
+    const url =
+      `https://${credential.relayHost}/d/${credential.deviceId}/` +
+      (action === "account_status" ? "account" : `clients/${encodeURIComponent(clientId)}/revoke`);
+    const pending = (await this.http.getJson(url)) as { challenge?: unknown };
+    if (typeof pending?.challenge !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(pending.challenge))
+      throw new Error("invalid management challenge");
+    const proof = credential.prove(action, clientId, Buffer.from(pending.challenge, "base64url")).toString("base64url");
+    const result = await this.http.postJsonDocument(url, { challenge: pending.challenge, proof });
+    if (result.status !== 200 || this.pairedHere()?.deviceId !== credential.deviceId)
+      throw new Error("cloud management refused");
+    return result.body;
+  }
+  async refreshCommercial(): Promise<void> {
+    const id = this.pairedHere()?.deviceId;
+    try {
+      const v = (await this.management("account_status")) as Record<string, unknown>;
+      if (
+        !v ||
+        !["free", "trial", "pro", "team"].includes(String(v.plan)) ||
+        !["active", "past_due", "canceled", "expired"].includes(String(v.status)) ||
+        typeof v.entitled !== "boolean" ||
+        !Number.isSafeInteger(v.deviceCount) ||
+        !Number.isSafeInteger(v.maxDevices)
+      )
+        throw new Error("invalid commercial metadata");
+      if (id && this.pairedHere()?.deviceId === id)
+        this.commercialCache = {
+          deviceId: id,
+          view: {
+            state: "current",
+            plan: v.plan as NonNullable<CommercialStatus["plan"]>,
+            status: v.status as NonNullable<CommercialStatus["status"]>,
+            entitled: v.entitled,
+            deviceCount: v.deviceCount as number,
+            maxDevices: v.maxDevices as number,
+            checkedAt: (this.options.now ?? Date.now)(),
+          },
+        };
+    } catch {
+      this.commercialCache = undefined;
+    }
+  }
+  async revokeProvider(client: RemoteClientKey): Promise<"requested" | "failed" | "not_available"> {
+    const paired = this.pairedHere();
+    if (!paired || client.deviceId !== paired.deviceId || client.accountId !== paired.accountId) return "not_available";
+    try {
+      const value = (await this.management("revoke_client", client.clientId)) as { provider?: unknown };
+      return value?.provider === "requested"
+        ? "requested"
+        : value?.provider === "not_available"
+          ? "not_available"
+          : "failed";
+    } catch {
+      return "failed";
+    }
   }
 
   cancelPairing(): boolean {

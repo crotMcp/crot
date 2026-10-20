@@ -16,6 +16,11 @@
  * pairing (AD-22 point 4), the tunnel endpoint (AD-22 points 2–3) and a
  * minimal health check.
  */
+import type { AuthorizationServerMetadata } from "../identity/authorization-server.js";
+import { AccountService } from "../account-service/service.js";
+import { AccountHttp } from "../account-service/http.js";
+import type { BillingProvider } from "../account-service/billing.js";
+import { versionAtLeast } from "./versions.js";
 import { randomBytes } from "node:crypto";
 import { WindowCounter, relayLimits, type RelayLimits, type RateLimit } from "./limits.js";
 export type { RateLimit } from "./limits.js";
@@ -95,8 +100,14 @@ export interface CloudRelayOptions {
   /** The issuer's signing keys, fetched directly from the issuer (AD-21 point 7). */
   readonly keys: SigningKeySource;
   readonly registry: DeviceRegistry;
-  /** Entitlement hook (WP-36); default: every registered device is entitled. */
+  /** Explicit transport-test admission seam. Production uses AccountService, default Free/denied. */
   readonly entitlement?: (record: DeviceRecord) => Entitlement | Promise<Entitlement>;
+  readonly accounts?: AccountService;
+  readonly billing?: BillingProvider;
+  readonly portalClientIds?: readonly string[];
+  readonly portalMetadata?: () => Promise<AuthorizationServerMetadata>;
+  readonly minimumDeviceVersion?: string;
+  readonly minimumClientVersion?: string;
   readonly log?: RelayLogger;
   readonly now?: () => number;
   /** Exchange deadline (AD-22 point 12): at least 60 s in a relay configuration (`parseRelayConfig`). */
@@ -265,6 +276,11 @@ export class CloudRelay {
   private readonly removalChallenges = new Map<string, { record: DeviceRecord; expires: number }>();
   private readonly authenticatedRecords = new WeakMap<RelayTunnel, DeviceRecord>();
 
+  readonly accounts: AccountService;
+  private readonly accountHttp: AccountHttp;
+  private readonly stopAccounts: () => void;
+  private readonly expiryTimer: NodeJS.Timeout;
+
   constructor(private readonly options: CloudRelayOptions) {
     if (!isRelayHost(options.relayHost)) throw new Error("relayHost must be a lowercase DNS name");
     if (!isClientId(options.pairingClientId)) throw new Error("pairingClientId must be a non-empty client id");
@@ -289,6 +305,25 @@ export class CloudRelay {
     this.discardBodyMs = options.discardBodyMs ?? DISCARD_BODY_MS;
     this.handshakes = new WindowCounter(options.handshakeRate ?? { max: 30, windowMs: 60_000 }, this.now);
     this.supersessions = new WindowCounter(options.supersessionRate ?? { max: 10, windowMs: 3_600_000 }, this.now);
+    this.accounts = options.accounts ?? new AccountService({ now: this.now });
+    this.stopAccounts = this.accounts.onChange(() => this.enforceEntitlements());
+    this.expiryTimer = setInterval(() => this.enforceEntitlements(), 1000);
+    this.expiryTimer.unref();
+    this.accountHttp = new AccountHttp({
+      accounts: this.accounts,
+      billing: options.billing,
+      host: options.relayHost,
+      issuer: options.issuer,
+      keys: options.keys,
+      portalClientIds: options.portalClientIds,
+      portalMetadata: options.portalMetadata,
+      now: this.now,
+      record: (id) => options.registry.get(id),
+      online: (id) => this.isOnline(id),
+      revoke: (record) => this.revokeRegistration(record),
+      discard: (req) => this.discard(req),
+      log: (status, code) => this.log({ event: "account.request", status, code }),
+    });
   }
 
   /** Listen (HTTPS when `tls` is given; plain HTTP behind a TLS-terminating load balancer otherwise). */
@@ -373,6 +408,8 @@ export class CloudRelay {
   /** GOAWAY `shutting_down` to every tunnel, drain up to the drain limit, then stop. */
   async close(): Promise<void> {
     this.closing = true;
+    clearInterval(this.expiryTimer);
+    this.stopAccounts();
     const server = this.server;
     server?.close();
     for (const t of [...this.tunnels]) t.goAway("shutting_down");
@@ -400,6 +437,7 @@ export class CloudRelay {
     const target = req.url ?? "";
     const q = target.indexOf("?");
     const pathname = q === -1 ? target : target.slice(0, q);
+    if (await this.accountHttp.handle(req, res, pathname)) return;
     let m: RegExpExecArray | null;
     if ((m = MCP_PATH.exec(pathname))) return this.exchange(req, res, m[1]!);
     if ((m = PRM_PATH.exec(pathname))) return this.metadata(req, res, m[1]!);
@@ -431,7 +469,8 @@ export class CloudRelay {
   }
 
   private async record(deviceId: string): Promise<DeviceRecord | undefined> {
-    return isDeviceId(deviceId) ? this.options.registry.get(deviceId) : undefined;
+    const record = isDeviceId(deviceId) ? await this.options.registry.get(deviceId) : undefined;
+    return record && this.accounts.deviceState(record.accountId, deviceId) !== "device_revoked" ? record : undefined;
   }
 
   /** PRM (AD-21 point 6): only for registered devices. */
@@ -475,7 +514,11 @@ export class CloudRelay {
   }
 
   private async entitled(record: DeviceRecord): Promise<Entitlement> {
-    return this.options.entitlement ? this.options.entitlement(record) : "entitled";
+    return this.options.entitlement
+      ? this.options.entitlement(record)
+      : this.accounts.deviceState(record.accountId, record.deviceId) === "entitled"
+        ? "entitled"
+        : "not_entitled";
   }
 
   /** Device registration at pairing (AD-22 point 4). */
@@ -488,7 +531,11 @@ export class CloudRelay {
       this.discard(req);
       this.log({ event: "device.register", deviceId, status, code });
       const text = JSON.stringify(body);
-      res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+      res.writeHead(status, {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+        ...(status >= 400 ? { [OUTCOME_HEADER]: "not_executed" } : {}),
+      });
       res.end(text);
     };
     const token = bearerToken(req);
@@ -533,8 +580,17 @@ export class CloudRelay {
       environment: this.options.environment,
       registeredAt: new Date(this.now()).toISOString(),
     };
-    const result = await this.options.registry.register(record);
+    const result = this.options.entitlement
+      ? await this.options.registry.register(record)
+      : await this.accounts.register(record.accountId, deviceId, () => this.options.registry.register(record));
+    if (["entitlement_required", "device_limit_reached", "device_revoked"].includes(result))
+      return respond(403, result, { error: result });
     if (result === "conflict") return respond(409, "conflict", { error: "already_registered" });
+    if (!this.options.entitlement && this.accounts.deviceState(record.accountId, deviceId) === "device_revoked") {
+      const revoked = await this.options.registry.get(deviceId);
+      if (revoked?.accountId === record.accountId) await this.revokeRegistration(revoked);
+      return respond(403, "device_revoked", { error: "device_revoked" });
+    }
     const stored = (await this.options.registry.get(deviceId))!;
     return respond(result === "created" ? 201 : 200, result, { deviceId, registeredAt: stored.registeredAt });
   }
@@ -608,7 +664,9 @@ export class CloudRelay {
         message: "Invalid removal proof",
       });
     this.removalChallenges.delete(value.challenge);
+    if (!this.options.entitlement) await this.accounts.revoke(record.accountId, deviceId);
     if (!(await this.options.registry.remove(record))) return writeRefusal(res, REFUSALS.not_found);
+    void this.accounts.revokeProvider(record.accountId, deviceId);
     this.revokedRecords.add(record);
     for (const t of this.tunnels) if (t.deviceId === deviceId) t.terminate(CloseCode.GOING_AWAY, "unpaired");
     this.routes.delete(deviceId);
@@ -662,6 +720,12 @@ export class CloudRelay {
       this.log({ ...summary, status: 401, outcome: "not_executed", code: "invalid_token" });
       return this.unauthorized(res, deviceId, true);
     }
+    if ((await this.entitled(record)) !== "entitled") return refuse(REFUSALS.not_entitled);
+    if (!versionAtLeast(req.headers["crot-client-version"], this.options.minimumClientVersion))
+      return refuse({ status: 426, code: "update_required", outcome: "not_executed", message: "Update required" });
+    if (!this.options.entitlement)
+      await this.accounts.noteClient(record.accountId, deviceId, checked.token.clientId, checked.token.sessionId);
+    // Persistence above can yield to a concurrent downgrade; admission is rechecked immediately before forwarding.
     if ((await this.entitled(record)) !== "entitled") return refuse(REFUSALS.not_entitled);
     if (req.destroyed || res.destroyed) return;
     const admissionTunnel = this.routes.get(deviceId);
@@ -842,7 +906,11 @@ export class CloudRelay {
     // connection (one HELLO) and by the concurrent-handshake limit.
     const wait = this.handshakes.take(hello.deviceId);
     if (wait !== undefined) return refuse(CloseCode.RATE_LIMITED, `rate_limited;retryAfterMs=${wait}`);
-    if ((await this.entitled(record)) !== "entitled") return refuse(CloseCode.FORBIDDEN, "forbidden");
+    if (this.accounts.deviceState(record.accountId, hello.deviceId) === "device_revoked")
+      return refuse(CloseCode.FORBIDDEN, "device_revoked");
+    if ((await this.entitled(record)) !== "entitled") return refuse(CloseCode.FORBIDDEN, "not_entitled");
+    if (!versionAtLeast(hello.software?.replace(/^crot\//, ""), this.options.minimumDeviceVersion))
+      return refuse(CloseCode.UNSUPPORTED_VERSION, "update required");
     if (this.closing) return refuse(CloseCode.GOING_AWAY, "shutting_down");
     const current = this.routes.get(hello.deviceId);
     if (current && current.routable && this.supersessions.full(hello.deviceId)) {
@@ -853,11 +921,39 @@ export class CloudRelay {
     return { ok: true, features: [] };
   }
 
+  private enforceEntitlements(): void {
+    if (this.options.entitlement) return;
+    for (const tunnel of this.tunnels) {
+      const record = this.authenticatedRecords.get(tunnel);
+      if (!record) continue;
+      const state = this.accounts.deviceState(record.accountId, record.deviceId);
+      if (state !== "entitled") {
+        this.routes.delete(record.deviceId);
+        tunnel.terminate(CloseCode.FORBIDDEN, state);
+      }
+    }
+  }
+  private async revokeRegistration(record: DeviceRecord): Promise<void> {
+    this.revokedRecords.add(record);
+    for (const tunnel of this.tunnels)
+      if (tunnel.deviceId === record.deviceId) tunnel.terminate(CloseCode.FORBIDDEN, "device_revoked");
+    this.routes.delete(record.deviceId);
+    await this.options.registry.remove(record);
+  }
+
   private onReady(tunnel: RelayTunnel): void {
     const deviceId = tunnel.deviceId!;
     // A deregistration can finish while asynchronous entitlement/proof admission is pending.
     if (this.revokedRecords.has(this.authenticatedRecords.get(tunnel)!)) {
       tunnel.terminate(CloseCode.UNAUTHORIZED, "unpaired");
+      return;
+    }
+    const record = this.authenticatedRecords.get(tunnel);
+    if (
+      !this.options.entitlement &&
+      (!record || this.accounts.deviceState(record.accountId, deviceId) !== "entitled")
+    ) {
+      tunnel.terminate(CloseCode.FORBIDDEN, "not_entitled");
       return;
     }
     const previous = this.routes.get(deviceId);

@@ -33,6 +33,8 @@ export class RelayHarness {
       environment: "test",
       keys: new IssuerKeySet({ issuer: this.as.issuer, http: this.as.http() }),
       registry: this.registry,
+      // Explicit transport-only fixture; commercial admission has separate integration coverage.
+      ...(!options.accounts ? { entitlement: () => "entitled" as const } : {}),
       log: (r) => this.logs.push(r),
       ...options,
     });

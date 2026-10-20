@@ -20,8 +20,8 @@
  * by the relay entry point's admission (403 before MCP or Core). There is no
  * per-request call to the provider or the relay.
  *
- * Only `iss`, `aud`, `sub`, `client_id` and the time claims are trusted, and
- * only after the signature check. `scope`, `sid`, `jti`, `org_id`, roles,
+ * Only `iss`, `aud`, `sub`, `client_id` and the time claims reach device authorization. A verified AuthKit `sid` may be used only by the cloud for best-effort provider revocation. All are trusted only
+ * after the signature check. `scope`, `sid`, `jti`, `org_id`, roles,
  * profile claims and anything else in the token never reach the principal:
  * token contents never grant capabilities (AD-15 point 4). The token itself
  * is never logged; rejections are reported by reason code only.
@@ -76,6 +76,8 @@ export interface VerifiedToken {
   readonly audience: string;
   readonly issuedAt: number;
   readonly expiresAt: number;
+  /** Cloud-only provider revocation metadata; never copied into the principal. */
+  readonly sessionId?: string;
 }
 
 export type TokenCheck =
@@ -120,7 +122,14 @@ export async function checkAccessToken(
   if (!validId(c.client_id)) return { ok: false, reason: "client_id" };
   return {
     ok: true,
-    token: { subject: c.sub, clientId: c.client_id, audience: aud, issuedAt: c.iat, expiresAt: c.exp },
+    token: {
+      subject: c.sub,
+      clientId: c.client_id,
+      audience: aud,
+      issuedAt: c.iat,
+      expiresAt: c.exp,
+      ...(typeof c.sid === "string" && /^session_[A-Za-z0-9]+$/.test(c.sid) ? { sessionId: c.sid } : {}),
+    },
   };
 }
 

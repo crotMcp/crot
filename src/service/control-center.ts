@@ -932,6 +932,7 @@ export class ControlCenter implements RemoteAdmission {
     const browser = this.host.browserState();
     const blockedBy = this.host.holder.busyReason();
     return {
+      commercial: this.host.identity.commercialStatus(),
       service: {
         state: status.state,
         pid: status.pid,

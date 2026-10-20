@@ -1,3 +1,4 @@
+import { AccountService } from "../../src/account-service/service.js";
 /** WP-32: real HTTPS sockets, OAuth issuance, relay, WSS tunnel and CrotService. Only the IdP is emulated. */
 import "./ci-diagnostics.js";
 import { execFileSync } from "node:child_process";
@@ -107,7 +108,10 @@ export class RemoteAcceptance {
     });
     await new Promise<void>((r) => this.server.listen(0, "127.0.0.1", r));
     this.authPort = (this.server.address() as { port: number }).port;
+    const accounts = new AccountService();
+    await accounts.startTrial("user_01");
     this.relay = new CloudRelay({
+      accounts,
       relayHost: TEST_RELAY,
       issuer: this.as.issuer,
       pairingClientId: PAIRING_CLIENT,

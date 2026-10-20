@@ -82,7 +82,7 @@ describe("frame codec", () => {
     expect(offeredMajors("crot-tunnel.v1, crot-tunnel.v12, chat, crot-tunnel.v0")).toEqual(["v1", "v12"]);
     expect(selectMajor(["v1", "v3", "v2"], ["v1", "v2"])).toBe("v2");
     expect(selectMajor(["v3"], ["v1"])).toBeUndefined();
-    expect(unsupportedVersionReason(["v1", "v2"])).toBe("unsupported_version;supported=v1,v2");
+    expect(unsupportedVersionReason(["v1", "v2"])).toBe("update required;supported=v1,v2");
   });
 });
 

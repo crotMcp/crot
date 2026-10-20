@@ -1,3 +1,4 @@
+import { signManagementProof, type ManagementAction } from "../identity/device-credential.js";
 /**
  * Device binding (ARCHITECTURE.md §27, AD-21 points 4 and 5; WP-28): which
  * account this device is paired with, its device id and the identity
@@ -208,6 +209,24 @@ export class DeviceBindingStore {
   async clearRegistration(): Promise<void> {
     await rm(this.file + ".registration", { force: true });
     if (!this.paired) await this.secrets.backend.delete("device-key");
+  }
+  managementCredential():
+    | {
+        deviceId: string;
+        relayHost: string;
+        prove: (action: ManagementAction, clientId: string, challenge: Uint8Array) => Buffer;
+      }
+    | undefined {
+    const paired = this.paired,
+      key = this.key;
+    if (!paired || !key) return undefined;
+    const { deviceId, relayHost } = paired;
+    return {
+      deviceId,
+      relayHost,
+      prove: (action, clientId, challenge) =>
+        signManagementProof(key, deviceId, relayHost, action, clientId, challenge),
+    };
   }
   removalCredential(): RemovalCredential | undefined {
     const paired = this.paired,
