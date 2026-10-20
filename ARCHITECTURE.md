@@ -6195,3 +6195,52 @@ approval gates. Unsafe native classification is an explicitly labeled fault
 injection on real Chromium plus unit event tests, not malware-scanner
 qualification. Package completion does not close WP-24 owner acceptance,
 WP-27 multi-agent work, full browser/OS qualification or release gates.
+
+### AD-34 — WP-36: commercial admission, compatibility and diagnostics (OD-11/12/13)
+
+**Approved contract, implementation follows in WP-36.** Local/Free is offline,
+accountless and unlimited by commercial state. No entitlement enters Core,
+ExecutionGuard or PermissionEngine. Only the relay and AccountService enforce
+remote admission. Plans: free=0 devices/no remote; trial=14 days/2 devices;
+pro=5; team=20. Only active, unexpired subscriptions enable remote access;
+past_due/canceled/expired fail closed. No grace period or automatic trial:
+one explicit authenticated trial per account, never renewed by re-pairing.
+AccountService has an atomic durable repository interface, account-wide
+registration serialization, permanent revoked-device tombstones, fixed-schema
+metadata and change notifications. Expiry is checked on every admission and by
+an active-tunnel timer. A subscription downgrade/expiry ends current remote
+admission; local operations continue unchanged. The relay never sends MCP
+bodies, URLs, file paths or browser data to AccountService.
+
+BillingProvider is cloud-only. The first concrete adapter is Stripe hosted
+checkout and raw-body timestamped HMAC-SHA256 subscription webhooks; provider
+price IDs and secrets are operator configuration, never device configuration.
+Webhook event IDs are idempotent and per-subscription ordering is monotonic;
+unknown/ambiguous events cannot grant access. No card data enters CROT. Portal
+APIs require verified owner OAuth tokens with a distinct account audience and
+client allowlist; device-scoped MCP tokens are not portal credentials. Provider
+revocation is a bounded, best-effort cloud operation with server-only WorkOS
+credentials. A distinct, one-use Ed25519 device-management challenge binds the
+exact operation and client ID; neither tunnel nor deregistration proof can be
+replayed for it. Local revocation/unpair always take effect before network work.
+Tray entitlement state is informational, stale/offline is labeled unknown and
+never grants a local capability.
+
+OD-11: tunnel majors use crot-tunnel.vN, with each released major supported for
+at least 12 months. Unsupported majors close 4426, "update required". Browser
+hello major mismatch reports update required without crashing CROT. Optional
+operator minimum software versions are relay admission rules only (HELLO / HTTP),
+not authorization or trustworthy evidence of client identity. Store/app versions
+may differ while their protocol major is compatible. Tray/service control uses
+its existing explicit protocol handshake. Removal of a supported major requires
+an explicit release-policy change after its support window, not an automatic
+build-version comparison.
+
+OD-12: device telemetry is none by default; no automatic crash/diagnostic upload
+is introduced. Any future diagnostic export requires explicit local user action
+and a fixed secret/path-free schema. Relay/account logs are allowlisted operational
+metadata only; no bearer, payment secret/signature, raw webhook, HTTP body,
+workspace path or tab URL. Billing provider identities, legal entity, residency
+and jurisdiction must be configured/reviewed for deployment (WP-37/WP-39), not
+invented by this implementation. These operational/legal gates do not reopen the
+approved plan/admission contract.
