@@ -28,7 +28,7 @@ it("WP-38 release artifact pins public identity; dev override cannot redirect it
   });
   expect(result).toMatchObject({
     ok: true,
-    environment: { kind: "release", id: "staging", relayHost: "relay.staging.example.com" },
+    environment: { kind: "release", id: "staging", relayHost: "relay-staging.crot.network" },
   });
   expect(result.notes).toHaveLength(1);
   expect(await readFile(source, "utf8")).toBe(before);

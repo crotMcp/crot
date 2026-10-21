@@ -1,5 +1,25 @@
 # CROT
 
+## Release-candidate repository contour
+
+The v1 repository now includes the WP-33 security review/threat model, WP-37
+user/security/legal documentation package, WP-39 production templates,
+metadata-only metrics and operational drills, and the WP-40 RC pipeline. Build a
+production candidate with `npm run build:rc`; it requires a pinned
+`RELEASE_IDENTITY_ENVIRONMENT`, `CROT_E2E_CHROME`, an Ed25519
+`CROT_UPDATE_SIGNING_KEY`, the full `npm run check` and Chromium E2E. See
+[`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md) and
+[`docs/OPERATIONS_RUNBOOK.md`](docs/OPERATIONS_RUNBOOK.md).
+
+The WorkOS issuer and relay host are deliberately independent. Staging pins
+`https://prestigious-continent-62-staging.authkit.app` and
+`relay-staging.crot.network`. AD-36 accepts WorkOS not advertising RFC 9207
+authorization-response `iss` only for this single pinned-AS model; signed token
+`iss`/`aud` checks remain mandatory. Repository readiness is not GA: operator
+legal publication, live cloud/payment qualification, vendor signing, store
+approval, live drills and beta remain gates.
+
+
 CROT is a universal local AI-agent bridge: an installable local bridge that gives
 AI agents controlled or full access to the user's computer and browser through a
 standard MCP interface.

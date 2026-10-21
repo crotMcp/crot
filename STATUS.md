@@ -5,6 +5,31 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
+## WP-33 / WP-37 / WP-39 / WP-40 — repository delivery complete
+
+WP-33 adds the complete trust-boundary threat model, residual-risk register and
+automated review suite for all 12 release-blocking security invariants. The
+authorized repository review has no open critical/high finding. AD-36 closes the
+AD-21 RFC 9207 condition for v1: live WorkOS staging does not advertise response
+`iss`, and CROT accepts that only with one release-pinned issuer, exact optional
+callback `iss`, and mandatory signed-token `iss`/`aud` verification.
+
+WP-37 now includes the user guide, security whitepaper, privacy/terms/subscription
+and DPA publication templates, vulnerability policy and support process. WP-39
+adds pinned staging and production deployment templates, authenticated
+fixed-cardinality metadata-only metrics, hash-verified offline registry/account
+backup/restore, an SLO/status template, runbook and automated restart, key
+rotation, IdP outage, mass-revocation, disaster-recovery and load/privacy drills.
+WP-40 adds `npm run build:rc`, which in production mode cannot skip the full
+repository or Chromium checks, requires pinned identity and Ed25519 signing, and
+assembles desktop, extension, SBOM, notices and checksums into one signed
+inventory.
+
+Repository completion does **not** claim G7/G8: legal/operator placeholders,
+independent assessment if required, live DNS/TLS/WorkOS/Stripe qualification,
+production secrets, vendor signing/notarization, store approval, live drills,
+beta and GA remain explicit operator gates in `docs/RELEASE_CHECKLIST.md`.
+
 ## WP-34 / WP-35 — Done (repository scope), OD-10 Decided
 
 Per-user autostart is implemented for systemd user units (including the L1
@@ -592,7 +617,7 @@ headed/branded квалификация WP-25 остаётся отдельно�
 | `secrets.store: "auto"` keeps the file fallback once chosen; switching needs `"os"` | AD-18 residual risk |
 | Autostart registration (systemd user unit, LaunchAgent, Task Scheduler) | WP-34 |
 | Revoking a client's authorization at the identity provider from the tray (best effort after the device-side revocation; hook exists, reports "not available") | WP-36 (CROT account service holds the provider credentials) |
-| No live WorkOS environment exercised yet (tests use an emulated AuthKit environment; unverified assumptions listed in docs/IDENTITY.md); WP-38 supplies pinned release artifacts that ignore the development override, but no live staging/production identity is approved by these emulated tests | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
+| Live staging metadata has been inspected for AD-36 and the pinned public profile is committed; automated token flows still use an emulated AuthKit environment, and no live production identity/payment deployment is approved by repository tests | WP-38 (staging), WP-39 (production), WP-34 (ship only pinned builds); release-gate item, roadmap §2.6 N3 |
 | Relay–device tunnel protocol that uses the device credential (challenge signature format fixed by WP-28) | Decided by ARCHITECTURE.md §27 AD-22 (roadmap OD-4, OD-5); relay side implemented by WP-29, device side by WP-30 (PR #20, merged); AD-22 question 3 resolved by WP-29; other questions remain |
 | Device deregistration, re-pair and orphan registration | AD-22 question 3 resolved by WP-29: fresh signed removal, durable inactive registration intent/compensation; re-pair changes id/key (AD-21). Offline unpair remains locally effective even if relay cleanup fails |
 | Remote full-control opt-in: implemented per-principal effect, pairing-bound | Decided by AD-23 point 6 and AD-19 point 7 (`69408c3`); implemented in PR #21 (merged as `9ce0574`): bound to the device id and account of its pairing and kept across restarts |
@@ -602,7 +627,7 @@ headed/branded квалификация WP-25 остаётся отдельно�
 | Tray packaging, signing and autostart (Electron is a dev dependency today) | WP-34 |
 | Identity provider and the token claims carrying the subject, account, device and `clientId` | Decided by ARCHITECTURE.md §27 AD-21 (roadmap OD-2): WorkOS AuthKit; `sub` → principal id and `accountId`, device id in `aud`, `client_id` → `clientId`; implemented on the device by WP-28 |
 | Exact device resource URI form and PRM location | Decided by AD-21 points 5–6 (roadmap OD-3): `https://<relay-host>/d/<deviceId>/mcp`, PRM at `https://<relay-host>/.well-known/oauth-protected-resource/d/<deviceId>/mcp` (relay: implemented by WP-29) |
-| RFC 9207 (`iss` in authorization responses) not provided by the selected provider yet | **Still open** — AD-21 open condition: met before Gate G4 or accepted by a separate AD; WP-28 checks `iss` when present but neither requires nor claims it |
+| RFC 9207 (`iss` in authorization responses) not advertised by live WorkOS staging | **Accepted for v1 by AD-36:** exactly one release-pinned issuer; optional response `iss` and every signed-token `iss`/`aud` remain byte-exact checked; multi-AS/unpinned discovery requires a new AD |
 | Revocation at the identity provider reaches the device only through token expiry (≤ 5 min configured, ≤ 15 min device ceiling); device-side revocation is immediate | AD-21 point 4 (accepted bound) |
 | Extensibility beyond v1 (media, video editors, external services, jobs, optional components) | Audit revision 2: [`docs/design/extensibility-audit.md`](docs/design/extensibility-audit.md); open decisions OD-15…OD-23 (roadmap §4.2, ARCHITECTURE.md §26 questions 16–24) |
 | GUI control of desktop applications ("never in scope: OS-level input") | unchanged for v1; reassessed by OD-22 after spike WP-69 |

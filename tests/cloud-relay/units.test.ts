@@ -144,6 +144,22 @@ describe("relay configuration", () => {
     expect(() => parseRelayConfig({ ...base, extra: 1 })).toThrow(/unknown/);
   });
 
+  it("accepts the pinned hosted WorkOS issuer independently of relayHost and a metrics secret file", () => {
+    const config = parseRelayConfig({
+      ...base,
+      issuer: "https://prestigious-continent-62-staging.authkit.app",
+      relayHost: "relay-staging.crot.network",
+      pairingClientId: "client_01M5FJB95CE7KH33Y1SPE5X77Q",
+      metricsTokenFile: "/run/secrets/crot-metrics",
+    });
+    expect(config).toMatchObject({
+      issuer: "https://prestigious-continent-62-staging.authkit.app",
+      relayHost: "relay-staging.crot.network",
+      metricsTokenFile: "/run/secrets/crot-metrics",
+    });
+    expect(() => parseRelayConfig({ ...base, metricsTokenFile: "" })).toThrow(/metricsTokenFile/);
+  });
+
   it("requires the pairing client id (AD-22 point 4)", () => {
     expect(parseRelayConfig(base).pairingClientId).toBe("client_pairing_native");
     const { pairingClientId: _omitted, ...without } = base;
