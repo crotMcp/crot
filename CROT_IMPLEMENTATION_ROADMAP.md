@@ -387,7 +387,7 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | OD-7 | How a preset / remote-profile change is applied by the service (reload vs restart) | Policy immutability (AD-5, AD-10) vs usability | WP-22, WP-31 | **Decided by AD-19 point 5 (WP-22):** device state in `service-settings.json`; a new Core with the new policy, only while Core is idle; WP-31 adds the `autonomous-browser` rule set and the remote profile on the same mechanism |
 | OD-8 | Response-bound single-use ownership capability and controlled staging: AD-33; selected before implementation | Exact response capability, production staging and real approval E2E; native Linux/macOS/Windows Core file-contour qualification explicit | — | **Decided: AD-33; implemented in WP-26** |
 | OD-9 | Матрица v1 | Windows **Closed: AD-30**, Server2025 x64 Node20/22; неквалифицированные конфигурации unavailable. Linux AD-20; macOS **Closed: AD-31** (target matrix separate from CI coverage); browser **Closed: AD-32**, Chrome/Edge/Brave Chromium ≥120 (manual qualification tracked separately) | WP-23b, WP-34, WP-37 | Windows/macOS/browser decisions closed; qualification limits retained |
-| OD-10 | Store extension IDs vs native-host `allowed_origins` (Chrome Web Store and Edge Add-ons may assign different IDs; current manifest pins `bllcepanlhojbddfbbpegmnokpaakool`) and custody of the extension signing key | The native host must allow exactly the published extensions and nothing else | WP-34, WP-35 | When store items are created (WP-35 start) |
+| OD-10 | **Decided — AD-35:** native-host `allowed_origins` is generated only from the reviewed release catalog for Chrome Web Store, Edge Add-ons and deterministic local/RC builds; runtime/user/page/agent input can never add an ID. Current channels share manifest-key ID `bllcepanlhojbddfbbpegmnokpaakool`; a store reassignment requires a reviewed release change. Store/signing credentials remain operator secrets | Exactly the published release identities and nothing else | WP-34, WP-35 | **Decided** |
 | OD-11 | **Decided — AD-34:** protocol-major compatibility; ≥12-month tunnel support; 4426 update required; configurable version admission, never local authorization | Implement WP-36; retain control/bridge handshakes | WP-34, WP-36, WP-39 | Decided |
 | OD-12 | **Decided — AD-34:** no device telemetry by default; explicit local export only; allowlisted relay/account metadata logs | Privacy/legal publication remains WP-37 | WP-36, WP-37, WP-39 | Decided |
 | OD-13 | **Decided — AD-34:** Free offline; Trial 14d/2, Pro 5, Team 20; active remote admission only; BillingProvider + Stripe signed webhooks | Legal entity/jurisdiction/residency remain operational/legal gates, not fabricated values | WP-36, WP-37, WP-39 | Decided |
@@ -1058,6 +1058,7 @@ claimed by WP-31.
 
 #### WP-34 — Installers, signing, updates, native-host registration, autostart, supply chain
 
+- **Status: Done (repository implementation).** Cross-platform per-user autostart plans and CLI, strict Ed25519/SHA-256 transactional update core with automatic health-check rollback, state-preserving version layout, clean-uninstall hooks, release-pinned OD-10 native-host origins, deterministic SBOM/checksums/notices and N3 pinned-identity enforcement are implemented and exercised in the six-OS/Node matrix. OS vendor signing/notarization, package-format publication and signed-RC manual installation remain operator release gates.
 - **Objective:** install, update and uninstall CROT on Linux, Windows and
   macOS without a terminal (§10, §24).
 - **Dependencies:** WP-20, WP-22, WP-23a (Linux L1 components and AppArmor
@@ -1083,6 +1084,7 @@ claimed by WP-31.
 
 #### WP-35 — Extension publication (Chrome Web Store, Edge Add-ons)
 
+- **Status: Done (repository preparation).** `npm run package:extension` validates the exact AD-16.3 MV3 contour and emits a reproducible ZIP plus SHA-256. Submission-ready permission, privacy and publication texts are in `docs/store/`. Actual developer-account submission, store approval/publication and branded update-path acceptance remain operator gates.
 - **Dependencies:** WP-24, WP-25, WP-26 (full permission set). Preparation
   (developer accounts, listing, privacy disclosures, permission justification
   text from AD-16 p.3) can start now.

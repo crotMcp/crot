@@ -10,8 +10,13 @@ import { randomUUID } from "node:crypto";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const argument = (name) => args[args.indexOf(name) + 1];
-if (!args.includes("--environment") || !argument("--environment"))
-  throw new Error("--environment <public JSON> required");
+const environmentInput = args.includes("--environment")
+  ? argument("--environment")
+  : process.env.RELEASE_IDENTITY_ENVIRONMENT;
+if (!environmentInput)
+  throw new Error(
+    "release identity is required: pass --environment <public JSON> or set RELEASE_IDENTITY_ENVIRONMENT to its path (N3)",
+  );
 const out = path.resolve(root, args.includes("--out") ? argument("--out") : "dist-release");
 if (out === root || out === path.join(root, "src") || out.includes(`${path.sep}src${path.sep}`))
   throw new Error("unsafe output directory");
@@ -30,7 +35,7 @@ try {
     { cwd: root, stdio: "inherit" },
   );
   const { validateEnvironment } = await import(pathToFileURL(path.join(temp, "identity/environment.js")).href);
-  const config = await readFile(path.resolve(argument("--environment")), "utf8");
+  const config = await readFile(path.resolve(environmentInput), "utf8");
   if (Buffer.byteLength(config) > 16384) throw new Error("identity metadata exceeds 16 KiB");
   const environment = validateEnvironment(JSON.parse(config), "release");
   if (typeof environment === "string") throw new Error(environment);
@@ -43,6 +48,9 @@ try {
   await mkdir(out, { recursive: true });
   const { cp } = await import("node:fs/promises");
   await cp(temp, out, { recursive: true });
+  await cp(path.join(root, "THIRD_PARTY_NOTICES.md"), path.join(out, "THIRD_PARTY_NOTICES.md"));
+  const { generateSupplyChain } = await import("./generate-supply-chain.mjs");
+  await generateSupplyChain(out);
 } finally {
   await rm(temp, { recursive: true, force: true });
 }

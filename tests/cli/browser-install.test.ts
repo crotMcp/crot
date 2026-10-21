@@ -12,6 +12,7 @@ import {
   hostManifest,
   hostRegistrations,
   installBrowserHost,
+  uninstallBrowserHost,
   posixLauncher,
   regExeWriter,
   windowsLauncher,
@@ -220,6 +221,25 @@ describe("installBrowserHost", () => {
     ]);
   });
 
+  it("cleanly removes manifests and launcher", async () => {
+    const { options } = await setup();
+    const installed = await installBrowserHost(options);
+    const deleted: string[] = [];
+    await uninstallBrowserHost({
+      os: options.os,
+      home: options.home,
+      stateDir: options.stateDir,
+      env: options.env,
+      registry: async (key) => {
+        deleted.push(key);
+      },
+    });
+    for (const registration of installed.registrations)
+      await expect(readFile(registration.manifestFile)).rejects.toThrow();
+    await expect(readFile(installed.launcher)).rejects.toThrow();
+    expect(deleted).toEqual(installed.registrations.flatMap((r) => (r.registryKey ? [r.registryKey] : [])));
+  });
+
   it("is idempotent and replaces earlier files", async () => {
     const { options } = await setup();
     const first = await installBrowserHost(options);
@@ -254,16 +274,12 @@ describe("installBrowserHost", () => {
 describe("crot-mcp browser install (command line)", () => {
   it("parses the subcommand without requiring a configuration", async () => {
     expect(await parseCli(["browser", "install"], {})).toEqual({ kind: "browser-install" });
+    expect(await parseCli(["browser", "uninstall"], {})).toEqual({ kind: "browser-uninstall" });
     expect(await parseCli(["browser", "install", "--help"], {})).toEqual({ kind: "help" });
   });
 
   it("rejects unknown browser commands and options", async () => {
-    for (const argv of [
-      ["browser"],
-      ["browser", "uninstall"],
-      ["browser", "install", "extra"],
-      ["browser", "install", "--workspace", "/w"],
-    ]) {
+    for (const argv of [["browser"], ["browser", "install", "extra"], ["browser", "install", "--workspace", "/w"]]) {
       expect(await rejection(parseCli(argv, {}))).toMatchObject({ code: "CONFIG_ERROR" });
     }
   });

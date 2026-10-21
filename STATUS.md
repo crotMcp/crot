@@ -5,6 +5,25 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
+## WP-34 / WP-35 — Done (repository scope), OD-10 Decided
+
+Per-user autostart is implemented for systemd user units (including the L1
+tmpfiles exclusion), launchd and Windows Task Scheduler. The update core
+requires Ed25519 plus per-file SHA-256, stages versions transactionally,
+preserves config/device binding/secrets/`remote-exposure.json`, rolls back a
+failed health check and supports clean unregister/uninstall hooks. Release
+builds require a pinned N3 identity environment and emit CycloneDX SBOM,
+`SHA256SUMS` and third-party notices.
+
+`npm run package:extension` produces a deterministic, validated MV3 store ZIP
+and SHA-256; `docs/store/` contains submission text. AD-35 closes OD-10: native
+messaging accepts only the reviewed release ID catalog, never runtime input.
+AD-21.1 now explicitly permits a pinned WorkOS `*.authkit.app` issuer separate
+from `relayHost`. OS vendor signing/notarization, signed RC installation and
+actual Chrome/Edge store submission/approval remain operator release gates.
+See [installation and rollback](docs/INSTALL.md) and
+[store publication](docs/store/PUBLISHING.md).
+
 ## WP-36 — Done (repository scope), PR #36
 
 The existing `feat/wp36-commercial` branch is the sole WP-36 delivery, based

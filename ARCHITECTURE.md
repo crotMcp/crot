@@ -4282,13 +4282,18 @@ Evaluation (vendor documentation and live discovery metadata, 2026-10-08):
 
 **Decision.**
 
-1. **Identity provider (decides OD-2).** CROT uses **WorkOS AuthKit**
-   (WorkOS Connect) as its managed OAuth 2.1 authorization server, one
-   WorkOS environment per CROT cloud environment (staging: WP-38;
-   production: WP-39), on a CROT custom authentication domain. The issuer
-   is that domain's HTTPS origin, exactly as published in its authorization
-   server metadata. Environment configuration (normative for WP-28 and
-   WP-38):
+1. **Identity provider (decides OD-2; amended for AuthKit hosted domains).**
+   CROT uses **WorkOS AuthKit** (WorkOS Connect) as its managed OAuth 2.1
+   authorization server, one WorkOS environment per CROT cloud environment
+   (staging: WP-38; production: WP-39). The canonical issuer may be either
+   WorkOS's hosted HTTPS origin (`https://<env-slug>.authkit.app`) or a CROT
+   custom authentication domain. A custom domain is not required. The sole
+   invariant is that this exact HTTPS origin is pinned in the release
+   environment and matches byte-for-byte the authorization-server metadata
+   `issuer` and every accepted token's `iss`. It is independent of the relay
+   host: for example `https://prestigious-continent-62-staging.authkit.app`
+   with `relay-staging.crot.network` is valid. Environment configuration
+   (normative for WP-28 and WP-38):
    - CIMD on; DCR on for clients of the older versions (R2, R3);
    - exactly one resource indicator, the path wildcard
      `https://<relay-host>/d/*` of that environment (point 5); no default
@@ -6255,3 +6260,21 @@ workspace path or tab URL. Billing provider identities, legal entity, residency
 and jurisdiction must be configured/reviewed for deployment (WP-37/WP-39), not
 invented by this implementation. These operational/legal gates do not reopen the
 approved plan/admission contract.
+
+
+### AD-35 — Native-messaging extension identity allowlist (decides OD-10)
+
+**Approved and implemented by WP-34/WP-35 repository delivery.** The native
+messaging manifest produced by `crot-mcp browser install` and every OS installer
+uses only the immutable release catalog in
+`src/cli/release-extension-ids.ts`: Chrome Web Store, Microsoft Edge Add-ons
+and the deterministic local/RC identity. Duplicate IDs are canonicalized. A
+store-assigned change requires a reviewed source/release change and full tests.
+No user, agent, page, MCP request, remote configuration or CLI argument can add
+an `allowed_origins` entry. The extension signing key and store credentials are
+operator secrets; they are never accepted by CROT at runtime or committed.
+
+The current three channels intentionally share the ID derived from the public
+MV3 manifest key, `bllcepanlhojbddfbbpegmnokpaakool`. If a store assigns a
+different ID, publication is blocked until the release catalog and signed
+desktop build are updated together.

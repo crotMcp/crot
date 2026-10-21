@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { chmod, mkdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { CrotError } from "../core/errors.js";
+import { RELEASE_EXTENSION_IDS, RELEASE_EXTENSION_ORIGINS } from "./release-extension-ids.js";
 import type { OsFamily, PrivateFileProtection } from "../core/platform/types.js";
 
 /**
@@ -25,7 +26,7 @@ import type { OsFamily, PrivateFileProtection } from "../core/platform/types.js"
 /** Native-messaging host name; must equal NATIVE_HOST_NAME in extension/src/host-connection.ts. */
 export const CROT_NATIVE_HOST_NAME = "com.crot.host";
 /** Id of the CROT Browser Extension, derived from the public key in extension/manifest.json. */
-export const CROT_EXTENSION_ID = "bllcepanlhojbddfbbpegmnokpaakool";
+export const CROT_EXTENSION_ID = RELEASE_EXTENSION_IDS.localRc;
 export const CROT_EXTENSION_ORIGIN = `chrome-extension://${CROT_EXTENSION_ID}/`;
 
 /** Directory below the state directory that holds the launcher (and the Windows manifest). */
@@ -56,7 +57,7 @@ export function hostManifest(launcher: string): HostManifest {
     description: "CROT Host: connects the CROT Browser Extension to the local CROT bridge",
     path: launcher,
     type: "stdio",
-    allowed_origins: [CROT_EXTENSION_ORIGIN],
+    allowed_origins: RELEASE_EXTENSION_ORIGINS,
   };
 }
 
@@ -170,8 +171,27 @@ export function windowsLauncher(target: LauncherTarget): string {
 
 /** Sets the default value of an HKCU registry key (Windows). */
 export type RegistryWriter = (key: string, value: string) => Promise<void>;
+export type RegistryDeleter = (key: string) => Promise<void>;
 
 /** RegistryWriter using %SystemRoot%\System32\reg.exe, started without a shell. */
+export function regExeDeleter(systemRoot: string): RegistryDeleter {
+  const reg = path.win32.join(systemRoot, "System32", "reg.exe");
+  return (key) =>
+    new Promise((resolve, reject) => {
+      execFile(reg, ["delete", key, "/f"], { windowsHide: true, timeout: 10_000 }, (error, _stdout, stderr) => {
+        if (!error || /unable to find|not find/i.test(String(stderr))) return resolve();
+        reject(
+          new CrotError(
+            "OPERATION_FAILED",
+            `Could not remove registry key ${key}: ${String(stderr).trim() || error.message}`,
+            undefined,
+            { cause: error },
+          ),
+        );
+      });
+    });
+}
+
 export function regExeWriter(systemRoot: string): RegistryWriter {
   const reg = path.win32.join(systemRoot, "System32", "reg.exe");
   return (key, value) =>
@@ -255,6 +275,22 @@ export async function installBrowserHost(options: BrowserInstallOptions): Promis
   return { launcher, registrations };
 }
 
+export async function uninstallBrowserHost(options: {
+  readonly os: OsFamily;
+  readonly home: string;
+  readonly stateDir: string;
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly registry?: RegistryDeleter;
+}): Promise<void> {
+  const paths = options.os === "windows" ? path.win32 : path.posix;
+  const registrations = hostRegistrations(options.os, options.home, options.stateDir, options.env ?? {});
+  for (const registration of registrations) {
+    if (registration.registryKey) await options.registry?.(registration.registryKey);
+    await rm(registration.manifestFile, { force: true });
+  }
+  await rm(paths.join(options.stateDir, NATIVE_MESSAGING_DIR_NAME), { recursive: true, force: true });
+}
+
 /** Replace `file` with `content` (a temporary file renamed over it), so a browser never reads a partial file. */
 async function writeAtomically(file: string, content: string, mode: number | undefined): Promise<void> {
   const temporary = `${file}.${process.pid}.tmp`;
@@ -283,7 +319,7 @@ export function formatInstallResult(result: BrowserInstallResult): string {
     );
   }
   lines.push(
-    `Allowed extension: ${CROT_EXTENSION_ORIGIN}`,
+    `Allowed extensions (release whitelist): ${RELEASE_EXTENSION_ORIGINS.join(", ")}`,
     "",
     "Next steps:",
     '  1. Set "browser": { "enabled": true } in the CROT configuration and restart crot-mcp.',

@@ -9,3 +9,4 @@ coverage/
 # WP-38 local deployment secrets and pinned build artifacts
 /deploy/staging/config/
 /dist-release/
+/artifacts/
