@@ -1,7 +1,7 @@
 {
   "name": "crot",
   "version": "0.1.0",
-  "description": "CROT — universal local AI-agent bridge. Core, permission engine and MCP interface.",
+  "description": "CROT \u2014 universal local AI-agent bridge. Core, permission engine and MCP interface.",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -33,7 +33,9 @@
     "tray": "electron dist/tray/main.js",
     "test:browser-files:native": "node scripts/browser-files-native-qualification.mjs",
     "build:release": "node scripts/build-release.mjs",
-    "staging": "node scripts/staging.mjs"
+    "staging": "node scripts/staging.mjs",
+    "package:extension": "npm run build:extension && node scripts/package-extension.mjs",
+    "package:supply-chain": "node scripts/generate-supply-chain.mjs dist-release"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",

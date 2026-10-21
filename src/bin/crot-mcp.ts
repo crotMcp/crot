@@ -20,8 +20,15 @@
  */
 import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { formatInstallResult, installBrowserHost, regExeWriter } from "../cli/browser-install.js";
+import {
+  formatInstallResult,
+  installBrowserHost,
+  regExeDeleter,
+  regExeWriter,
+  uninstallBrowserHost,
+} from "../cli/browser-install.js";
 import { flushStream, installLifecycle } from "../cli/lifecycle.js";
+import { autostartStatus, installAutostart, removeAutostart } from "../installer/autostart.js";
 import { parseCli, USAGE, type SecretsCommand, type ServeCommand } from "../cli/options.js";
 import { rotateSecrets, secretsStatus, showHttpToken } from "../cli/secrets.js";
 import { parseConfig } from "../core/config/load.js";
@@ -55,10 +62,14 @@ async function main(): Promise<void> {
       return;
     case "browser-install":
       return installBrowser();
+    case "browser-uninstall":
+      return uninstallBrowser();
     case "service-status":
       return serviceStatus();
     case "service-stop":
       return serviceStop();
+    case "service-autostart":
+      return serviceAutostart(command.action);
     case "secrets":
       return secrets(command);
     case "service-run":
@@ -227,6 +238,34 @@ async function installBrowser(): Promise<void> {
     ...(windows ? { registry: regExeWriter(process.env.SystemRoot ?? "C:\\Windows") } : {}),
   });
   process.stdout.write(formatInstallResult(result));
+}
+
+async function uninstallBrowser(): Promise<void> {
+  const directories = hostDirectories(process.env);
+  await uninstallBrowserHost({
+    os: osFamily(process.platform),
+    home: os.homedir(),
+    stateDir: directories.state,
+    env: process.env,
+    ...(windows ? { registry: regExeDeleter(process.env.SystemRoot ?? "C:\\Windows") } : {}),
+  });
+  process.stdout.write("CROT native-messaging host removed.\n");
+}
+
+async function serviceAutostart(action: "install" | "status" | "remove"): Promise<void> {
+  const executable = process.env.CROT_EXECUTABLE ?? fileURLToPath(import.meta.url);
+  const spec = { os: osFamily(process.platform), home: os.homedir(), executable, env: process.env };
+  if (action === "install") {
+    await installAutostart(spec);
+    process.stdout.write("CROT service autostart installed.\n");
+    return;
+  }
+  if (action === "remove") {
+    await removeAutostart(spec);
+    process.stdout.write("CROT service autostart removed.\n");
+    return;
+  }
+  process.stdout.write((await autostartStatus(spec)) ? "enabled\n" : "disabled\n");
 }
 
 main().catch((error: unknown) => {

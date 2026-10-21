@@ -12,8 +12,9 @@ import { isSecretName, ROTATABLE_SECRET_NAMES, SECRET_NAMES, type SecretName } f
 
 export const USAGE = `Usage: crot-mcp [options]
        crot-mcp service run [options] | service status | service stop
+       crot-mcp service autostart install|status|remove
        crot-mcp secrets status | secrets show http-token | secrets rotate <name>... | secrets rotate --all
-       crot-mcp browser install
+       crot-mcp browser install|uninstall
 
 Serves CROT to an MCP client on stdio (default) or, with --http, on loopback HTTP.
 All clients of a user share one CROT service: on stdio, crot-mcp connects to it
@@ -38,6 +39,7 @@ Commands:
                            units, launchd agents, Task Scheduler); same options as above
   service status           Show the state of the running CROT service
   service stop             Stop the running CROT service gracefully
+  service autostart ...    Install, inspect or remove per-user OS autostart
   secrets status           Show where CROT keeps its secrets (OS secure storage or
                            owner-only files); never prints a secret
   secrets show http-token  Print the HTTP access token (for configuring an HTTP client)
@@ -77,11 +79,12 @@ export interface ServiceRunCommand {
 export type CliCommand =
   | { kind: "help" }
   | { kind: "version" }
-  | { kind: "browser-install" }
+  | { kind: "browser-install" | "browser-uninstall" }
   | ServeCommand
   | ServiceRunCommand
   | { kind: "service-status" }
   | { kind: "service-stop" }
+  | { kind: "service-autostart"; action: "install" | "status" | "remove" }
   | SecretsCommand;
 
 /** `crot-mcp secrets <status|show|rotate>` (WP-21). */
@@ -266,7 +269,7 @@ async function parseSecretsCommand(
   };
 }
 
-/** `crot-mcp browser <command>`: only `install`, which takes no options besides --help. */
+/** `crot-mcp browser install|uninstall`; no runtime-provided extension IDs. */
 function parseBrowserCommand(argv: readonly string[]): CliCommand {
   let parsed;
   try {
@@ -280,12 +283,15 @@ function parseBrowserCommand(argv: readonly string[]): CliCommand {
     throw new CrotError("CONFIG_ERROR", `${(error as Error).message}\n\n${USAGE}`);
   }
   if (parsed.values.help) return { kind: "help" };
-  if (parsed.positionals.length !== 1 || parsed.positionals[0] !== "install") {
+  if (parsed.positionals.length !== 1 || !["install", "uninstall"].includes(parsed.positionals[0] ?? "")) {
     const given =
       parsed.positionals.length > 0 ? `'browser ${parsed.positionals.join(" ")}'` : "'browser' without a command";
-    throw new CrotError("CONFIG_ERROR", `Unknown command ${given}. Use 'crot-mcp browser install'.\n\n${USAGE}`);
+    throw new CrotError(
+      "CONFIG_ERROR",
+      `Unknown command ${given}. Use 'crot-mcp browser install|uninstall'.\n\n${USAGE}`,
+    );
   }
-  return { kind: "browser-install" };
+  return { kind: parsed.positionals[0] === "install" ? "browser-install" : "browser-uninstall" };
 }
 
 /** `crot-mcp service <run|status|stop>`. */
@@ -305,6 +311,13 @@ async function parseServiceCommand(
     if (command.kind !== "serve") return command;
     return { kind: "service-run", serve: command, onDemand };
   }
+  if (sub === "autostart") {
+    const [action, ...extra] = rest;
+    if (action === "--help" || action === "-h") return { kind: "help" };
+    if ((action !== "install" && action !== "status" && action !== "remove") || extra.length > 0)
+      throw new CrotError("CONFIG_ERROR", "Use 'crot-mcp service autostart install|status|remove'.\n\n" + USAGE);
+    return { kind: "service-autostart", action };
+  }
   if (sub === "status" || sub === "stop") {
     if (rest.length === 1 && (rest[0] === "--help" || rest[0] === "-h")) return { kind: "help" };
     if (rest.length > 0) throw new CrotError("CONFIG_ERROR", `'crot-mcp service ${sub}' takes no options.\n\n${USAGE}`);
@@ -314,7 +327,7 @@ async function parseServiceCommand(
   const given = sub === undefined ? "'service' without a command" : `'service ${sub}'`;
   throw new CrotError(
     "CONFIG_ERROR",
-    `Unknown command ${given}. Use 'crot-mcp service run', 'service status' or 'service stop'.\n\n${USAGE}`,
+    `Unknown command ${given}. Use 'crot-mcp service run', 'service status', 'service stop' or 'service autostart'.\n\n${USAGE}`,
   );
 }
 

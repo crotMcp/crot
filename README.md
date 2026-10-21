@@ -7,6 +7,17 @@ standard MCP interface.
 **`ARCHITECTURE.md` is the source of truth for the product architecture.** This
 README describes the current implementation and how to run it.
 
+## Installation and extension release — WP-34 / WP-35
+
+CROT now has per-user autostart registration on Linux, macOS and Windows, a
+signed transactional update/rollback core, state-preserving upgrades, clean
+uninstall hooks, pinned native-messaging extension origins, reproducible MV3
+store ZIPs, CycloneDX SBOM and build checksums. Release builds fail without a
+pinned identity environment. Run `crot-mcp service autostart install`,
+`npm run package:extension`, and see [INSTALL](docs/INSTALL.md) plus the
+[store submission runbook](docs/store/PUBLISHING.md). Repository automation
+does not claim OS-vendor signing/notarization or store approval.
+
 ## Cloud accounts and device management — WP-36
 
 **Local / Free always works offline without an account or license.** Cloud Relay
