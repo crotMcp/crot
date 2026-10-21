@@ -1,0 +1,114 @@
+{
+  "schema": 1,
+  "scope": "Authorized repository normalization; priorities are not CVSS. External qualification remains in STATUS.",
+  "findings": [
+    {
+      "id": "N-01",
+      "priority": "P0",
+      "title": "Unsafe recursive RC output deletion",
+      "status": "fixed_in_repository",
+      "fix": "scripts/output-path.mjs",
+      "evidence": "tests/release/rc-pipeline.test.ts"
+    },
+    {
+      "id": "N-02",
+      "priority": "P1",
+      "title": "Disconnected release/update format and CLI",
+      "status": "fixed_in_repository",
+      "fix": "scripts/build-rc.mjs; src/cli/update.ts",
+      "evidence": "tests/release/rc-pipeline.test.ts; tests/installer/update.test.ts",
+      "remainingQualification": "Node/runtime dependencies and GUI installers/vendor signing are external/incomplete delivery."
+    },
+    {
+      "id": "N-03",
+      "priority": "P1",
+      "title": "Staged bytes not rehashed",
+      "status": "fixed_in_repository",
+      "fix": "src/installer/update.ts",
+      "evidence": "tests/installer/staged-integrity.test.ts"
+    },
+    {
+      "id": "N-04",
+      "priority": "P1",
+      "title": "Same-version and exception rollback",
+      "status": "fixed_in_repository",
+      "fix": "src/installer/update.ts",
+      "evidence": "tests/installer/update.test.ts"
+    },
+    {
+      "id": "N-05",
+      "priority": "P1",
+      "title": "Autostart Node entrypoint and XML encoding",
+      "status": "fixed_in_repository",
+      "fix": "src/installer/autostart.ts",
+      "evidence": "tests/installer/autostart.test.ts",
+      "remainingQualification": "Real product autostart Linux/macOS and platform packaging remain separate; Windows disposable task runs in CI."
+    },
+    {
+      "id": "N-06",
+      "priority": "P1",
+      "title": "Restore schema/ownership and pair rollback",
+      "status": "fixed_in_repository",
+      "fix": "src/cloud-relay/operations.ts",
+      "evidence": "tests/cloud-relay/restore-transaction.test.ts",
+      "remainingQualification": "Offline runtime rollback, not power-loss atomicity across two files."
+    },
+    {
+      "id": "N-07",
+      "priority": "P1",
+      "title": "Test RC represented as repository_verified",
+      "status": "fixed_in_repository",
+      "fix": "scripts/build-rc.mjs",
+      "evidence": "tests/release/rc-pipeline.test.ts"
+    },
+    {
+      "id": "N-08",
+      "priority": "P1",
+      "title": "Contradictory current status and historical baselines",
+      "status": "fixed_in_repository",
+      "fix": "README.md; ARCHITECTURE.md; STATUS.md; CROT_IMPLEMENTATION_ROADMAP.md",
+      "evidence": "docs/NORMALIZATION.md"
+    },
+    {
+      "id": "N-09",
+      "priority": "P1",
+      "title": "User guide approval/pairing/UI mismatch",
+      "status": "fixed_in_repository",
+      "fix": "docs/USER_GUIDE.md",
+      "evidence": "src/tray/assets.ts; src/core/permissions/exposure.ts; tests/account-service/relay.test.ts"
+    },
+    {
+      "id": "N-10",
+      "priority": "P1",
+      "title": "Private config ignore and incomplete staging steps",
+      "status": "fixed_in_repository",
+      "fix": ".gitignore; docs/STAGING.md",
+      "evidence": "docs/security/SECRET_SCAN.md"
+    },
+    {
+      "id": "N-11",
+      "priority": "P1",
+      "title": "Circular zero-findings security assertion",
+      "status": "fixed_in_repository",
+      "fix": "tests/security/release-invariants.test.ts",
+      "evidence": "tests/security/release-invariants.test.ts"
+    },
+    {
+      "id": "N-12",
+      "priority": "P2",
+      "title": "Incomplete native supply-chain scope",
+      "status": "fixed_in_repository",
+      "fix": "scripts/generate-supply-chain.mjs; THIRD_PARTY_NOTICES.md",
+      "evidence": "tests/release/rc-pipeline.test.ts"
+    },
+    {
+      "id": "N-13",
+      "priority": "P2",
+      "title": "Unexplained files/unique branches",
+      "status": "fixed_in_repository",
+      "fix": "docs/BRANCH_RECONCILIATION.md",
+      "evidence": "tests/account-service/local-offline.test.ts"
+    }
+  ],
+  "verificationPolicy": "Each evidence path must pass at the exact PR head; final handoff reports observed checks. Fixed scope does not close external gates."
+}

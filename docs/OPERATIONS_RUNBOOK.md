@@ -1,5 +1,7 @@
 # CROT Cloud operations runbook
 
+> Offline restore validates complete schemas and registry→commercial ownership before writes. Each rename is atomic; the pair is NOT a power-loss-proof transaction. A second replacement failure restores previous bytes via rename; rollback failure is explicit and requires offline recovery. Keep relay stopped throughout. Automated drills are tests, not evidence that production live drills were performed. Metrics private exposure requires operator routing/ACLs.
+
 **Scope:** WP-39 repository operations for `relay.crot.network` and pinned staging. Commands assume a built release and least-privilege service account. Record every production action/change ticket; never paste secrets in logs or tickets.
 
 ## Environment profiles

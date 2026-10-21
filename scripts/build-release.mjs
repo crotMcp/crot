@@ -17,9 +17,8 @@ if (!environmentInput)
   throw new Error(
     "release identity is required: pass --environment <public JSON> or set RELEASE_IDENTITY_ENVIRONMENT to its path (N3)",
   );
-const out = path.resolve(root, args.includes("--out") ? argument("--out") : "dist-release");
-if (out === root || out === path.join(root, "src") || out.includes(`${path.sep}src${path.sep}`))
-  throw new Error("unsafe output directory");
+import { validateOutput } from "./output-path.mjs";
+const out = await validateOutput(root, path.resolve(root, args.includes("--out") ? argument("--out") : "dist-release"));
 // Compile to a fresh directory: validation failure never changes an existing release.
 const temp = path.join(root, "node_modules", ".cache", `release-${randomUUID()}`);
 try {
@@ -45,10 +44,12 @@ try {
     `const value = ${JSON.stringify(environment)};\nObject.freeze(value.pairing);\nexport const RELEASE_IDENTITY_ENVIRONMENT = Object.freeze(value);\n`,
   );
   await writeFile(path.join(temp, "release-identity.json"), JSON.stringify(environment, null, 2) + "\n");
+  await rm(out, { recursive: true, force: true });
   await mkdir(out, { recursive: true });
   const { cp } = await import("node:fs/promises");
   await cp(temp, out, { recursive: true });
   await cp(path.join(root, "THIRD_PARTY_NOTICES.md"), path.join(out, "THIRD_PARTY_NOTICES.md"));
+  await cp(path.join(root, "native"), path.join(out, "native"), { recursive: true });
   const { generateSupplyChain } = await import("./generate-supply-chain.mjs");
   await generateSupplyChain(out);
 } finally {

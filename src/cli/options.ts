@@ -15,6 +15,7 @@ export const USAGE = `Usage: crot-mcp [options]
        crot-mcp service autostart install|status|remove
        crot-mcp secrets status | secrets show http-token | secrets rotate <name>... | secrets rotate --all
        crot-mcp browser install|uninstall
+       crot-mcp update --package <dir> --public-key <trusted.pem> --install-root <dir> --config <file>
 
 Serves CROT to an MCP client on stdio (default) or, with --http, on loopback HTTP.
 All clients of a user share one CROT service: on stdio, crot-mcp connects to it

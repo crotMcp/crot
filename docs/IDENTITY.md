@@ -7,10 +7,7 @@ model, verification order, revocation, canonical device URI). This page
 describes what the code does and how to run it against a development
 environment.
 
-Status: implemented on the device. Nothing reaches the device from the
-internet yet: the Cloud Relay is WP-29 and the device tunnel WP-30. Until
-then the relay entry point exists only in tests, and the verifier, the PRM
-URL and the tunnel credential are ready for those work packages.
+Status: device identity, Cloud Relay (WP-29), outbound tunnel (WP-30) and commercial admission (WP-36) are implemented. Activate entitlement through the configured portal before device pairing. Live production qualification remains separate.
 
 ## Identity environment
 
@@ -27,7 +24,7 @@ same CROT cloud environment:
 | `id` | optional short name shown in the tray and recorded in the binding (default `development`) |
 
 **Release builds** pin their environment in
-`src/identity/environment.ts` (`RELEASE_IDENTITY_ENVIRONMENT`): staging is
+the emitted `identity/release-environment.js` (`RELEASE_IDENTITY_ENVIRONMENT`); source validation lives in `src/identity/environment.ts`: staging is
 configured by WP-38, production by WP-39. This build pins none, so pairing is
 "not available" unless a development environment is named.
 
@@ -152,7 +149,7 @@ are HTTPS only, without redirects, with size and time limits.
   their expiry (≤ 5 minutes configured, ≤ 15 minutes device ceiling). Asking
   the provider to revoke a client's authorization from the tray needs the
   CROT account service (WP-36), which holds the provider credentials; the
-  service has a hook for it and reports it as not available today.
+  implemented account-service hook requires operator credentials/configuration; unavailable configuration still reports not available. Local revoke is distinct from provider session revocation.
 
 ## Device credential (for the tunnel)
 

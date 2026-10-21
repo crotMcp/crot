@@ -1,12 +1,12 @@
 # Real-browser E2E of the browser bridge
 
-Six suites run against a real Chromium:
+Eight suites run against a real Chromium:
 `tests-e2e/browser/real-browser.e2e.test.ts` (the chain and legacy tools),
 `browser-v1.e2e.test.ts` and `browser-layout.e2e.test.ts` (WP-24 contract and
 layout regressions), and `wp25.e2e.test.ts` (dialogs, background screenshots,
 debugger lifecycle and CROT groups; AD-16 / AD-32), `wp26.e2e.test.ts`
 (file upload/download and AD-23.8), and `wp27.e2e.test.ts` (multi-agent
-FIFO, remote tabId and openedBy).
+FIFO, remote tabId and openedBy), `wp32.e2e.test.ts` (remote acceptance), and `wp36.e2e.test.ts` (commercial remote admission).
 
 `tests-e2e/browser/real-browser.e2e.test.ts` checks the existing browser chain
 (ARCHITECTURE.md §16) against a **real Chromium**, end to end:

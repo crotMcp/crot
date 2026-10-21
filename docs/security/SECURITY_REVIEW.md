@@ -1,41 +1,17 @@
-# WP-33 authorized repository security review
+# Authorized repository security review and normalization findings
 
-**Review date:** 2026-10-21  
-**Scope:** Core, service/tray, browser/native host, L1 implementations, identity, relay/tunnel, commercial service, installers/updates and production templates.  
-**Method:** code review against the 12 release-blocking invariants, abuse-case analysis, targeted automated regression tests and existing cross-platform CI.
+This is not an independent third-party assessment. No claim of universal absence of critical/high vulnerabilities is made. Audit P0/P1/P2 are normalization priorities, not CVSS. The machine-readable [findings register](findings.json) records each fix and executable evidence; pending verification must not be reported closed.
 
-This is the curator-authorized automated repository review. It is **not an independent third-party assessment**, penetration test of a live deployment, legal review, or compromise-resistance claim for the host OS/IdP/signing infrastructure.
+## Method
 
-## Result
+Source/control-flow review, module/document comparison, branch semantics, history secret scan, lifecycle fault injection and functional security tests. Exact tested commits/results are in [NORMALIZATION](../NORMALIZATION.md). Source presence checks are inventory guards, not OS escape proofs or an external audit. L1 qualification remains in its platform suites/CI.
 
-- Open critical: 0
-- Open high: 0
-- Open medium: 0
-- Accepted/documented residual risks: see `RESIDUAL_RISKS.md`
-- Live/operator gates: production secrets, TLS/DNS, vendor signing/notarization, store publication, legal publication, external penetration testing if required by the operator, and beta acceptance.
+## Findings and closure
 
-## Review matrix
+N-01 output deletion; N-02 package/CLI gap; N-03 staged integrity; N-04 rollback; N-05 autostart; N-06 restore; N-07 provenance; N-08 documentation; N-09 UX; N-10 configs; N-11 circular review assertion; N-12 supply-chain; N-13 branch/file purpose. See JSON evidence paths and final validation status. No test decides “secure” by checking this prose.
 
-| Invariant | Evidence | Result |
-| --- | --- | --- |
-| Secret protection | child environment allowlist, protected paths/state, no cloud secret on devices | pass |
-| L1 all supported OSes | Linux/macOS/Windows implementations and native qualification tests | pass for qualified matrix |
-| Authentic approvals | private authenticated control channel; relay/pages/tools cannot approve | pass |
-| Exposure persistence | durable digested state, malformed/unreadable state fails closed | pass |
-| Token facts | pinned issuer; RS256/JWKS; exact issuer, audience, account, device and time checks | pass |
-| Relay privacy/authority | streaming router only; sanitized metadata logs/metrics | pass |
-| CDP surface | fixed allowlist, no Runtime/eval, release-pinned extension origins | pass |
-| Browser ordering | explicit remote `tabId`, per-connection/tab FIFO and document references | pass |
-| Remote profile | explicit minimum defaults and user presets, sandbox-forbidden grants excluded | pass |
-| Update chain | Ed25519/SHA-256, pinned identity, staging, health rollback, SBOM/checksums | pass |
-| Critical/high findings | none open in this repository review | pass |
-| Residual disclosure | AD-13 through AD-36 and operational gates mapped | pass |
+The release-invariants suite now executes manifest validation and metrics authentication rather than asserting zero findings text. Dedicated update tests verify real signatures/hashes, copied-byte substitution and activation failures; restore tests inject second-rename failure. Remaining source-presence checks are explicitly limited inventory guards.
 
-## Findings closed during WP-33
+## Residual/external gates
 
-1. **Operational observability boundary:** added an authenticated, fixed-cardinality Prometheus export; it consumes sanitized records and emits no identifiers, headers, tokens or payload fields.
-2. **Disaster recovery integrity:** added hash-manifested offline backup/restore for both registry and commercial state; corrupted backups are rejected.
-3. **Release assembly gap:** added a single RC pipeline that requires pinned identity, complete checks/E2E and an Ed25519 key in production mode, and inventories desktop, extension, SBOM and checksum artifacts.
-4. **RFC 9207 condition:** AD-36 explicitly accepts the WorkOS v1 deviation only for the single pinned authorization server; optional response `iss` remains byte-exact checked.
-
-No severity was reduced by omitting an affected component. Medium-or-higher future findings reopen G6 and block release until fixed or explicitly accepted by a new AD.
+Real OS autostart installation, GUI platform packages, vendor signing, store/legal publication, external-client runs, production/Stripe and live drills remain incomplete/external. Power-loss recovery across multiple JSON files is not claimed; single-writer offline operation is mandatory. See RESIDUAL_RISKS and STATUS. Owner-reported staging is not an independent live test.

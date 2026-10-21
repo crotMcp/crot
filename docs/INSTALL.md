@@ -1,34 +1,40 @@
-# Install, update and uninstall
+# Install, update and removal — operator-managed pre-release
 
-## Release artifacts
+There are no published autonomous MSI/DMG/DEB GUI installers. Node/runtime dependencies and qualified native prerequisites must be provisioned externally; compiled output alone is not standalone. Vendor signing/notarization and store publication remain gates.
 
-A release build must pin public identity metadata. Set `RELEASE_IDENTITY_ENVIRONMENT` to the reviewed JSON file (or pass `--environment`) and run:
+## Build
 
-```sh
-RELEASE_IDENTITY_ENVIRONMENT=deploy/staging/identity.json npm run build:release
-npm run package:extension
-```
-
-`dist-release/` contains compiled CROT, `release-identity.json`, CycloneDX `sbom.cdx.json`, `SHA256SUMS` and `THIRD_PARTY_NOTICES.md`. An unpinned release build fails (N3). OS distribution signing/notarization credentials remain outside the repository.
-
-## Per-user service autostart
+Create/review a local public metadata file from `deploy/staging/identity.example.json` (do not put secrets in it):
 
 ```sh
-crot-mcp service autostart install
-crot-mcp service autostart status
-crot-mcp service autostart remove
+cp deploy/staging/identity.example.json /trusted/staging-identity.json
+npm run build:release -- --environment /trusted/staging-identity.json --out dist-release
+node dist-release/bin/crot-mcp.js --help
 ```
 
-Linux writes `~/.config/systemd/user/crot-mcp.service` with `Restart=on-failure` and `~/.config/user-tmpfiles.d/crot-mcp.conf`, excluding `/var/tmp/crot-l1-*` from age cleanup. macOS writes `~/Library/LaunchAgents/network.crot.service.plist` with failed-exit `KeepAlive`. Windows creates the least-privilege per-user logon task `CROT MCP Service` with restart-on-failure.
+Run from a provisioned runtime/dependency tree. Source `native/`, notices, npm/native source SBOM and checksums accompany the payload; this does not claim all native binaries/runtimes are bundled. Platform/image packages must add their actual OS/runtime inventory.
 
-`crot-mcp browser install` registers `com.crot.host` for the current user. Its `allowed_origins` is generated only from `src/cli/release-extension-ids.ts` (OD-10); no command accepts an extension ID.
+## Per-user autostart
 
-## Transactional package lifecycle
+```sh
+CROT_CONFIG=/absolute/config.json node dist/bin/crot-mcp.js service autostart install
+node dist/bin/crot-mcp.js service autostart status
+node dist/bin/crot-mcp.js service autostart remove
+```
 
-`src/installer/update.ts` is the package-manager core used by OS installer front ends. An update package has `update-manifest.json`, detached `update-manifest.sig` (Ed25519), and `payload/`. Before any current-version change it validates the strict manifest, signature, every SHA-256 and every relative path. It stages a version, atomically switches `current`, registers service/tray/native-host/L1 hooks, and runs a health check. Failed startup restores the prior current version and registrations. Forged or corrupted packages are rejected before activation.
+Generators invoke the exact Node binary plus JS entrypoint, not a non-executable JS file. Linux daemon-reloads user units and uses failure restart/tmpfiles exclusion. macOS uses LaunchAgent. Windows uses a least-privilege per-user task with honest UTF-8 XML. Automated tests validate generation/lifecycle via controlled runners; actual systemd/launchd/schtasks installation is a separate qualification, not implied by these tests. Use absolute paths. `CROT_CONFIG` is carried into service arguments.
 
-User configuration, device binding, secrets and `remote-exposure.json` live under the state root, outside version directories. Upgrade never replaces them. Normal uninstall stops/unregisters service, tray, native messaging and L1 through installer hooks and removes installed versions; user state is retained unless an explicit purge is requested.
+## Signed RC/update format and CLI
 
-## Verification
+```sh
+# Production-mode assembly requires checks, Chromium and an externally held Ed25519 key.
+CROT_E2E_CHROME=/path/to/chromium CROT_UPDATE_SIGNING_KEY=/private/update.private.pem npm run build:rc -- --environment /trusted/staging-identity.json --out artifacts/rc
+node dist/bin/crot-mcp.js service stop
+node dist/bin/crot-mcp.js update --package /absolute/artifacts/rc/update   --public-key /trusted/update-public.pem --install-root /private/crot-install --config /absolute/config.json
+```
 
-All six Linux/macOS/Windows × Node 20/22 CI jobs run lifecycle tests: three-OS autostart plans; fresh install and upgrade; state preservation; bad signature/hash rejection; failed-health rollback; uninstall; AuthKit issuer/relay-host independence; extension packaging; SBOM/checksum/notices generation. Real Chromium E2E remains the separate browser job; installed native L1 jobs remain separate qualification jobs.
+`update/` contains canonical `update-manifest.json`, Ed25519 `.sig` and `payload/`. The trusted key is supplied out-of-band, never trusted from the package. A repository-test RC is explicitly not release-qualified; unsigned test output cannot be installed as a signed package.
+
+The updater verifies paths/signature/source hashes, copies and rehashes staging bytes, preserves the previous version bytes until health success, and restores current/registration on activation failure. Same-version replacement is covered. CLI requires the service stopped, registers exact Node/entrypoint via OS autostart and checks local service control readiness. Runtime dependencies must resolve from the installed location; otherwise health fails/rolls back. The CLI does not register tray/browser/native prerequisites as if GUI installers existed.
+
+An exclusive lock prevents simultaneous updates. This is a runtime-failure transaction, not crash/power-loss recovery. On interrupted update, keep service stopped, retain `.previous-*`/staging/current and `.update-lock` for offline inspection; do not delete a lock while a writer runs. Rollback failure is explicit. User configuration/bindings/secrets/exposure remain outside payload; never choose install root overlapping private state/config. No arbitrary GUI uninstall/purge is promised. The library uninstall defaults to preserving state; operator-specific registrations must be removed deliberately.

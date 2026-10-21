@@ -19,6 +19,7 @@
  * browser tool call is authorized by Core's PermissionEngine.
  */
 import os from "node:os";
+import { runUpdate } from "../cli/update.js";
 import { fileURLToPath } from "node:url";
 import {
   formatInstallResult,
@@ -52,6 +53,7 @@ const SHUTDOWN_SIGNALS = windows ? ["SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"] :
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+  if (argv[0] === "update") return runUpdate(argv.slice(1));
   const command = await parseCli(argv);
   switch (command.kind) {
     case "help":
@@ -253,8 +255,15 @@ async function uninstallBrowser(): Promise<void> {
 }
 
 async function serviceAutostart(action: "install" | "status" | "remove"): Promise<void> {
-  const executable = process.env.CROT_EXECUTABLE ?? fileURLToPath(import.meta.url);
-  const spec = { os: osFamily(process.platform), home: os.homedir(), executable, env: process.env };
+  const executable = process.execPath;
+  const spec = {
+    os: osFamily(process.platform),
+    home: os.homedir(),
+    executable,
+    script: fileURLToPath(import.meta.url),
+    ...(process.env.CROT_CONFIG ? { configFile: process.env.CROT_CONFIG } : {}),
+    env: process.env,
+  };
   if (action === "install") {
     await installAutostart(spec);
     process.stdout.write("CROT service autostart installed.\n");

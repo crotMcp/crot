@@ -205,6 +205,8 @@ describe("Stripe signature and authoritative state adapter", () => {
     for (const sig of [
       "t=1,v1=" + "0".repeat(64),
       signature(raw, now / 1000 - 301),
+      signature(raw, now / 1000 + 301),
+      "",
       signature(Buffer.from("different")),
       "t=1,t=2,v1=" + "0".repeat(64),
     ])

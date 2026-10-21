@@ -1,7 +1,11 @@
 /** Metadata-only operations support for WP-39: metrics and durable state backup. */
 import { createHash, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { AccountService, type State } from "../account-service/service.js";
+import { isDeviceId } from "../identity/device-id.js";
+import { isDevicePublicKey, type DeviceRecord } from "./registry.js";
+import { randomUUID } from "node:crypto";
 import type { RelayLogRecord } from "./log.js";
 import type { RelayStatus } from "./server.js";
 
@@ -88,6 +92,8 @@ export async function restoreRelayState(input: {
   backupDir: string;
   registryFile: string;
   accountFile: string;
+  /** Fault-injection seam; production defaults to fs.rename. */
+  replace?: typeof rename;
 }): Promise<void> {
   const manifest = JSON.parse(
     await readFile(path.join(input.backupDir, "manifest.json"), "utf8"),
@@ -108,12 +114,79 @@ export async function restoreRelayState(input: {
     JSON.parse(data.toString("utf8"));
     validated.push({ target: targets[name], data });
   }
-  // Validate the complete pair before changing either live file.
-  for (const { target, data } of validated) {
-    await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-    const temp = `${target}.restore-${process.pid}`;
-    await writeFile(temp, data, { mode: 0o600 });
-    await rename(temp, target);
-    if (!(await stat(target)).isFile()) throw new Error("restore target is not a file");
+  const account = JSON.parse(validated.find((v) => v.target === input.accountFile)!.data.toString()) as State;
+  AccountService.validateState(account);
+  const registry = JSON.parse(validated.find((v) => v.target === input.registryFile)!.data.toString()) as {
+    version: number;
+    devices: DeviceRecord[];
+  };
+  if (
+    !registry ||
+    Object.keys(registry).sort().join(",") !== "devices,version" ||
+    registry.version !== 1 ||
+    !Array.isArray(registry.devices) ||
+    registry.devices.length > 100_000
+  )
+    throw new Error("invalid registry schema");
+  const seen = new Set<string>();
+  for (const record of registry.devices) {
+    if (
+      !record ||
+      Object.keys(record).sort().join(",") !== "accountId,deviceId,environment,publicKey,registeredAt" ||
+      !isDeviceId(record.deviceId) ||
+      seen.has(record.deviceId) ||
+      !isDevicePublicKey(record.publicKey) ||
+      typeof record.environment !== "string" ||
+      !/^[a-z0-9][a-z0-9-]{0,31}$/.test(record.environment) ||
+      typeof record.registeredAt !== "string" ||
+      !Number.isFinite(Date.parse(record.registeredAt))
+    )
+      throw new Error("invalid registry record");
+    seen.add(record.deviceId);
+    const owner = account.accounts.find((a) => a.accountId === record.accountId);
+    // Reservations without registry entries are valid after interrupted registration;
+    // registry records without matching commercial ownership are never valid.
+    if (!owner?.devices.some((d) => d.deviceId === record.deviceId))
+      throw new Error("inconsistent registry/accounts ownership");
+  }
+  if (path.resolve(input.registryFile) === path.resolve(input.accountFile))
+    throw new Error("restore targets must differ");
+  const id = randomUUID();
+  const staged: Array<{ target: string; temp: string; original?: Buffer }> = [];
+  const replaced: typeof staged = [];
+  try {
+    for (const { target, data } of validated) {
+      let original: Buffer | undefined;
+      try {
+        original = await readFile(target);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+      const temp = `${target}.restore-${id}`;
+      staged.push({ target, temp, original });
+      await writeFile(temp, data, { mode: 0o600 });
+    }
+    for (const entry of staged) {
+      await (input.replace ?? rename)(entry.temp, entry.target);
+      replaced.push(entry);
+    }
+  } catch (error) {
+    try {
+      for (const entry of replaced.reverse()) {
+        if (entry.original) {
+          await writeFile(entry.temp, entry.original, { mode: 0o600 });
+          await rename(entry.temp, entry.target);
+        } else await rm(entry.target, { force: true });
+      }
+    } catch (rollbackError) {
+      throw new AggregateError(
+        [error, rollbackError],
+        "restore failed and rollback incomplete; keep relay stopped and recover offline",
+      );
+    }
+    throw error;
+  } finally {
+    for (const entry of staged) await rm(entry.temp, { force: true });
   }
 }

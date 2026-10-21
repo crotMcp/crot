@@ -10,3 +10,12 @@ coverage/
 /deploy/staging/config/
 /dist-release/
 /artifacts/
+
+# Private operator/developer state (never publish)
+opencode.json
+.opencode/
+/deploy/production/config/
+.env
+.env.local
+*.private.pem
+*.key

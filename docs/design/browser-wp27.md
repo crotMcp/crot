@@ -1,5 +1,7 @@
 # WP-27 — multi-agent browser safety
 
+> Historical design/package baseline, not current status. Implementation, verification, delivery and operations are tracked independently in root STATUS/roadmap. Old “not merged/not implemented” statements refer to this record’s original stage. Original full-product DoD (including publication/GUI installation) remains open where STATUS says partial/external; repository delivery does not silently satisfy it.
+
 Base: main `386bf3b` (merged PR #32, accepted WP-26 `5df8345b`). Separate branch `feat/wp27-agent-tabs`; no merge by the agent.
 
 ## Preliminary WP-24 gate

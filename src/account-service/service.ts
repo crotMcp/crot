@@ -21,13 +21,13 @@ export interface ClientMetadata {
   lastSeen: number;
   sessionIds?: string[];
 }
-interface Device {
+export interface Device {
   deviceId: string;
   registeredAt: number;
   revoked: boolean;
   clients: ClientMetadata[];
 }
-interface Account {
+export interface Account {
   accountId: string;
   plan: Plan;
   status: SubscriptionStatus;
@@ -37,7 +37,7 @@ interface Account {
   retiredSubscriptions?: string[];
   devices: Device[];
 }
-interface State {
+export interface State {
   version: 1;
   accounts: Account[];
   events: string[];
@@ -91,7 +91,7 @@ export class AccountService implements CommercialService {
       const bytes = await readFile(file);
       if (bytes.length > 32 * 1024 * 1024) throw new Error("account metadata too large");
       const state = JSON.parse(bytes.toString("utf8")) as State;
-      service.validate(state);
+      AccountService.validateState(state);
       service.state = state;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -101,7 +101,7 @@ export class AccountService implements CommercialService {
   private now(): number {
     return (this.options.now ?? Date.now)();
   }
-  private validate(state: State): void {
+  static validateState(state: State): void {
     if (
       !state ||
       !only(state, ["version", "accounts", "events"]) ||
@@ -171,7 +171,7 @@ export class AccountService implements CommercialService {
     const run = this.queue.then(async () => {
       const next = structuredClone(this.state);
       const result = await fn(next);
-      this.validate(next);
+      AccountService.validateState(next);
       if (this.options.file) {
         await mkdir(path.dirname(this.options.file), { recursive: true, mode: 0o700 });
         const tmp = `${this.options.file}.${randomUUID()}.tmp`;

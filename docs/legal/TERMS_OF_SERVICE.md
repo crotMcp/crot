@@ -1,5 +1,7 @@
 # CROT terms of service — publication template
 
+> **Pre-release template — not an active legal/support commitment.** Before sales/publication the owner must fill and approve: legal entity/address, jurisdiction, operator contact, privacy/security/support channels, response commitments, retention/subprocessors and effective date as applicable. Placeholder channels must not be represented as operational.
+
 **Effective date:** `[DATE]`  
 **Provider:** `[LEGAL NAME, ADDRESS, REGISTRATION NUMBER, JURISDICTION]`  
 **Contact:** `[LEGAL/SUPPORT CONTACT]`

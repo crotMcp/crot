@@ -1,5 +1,7 @@
 # CROT v1 release candidate checklist
 
+> Use root STATUS four-axis matrix. Repository RC/update artifacts are not GUI installers or beta/GA. Production, Stripe, vendor signing, store/legal publication, external-client runs and live drills remain open. Historical repository Done labels below are not full-product acceptance.
+
 This checklist separates repository evidence from actions only the release operator can perform. A generated RC is not GA. Each operator item needs an owner, timestamp and immutable evidence link.
 
 ## Build the RC

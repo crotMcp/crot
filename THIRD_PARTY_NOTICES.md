@@ -14,3 +14,9 @@ CROT is distributed with third-party software. Copyright remains with the respec
 Build-only packages, including TypeScript, ESLint, Prettier, Vitest and Electron, are listed with exact versions and declared licenses in the generated CycloneDX SBOM. They are not implied to be part of every binary distribution.
 
 This notice does not replace the license text shipped by a dependency or platform package. Release packaging must retain applicable license files and this notice.
+
+## Native/vendor and platform dependencies
+
+Microsoft Detours 4.0.1 (MIT) is vendored under `native/vendor/detours`; the upstream pin and complete license are preserved in `README.md` and `LICENSE.md` there and copied into release/update payloads. This is source inventory, not a claim that every platform uses a Detours binary.
+
+Linux confinement relies on operator-installed bubblewrap and platform AppArmor support. Node runtime, OS libraries and optional Electron packaging are external prerequisites, not bundled standalone runtimes. A deployable image/platform package must extend this source/npm SBOM with its actual base-image and OS package inventory. GUI MSI/DMG/DEB installers and vendor signing remain external/incomplete release stages.

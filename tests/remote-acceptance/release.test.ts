@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 import { afterEach, expect, it } from "vitest";
@@ -12,7 +13,7 @@ afterEach(async () => {
   if (temp) await rm(temp, { recursive: true, force: true });
 });
 it("WP-38 release artifact pins public identity; dev override cannot redirect it", async () => {
-  temp = await mkdtemp(path.join(process.cwd(), "node_modules/.cache/wp38-"));
+  temp = await mkdtemp(path.join(os.tmpdir(), "crot-wp38-"));
   const input = path.join(temp, "identity.json"),
     out = path.join(temp, "build");
   const source = "src/identity/release-environment.ts",

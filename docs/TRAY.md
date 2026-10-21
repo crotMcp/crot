@@ -1,5 +1,7 @@
 # CROT tray (WP-22)
 
+> Current delivery clarification: tray code is implemented; standalone tray packaging/autostart is not implied by service autostart. See USER_GUIDE for actual buttons and exposure-gated meaning of Ask for every action.
+
 The tray is the first approval UI for CROT and the place for the device-side
 controls (ARCHITECTURE.md §27 AD-19). It is a separate Electron application
 and only a client of the service's authenticated control channel

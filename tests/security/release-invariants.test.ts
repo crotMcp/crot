@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { parseUpdateManifest } from "../../src/installer/update.js";
 import { describe, expect, it } from "vitest";
-import { OperationalMetrics } from "../../src/cloud-relay/operations.js";
+import { OperationalMetrics, metricsTokenMatches } from "../../src/cloud-relay/operations.js";
 import { sanitizeRecord } from "../../src/cloud-relay/log.js";
 import { RemoteExposureStore } from "../../src/core/approvals/remote-exposure.js";
 import { TabQueue } from "../../src/core/capabilities/browser/tab-queue.js";
@@ -141,20 +142,29 @@ describe("WP-33 release-blocking security invariants", () => {
     expect(new Set(REMOTE_DEFAULT_CAPABILITIES).size).toBe(REMOTE_DEFAULT_CAPABILITIES.length);
   });
 
-  it("10. verifies Ed25519 signatures and SHA-256 before transactional updates", async () => {
-    const update = await source("src/installer/update.ts");
-    expect(update).toContain("verifySignature(null");
-    expect(update).toContain('createHash("sha256")');
-    expect(update.indexOf("verifyUpdatePackage(packageDir")).toBeLessThan(
-      update.indexOf("const previous = await current"),
+  it("10. rejects traversal, duplicate paths and missing identity in the executable manifest parser", () => {
+    const manifest = {
+      schema: 1,
+      product: "crot",
+      version: "1.0.0",
+      identityEnvironment: "staging",
+      files: [{ path: "bin/a.js", sha256: "a".repeat(64) }],
+    };
+    expect(parseUpdateManifest(manifest).version).toBe("1.0.0");
+    for (const target of ["../escape", "/absolute", "C:\\escape", "a/../b", "a\\b"])
+      expect(() => parseUpdateManifest({ ...manifest, files: [{ ...manifest.files[0], path: target }] })).toThrow();
+    expect(() => parseUpdateManifest({ ...manifest, files: [manifest.files[0], manifest.files[0]] })).toThrow(
+      "duplicate",
     );
+    expect(() => parseUpdateManifest({ ...manifest, identityEnvironment: "" })).toThrow();
   });
 
-  it("11. records no open critical or high finding in the authorized repository review", async () => {
-    const review = await source("docs/security/SECURITY_REVIEW.md");
-    expect(review).toContain("Open critical: 0");
-    expect(review).toContain("Open high: 0");
-    expect(review).toContain("not an independent third-party assessment");
+  it("11. authenticates operational metrics fail-closed without relying on review prose", () => {
+    const token = "m".repeat(48);
+    expect(metricsTokenMatches(`Bearer ${token}`, token)).toBe(true);
+    for (const header of [undefined, token, "Bearer short", `Bearer ${"n".repeat(48)}`, `bearer ${token}`])
+      expect(metricsTokenMatches(header, token)).toBe(false);
+    expect(metricsTokenMatches("Bearer short", "short")).toBe(false);
   });
 
   it("12. discloses every accepted v1 architecture risk AD-13 through AD-36", async () => {

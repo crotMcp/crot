@@ -237,28 +237,44 @@ describe("WP-36 actual cloud admission and owner API", () => {
       };
       await h!.register(p);
       await accounts.noteClient("user_01", id, "client_A", "session_A");
+      let now = Date.now();
+      const sent: string[] = [];
       const identity = new DeviceIdentity({
+        now: () => now,
         binding,
         environment: h!.as.environment(),
         log: () => {},
         http: createIdentityHttp({
-          fetch: (input, init) =>
-            String(input).startsWith(`https://${TEST_RELAY}/`)
+          fetch: (input, init) => {
+            sent.push(JSON.stringify(init));
+            return String(input).startsWith(`https://${TEST_RELAY}/`)
               ? fetch(String(input).replace(`https://${TEST_RELAY}`, h!.origin), init)
-              : h!.as.fetch(input, init),
+              : h!.as.fetch(input, init);
+          },
         }),
       });
-      await identity.refreshCommercial();
+      await identity.refreshCommercialIfNeeded();
       expect(identity.commercialStatus()).toMatchObject({
         state: "current",
         plan: "trial",
         entitled: true,
         deviceCount: 1,
       });
+      const requests = sent.length;
+      await identity.refreshCommercialIfNeeded();
+      expect(sent).toHaveLength(requests);
+      expect(await identity.revokeProvider({ accountId: "other", deviceId: id, clientId: "client_A" })).toBe(
+        "not_available",
+      );
+      expect(sent).toHaveLength(requests);
       expect(await identity.revokeProvider({ accountId: "user_01", deviceId: id, clientId: "client_A" })).toBe(
         "requested",
       );
       expect(revokeSession).toHaveBeenCalledExactlyOnceWith("session_A");
+      expect(sent.join("\n")).not.toContain("Bearer");
+      expect(sent.join("\n")).not.toContain(dirs.workspace);
+      now += 120_001;
+      expect(identity.commercialStatus()).toMatchObject({ state: "unknown" });
       await h!.stop();
       h = undefined;
       await identity.refreshCommercial();

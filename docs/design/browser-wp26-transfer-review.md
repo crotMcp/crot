@@ -1,5 +1,7 @@
 # WP-26 — production upload/download and OD-8 acceptance
 
+> Historical design/package baseline, not current status. Implementation, verification, delivery and operations are tracked independently in root STATUS/roadmap. Old “not merged/not implemented” statements refer to this record’s original stage. Original full-product DoD (including publication/GUI installation) remains open where STATUS says partial/external; repository delivery does not silently satisfy it.
+
 Status: **WP-26 Done in PR #32 (not merged); OD-8 Decided by AD-33**.
 Production commit: `4cc717184b3d3d6739b5a89e6af0b0edd24b1529`.
 Base: `main` `e197f18475901992ce1fb389616de015dba20f4b` (PR #31 merged).

@@ -4,7 +4,7 @@ Use these texts verbatim in Chrome Web Store and Microsoft Edge Add-ons review f
 
 ## `debugger`
 
-CROT uses the Chrome DevTools Protocol only after the user enables browser control in the local CROT application. It provides trusted clicks and keyboard input, accessibility snapshots, cross-origin frame handling, JavaScript dialog handling, file-input selection and screenshots of a selected background tab. The extension exposes only CROT's fixed command allowlist. It does not intercept network traffic, execute remotely supplied code, or provide raw CDP access.
+CROT uses the Chrome DevTools Protocol only after the user enables browser control in the local CROT application. It provides trusted clicks and keyboard input, accessibility snapshots, cross-origin frame handling, JavaScript dialog handling, file-input selection and screenshots of a selected background tab. The extension exposes only CROT's fixed command allowlist. For an approved download, it temporarily enables response-stage Fetch interception on the selected document to establish response-bound ownership and handoff; it disables interception after the bounded operation. It does not provide general traffic interception, remotely supplied code execution, or raw CDP access.
 
 ## `downloads`
 

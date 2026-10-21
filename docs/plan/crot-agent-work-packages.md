@@ -1,5 +1,7 @@
 # CROT — Agent Work Packages (v1: Remote MCP)
 
+> Historical design/package baseline, not current status. Implementation, verification, delivery and operations are tracked independently in root STATUS/roadmap. Old “not merged/not implemented” statements refer to this record’s original stage. Original full-product DoD (including publication/GUI installation) remains open where STATUS says partial/external; repository delivery does not silently satisfy it.
+
 Detailed cards for WP-17…WP-37. Order, dependencies and status are in
 [`CROT_IMPLEMENTATION_ROADMAP.md`](../../CROT_IMPLEMENTATION_ROADMAP.md); architecture and
 decisions are in [`ARCHITECTURE.md`](../../ARCHITECTURE.md).

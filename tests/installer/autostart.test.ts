@@ -14,7 +14,8 @@ async function spec(osFamily: OsFamily) {
   return {
     os: osFamily,
     home,
-    executable: path.join(home, "CROT bin", "crot-mcp"),
+    executable: process.execPath,
+    script: path.join(home, "CROT bin", "crot-mcp.js"),
     configFile: path.join(home, "config.json"),
   };
 }
@@ -31,6 +32,8 @@ describe("WP-34 per-user autostart", () => {
     for (const artifact of plan.artifacts) expect(await readFile(artifact.file, "utf8")).toBe(artifact.content);
     await removeAutostart(input, runner);
     expect(await autostartStatus(input, runner)).toBe(false);
+    expect(plan.artifacts[0]?.content).toContain(process.execPath.replaceAll("&", "&amp;"));
+    expect(plan.artifacts[0]?.content).toContain("crot-mcp.js");
     expect(calls.length).toBeGreaterThanOrEqual(3);
   });
   it("uses failure restart and protects Linux L1 storage", async () => {
@@ -42,6 +45,7 @@ describe("WP-34 per-user autostart", () => {
   it("uses launchd unsuccessful-exit KeepAlive and a Windows per-user logon task", async () => {
     expect(autostartPlan(await spec("macos")).artifacts[0]?.content).toContain("<key>SuccessfulExit</key><false/>");
     const windows = autostartPlan(await spec("windows")).artifacts[0]?.content ?? "";
+    expect(windows).toContain('encoding="UTF-8"');
     expect(windows).toContain("<LogonTrigger>");
     expect(windows).toContain("<RestartOnFailure>");
     expect(windows).toContain("LeastPrivilege");
