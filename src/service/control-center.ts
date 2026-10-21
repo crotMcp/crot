@@ -62,7 +62,7 @@ export const FULL_CONTROL_NOTE =
 export const TUNNEL_NOTE = "The relay tunnel is not available yet (WP-30); no remote request can reach this device.";
 export const CDP_REASON = "not_probed";
 export const PROVIDER_REVOCATION_NOTE =
-  "The authorization at the identity provider is not revoked from this device (that needs the CROT account service, WP-36). " +
+  "The authorization at the identity provider could not be revoked through the account service. " +
   "The client is refused on this device now; tokens it already holds expire within 15 minutes and cannot be used here.";
 
 /** Result of asking the identity provider to revoke a client's authorization (AD-21 point 4, best effort). */
@@ -245,7 +245,9 @@ export class ControlCenter implements RemoteAdmission {
   handle(connection: ControlConnection, request: ControlRequest): Promise<Result> | undefined {
     switch (request.method) {
       case "overview":
-        return Promise.resolve(this.overview() as unknown as Result);
+        return (this.host.identity.refreshCommercialIfNeeded() ?? Promise.resolve()).then(
+          () => this.overview() as unknown as Result,
+        );
       case "approvals.subscribe":
         return Promise.resolve(this.subscribe(connection));
       case "approvals.unsubscribe":
@@ -932,6 +934,7 @@ export class ControlCenter implements RemoteAdmission {
     const browser = this.host.browserState();
     const blockedBy = this.host.holder.busyReason();
     return {
+      commercial: this.host.identity.commercialStatus(),
       service: {
         state: status.state,
         pid: status.pid,

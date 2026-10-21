@@ -339,8 +339,14 @@ describe("BrowserBridge", () => {
       const client = await FakeClient.connect(bridge.endpoint.path);
       for (const message of messages) client.send(message);
       await client.closed;
-      expect(client.socket.bytesRead).toBe(0);
-      expect(bridge.state()).toEqual({ kind: "waiting" });
+      const incompatible = messages.some(
+        (m) =>
+          (m as { type?: string; protocol?: number }).type === "hello" && (m as { protocol?: number }).protocol === 2,
+      );
+      if (incompatible) {
+        expect(client.socket.bytesRead).toBeGreaterThan(0);
+        expect(bridge.state()).toEqual({ kind: "update_required" });
+      } else expect(client.socket.bytesRead).toBe(0);
     }
     // A handshake frame larger than MAX_HANDSHAKE_FRAME_BYTES is refused from its header.
     const big = await FakeClient.connect(bridge.endpoint.path);

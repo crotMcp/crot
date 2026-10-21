@@ -1,3 +1,5 @@
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { AccountService } from "../../src/account-service/service.js";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, stat, unlink } from "node:fs/promises";
 import path from "node:path";
@@ -159,6 +161,40 @@ async function crotStatus(client: Client): Promise<{ service: ServiceStatus; wor
 }
 
 describe("CROT service (WP-20)", () => {
+  it("WP-36: Free/offline/accountless local shim and loopback HTTP remain fully usable", async () => {
+    // A free commercial service denies remote. It is deliberately not a dependency of the local service.
+    expect(new AccountService().snapshot("unregistered").entitled).toBe(false);
+    const config = { permissions: { mode: "full_control" }, http: { enabled: true, port: 0 } };
+    const started = await startService({ config });
+    const shim = await mcpClient(config);
+    const http = new Client({ name: "free-local-http", version: "1" });
+    const token = (await readFile(path.join(stateDir, "http-token"), "utf8")).trim();
+    try {
+      await http.connect(
+        new StreamableHTTPClientTransport(new URL(started.service.httpUrl!), {
+          requestInit: { headers: { authorization: `Bearer ${token}` } },
+        }),
+      );
+      for (const [index, client] of [shim, http].entries()) {
+        const write = await client.callTool({
+          name: "fs_write_file",
+          arguments: { path: `free-${index}.txt`, content: "accountless-local" },
+        });
+        expect(write.isError).not.toBe(true);
+        const read = await client.callTool({ name: "fs_read_file", arguments: { path: `free-${index}.txt` } });
+        expect(read.isError).not.toBe(true);
+        expect(JSON.stringify(read)).toContain("accountless-local");
+      }
+      const overview = started.service.status();
+      expect(overview.state).toBe("running");
+      expect(started.logs.join("\n")).not.toContain("stripe");
+      expect(started.logs.join("\n")).not.toContain("entitlement_required");
+    } finally {
+      await shim.close();
+      await http.close();
+    }
+  });
+
   it("is a singleton per user: a second service gets already_running and starts nothing", async () => {
     const first = await startService();
     const second = await CrotService.start({

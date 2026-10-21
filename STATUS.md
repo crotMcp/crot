@@ -5,6 +5,25 @@ order are in [`CROT_IMPLEMENTATION_ROADMAP.md`](CROT_IMPLEMENTATION_ROADMAP.md);
 architecture and decisions in [`ARCHITECTURE.md`](ARCHITECTURE.md). Every work
 package PR updates this file.
 
+## WP-36 — Done (repository scope), PR #36
+
+The existing `feat/wp36-commercial` branch is the sole WP-36 delivery, based
+on merged PR #35 (`20d0ea9`). OD-11/12/13 are **Decided in AD-34**. Cloud-only
+accounts implement Free/offline/accountless local use, explicit 14-day/2-device
+trial, Pro/5 and Team/20, signed Stripe webhooks/hosted checkout, OAuth PKCE
+account portal and owner/device/client API. Durable lost-device revocation
+removes registration/key, closes 4403, suppresses PRM and forbids re-registration.
+Real relay entitlement admission, downgrade and expiry never affect local Core.
+Tray/overview shows informational device-specific plan/limits; best-effort
+WorkOS revocation uses cloud-only secrets and observed verified session ids.
+
+Final review gate: full `npm run check`, real Chromium E2E including the shipped
+portal and WP-32 remote matrix, and **all 11 CI jobs on the final head**. Local
+platform/headed skips are not counted as qualified. Live WorkOS/Stripe,
+crot.network DNS/TLS and Oracle ARM64 deployment, financial/legal/residency
+setup remain owner release gates. No live charge or automatic merge is claimed.
+[Service/API, configuration, tests and boundaries](docs/ACCOUNTS.md).
+
 ## WP-32 automatic acceptance / WP-38 repository delivery
 
 Implemented the three-revision × two-preset remote SDK project/browser suite,

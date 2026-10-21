@@ -3,6 +3,7 @@
  * `crot-cloud-relay --config <file>`; deployment environments are WP-38
  * (staging) and WP-39 (production).
  */
+import { versionAtLeast } from "./versions.js";
 import { relayLimits, type RelayLimits } from "./limits.js";
 import { isRelayHost } from "../identity/device-id.js";
 import { isClientId, isIssuer } from "../identity/environment.js";
@@ -18,11 +19,28 @@ export interface RelayConfig {
   readonly host: string;
   readonly port: number;
   readonly registryFile: string;
+  readonly accountFile: string;
+  readonly portalClientIds: readonly string[];
+  readonly minimumDeviceVersion?: string;
+  readonly minimumClientVersion?: string;
+  readonly billing?: {
+    secretKeyFile: string;
+    webhookSecretFile: string;
+    prices: { pro: string; team: string };
+    returnUrl: string;
+  };
+  readonly workosSecretFile?: string;
   readonly tls?: { readonly certFile: string; readonly keyFile: string };
   readonly exchangeDeadlineMs: number;
 }
 
 const FIELDS = [
+  "accountFile",
+  "portalClientIds",
+  "billing",
+  "workosSecretFile",
+  "minimumDeviceVersion",
+  "minimumClientVersion",
   "limits",
   "relayHost",
   "issuer",
@@ -68,7 +86,44 @@ export function parseRelayConfig(value: unknown): RelayConfig {
     deadline > DEFAULT_EXCHANGE_DEADLINE_MS
   )
     throw new Error("exchangeDeadlineMs must be between 60000 and 900000 (AD-22 point 12)");
+  const accountFile = v.accountFile ?? `${v.registryFile}.accounts`;
+  if (typeof accountFile !== "string" || !accountFile || accountFile === v.registryFile)
+    throw new Error("accountFile must be a distinct file");
+  const portalClientIds = v.portalClientIds ?? [];
+  if (!Array.isArray(portalClientIds) || portalClientIds.length > 16 || !portalClientIds.every(isClientId))
+    throw new Error("invalid portalClientIds");
+  for (const key of ["minimumDeviceVersion", "minimumClientVersion"] as const)
+    if (v[key] !== undefined && !versionAtLeast(v[key], String(v[key])))
+      throw new Error("invalid minimum software version");
+  if (v.workosSecretFile !== undefined && (typeof v.workosSecretFile !== "string" || !v.workosSecretFile))
+    throw new Error("invalid workosSecretFile");
+  let billing: RelayConfig["billing"];
+  if (v.billing !== undefined) {
+    const b = v.billing as NonNullable<RelayConfig["billing"]>;
+    if (
+      !b ||
+      Object.keys(b).sort().join(",") !== "prices,returnUrl,secretKeyFile,webhookSecretFile" ||
+      typeof b.secretKeyFile !== "string" ||
+      !b.secretKeyFile ||
+      typeof b.webhookSecretFile !== "string" ||
+      !b.webhookSecretFile ||
+      !b.prices ||
+      Object.keys(b.prices).sort().join(",") !== "pro,team" ||
+      typeof b.prices.pro !== "string" ||
+      typeof b.prices.team !== "string" ||
+      typeof b.returnUrl !== "string" ||
+      !/^https:\/\//.test(b.returnUrl)
+    )
+      throw new Error("invalid billing configuration");
+    billing = b;
+  }
   return {
+    accountFile,
+    portalClientIds,
+    billing,
+    workosSecretFile: v.workosSecretFile as string | undefined,
+    minimumDeviceVersion: v.minimumDeviceVersion as string | undefined,
+    minimumClientVersion: v.minimumClientVersion as string | undefined,
     limits: relayLimits(v.limits),
     relayHost: v.relayHost,
     issuer: v.issuer,

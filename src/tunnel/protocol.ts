@@ -236,5 +236,5 @@ export function selectMajor(offered: readonly string[], supported: readonly stri
 
 /** Reason of close 4426 (AD-22 point 10). */
 export function unsupportedVersionReason(supported: readonly string[]): string {
-  return `unsupported_version;supported=${supported.join(",")}`;
+  return `update required;supported=${supported.join(",")}`;
 }

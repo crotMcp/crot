@@ -133,6 +133,7 @@ export interface TestDeviceOptions {
   readonly signHost?: string;
   /** Do not send HELLO (handshake timeout tests). */
   readonly noHello?: boolean;
+  readonly software?: string;
   readonly onOpen?: (stream: DeviceStream) => void;
 }
 
@@ -281,7 +282,7 @@ export class TestDevice {
           encodeJsonFrame(FrameType.HELLO, 0, {
             deviceId: this.options.deviceId,
             proof: proof.toString("base64url"),
-            software: "crot-test/0.1.0",
+            software: this.options.software ?? "crot-test/0.1.0",
             maxStreams: this.options.maxStreams ?? 48,
             features: [],
           }),

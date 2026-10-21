@@ -7,6 +7,8 @@
  *
  * Logs are JSON lines on stderr without tokens, headers, bodies or paths.
  */
+import { AccountService } from "../account-service/service.js";
+import { StripeBillingProvider, WorkOSRevoker } from "../account-service/billing.js";
 import { readFile } from "node:fs/promises";
 import { parseRelayConfig } from "../cloud-relay/config.js";
 import { jsonLineLogger } from "../cloud-relay/log.js";
@@ -22,7 +24,25 @@ async function main(): Promise<void> {
   const config = parseRelayConfig(JSON.parse(await readFile(args[i + 1]!, "utf8")));
   const log = jsonLineLogger();
   const keys = new IssuerKeySet({ issuer: config.issuer, http: createIdentityHttp() });
+  const revoker = config.workosSecretFile
+    ? new WorkOSRevoker((await readFile(config.workosSecretFile, "utf8")).trim())
+    : undefined;
+  const accounts = await AccountService.open(config.accountFile, { revoker });
+  const billing = config.billing
+    ? new StripeBillingProvider({
+        secretKey: (await readFile(config.billing.secretKeyFile, "utf8")).trim(),
+        webhookSecret: (await readFile(config.billing.webhookSecretFile, "utf8")).trim(),
+        prices: config.billing.prices,
+        returnUrl: config.billing.returnUrl,
+      })
+    : undefined;
   const relay = new CloudRelay({
+    accounts,
+    billing,
+    portalClientIds: config.portalClientIds,
+    portalMetadata: () => keys.metadata(),
+    minimumDeviceVersion: config.minimumDeviceVersion,
+    minimumClientVersion: config.minimumClientVersion,
     limits: config.limits,
     relayHost: config.relayHost,
     issuer: config.issuer,
@@ -47,7 +67,8 @@ async function main(): Promise<void> {
   process.once("SIGINT", stop);
 }
 
-main().catch((error: unknown) => {
-  process.stderr.write(`crot-cloud-relay: ${error instanceof Error ? error.message : String(error)}\n`);
+main().catch(() => {
+  // Startup errors can contain secret/config paths. Never serialize provider or filesystem errors.
+  process.stderr.write("crot-cloud-relay: startup_failed (check configuration and provider availability)\n");
   process.exit(1);
 });

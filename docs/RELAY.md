@@ -26,6 +26,21 @@ WP-29 tests use a protocol-level test device
 (`tests/cloud-relay/test-device.ts`) that proxies to a real
 `CrotHttpServer` relay entry; the WP-30 tests use the real device side.
 
+## Accounts and commercial admission (WP-36)
+
+The same relay binary co-hosts durable AccountService and `/portal` with OAuth
+PKCE, Trial/Pro/Team checkout, owner/device/client management and lost-device
+revocation. Free is default; pre-commercial registry entries do not grant plans.
+Registration checks account entitlement/quota. HELLO and MCP check it again;
+webhook changes and wall-clock expiry close ineligible tunnels. Local Core never
+receives this commercial policy. Account HTTP routing excludes MCP payloads.
+
+See [ACCOUNTS](ACCOUNTS.md) for all owner/device/billing routes, secret files,
+portal OAuth resource/client setup, storage/recovery, version floors and tests.
+`accountFile` defaults to `<registryFile>.accounts`; preserve both files when
+backing up with the relay stopped. Single writer only. Live provider/payment
+and public-host configuration remain owner deployment gates.
+
 ## Running
 
 ```sh
@@ -154,8 +169,8 @@ possible. Pending-handshake HTTP refusals carry 503/Retry-After/not_executed.
 
 For `/d/<id>/mcp` the relay checks, before touching the tunnel: exactly one
 bearer token, signature and `iss`, `aud` = `https://<relay-host>/d/<id>/mcp`,
-validity times, `sub` = registered owner, and the entitlement hook (default:
-every registered device is entitled; WP-36 replaces it). Failures produce
+validity times, `sub` = registered owner, and real cloud-only AccountService
+entitlement (WP-36 / AD-34). Default Free denies remote admission. Failures produce
 `401` (with `WWW-Authenticate: Bearer resource_metadata=…`) or `403`; the
 request is never forwarded. Identity headers sent by the client are forwarded
 as ordinary headers and have no meaning to the device; the device validates
@@ -222,7 +237,7 @@ has started a response, a failure can only abort the HTTP response.
 | `unknown_device` | 404 | not_executed | device not registered |
 | `method_not_allowed` | 405 | not_executed | method other than POST/GET/DELETE |
 | `unauthorized` | 401 | not_executed | missing or invalid token |
-| `not_entitled` | 403 | not_executed | entitlement hook refuses |
+| `not_entitled` | 403 | not_executed | AccountService denies remote admission |
 | `device_offline` | 503 | not_executed | no tunnel (Remote mode off, offline, draining) |
 | `request_rate_limited` | 429 + `Retry-After: 1` | not_executed | client/device sliding window exhausted |
 | `busy` | 503 + `Retry-After` | not_executed | admission concurrency or device's stream limit reached |
@@ -258,9 +273,10 @@ other clients; this does **not** claim production throughput or RSS capacity.
 - Re-pair rotates to a new id/key (AD-21); no in-place key replacement.
 - Offline local unpair remains immediate but best-effort remote removal can fail,
   leaving a stale relay record. It cannot re-enable the locally revoked device.
-  Account-side management/revocation is WP-36.
+  Account-side management/revocation is implemented by WP-36 (AD-34).
 - No CORS/OPTIONS for browser-based clients (AD-22 question 7).
-- Entitlement is still an allow-all hook until WP-36; relay is not an authorizer.
+- WP-36 implements real entitlement admission; relay is still not a local authorizer.
+  The explicit entitlement hook is for transport tests only, never the deployed binary.
 - Binary packaging is WP-34/38; public staging and real-client/timeouts acceptance
   remain WP-38/32, not implied by green component tests.
 

@@ -82,6 +82,11 @@ export class TestAuthorizationServer {
   readonly registrations: Array<{ deviceId: string; bearer: string | undefined; body: unknown }> = [];
   clock: () => number = Date.now;
   private readonly codes = new Map<string, PendingCode>();
+  private readonly portalRedirects = new Map<string, string>();
+  registerPortal(clientId: string, redirectUri: string): void {
+    this.registeredClients.add(clientId);
+    this.portalRedirects.set(clientId, redirectUri);
+  }
   private readonly registeredClients = new Set([PAIRING_CLIENT, MCP_CLIENT]);
 
   constructor(options: { issuer?: string; relayHost?: string } = {}) {
@@ -160,8 +165,12 @@ export class TestAuthorizationServer {
     if (`${url.origin}${url.pathname}` !== `${this.issuer}/oauth2/authorize`) throw new Error("not this server");
     const p = url.searchParams;
     const redirectUri = p.get("redirect_uri") ?? "";
-    if (!/^http:\/\/127\.0\.0\.1:\d+\/callback$/.test(redirectUri)) throw new Error("redirect_uri not allowed");
     const clientId = p.get("client_id") ?? "";
+    if (
+      !/^http:\/\/127\.0\.0\.1:\d+\/callback$/.test(redirectUri) &&
+      this.portalRedirects.get(clientId) !== redirectUri
+    )
+      throw new Error("redirect_uri not allowed");
     if (!this.registeredClients.has(clientId)) throw new Error("unknown client");
     const back = new URL(redirectUri);
     const state = p.get("state");
@@ -175,7 +184,11 @@ export class TestAuthorizationServer {
     if (p.get("response_type") !== "code") return fail("unsupported_response_type");
     if (p.get("code_challenge_method") !== "S256" || !p.get("code_challenge")) return fail("invalid_request");
     const resource = p.get("resource") ?? "";
-    if (!this.allowedResource(resource)) return fail("invalid_target");
+    if (
+      !this.allowedResource(resource) &&
+      !(this.portalRedirects.has(clientId) && resource === `https://${this.relayHost}/account`)
+    )
+      return fail("invalid_target");
     const code = randomBytes(16).toString("base64url");
     this.codes.set(code, { clientId, redirectUri, challenge: p.get("code_challenge")!, resource, subject: user.sub });
     back.searchParams.set("code", code);

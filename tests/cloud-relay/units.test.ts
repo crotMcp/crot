@@ -82,7 +82,7 @@ describe("frame codec", () => {
     expect(offeredMajors("crot-tunnel.v1, crot-tunnel.v12, chat, crot-tunnel.v0")).toEqual(["v1", "v12"]);
     expect(selectMajor(["v1", "v3", "v2"], ["v1", "v2"])).toBe("v2");
     expect(selectMajor(["v3"], ["v1"])).toBeUndefined();
-    expect(unsupportedVersionReason(["v1", "v2"])).toBe("unsupported_version;supported=v1,v2");
+    expect(unsupportedVersionReason(["v1", "v2"])).toBe("update required;supported=v1,v2");
   });
 });
 
@@ -167,4 +167,14 @@ describe("log records", () => {
     jsonLineLogger((l) => lines.push(l))({ event: "x", code: "a b" });
     expect(JSON.parse(lines[0]!)).toMatchObject({ event: "x", code: "invalid" });
   });
+});
+
+it("OD-12 operational fields cannot carry project paths or tab URLs", () => {
+  expect(
+    sanitizeRecord({
+      event: "exchange",
+      mcpMethod: "/private/PROJECT_CANARY",
+      software: "https://secret.example/CANARY",
+    }),
+  ).toMatchObject({ mcpMethod: "invalid", software: "invalid" });
 });

@@ -1193,6 +1193,11 @@ function describeState(state: BrowserConnectionState | undefined): BrowserStatus
         ...(state.cdp ? { cdp: state.cdp } : {}),
         detail: `Connected to ${state.browser.name} ${state.browser.version} (CROT Browser Extension ${state.browser.extensionVersion}).`,
       };
+    case "update_required":
+      return {
+        state: "update_required",
+        detail: "Update required: CROT extension and service bridge protocol majors differ.",
+      };
     case "waiting":
       return { state: "waiting", detail: WAITING_DETAIL };
     case "in_use":

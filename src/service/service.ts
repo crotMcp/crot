@@ -453,6 +453,7 @@ export class CrotService {
       const holder = new CoreHolder(initial.core, initial.handle);
       this.holder = holder;
       const control = new TunnelControlCenter({
+        providerRevocation: (client) => identity.revokeProvider(client),
         holder,
         settings,
         clients,

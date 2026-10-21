@@ -166,7 +166,7 @@ describe("interoperability", () => {
         .WebSocket;
       const ws = new WS(`ws://127.0.0.1:${h.relay.port}/.crot/tunnel`, ["crot-tunnel.v9"]);
       const closed = await new Promise<{ code: number; reason: string }>((r) => (ws.onclose = (e) => r(e)));
-      expect(closed).toMatchObject({ code: 4426, reason: "unsupported_version;supported=v1" });
+      expect(closed).toMatchObject({ code: 4426, reason: "update required;supported=v1" });
     },
   );
 });
