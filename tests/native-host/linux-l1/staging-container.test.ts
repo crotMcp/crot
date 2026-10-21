@@ -40,6 +40,8 @@ it.runIf(required)(
       ]);
       // Disposable test-only key; no operator key or credential is exposed to the build context.
       await chmod(path.join(temp, "key"), 0o644);
+      await writeFile(path.join(temp, "metrics.token"), "test-only-metrics-token-000000000000");
+      await chmod(path.join(temp, "metrics.token"), 0o644);
       await writeFile(path.join(temp, "relay.json"), await readFile("deploy/staging/relay.example.json"));
       await docker("build", "-f", "deploy/staging/Dockerfile", "-t", image, ".");
       await docker(
@@ -62,6 +64,8 @@ it.runIf(required)(
         `type=bind,src=${path.join(temp, "cert")},dst=/config/tls.crt,readonly`,
         "--mount",
         `type=bind,src=${path.join(temp, "relay.json")},dst=/config/relay.json,readonly`,
+        "--mount",
+        `type=bind,src=${path.join(temp, "metrics.token")},dst=/config/metrics.token,readonly`,
         image,
       );
       const port = (await docker("port", name, "8443/tcp")).stdout.trim().split(":").at(-1)!;
@@ -79,6 +83,12 @@ it.runIf(required)(
         } catch {
           await new Promise((resolve) => setTimeout(resolve, 200));
         }
+      }
+      if (!reachable) {
+        const logs = await docker("logs", name)
+          .then(({ stdout, stderr }) => `${stdout}${stderr}`)
+          .catch(() => "");
+        console.error(`staging relay did not become healthy: ${logs.slice(-2000)}`);
       }
       expect(reachable, "actual container must start and pass CA/hostname-verified health").toBe(true);
       const inspection = JSON.parse((await docker("inspect", name)).stdout)[0];
