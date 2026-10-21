@@ -120,7 +120,9 @@ async function files(root, prefix = "") {
 }
 export async function packageExtension({
   repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
-  outDir = path.join(repo, "artifacts", "extension"),
+  outDir = process.env.CROT_EXTENSION_OUT
+    ? path.resolve(process.env.CROT_EXTENSION_OUT)
+    : path.join(repo, "artifacts", "extension"),
 } = {}) {
   const manifest = validateStoreManifest(
     JSON.parse(await readFile(path.join(repo, "extension", "manifest.json"), "utf8")),

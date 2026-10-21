@@ -240,7 +240,7 @@ mcp-crot PR #14 (`8169b1f`). Verified in the tree:
 | --- | --- | --- |
 | Browser | 22 tools; allowlisted chrome.debugger CDP, snapshot/document-bound refs, trusted input, frames/OOPIF, open shadow DOM, waits/history and local per-tab queue; WP-24 code/tests incl. PR #26 | WP-25 headed/branded qualification and broader release matrix; WP-24/26 engineering accepted, WP-27 merged PR #33 |
 | User confirmations | Mechanism complete; product provider `tray` in the service, CROT tray on the control channel (WP-22, AD-19) | Same-user processes can act like the tray (AD-19 residual risk): closed for confined Linux WP-23a and qualified Windows WP-23c/AD-30 children; closed for admitted macOS children by AD-31; open in local `full_control` and for unrelated host processes; tray packaging/autostart (WP-34) |
-| Identity | Device side complete (WP-28, AD-21): OAuth verifier, device id and credential, pairing, unpair, re-grant; tested against an emulated AuthKit environment | No staging/production identity environment (WP-38, WP-39) and no live WorkOS environment exercised yet; provider-side revocation from the tray now uses AccountService (WP-36; live WorkOS unqualified); RFC 9207 open condition before G4 |
+| Identity | Device side complete (WP-28, AD-21): OAuth verifier, device id and credential, pairing, unpair, re-grant; tested against an emulated AuthKit environment | Pinned staging profile and live metadata are recorded; live OAuth/tool and production environment qualification remain operator work. Provider-side revocation uses AccountService (WP-36). AD-36 accepts absent advertised RFC 9207 response `iss` under the single-pinned-AS model |
 | Relay entry point and device tunnel | HTTP pipeline accepts a `relay` entry point; Cloud Relay v1 with the relay side of the AD-22 tunnel, device registration, PRM, token/entitlement admission and outcomes (WP-29, [`docs/RELAY.md`](docs/RELAY.md)); device side complete with registration at pairing (WP-30 **Done**, merged in PR #20; [`docs/DEVICE_TUNNEL.md`](docs/DEVICE_TUNNEL.md)) | WP-29 now covers signed deregistration and recoverable registration rollback; re-pair rotates id/key (AD-21); client timeouts of the OD-5 margin measured in WP-32; not deployed (WP-38, WP-39); single relay instance (AD-22 open question 8); real cloud-only entitlement admission implemented (WP-36 / AD-34); bounded client/device/source admission and load/backpressure tests implemented by WP-29 |
 | Remote exposure lifecycle | Persisted, fail-closed; per-client reset, revocation and re-grant in the tray, audited, fail closed (WP-22, AD-19; re-grant WP-28) | Best-effort server-only provider revocation implemented (WP-36; provider-side revocation reaches the device within the AD-21 point 4 bound) |
 | Process lifecycle | One per-user service (on demand from the shim, or managed by an OS supervisor), shim, control channel (WP-20, AD-17) | No autostart registration / supervisor files (WP-34); background processes are owned by the service, not by the client that started them (follow-up) |
@@ -368,7 +368,7 @@ readiness = Gates 7 and 8. Both are required for v1.
 | AD-17 | One per-user CROT service (never a system service), on demand from the stdio shim or managed by an OS supervisor; thin shim without policy, one exposure scope per stdio connection, no silent reconnect; one configuration per service; authenticated owner-only shim and control endpoints (mutual HMAC, replay protection); control channel without MCP/tools; shutdown keeps AD-7 |
 | AD-16 | CDP backend with fixed allowlist; command list v1; document-bound refs; explicit `tabId` for remote; per-tab FIFO; dialogs, files, screenshots; presets key `permissions.approvals.untrustedContent` = `require-approval` / `autonomous-browser` / `off`; store justification; required tests (point 19) |
 | AD-22 | Relay–device tunnel v1 (WP-29/WP-30 preparation; decides OD-4, OD-5, §26 Q13): one outbound WebSocket per device (`crot-tunnel.v<N>`), challenge-signed with the WP-28 device key after registration at pairing; multiplexed unmodified HTTP exchanges with credit-based flow control; limits 4 MiB request / 32 MiB response; exchange deadline 15 min; explicit cancellation and outcomes (`not_executed` / `unknown`), no relay retries; relay never executes |
-| AD-21 | Remote identity (WP-28 preparation; decides OD-2, OD-3): WorkOS AuthKit as managed authorization server (CIMD, DCR, PKCE S256, path-wildcard resource indicator `https://<relay-host>/d/*`, MFA required, access tokens ≤ 5 min); claims `iss`, `aud` (= canonical device URI, carries the device id), `sub` (= principal id and `accountId`, must equal the paired account), `client_id` (= `clientId`), `exp`/`iat`/`nbf`; nothing else is an authority; revocation is device state plus a bounded token age (≤ 15 min after `iat`), no per-request introspection, the relay never replaces the device's check; canonical device URI `https://<relay-host>/d/<deviceId>/mcp`, PRM path-inserted at the relay; RFC 9207 is an open condition before Gate G4 |
+| AD-21 / AD-36 | Remote identity: WorkOS AuthKit, one release-pinned issuer (hosted `*.authkit.app` or custom), canonical device audience and verified JWT facts; AD-36 accepts absent advertised RFC 9207 response `iss` for v1 only under the single-pinned-AS model, while optional response `iss` and token `iss` remain byte-exact checked |
 | AD-20 | Linux L1 (WP-23a): Ubuntu 22.04/24.04 LTS on x86_64/arm64; CROT-owned bubblewrap and AppArmor policy, version-matched, packaged and loaded by WP-34, never by the service; payload entered only through the stacked Ubuntu/bwrap-style transition `&crot-l1-<v>//&crot-l1-payload-<v>` (probe evidence), ABI 3.0 on 22.04 and ABI 4.0 with userns rules on 24.04, no nested user namespaces (24.04: profile; 22.04: `--disable-userns`); host read view minus CROT-protected paths; writes to workspace, private temp and a private home layer (CROT-private caches); network `on` (host namespace, localhost works) or `off`; mediated Docker endpoint on every transport; one sandbox per Core; remote-only refusal; stable reason codes; host-local services reachable over the host network are a documented residual risk reported in `detail` (decides OD-14) |
 
 ### 4.2 Still open
@@ -379,7 +379,7 @@ a boundary and must be recorded in ARCHITECTURE.md §27 before code.
 | ID | Question | Why it matters | Blocks | Decide by |
 | --- | --- | --- | --- | --- |
 | OD-1 | **Decided in ARCHITECTURE.md §27 AD-17 (WP-20):** per-user service, never a system service; managed by a systemd user unit / LaunchAgent / per-user Task Scheduler logon task (registered by WP-34) or started on demand by the stdio shim, which fails with a clear error only when the service cannot be started or runs another configuration | — | (WP-34 registers autostart) | Decided |
-| OD-2 | Concrete identity provider and the token claims carrying `clientId` and device id (AD-15 open item) | Verifier, PRM metadata, relay token check, DCR/CIMD support | WP-28, WP-29, WP-38 | **Decided by ARCHITECTURE.md §27 AD-21:** WorkOS AuthKit as the managed authorization server; `sub` → principal id and `accountId`, the device id in the provider-signed `aud` (the canonical device URI), `client_id` → `clientId`; revocation decided on the device (local state, bounded token age). Open condition: RFC 9207 (`iss` in authorization responses) not provided yet — met before Gate G4 or accepted by a separate AD |
+| OD-2 | Concrete identity provider and the token claims carrying `clientId` and device id (AD-15 open item) | Verifier, PRM metadata, relay token check, DCR/CIMD support | WP-28, WP-29, WP-38 | **Decided by AD-21 and closed by AD-36:** WorkOS AuthKit; `sub` → principal/account, device URI in `aud`, `client_id` → client. The absent advertised RFC 9207 response `iss` is explicitly accepted for v1's single pinned AS; an optional response `iss` and every signed token `iss` are still checked byte-for-byte |
 | OD-3 | Exact device resource URI form and PRM location (AD-15 open item) | Token audience, client configuration UX, relay routing | WP-29, WP-30, WP-28 tests | **Decided by ARCHITECTURE.md §27 AD-21 points 5 and 6:** `https://<relay-host>/d/<deviceId>/mcp` (resource, MCP endpoint, RFC 8707 `resource`, only accepted `aud`); PRM at `https://<relay-host>/.well-known/oauth-protected-resource/d/<deviceId>/mcp`, served by the relay |
 | OD-4 | **Decided by ARCHITECTURE.md §27 AD-22:** relay–device tunnel wire protocol within the AD-15 shape (framing, multiplexing, flow control, keep-alive, versioning) | A long-lived contract between independently deployed relay and installed devices; version skew after release | WP-29, WP-30, WP-34 (updates) | Start of WP-29 — **AD required** (new boundary) |
 | OD-5 | **Decided by ARCHITECTURE.md §27 AD-22 points 12–13:** §26 Q13: relay/tunnel timeouts for gated requests (approval up to 300 s) and bounded browser waits; behaviour towards clients with shorter timeouts. The device-side margin (a request ends 5 s before the exchange deadline) is recorded in AD-22 by commit `37b3126` (WP-30, PR #20); measured client timeouts are WP-32 | Remote multi-step tasks with approvals must not fail silently | WP-29, WP-30, WP-32 | Before WP-30 is merged — **met** |
@@ -470,13 +470,13 @@ Sizes: S ≤ 2 days, M 3–5 days, L 1–2 weeks, XL > 2 weeks.
 | WP-31 | 3 | Remote permission profile and presets | WP-22, WP-23a, WP-30, OD-7, AD-23 (WP-23b/c not a prerequisite: AD-23 point 7) | M | yes | — | **Done, merged** (PR #21, `9ce0574`; code verified at `9ca7b5b`, CI 11/11 green): AD-23 recorded (`69408c3`; point 4 wording `4a654f5`); remote defaults only for `REMOTE_DEFAULT_CAPABILITIES`, with a guard test; the end-to-end check of the real upload/download gates is WP-26 acceptance (AD-23 point 8), not claimed by WP-31 |
 | WP-38 | 3 | Staging cloud environment | WP-29, WP-28 | M | yes | with WP-30/31 | **Partial**: repository delivery implemented (`docs/STAGING.md`); public/live staging pending |
 | WP-32 | 3 | Remote E2E acceptance suite and client compatibility | WP-24…WP-27, WP-30, WP-31, WP-38 | L | yes | — | **Partial**: automatic TLS/SDK/project/Chromium/L1 suite implemented; ≥4 external-client compatibility runs pending |
-| WP-33 | 3 | External security review and fixes | WP-32, WP-34 (release-candidate build), WP-38 | M (+fix time) | yes | with WP-37 | Not started |
-| WP-34 | 4 | Installers, signing, updates, autostart, supply chain | WP-20, WP-22, WP-23a, WP-23b (AD-31 runtime), WP-23c (AD-30 component delivery) (L1 components, AD-20 point 3), WP-35 (IDs), OD-1, OD-10, OD-11 | L | yes | with phase 3 | Not started |
-| WP-35 | 4 | Extension publication | WP-24, WP-25, WP-26 (prep: now) | M | yes | early | Not started |
+| WP-33 | 3 | External security review and fixes | WP-32, WP-34 (release-candidate build), WP-38 | M (+fix time) | yes | with WP-37 | **Done (authorized repository review); independent/live assessment remains operator evidence** |
+| WP-34 | 4 | Installers, signing, updates, autostart, supply chain | WP-20, WP-22, WP-23a/b/c, WP-35, OD-1/10/11 | L | yes | with phase 3 | **Done (repository implementation); vendor-signed packages remain operator gate** |
+| WP-35 | 4 | Extension publication | WP-24, WP-25, WP-26 | M | yes | early | **Done (repository archive/store materials); publication remains operator gate** |
 | WP-36 | 4 | Accounts, plans, billing, entitlements, device management | WP-28, WP-29, OD-13 | M–L | yes | with phase 3 | Done |
-| WP-37 | 4 | Documentation, privacy/security docs, legal | content from all WPs; final after WP-33 | M | yes | ongoing | Not started |
-| WP-39 | 4 | Production cloud and operational readiness | WP-38, WP-36, OD-12 | L | yes | with WP-33 | Not started |
-| WP-40 | 4 | Release candidate, beta and GA release | all RB WPs | M | yes | — | Not started |
+| WP-37 | 4 | Documentation, privacy/security docs, legal | content from all WPs; final after WP-33 | M | yes | ongoing | **Done (repository package); counsel/operator publication pending** |
+| WP-39 | 4 | Production cloud and operational readiness | WP-38, WP-36, OD-12 | L | yes | with WP-33 | **Done (repository contour); live production/drills pending** |
+| WP-40 | 4 | Release candidate, beta and GA release | all RB WPs | M | yes | — | **Done (repository RC contour); beta/GA pending** |
 | WP-41 | 5 | Extensibility invariant tests | — | S | no | now | Not started |
 | WP-42 | 5 | Workspace image view | — | S | no | now | Not started |
 | WP-43 | 5 | Component availability and diagnostics | OD-16 | S–M | no | with phase 3 | Not started |
@@ -994,7 +994,7 @@ claimed by WP-31.
 - **Status: Partial — repository deliverables implemented.** TLS container/compose,
   fixed-scope lifecycle and verified health, metadata-only diagnostics, pinned
   release identity artifact and automated TLS acceptance are implemented.
-  Public hosting/DNS, live WorkOS/RFC 9207 and external-client acceptance remain
+  Public hosting/DNS, live OAuth/tool and external-client acceptance remain
   operational/manual gates. See `docs/STAGING.md` and
   `docs/acceptance/WP-32-acceptance.md`. No $0 test is claimed as public deployment.
 
@@ -1005,7 +1005,7 @@ claimed by WP-31.
 - **Dependencies:** WP-28, WP-29; WP-36 hook stubbed until WP-36 lands.
   WP-29 security/load completion is merged in PR #34; no criteria reassigned.
   Environment-pinned artifacts and automatic TLS/log tests are implemented; live
-  WorkOS and external OAuth/tool runs remain unverified; RFC 9207 is still an open G4 condition.
+  WorkOS OAuth/tool runs remain unverified; AD-36 closes the RFC 9207 G4 condition for the single pinned issuer.
 - **Scope:** TLS domain, deployment automation, secrets management, metadata-
   only logging, test accounts and devices, teardown/reset.
 - **Acceptance:** an external MCP client completes OAuth and calls a tool on a
@@ -1044,6 +1044,7 @@ claimed by WP-31.
 
 #### WP-33 — External security review and fixes
 
+- **Status: Done (authorized repository review).** The full threat model, residual-risk register and 12-invariant regression suite cover Core/service, browser/CDP, L1, identity/tunnel/relay, commercial state and signed updates. No critical/high repository finding remains open. This curator-authorized automated review is explicitly not represented as an independent third-party penetration test.
 - **Objective:** independent assessment of device, extension, relay, IdP
   integration and installer.
 - **Dependencies:** WP-32, a release-candidate build from WP-34, WP-38.
@@ -1117,6 +1118,7 @@ claimed by WP-31.
 
 #### WP-37 — Documentation, privacy/security documentation, legal
 
+- **Status: Done (repository package).** User guide, security whitepaper, threat model/residual disclosures, privacy/terms/subscription/DPA templates, vulnerability policy and support process are present. Operator identity/jurisdiction/contacts, counsel approval and publication remain release gates.
 - **Scope:** user guide (install, pair, connect any MCP client, presets,
   approvals, remote on/off, troubleshooting); admin/security whitepaper
   (architecture summary, trust boundaries, L1 profile, data flows, relay
@@ -1131,6 +1133,7 @@ claimed by WP-31.
 
 #### WP-39 — Production cloud and operational readiness (new)
 
+- **Status: Done (repository contour).** Production/staging templates, authenticated metadata-only metrics, integrity-checked registry/account backup/restore, SLO/status template, runbook and automated restart/rotation/outage/revocation/DR/load/privacy drills are implemented. Live production provisioning and recorded operator drills remain G7/G8 evidence.
 - **Objective:** relay, IdP configuration and account service run in
   production with defined reliability and incident handling.
 - **Dependencies:** WP-38, WP-36; OD-12.
@@ -1145,6 +1148,7 @@ claimed by WP-31.
 
 #### WP-40 — Release candidate, beta and GA (new)
 
+- **Status: Done (repository RC contour).** `npm run build:rc` requires pinned identity, full check/browser E2E and Ed25519 signing in production mode; it assembles desktop, extension, SBOM/checksums/notices and a signed inventory. The release checklist and rollout/rollback plan are complete. Signed packages, store publication, live cloud, beta and GA are operator gates and are not claimed.
 - **Objective:** ship v1.
 - **Dependencies:** every RB WP; Gates 1–7.
 - **Scope:** RC build through the WP-34 pipeline; full acceptance on all three
@@ -1313,7 +1317,7 @@ recorded in `STATUS.md`.
 | G1 | Architecture/foundation ready | AD-1…AD-16 merged (met); OD-1 (met: AD-17), OD-2 (met: AD-21), OD-9 decided; WP-19 done (met); OD-4 recorded as an AD before WP-29 implementation (met: AD-22) |
 | G2 | Local supervised product ready | WP-20, WP-21, WP-22 done: multiple stdio clients via shim; no `in_use`; approvals work end to end in the tray for every capability; secrets not readable by tools/children; CI green on all OS |
 | G3 | Browser v1 ready | WP-24…WP-27 done; every AD-16 point 19 test passes in real-Chromium E2E; three real sites recorded; debugger notice checked in Chrome/Edge/Brave on all three OS |
-| G4 | Remote chain ready | WP-23a/b/c, WP-28, WP-29, WP-30, WP-31, WP-38 done; AD-15 C8 tests pass over a real tunnel; OD-5 (met: AD-22) and OD-6 decided; AD-21 RFC 9207 condition met or accepted by an AD; relay log-scrubbing verified |
+| G4 | Remote chain ready | WP-23a/b/c, WP-28, WP-29, WP-30, WP-31, WP-38 repository work done; AD-15 C8 tests pass over a real tunnel; OD-5/6 decided; AD-36 accepts the RFC 9207 provider deviation; relay log-scrubbing verified. Live acceptance evidence remains operator-scoped |
 | G5 | End-to-end acceptance ready | WP-32 done: automated suite green in CI; ≥ 4 different remote MCP clients × all supported protocol versions with no blocking failure; results committed |
 | G6 | Security review ready (technical completion) | WP-33 done: no open critical/high findings; threat model and residual-risk list final |
 | G7 | Commercial release candidate | WP-34, WP-35, WP-36, WP-37 done; WP-39 runbooks exercised; signed RC installs, updates and uninstalls on all three OS; extension published; entitlement path works end to end; legal documents published-ready |

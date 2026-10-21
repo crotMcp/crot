@@ -58,6 +58,7 @@ import {
 } from "../tunnel/protocol.js";
 import { acceptWebSocket } from "../tunnel/websocket.js";
 import { jsonLineLogger, safeToken, sanitizeRecord, type RelayLogger, type RelayLogRecord } from "./log.js";
+import { metricsTokenMatches, OperationalMetrics } from "./operations.js";
 import { isDevicePublicKey, type DeviceRecord, type DeviceRegistry } from "./registry.js";
 import {
   DEFAULT_TUNNEL_TIMING,
@@ -75,6 +76,7 @@ const MCP_PATH = /^\/d\/([a-z2-7]{26})\/mcp$/;
 const REGISTER_PATH = /^\/d\/([a-z2-7]{26})\/register$/;
 const PRM_PATH = /^\/\.well-known\/oauth-protected-resource\/d\/([a-z2-7]{26})\/mcp$/;
 const HEALTH_PATH = "/.crot/health";
+const METRICS_PATH = "/.crot/metrics";
 const MAX_REGISTER_BODY = 4 * 1024;
 const MAX_HEADER_BLOCK = 64 * 1024;
 /** Concurrent WebSocket handshakes (before READY) the relay accepts. */
@@ -108,6 +110,8 @@ export interface CloudRelayOptions {
   readonly portalMetadata?: () => Promise<AuthorizationServerMetadata>;
   readonly minimumDeviceVersion?: string;
   readonly minimumClientVersion?: string;
+  /** Secret protecting the metadata-only Prometheus endpoint. */
+  readonly metricsToken?: string;
   readonly log?: RelayLogger;
   readonly now?: () => number;
   /** Exchange deadline (AD-22 point 12): at least 60 s in a relay configuration (`parseRelayConfig`). */
@@ -249,6 +253,7 @@ function bearerToken(req: IncomingMessage): string | undefined | null {
 
 export class CloudRelay {
   private readonly log: RelayLogger;
+  private readonly metrics = new OperationalMetrics();
   private readonly now: () => number;
   private readonly timing: TunnelTiming;
   private readonly deadlineMs: number;
@@ -298,7 +303,11 @@ export class CloudRelay {
       this.limits.counterKeys,
     );
     const logger = options.log ?? jsonLineLogger();
-    this.log = (record) => logger(sanitizeRecord(record));
+    this.log = (record) => {
+      const sanitized = sanitizeRecord(record);
+      this.metrics.observe(sanitized);
+      logger(sanitized);
+    };
     this.now = options.now ?? Date.now;
     this.timing = { ...DEFAULT_TUNNEL_TIMING, ...options.timing };
     this.deadlineMs = options.exchangeDeadlineMs ?? DEFAULT_EXCHANGE_DEADLINE_MS;
@@ -448,6 +457,18 @@ export class CloudRelay {
     if (pathname === HEALTH_PATH && req.method === "GET") {
       res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
       res.end(JSON.stringify({ status: this.closing ? "shutting_down" : "ok" }));
+      return;
+    }
+    if (pathname === METRICS_PATH && req.method === "GET" && this.options.metricsToken) {
+      if (!metricsTokenMatches(req.headers.authorization, this.options.metricsToken))
+        return writeRefusal(res, REFUSALS.not_found);
+      const body = this.metrics.render(this.status(), this.now());
+      res.writeHead(200, {
+        "content-type": "text/plain; version=0.0.4",
+        "cache-control": "no-store",
+        "content-length": String(Buffer.byteLength(body)),
+      });
+      res.end(body);
       return;
     }
     writeRefusal(res, REFUSALS.not_found);

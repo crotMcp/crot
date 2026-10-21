@@ -1,10 +1,12 @@
 {
   "environment": "staging",
-  "relayHost": "relay.staging.example.com",
-  "issuer": "https://auth.staging.example.com",
-  "pairingClientId": "REPLACE_WITH_PUBLIC_PAIRING_CLIENT_ID",
+  "relayHost": "relay-staging.crot.network",
+  "issuer": "https://prestigious-continent-62-staging.authkit.app",
+  "pairingClientId": "client_01M5FJB95CE7KH33Y1SPE5X77Q",
   "host": "0.0.0.0",
   "port": 8443,
   "registryFile": "/state/devices.json",
+  "accountFile": "/state/accounts.json",
+  "metricsTokenFile": "/config/metrics.token",
   "tls": { "certFile": "/config/tls.crt", "keyFile": "/config/tls.key" }
 }

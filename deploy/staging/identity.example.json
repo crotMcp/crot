@@ -1,8 +1,8 @@
 {
   "id": "staging",
-  "issuer": "https://auth.staging.example.com",
-  "relayHost": "relay.staging.example.com",
-  "pairingClientId": "REPLACE_WITH_PUBLIC_PAIRING_CLIENT_ID",
+  "issuer": "https://prestigious-continent-62-staging.authkit.app",
+  "relayHost": "relay-staging.crot.network",
+  "pairingClientId": "client_01M5FJB95CE7KH33Y1SPE5X77Q",
   "pairingRedirectPort": 0,
   "pairingScope": "openid"
 }

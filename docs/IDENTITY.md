@@ -164,18 +164,20 @@ An unpaired device, an unusable binding or a binding of another environment
 gets no credential, and a credential handed out before an unpairing stops
 signing.
 
-## Open points
+## Qualification status
 
-- **RFC 9207** (`iss` in authorization responses) is still an open condition
-  of AD-21 (R7) before Gate G4. The pairing flow checks `iss` when present
-  but does not require it; the tray shows whether the issuer advertises it.
-- No staging or production environment exists yet (WP-38, WP-39); the tests
-  run against an in-process emulation of an AuthKit environment
-  (`tests/identity/test-authorization-server.ts`).
-- **Release pinning.** No release configuration pins an identity environment
-  yet, so every build today honours `CROT_IDENTITY_DEV_ENVIRONMENT`. AD-21
-  point 5 requires the environment to be pinned in release configuration;
-  WP-38/WP-39 must pin it (and WP-34 must ship only builds that pin it)
+- **RFC 9207:** live WorkOS staging does not advertise authorization-response
+  `iss`. AD-36 explicitly accepts its absence for v1 because a release has one
+  byte-pinned issuer; pairing still checks a returned `iss`, and relay/device
+  always verify signed-token `iss` and canonical `aud`.
+- **Staging:** the public profile pins
+  `https://prestigious-continent-62-staging.authkit.app`,
+  `relay-staging.crot.network` and the reviewed pairing client. Metadata has
+  been inspected; live OAuth/tool acceptance is still operator evidence. Unit
+  tests use the in-process AuthKit emulation.
+- **Release pinning:** `scripts/build-release.mjs` and the RC pipeline require
+  `RELEASE_IDENTITY_ENVIRONMENT`; release artifacts ignore the development
+  override. Production issuer/client provisioning remains an operator gate
   before any release build. Once pinned, the variable is ignored (tested).
 - **Provider-side revocation** (asking WorkOS to revoke a client's
   authorization from the tray, AD-21 point 4 "best effort") is not part of

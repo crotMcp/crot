@@ -1,0 +1,13 @@
+service: CROT Cloud Relay
+public_url: https://relay.crot.network/.crot/health
+components:
+  - name: Relay API
+    slo: 99.9%
+  - name: Device tunnels
+    slo: 99.9%
+  - name: Account portal
+    slo: 99.5%
+incident_states: [investigating, identified, monitoring, resolved]
+metrics:
+  scrape_url: http://127.0.0.1:8443/.crot/metrics
+  authentication: bearer_from_secret_file

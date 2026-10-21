@@ -30,6 +30,7 @@ export interface RelayConfig {
     returnUrl: string;
   };
   readonly workosSecretFile?: string;
+  readonly metricsTokenFile?: string;
   readonly tls?: { readonly certFile: string; readonly keyFile: string };
   readonly exchangeDeadlineMs: number;
 }
@@ -39,6 +40,7 @@ const FIELDS = [
   "portalClientIds",
   "billing",
   "workosSecretFile",
+  "metricsTokenFile",
   "minimumDeviceVersion",
   "minimumClientVersion",
   "limits",
@@ -97,6 +99,8 @@ export function parseRelayConfig(value: unknown): RelayConfig {
       throw new Error("invalid minimum software version");
   if (v.workosSecretFile !== undefined && (typeof v.workosSecretFile !== "string" || !v.workosSecretFile))
     throw new Error("invalid workosSecretFile");
+  if (v.metricsTokenFile !== undefined && (typeof v.metricsTokenFile !== "string" || !v.metricsTokenFile))
+    throw new Error("invalid metricsTokenFile");
   let billing: RelayConfig["billing"];
   if (v.billing !== undefined) {
     const b = v.billing as NonNullable<RelayConfig["billing"]>;
@@ -122,6 +126,7 @@ export function parseRelayConfig(value: unknown): RelayConfig {
     portalClientIds,
     billing,
     workosSecretFile: v.workosSecretFile as string | undefined,
+    metricsTokenFile: v.metricsTokenFile as string | undefined,
     minimumDeviceVersion: v.minimumDeviceVersion as string | undefined,
     minimumClientVersion: v.minimumClientVersion as string | undefined,
     limits: relayLimits(v.limits),

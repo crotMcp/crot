@@ -36,6 +36,8 @@ async function main(): Promise<void> {
         returnUrl: config.billing.returnUrl,
       })
     : undefined;
+  const metricsToken = config.metricsTokenFile ? (await readFile(config.metricsTokenFile, "utf8")).trim() : undefined;
+  if (metricsToken !== undefined && metricsToken.length < 32) throw new Error("metrics token is too short");
   const relay = new CloudRelay({
     accounts,
     billing,
@@ -51,6 +53,7 @@ async function main(): Promise<void> {
     keys,
     registry: await FileDeviceRegistry.open(config.registryFile),
     exchangeDeadlineMs: config.exchangeDeadlineMs,
+    metricsToken,
     log,
   });
   const tls = config.tls

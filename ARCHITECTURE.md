@@ -809,9 +809,9 @@ Boundaries:
 | Browser | Core | bridge, relay, extension, browser, web pages | token-authenticated IPC, browser cannot initiate, fixed commands, result validation; page content untrusted | **[Implemented]** (basic commands; the browser contract v1, §7.1, keeps the same enforcement) |
 | External MCP | Core | external servers, their tools and data | §18 | **[Target]** (post-v1, AD-13) |
 | Remote access | local CROT | relay, remote clients, network | §22, AD-15/22/23; qualified L1 AD-20/30 | **[Partial]** WP-29/30/31 implemented; WP-38/32 and full v1 gates pending |
-| User tokens | identity provider + local verifier | token holders | audience/account/device-bound verifier (AD-21), unchanged Principal boundary | **[Partial]** WP-28 device side tested with emulated IdP; live environment/RFC 9207 condition open |
+| User tokens | identity provider + local verifier | token holders | audience/account/device-bound verifier (AD-21), unchanged Principal boundary | **[Partial]** WP-28 device side tested with emulated IdP; staging metadata/pinning recorded and AD-36 accepts the RFC 9207 deviation; live OAuth/production qualification remains |
 | Device | device credential | other devices, cloned installs | device identity/binding, local revocation (§20) | **[Implemented]** WP-28 binding and WP-29 signed deregistration; re-pair rotates device id/key (AD-21) |
-| Commercial | local execution | commercial service | entitlements never enter local authorization (§23) | **[Target]** |
+| Commercial | local execution | commercial service | entitlements never enter local authorization (§23) | **[Implemented]** WP-36; live provider qualification is operational |
 | User confirmation | user via Tray provider | agent, page/tool content | §21, AD-5…11/19/23 | **[Implemented]** mechanism, UI and presets; upload/download E2E verified in WP-26 (AD-23.8) |
 | Untrusted content (prompt injection) | Core (session exposure) | web pages, HTTP responses, later external MCP results | §27 AD-12: session exposure from source operations; effectful operations in an exposed session need approval | **[Implemented]** (WP-16b) |
 
@@ -4462,14 +4462,12 @@ Evaluation (vendor documentation and live discovery metadata, 2026-10-08):
   per-resource claim is needed; the device additionally binds `sub` to the
   paired account. It adds the paired-account check to the relay admission
   of AD-15 point 10 (narrowing only). No other decision changes.
-- **Open condition (R7).** RFC 9207 is not provided by the selected provider
-  as of this decision. MCP 2026-07-28 makes it a SHOULD for authorization
-  servers and keys client rejection on the metadata flag, so clients still
-  work without it; the mix-up attack it addresses targets clients that use
-  several authorization servers. The AD-15 criterion stays: before Gate G4
-  the CROT environments must emit and advertise `iss`, or a separate AD must
-  accept the deviation explicitly. It does not block WP-28 (the device does
-  not consume `iss` of authorization responses).
+- **R7 disposition.** The selected WorkOS environment does not advertise the
+  RFC 9207 authorization-response `iss` parameter. AD-36 accepts this deviation
+  for v1 under the single pinned-issuer model. Clients still compare `iss`
+  byte-for-byte whenever it is present; device and relay always verify the
+  signed JWT `iss` and `aud`. A multi-AS or unpinned-discovery design requires
+  a new AD and cannot rely on this exception.
 - Residual risks, accepted: the provider does not know which devices an
   account owns (the device and the relay enforce the paired account);
   revocation at the provider takes effect within the bound of point 4; a
@@ -4507,7 +4505,7 @@ none of which relaxes this decision:
   verified with the checks of point 3 and `client_id` must be the pairing
   client; its `sub` becomes the paired account; tokens are never stored or
   logged. An `iss` in the authorization response must equal the issuer when
-  present (RFC 9207 stays the open condition above). Every pairing assigns a
+  present (AD-36 accepts its absence only for the single pinned issuer). Every pairing assigns a
   **new device id and a new device key**, so nothing of an earlier pairing
   applies after unpair and pair.
 - *Device credential (AD-15 point 10).* Ed25519 key, seed in the CROT secret
@@ -6278,3 +6276,38 @@ The current three channels intentionally share the ID derived from the public
 MV3 manifest key, `bllcepanlhojbddfbbpegmnokpaakool`. If a store assigns a
 different ID, publication is blocked until the release catalog and signed
 desktop build are updated together.
+
+### AD-36 — Accept absent RFC 9207 authorization-response `iss` for the single pinned WorkOS issuer in v1
+
+**Approved for WP-33; closes the AD-21 R7 condition for Gate G4.** On
+2026-10-21 the live staging authorization-server metadata at
+`https://prestigious-continent-62-staging.authkit.app/.well-known/oauth-authorization-server`
+identified that exact issuer and did not publish
+`authorization_response_iss_parameter_supported`. CROT accepts that provider
+deviation for v1; it does not claim that WorkOS emits RFC 9207 `iss`.
+
+The exception is safe only within all of these invariants:
+
+1. A release contains exactly one HTTPS issuer origin for its environment. It
+   is pinned configuration, never selected from a request, relay, token or
+   runtime discovery result. Issuer and relay host may be different domains.
+2. Authorization metadata must byte-match the configured issuer. JWKS is
+   fetched only through that pinned metadata; a token naming another issuer is
+   rejected before a foreign JWKS is fetched.
+3. Relay and device verify RS256, byte-exact JWT `iss`, the one canonical
+   device-resource `aud`, account binding and time claims. The device repeats
+   the check and remains authoritative.
+4. Pairing and account-portal callbacks compare authorization-response `iss`
+   byte-for-byte when the parameter is present. Absence alone is accepted only
+   because the client uses one pinned authorization server.
+5. CROT has no multi-authorization-server chooser, dynamic issuer routing or
+   fallback issuer. Adding one reopens the mix-up threat and requires RFC 9207
+   support or a replacement AD with equivalent binding.
+
+RFC 9207 prevents authorization-server mix-up at clients that can use several
+servers. Under the v1 topology an attacker cannot redirect CROT to another AS:
+the authorization endpoint, token issuer, metadata and JWKS chain are anchored
+to one release-pinned origin, while a forged or foreign JWT fails signature,
+`iss` and `aud`. This is a bounded interoperability decision, not a weakening
+of token verification and not permission to ignore an `iss` value that is
+actually returned.

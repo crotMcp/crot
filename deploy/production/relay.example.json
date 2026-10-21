@@ -1,0 +1,14 @@
+{
+  "environment": "production",
+  "relayHost": "relay.crot.network",
+  "issuer": "https://auth.crot.network",
+  "pairingClientId": "REPLACE_WITH_PRODUCTION_PUBLIC_PAIRING_CLIENT_ID",
+  "host": "0.0.0.0",
+  "port": 8443,
+  "registryFile": "/state/devices.json",
+  "accountFile": "/state/accounts.json",
+  "metricsTokenFile": "/config/metrics.token",
+  "minimumDeviceVersion": "0.1.0",
+  "minimumClientVersion": "0.1.0",
+  "tls": { "certFile": "/config/tls.crt", "keyFile": "/config/tls.key" }
+}
