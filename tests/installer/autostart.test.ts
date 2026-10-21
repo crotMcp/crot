@@ -32,7 +32,19 @@ describe("WP-34 per-user autostart", () => {
     for (const artifact of plan.artifacts) expect(await readFile(artifact.file, "utf8")).toBe(artifact.content);
     await removeAutostart(input, runner);
     expect(await autostartStatus(input, runner)).toBe(false);
-    expect(plan.artifacts[0]?.content).toContain(process.execPath.replaceAll("&", "&amp;"));
+    const encodedExecutable =
+      osFamily === "linux"
+        ? `"${process.execPath
+            .replaceAll("\\", "\\\\")
+            .replaceAll('"', '\\"')
+            .replaceAll("$", () => "$$")
+            .replaceAll("%", "%%")}"`
+        : process.execPath
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;");
+    expect(plan.artifacts[0]?.content).toContain(encodedExecutable);
     expect(plan.artifacts[0]?.content).toContain("crot-mcp.js");
     expect(calls.length).toBeGreaterThanOrEqual(3);
   });
