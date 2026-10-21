@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { rmSync, writeSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,5 +32,17 @@ export default function setup(project: TestProject): () => void {
   project.provide("stage6aEvidence", evidence);
   process.env.CROT_6A_EVIDENCE_FILE = evidence;
   project.provide("crotMcpBin", path.join(outDir, "bin", "crot-mcp.js"));
-  return () => rmSync(outDir, { recursive: true, force: true });
+  return () => {
+    try {
+      rmSync(outDir, { recursive: true, force: true });
+    } catch (error) {
+      const detail = String(error)
+        .slice(0, 1800)
+        .replaceAll("%", "%25")
+        .replaceAll("\r", "%0D")
+        .replaceAll("\n", "%0A");
+      if (process.env.GITHUB_ACTIONS === "true") writeSync(1, `\n::error title=CROT-test-build-cleanup::${detail}\n`);
+      throw error;
+    }
+  };
 }

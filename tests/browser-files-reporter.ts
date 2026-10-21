@@ -2,6 +2,25 @@
 import { writeSync } from "node:fs";
 export default class BrowserFilesReporter {
   onFinished(files: unknown[]): void {
+    // GitHub's built-in reporter can omit suite-level hook/import errors.
+    // Keep bounded file errors visible without changing the result or gate.
+    if (process.env.GITHUB_ACTIONS === "true") {
+      for (const item of files) {
+        const file = item as {
+          filepath?: string;
+          result?: { state?: string; errors?: { name?: string; message?: string }[] };
+        };
+        if (file.result?.state !== "fail") continue;
+        const detail = JSON.stringify({
+          file: file.filepath,
+          errors: file.result.errors?.map((e) => ({ name: e.name, message: e.message?.slice(0, 1800) })),
+        });
+        writeSync(
+          1,
+          `\n::error title=CROT-failed-suite::${detail.replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A")}\n`,
+        );
+      }
+    }
     const suites: { file: string; rows: { name: string; state: string }[] }[] = [];
     for (const item of files) {
       const file = item as { filepath?: string; name?: string; tasks?: unknown[] };
