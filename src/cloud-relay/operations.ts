@@ -154,6 +154,7 @@ export async function restoreRelayState(input: {
   const id = randomUUID();
   const staged: Array<{ target: string; temp: string; original?: Buffer }> = [];
   const replaced: typeof staged = [];
+  let rollbackIncomplete = false;
   try {
     for (const { target, data } of validated) {
       let original: Buffer | undefined;
@@ -176,10 +177,11 @@ export async function restoreRelayState(input: {
       for (const entry of replaced.reverse()) {
         if (entry.original) {
           await writeFile(entry.temp, entry.original, { mode: 0o600 });
-          await rename(entry.temp, entry.target);
+          await (input.replace ?? rename)(entry.temp, entry.target);
         } else await rm(entry.target, { force: true });
       }
     } catch (rollbackError) {
+      rollbackIncomplete = true;
       throw new AggregateError(
         [error, rollbackError],
         "restore failed and rollback incomplete; keep relay stopped and recover offline",
@@ -187,6 +189,7 @@ export async function restoreRelayState(input: {
     }
     throw error;
   } finally {
-    for (const entry of staged) await rm(entry.temp, { force: true });
+    // Preserve original-byte recovery files if the rollback rename itself failed.
+    if (!rollbackIncomplete) for (const entry of staged) await rm(entry.temp, { force: true });
   }
 }

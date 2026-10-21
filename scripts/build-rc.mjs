@@ -54,7 +54,7 @@ const updateManifest = {
   schema: 1,
   product: "crot",
   version: pkg.version,
-  identityEnvironment: JSON.parse(await readFile(identity, "utf8")).id,
+  identityEnvironment: JSON.parse(await readFile(path.join(release, "release-identity.json"), "utf8")).id,
   files: updateFiles,
 };
 await writeFile(path.join(update, "update-manifest.json"), JSON.stringify(updateManifest) + "\n");
@@ -99,7 +99,7 @@ const manifest = {
       : null,
   },
   createdAt: new Date().toISOString(),
-  identity: JSON.parse(await readFile(identity, "utf8")),
+  identity: JSON.parse(await readFile(path.join(release, "release-identity.json"), "utf8")),
   checks: { repositoryCheck: !has("--skip-check"), browserE2e: !has("--skip-e2e"), sbom: true, extensionPackage: true },
   readinessCriteria: {
     corePermissionsAndAudit: repositoryTest

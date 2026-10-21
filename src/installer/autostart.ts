@@ -35,7 +35,11 @@ function xml(value: string): string {
 }
 function systemdQuote(value: string): string {
   if (/[\r\n\0]/.test(value)) throw new Error("autostart path contains a control character");
-  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  return `"${value
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', '\\"')
+    .replaceAll("$", () => "$$")
+    .replaceAll("%", "%%")}"`;
 }
 function args(spec: AutostartSpec): string[] {
   return [

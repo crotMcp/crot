@@ -66,3 +66,5 @@ Classify, page, preserve metadata-only evidence, contain (disable remote admissi
 ## Rollback
 
 Stop rollout; preserve state/backup; select the last verified signed package; use the WP-34 transactional updater or restore previous container/image while retaining the state volume; run health and admission smoke tests. Schema/state changes in v1 remain backward-compatible; if integrity is uncertain, keep remote mode unavailable and restore offline. Document timeline, impact, decision and follow-up.
+
+If rollback itself fails, keep the relay stopped and preserve `.restore-*` recovery files: they may contain the original live bytes. Do not clean these up until the owner completes offline recovery. The CLI reports rollback incomplete instead of claiming untouched state.

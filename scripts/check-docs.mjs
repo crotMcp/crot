@@ -6,8 +6,19 @@ const root = process.cwd();
 async function markdown(dir) {
   const files = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
-    if ([".git", "node_modules", "dist", "dist-release", "artifacts"].includes(entry.name)) continue;
+    if (
+      [".git", ".opencode", ".crot", "coverage", "node_modules", "dist", "dist-release", "artifacts"].includes(
+        entry.name,
+      )
+    )
+      continue;
     const file = path.join(dir, entry.name);
+    if (
+      ["deploy/staging/config", "deploy/production/config"].includes(
+        path.relative(root, file).split(path.sep).join("/"),
+      )
+    )
+      continue;
     if (entry.isDirectory()) files.push(...(await markdown(file)));
     else if (entry.name.endsWith(".md")) files.push(file);
   }

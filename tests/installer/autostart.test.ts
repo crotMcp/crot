@@ -50,4 +50,9 @@ describe("WP-34 per-user autostart", () => {
     expect(windows).toContain("<RestartOnFailure>");
     expect(windows).toContain("LeastPrivilege");
   });
+  it("escapes systemd percent specifiers and environment substitutions in exact paths", async () => {
+    const input = await spec("linux");
+    const plan = autostartPlan({ ...input, script: path.join(input.home, "$HOME-%u.js") });
+    expect(plan.artifacts[0]?.content).toContain("$$HOME-%%u.js");
+  });
 });

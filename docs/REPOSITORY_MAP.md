@@ -23,6 +23,7 @@ This is an inventory, not a deletion list. Source without a static incoming impo
 | Script | Purpose (source header / name) |
 | --- | --- |
 | `scripts/browser-files-native-qualification.mjs` | Native runner evidence; missing/skipped cases are a failure, not qualification. |
+| `scripts/check-docs.mjs` | Local Markdown paths/heading anchors; CI via lint |
 | `scripts/build-rc.mjs` | WP-40 repository RC pipeline. Production mode requires tests, Chromium and an Ed25519 signing key. |
 | `scripts/build-release.mjs` | Pin public identity metadata into a separate release artifact, never a runtime override. |
 | `scripts/build-windows-local-shim.ps1` | Operator/test helper; inspect source before invocation |

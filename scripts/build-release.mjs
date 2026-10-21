@@ -49,7 +49,14 @@ try {
   const { cp } = await import("node:fs/promises");
   await cp(temp, out, { recursive: true });
   await cp(path.join(root, "THIRD_PARTY_NOTICES.md"), path.join(out, "THIRD_PARTY_NOTICES.md"));
-  await cp(path.join(root, "native"), path.join(out, "native"), { recursive: true });
+  // Inventory only reviewed tracked native sources, never ignored local keys/build products.
+  const nativeFiles = execFileSync("git", ["ls-files", "-z", "native"], { cwd: root, encoding: "utf8" })
+    .split("\0")
+    .filter(Boolean);
+  for (const file of nativeFiles) {
+    await mkdir(path.dirname(path.join(out, file)), { recursive: true });
+    await cp(path.join(root, file), path.join(out, file));
+  }
   const { generateSupplyChain } = await import("./generate-supply-chain.mjs");
   await generateSupplyChain(out);
 } finally {

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, writeFile, readFile, rename, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, readdir, rename, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, it } from "vitest";
@@ -98,3 +98,35 @@ it.each(["version", "ownership", "duplicate"])(
     }
   },
 );
+
+it("reports incomplete rollback and retains original-byte recovery files if rollback rename fails", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crot-restore-recovery-"));
+  try {
+    const registryFile = path.join(root, "registry.json"),
+      accountFile = path.join(root, "accounts.json"),
+      backupDir = path.join(root, "backup");
+    await writeFile(registryFile, JSON.stringify({ version: 1, devices: [] }));
+    await writeFile(accountFile, JSON.stringify({ version: 1, accounts: [], events: [] }));
+    await backupRelayState({ registryFile, accountFile, outputDir: backupDir });
+    await writeFile(registryFile, "original registry");
+    await writeFile(accountFile, "original accounts");
+    let calls = 0;
+    await expect(
+      restoreRelayState({
+        backupDir,
+        registryFile,
+        accountFile,
+        replace: async (a, b) => {
+          if (++calls >= 2) throw new Error("disk failure");
+          await rename(a, b);
+        },
+      }),
+    ).rejects.toThrow("rollback incomplete");
+    const recovery = (await readdir(root)).find((n) => n.startsWith("registry.json.restore-"));
+    expect(recovery).toBeDefined();
+    expect(await readFile(path.join(root, recovery!), "utf8")).toBe("original registry");
+    expect(await readFile(accountFile, "utf8")).toBe("original accounts");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
