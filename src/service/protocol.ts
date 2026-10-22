@@ -59,6 +59,7 @@ export const CONTROL_METHODS = [
   "status",
   "shutdown",
   "overview",
+  "confinement.refresh",
   "approvals.subscribe",
   "approvals.unsubscribe",
   "approvals.decide",
@@ -205,6 +206,7 @@ export interface CommercialStatus {
   readonly checkedAt?: number;
 }
 export interface ControlOverview {
+  readonly mcpArgs?: readonly string[];
   /** Informational cloud metadata; never local authorization. Offline is unknown, not denied. */
   readonly commercial?: CommercialStatus;
   readonly service: {

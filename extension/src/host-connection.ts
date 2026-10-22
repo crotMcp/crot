@@ -4,6 +4,7 @@ import {
   MAX_BROWSER_TO_HOST_FRAME_BYTES,
   parseHostMessage,
   type BrowserHello,
+  type BrowserUiOpen,
   type BrowserNotice,
   type BrowserInfoMessage,
   type BrowserResponse,
@@ -60,6 +61,27 @@ const utf8 = new TextEncoder();
 export class HostConnection {
   private port: ChromePort | undefined;
   private connected = false;
+  private readonly uiPending = new Map<
+    string,
+    { finish: (ok: boolean) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+
+  /** Only the extension's own popup/welcome may call this through background.ts. */
+  openControlCenter(): Promise<boolean> {
+    if (!this.port || !this.connected || this.uiPending.size) return Promise.resolve(false);
+    const port = this.port,
+      id = "ui_" + crypto.randomUUID().replace(/-/g, "");
+    return new Promise((resolve) => {
+      const finish = (ok: boolean) => {
+        clearTimeout(this.uiPending.get(id)?.timer);
+        this.uiPending.delete(id);
+        resolve(ok);
+      };
+      const timer = setTimeout(() => finish(false), 5000);
+      this.uiPending.set(id, { finish, timer });
+      if (!this.post(port, { type: "ui_open", id })) finish(false);
+    });
+  }
   /** Connection id the host assigned in `welcome` (AD-9); checked by gated commands (AD-11). */
   private connectionId: string | undefined;
   private reassembler = new ChunkReassembler();
@@ -114,6 +136,7 @@ export class HostConnection {
     this.connectionId = undefined;
     this.reassembler = new ChunkReassembler();
     this.inFlight.clear();
+    for (const pending of this.uiPending.values()) pending.finish(false);
     port.onMessage.addListener((message) => this.receive(port, message));
     port.onDisconnect.addListener(() => {
       // Reading lastError marks it as handled.
@@ -130,6 +153,17 @@ export class HostConnection {
 
   private receive(port: ChromePort, raw: unknown): void {
     if (this.port !== port) return;
+    // UI acknowledgements may arrive while a large tool request is being reassembled.
+    if (typeof raw === "object" && raw !== null && (raw as { type?: unknown }).type === "ui_result") {
+      try {
+        const result = parseHostMessage(raw);
+        if (result.type !== "ui_result" || !this.connected) throw new Error("unexpected UI result");
+        this.uiPending.get(result.id)?.finish(result.ok);
+      } catch {
+        this.drop(port, "protocol error: invalid UI result");
+      }
+      return;
+    }
     let message;
     try {
       message = this.reassembler.accept(parseHostMessage(raw));
@@ -151,6 +185,7 @@ export class HostConnection {
       return;
     }
     if (!this.connected) return this.drop(port, "protocol error: request before welcome");
+    if (message.type === "ui_result") return this.drop(port, "protocol error: chunked UI result");
     if (this.inFlight.has(message.id)) return this.drop(port, "protocol error: duplicate request id");
     if (this.inFlight.size >= MAX_IN_FLIGHT) return this.drop(port, "protocol error: too many concurrent requests");
     this.inFlight.add(message.id);
@@ -172,7 +207,7 @@ export class HostConnection {
     this.post(port, fitResponse(response));
   }
 
-  private post(port: ChromePort, message: BrowserHello | BrowserResponse | BrowserNotice): boolean {
+  private post(port: ChromePort, message: BrowserHello | BrowserResponse | BrowserNotice | BrowserUiOpen): boolean {
     try {
       port.postMessage(message);
       return true;

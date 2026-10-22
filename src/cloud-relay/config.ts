@@ -10,6 +10,7 @@ import { isClientId, isIssuer } from "../identity/environment.js";
 import { DEFAULT_EXCHANGE_DEADLINE_MS, MIN_EXCHANGE_DEADLINE_MS } from "../tunnel/protocol.js";
 
 export interface RelayConfig {
+  readonly artifactDirectory?: string;
   readonly relayHost: string;
   readonly limits: RelayLimits;
   readonly issuer: string;
@@ -36,6 +37,7 @@ export interface RelayConfig {
 }
 
 const FIELDS = [
+  "artifactDirectory",
   "accountFile",
   "portalClientIds",
   "billing",
@@ -121,7 +123,10 @@ export function parseRelayConfig(value: unknown): RelayConfig {
       throw new Error("invalid billing configuration");
     billing = b;
   }
+  if (v.artifactDirectory !== undefined && (typeof v.artifactDirectory !== "string" || !v.artifactDirectory))
+    throw new Error("invalid artifactDirectory");
   return {
+    artifactDirectory: v.artifactDirectory as string | undefined,
     accountFile,
     portalClientIds,
     billing,

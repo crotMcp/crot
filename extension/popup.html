@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>CROT</title>
+    <link rel="stylesheet" href="popup-geometry.css" />
+    <link rel="stylesheet" href="ui.css" />
+    <link rel="stylesheet" href="popup.css" />
+    <script src="i18n.js" defer></script>
+    <script src="popup.js" defer></script>
+  </head>
+  <body class="popup">
+    <header class="brand">
+      <span class="brand-mark" aria-hidden="true">C</span>CROT <span class="badge">LOCAL</span>
+    </header>
+    <main>
+      <p class="eyebrow">Your browser bridge</p>
+      <h1>Ready when you are.</h1>
+      <section class="panel">
+        <h2>Desktop connection</h2>
+        <p id="connection" class="badge warning" role="status">Checking connection…</p>
+        <p id="tab" class="note">Checking active tab…</p>
+        <p id="group" class="note">No CROT group in this window</p>
+        <button id="refresh">Refresh status</button>
+      </section>
+      <section id="install" class="panel">
+        <p class="note">Start the desktop service with npm start, then refresh the connection.</p>
+        <button id="download" class="primary">Installation & downloads</button>
+      </section>
+      <div class="actions">
+        <button id="open-app" class="primary">Open CROT App</button>
+        <button id="account">Account & plans</button><button id="guide">Guide & capabilities</button>
+      </div>
+      <p id="error" role="status" aria-live="polite"></p>
+    </main>
+  </body>
+</html>

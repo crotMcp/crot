@@ -1,7 +1,7 @@
-import { PORTAL_HTML, PORTAL_SCRIPT, PORTAL_CSS } from "./portal.js";
+import { PORTAL_I18N, PORTAL_HTML, PORTAL_SCRIPT, PORTAL_CSS, LANDING_HTML } from "./portal.js";
 import type { AuthorizationServerMetadata } from "../identity/authorization-server.js";
 /** Embedded cloud account API. No MCP bodies enter this module. Owner and device credentials are separate. */
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { verifyManagementProof, type ManagementAction } from "../identity/device-credential.js";
 import type { SigningKeySource } from "../identity/jwks.js";
@@ -10,6 +10,19 @@ import type { DeviceRecord } from "../cloud-relay/registry.js";
 import { WindowCounter } from "../cloud-relay/limits.js";
 import type { BillingProvider } from "./billing.js";
 import type { CommercialService } from "./service.js";
+
+const PUBLIC_PAGES: Readonly<Record<string, string>> = Object.freeze({
+  "/": LANDING_HTML,
+  "/welcome": LANDING_HTML,
+  "/portal": PORTAL_HTML,
+  "/portal/callback": PORTAL_HTML,
+});
+const PUBLIC_HEADERS = {
+  "cache-control": "no-store",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self' 'sha256-${createHash("sha256").update(PORTAL_CSS).digest("base64")}'; connect-src 'self' https:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
+};
 
 export class AccountHttp {
   private readonly challenges = new Map<
@@ -39,8 +52,11 @@ export class AccountHttp {
   matches(pathname: string): boolean {
     return (
       [
+        "/",
+        "/welcome",
         "/portal",
         "/portal/callback",
+        "/i18n.js",
         "/portal.js",
         "/portal.css",
         "/portal/config",
@@ -52,19 +68,32 @@ export class AccountHttp {
       /^\/d\/[a-z2-7]{26}\/(account|clients\/[^/]+\/revoke)$/.test(pathname)
     );
   }
+  /** Public pages are independent of OAuth, billing, devices and MCP admission. */
+  handlePage(req: IncomingMessage, res: ServerResponse, pathname: string): boolean {
+    if (!Object.hasOwn(PUBLIC_PAGES, pathname)) return false;
+    this.options.discard(req);
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.writeHead(405, { allow: "GET, HEAD" }).end();
+      return true;
+    }
+    const html = PUBLIC_PAGES[pathname]!;
+    res.writeHead(200, {
+      ...PUBLIC_HEADERS,
+      "content-type": "text/html; charset=utf-8",
+      "content-length": Buffer.byteLength(html),
+    });
+    res.end(req.method === "HEAD" ? undefined : html);
+    return true;
+  }
   async handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
-    if (["/portal", "/portal/callback", "/portal.js", "/portal.css", "/portal/config"].includes(pathname)) {
+    if (this.handlePage(req, res, pathname)) return true;
+    if (["/i18n.js", "/portal.js", "/portal.css", "/portal/config"].includes(pathname)) {
       this.options.discard(req);
-      if (req.method !== "GET") {
-        res.writeHead(405).end();
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        res.writeHead(405, { allow: "GET, HEAD" }).end();
         return true;
       }
-      const headers = {
-        "cache-control": "no-store",
-        "x-content-type-options": "nosniff",
-        "referrer-policy": "no-referrer",
-        "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' https:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
-      };
+      const headers = PUBLIC_HEADERS;
       if (pathname === "/portal/config") {
         try {
           const metadata = await this.options.portalMetadata?.();
@@ -86,14 +115,25 @@ export class AccountHttp {
       }
       res.writeHead(200, {
         ...headers,
-        "content-type":
-          pathname === "/portal.js"
-            ? "text/javascript"
-            : pathname === "/portal.css"
-              ? "text/css"
-              : "text/html; charset=utf-8",
+        "content-type": ["/i18n.js", "/portal.js"].includes(pathname)
+          ? "text/javascript"
+          : pathname === "/portal.css"
+            ? "text/css"
+            : "text/html; charset=utf-8",
       });
-      res.end(pathname === "/portal.js" ? PORTAL_SCRIPT : pathname === "/portal.css" ? PORTAL_CSS : PORTAL_HTML);
+      res.end(
+        req.method === "HEAD"
+          ? undefined
+          : pathname === "/i18n.js"
+            ? PORTAL_I18N
+            : pathname === "/portal.js"
+              ? PORTAL_SCRIPT
+              : pathname === "/portal.css"
+                ? PORTAL_CSS
+                : pathname === "/" || pathname === "/welcome"
+                  ? LANDING_HTML
+                  : PORTAL_HTML,
+      );
       return true;
     }
     const managed = /^\/d\/([a-z2-7]{26})\/(account|clients\/([^/]+)\/revoke)$/.exec(pathname);
@@ -217,9 +257,26 @@ export class AccountHttp {
     if (pathname === "/account/trial") {
       const body = await jsonBody(req);
       if (!body || Object.keys(body).length) return reply(400, "invalid_request");
-      return (await this.options.accounts.startTrial(account))
-        ? reply(200, "trial_started", this.options.accounts.snapshot(account))
-        : reply(409, "trial_unavailable");
+      if (!this.options.accounts.trialAvailable(account)) return reply(409, "trial_unavailable");
+      if (!this.options.billing) return reply(503, "billing_unavailable");
+      try {
+        // A checkout URL grants nothing. Only a verified provider subscription can activate a trial.
+        return reply(200, "trial_checkout", { url: await this.options.billing.checkout(account, "trial") });
+      } catch {
+        return reply(503, "billing_unavailable");
+      }
+    }
+    if (pathname === "/account/billing-portal") {
+      const body = await jsonBody(req);
+      if (!body || Object.keys(body).length) return reply(400, "invalid_request");
+      if (!this.options.billing) return reply(503, "billing_unavailable");
+      try {
+        return reply(200, "billing_portal", {
+          url: await this.options.accounts.billingPortal(account, this.options.billing),
+        });
+      } catch {
+        return reply(503, "billing_unavailable");
+      }
     }
     if (pathname === "/account/checkout") {
       const body = await jsonBody(req);

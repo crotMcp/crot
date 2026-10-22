@@ -16,6 +16,7 @@
  * pairing (AD-22 point 4), the tunnel endpoint (AD-22 points 2–3) and a
  * minimal health check.
  */
+import { ReleaseDownloads } from "./downloads.js";
 import type { AuthorizationServerMetadata } from "../identity/authorization-server.js";
 import { AccountService, type CommercialService } from "../account-service/service.js";
 import { AccountHttp } from "../account-service/http.js";
@@ -87,6 +88,8 @@ const DISCARD_BODY_MS = 10_000;
 export type Entitlement = "entitled" | "not_entitled" | "blocked";
 
 export interface CloudRelayOptions {
+  /** Operator-published immutable release files, not request-selected paths. */
+  readonly artifactDirectory?: string;
   /** The relay host of the canonical device URI (AD-21 point 5). */
   readonly relayHost: string;
   /** The authorization server's issuer (AD-21 point 1). */
@@ -286,7 +289,13 @@ export class CloudRelay {
   private readonly stopAccounts: () => void;
   private readonly expiryTimer: NodeJS.Timeout;
 
+  private readonly downloads: ReleaseDownloads;
+
   constructor(private readonly options: CloudRelayOptions) {
+    this.downloads = new ReleaseDownloads({
+      origin: `https://${options.relayHost}`,
+      artifactDirectory: options.artifactDirectory,
+    });
     if (!isRelayHost(options.relayHost)) throw new Error("relayHost must be a lowercase DNS name");
     if (!isClientId(options.pairingClientId)) throw new Error("pairingClientId must be a non-empty client id");
     this.limits = relayLimits(options.limits);
@@ -447,6 +456,9 @@ export class CloudRelay {
     const target = req.url ?? "";
     const q = target.indexOf("?");
     const pathname = q === -1 ? target : target.slice(0, q);
+    // Resolve public HTML before every asynchronous API/download/MCP dispatcher.
+    if (this.accountHttp.handlePage(req, res, pathname)) return;
+    if (await this.downloads.handle(req, res, pathname)) return;
     if (this.accountHttp.matches(pathname) && (await this.accountHttp.handle(req, res, pathname))) return;
     let m: RegExpExecArray | null;
     if ((m = MCP_PATH.exec(pathname))) return this.exchange(req, res, m[1]!);

@@ -5,7 +5,7 @@
  * The extension is the browser end of CROT's browser bridge. It connects to
  * the CROT Host through native messaging and executes the fixed set of
  * browser commands the host sends; the host only sends commands that Core's
- * PermissionEngine has authorized. The extension has no UI, takes no action
+ * PermissionEngine has authorized. The popup reports connection state; the bridge takes no tool action
  * on its own and runs no code in pages other than the fixed functions in
  * page-functions.ts.
  *
@@ -15,6 +15,7 @@
 import { detectBrowser } from "./browser-info.js";
 import { CdpSessions } from "./cdp.js";
 import { createCommandHandlers } from "./commands.js";
+import { ownerUiAction } from "./owner-ui.js";
 import { HostConnection } from "./host-connection.js";
 
 /** Wakes the service worker to reconnect while CROT is not reachable. 30 s is the shortest period Chrome allows. */
@@ -46,8 +47,33 @@ const connection = new HostConnection({
   },
 });
 
+// Fixed owner UI channel. Only exact packaged UI pages; never content scripts or browser tools.
+const uiRuntime = chrome.runtime as typeof chrome.runtime & {
+  getURL?: (path: string) => string;
+  onMessage?: {
+    addListener(
+      listener: (message: unknown, sender: { url?: string }, reply: (value: unknown) => void) => boolean | void,
+    ): void;
+  };
+};
+uiRuntime.onMessage?.addListener((message, sender, reply) => {
+  const action = ownerUiAction(message, sender.url, uiRuntime.getURL?.(""));
+  if (!action) return;
+  if (action === "open") {
+    void connection.openControlCenter().then((ok) => reply({ ok }));
+    return true;
+  }
+  reply({ connection: connection.state });
+});
+
 chrome.runtime.onStartup.addListener(() => connection.ensureConnected());
-chrome.runtime.onInstalled.addListener(() => connection.ensureConnected());
+chrome.runtime.onInstalled.addListener((details?: { reason?: string }) => {
+  connection.ensureConnected();
+  if (details?.reason === "install") {
+    const welcome = uiRuntime.getURL?.("welcome.html");
+    if (welcome) void chrome.tabs.create({ url: welcome, active: true }).catch(() => undefined);
+  }
+});
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === RECONNECT_ALARM) connection.ensureConnected();
 });

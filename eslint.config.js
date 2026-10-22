@@ -9,7 +9,7 @@ import tseslint from "typescript-eslint";
  * Prettier (eslint-config-prettier turns off conflicting stylistic rules).
  */
 export default defineConfig([
-  globalIgnores(["**/dist/", "coverage/", "node_modules/", "tests-e2e/browser/fixtures/"]),
+  globalIgnores(["**/dist/", "extension/i18n.js", "coverage/", "node_modules/", "tests-e2e/browser/fixtures/"]),
   js.configs.recommended,
   tseslint.configs.recommended,
   {

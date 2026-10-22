@@ -40,14 +40,31 @@ async function start(
 }
 
 describe("WP-36 actual cloud admission and owner API", () => {
-  it("Free registration is denied before registry mutation, explicit owner trial enables pairing", async () => {
-    await start();
+  it("Free registration is denied before registry mutation, checkout alone grants nothing; verified trial enables pairing", async () => {
+    const accounts = new AccountService();
+    const billing = {
+      checkout: vi.fn(async () => "https://checkout.stripe.com/trial-test"),
+      verifyAndResolve: async () => ({
+        eventId: "evt_trial",
+        accountId: "user_01",
+        subscriptionId: "sub_trial",
+        plan: "trial" as const,
+        status: "active" as const,
+        expiresAt: Date.now() + 7 * 86400000,
+      }),
+    };
+    h = await new RelayHarness().start({ accounts, billing, portalClientIds: [portal] });
     const p = h!.newDevice();
     const denied = await h!.registerRaw(p.deviceId, h!.pairingToken(p), { publicKey: p.publicKey });
     expect(denied).toMatchObject({ status: 403, body: { error: "entitlement_required" } });
     expect(denied.headers.get("CROT-Request-Outcome")).toBe("not_executed");
     expect(await h!.registry.count()).toBe(0);
-    expect((await owner("/trial", { body: {} })).status).toBe(200);
+    const checkout = await owner("/trial", { body: {} });
+    expect(checkout.status).toBe(200);
+    expect(await checkout.json()).toEqual({ url: "https://checkout.stripe.com/trial-test" });
+    expect(billing.checkout).toHaveBeenCalledWith("user_01", "trial");
+    expect(accounts.snapshot("user_01").entitled).toBe(false);
+    await accounts.billing(billing, Buffer.from("{}"), "test-provider");
     await h!.register(p);
     await h!.online(p);
     const view = await (await owner("")).json();
@@ -105,7 +122,7 @@ describe("WP-36 actual cloud admission and owner API", () => {
     await start({ accounts });
     await accounts.startTrial("user_01");
     const { paired: p, device } = await h!.ready();
-    now += 14 * 86400000;
+    now += 7 * 86400000;
     expect(await device.whenClosed()).toMatchObject({ code: 4403, reason: "not_entitled" });
     const r = await h!.post(p);
     expect(r.status).toBe(403);

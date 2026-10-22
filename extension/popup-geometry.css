@@ -1,0 +1,14 @@
+/* Critical first stylesheet: reserve the final extension viewport before UI or data loads. */
+html,
+body {
+  width: 380px;
+  min-width: 380px;
+  max-width: 380px;
+  height: 520px;
+  min-height: 520px;
+  margin: 0;
+  padding: 0;
+  background-color: #09090b;
+  color: #fafafa;
+  overflow-x: hidden;
+}

@@ -11,6 +11,7 @@ import { CrotError } from "../core/errors.js";
 import { isSecretName, ROTATABLE_SECRET_NAMES, SECRET_NAMES, type SecretName } from "../service/secrets/types.js";
 
 export const USAGE = `Usage: crot-mcp [options]
+       crot-mcp app [options]
        crot-mcp service run [options] | service status | service stop
        crot-mcp service autostart install|status|remove
        crot-mcp secrets status | secrets show http-token | secrets rotate <name>... | secrets rotate --all
@@ -36,6 +37,7 @@ Options:
   -v, --version            Show the version
 
 Commands:
+  app [options]            Register the browser host, start/reuse the service and open Control Center.
   service run [options]    Run the CROT service in the foreground (for systemd user
                            units, launchd agents, Task Scheduler); same options as above
   service status           Show the state of the running CROT service

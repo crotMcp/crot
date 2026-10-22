@@ -62,6 +62,7 @@ import {
   MessageReader,
   createRequest,
   encodeHostMessage,
+  encodeMessage,
   parseBrowserMessage,
   parseRelayAuth,
 } from "./protocol.js";
@@ -94,6 +95,8 @@ const EXTENSION_ERROR_CODES: ReadonlySet<string> = new Set<CrotErrorCode>([
 ]);
 
 export interface BrowserBridgeOptions {
+  /** User-initiated UI launch only. Never a Core/tool operation. */
+  readonly openControlCenter?: () => Promise<boolean>;
   /** Private state directory (token file, POSIX socket). */
   readonly stateDir: string;
   readonly privateFiles: PrivateFileProtection;
@@ -131,6 +134,8 @@ interface ConnectedExtension {
   cdp?: { available: boolean; reason: string | null };
   noticeWindow?: number;
   noticeCount?: number;
+  uiWindow?: number;
+  uiCount?: number;
 }
 
 const notConnected = () => new CrotError("BROWSER_NOT_CONNECTED", "The CROT Browser Extension is not connected.");
@@ -164,6 +169,8 @@ export class BrowserBridge implements BrowserConnection {
   private readonly log: (message: string) => void;
   private readonly handshakeTimeoutMs: number;
   private readonly maxPending: number;
+  private readonly openControlCenter: (() => Promise<boolean>) | undefined;
+  private lastUiOpen = 0;
 
   private constructor(
     readonly endpoint: BridgeEndpoint,
@@ -172,6 +179,7 @@ export class BrowserBridge implements BrowserConnection {
     options: BrowserBridgeOptions,
   ) {
     this.log = options.log ?? (() => undefined);
+    this.openControlCenter = options.openControlCenter;
     this.handshakeTimeoutMs = options.handshakeTimeoutMs ?? BRIDGE_HANDSHAKE_TIMEOUT_MS;
     this.maxPending = options.maxPendingRequests ?? BRIDGE_MAX_PENDING_REQUESTS;
   }
@@ -483,6 +491,26 @@ export class BrowserBridge implements BrowserConnection {
   /** A message on the connected extension's socket: only answers to requests this bridge sent are accepted. */
   private receive(message: unknown): void {
     const response = parseBrowserMessage(message);
+    if (response.type === "ui_open") {
+      const extension = this.extension;
+      if (!extension) throw new BrowserProtocolError("UI request before welcome.");
+      const now = Date.now();
+      if (!extension.uiWindow || now - extension.uiWindow >= 60_000) {
+        extension.uiWindow = now;
+        extension.uiCount = 0;
+      }
+      extension.uiCount = (extension.uiCount ?? 0) + 1;
+      if (extension.uiCount > 20) throw new BrowserProtocolError("Owner UI request rate exceeded.");
+      const allowed = now - this.lastUiOpen >= 2000;
+      this.lastUiOpen = Date.now();
+      void (allowed && this.openControlCenter ? this.openControlCenter() : Promise.resolve(false))
+        .catch(() => false)
+        .then((ok) => {
+          if (this.extension === extension && !extension.socket.destroyed)
+            extension.socket.write(encodeMessage({ type: "ui_result", id: response.id, ok }, 4096));
+        });
+      return;
+    }
     if (response.type === "browser_notice") {
       const extension = this.extension;
       if (!extension) throw new BrowserProtocolError("Notice without an active connection.");

@@ -5,13 +5,14 @@ export interface SubscriptionUpdate {
   eventId: string;
   accountId: string;
   subscriptionId: string;
-  plan: "pro" | "team";
+  plan: "trial" | "pro" | "team";
   status: SubscriptionStatus;
   expiresAt: number;
 }
 export interface BillingProvider {
   verifyAndResolve(raw: Buffer, signature: string): Promise<SubscriptionUpdate | undefined>;
-  checkout(accountId: string, plan: "pro" | "team"): Promise<string>;
+  checkout(accountId: string, plan: "trial" | "pro" | "team"): Promise<string>;
+  portal?(accountId: string, subscriptionId: string): Promise<string>;
 }
 /** Bounded, fixed-provider HTTPS; redirects never carry server credentials to another host. */
 async function providerJson(url: string, key: string, init: RequestInit, fetcher: typeof fetch): Promise<unknown> {
@@ -63,24 +64,66 @@ export class StripeBillingProvider implements BillingProvider {
     )
       throw new Error("invalid billing configuration");
   }
-  async checkout(accountId: string, plan: "pro" | "team"): Promise<string> {
+  async checkout(accountId: string, plan: "trial" | "pro" | "team"): Promise<string> {
     const fields = new URLSearchParams({
       mode: "subscription",
-      "line_items[0][price]": this.options.prices[plan],
+      "line_items[0][price]": this.options.prices[plan === "trial" ? "pro" : plan],
       "line_items[0][quantity]": "1",
       success_url: this.options.returnUrl,
       cancel_url: this.options.returnUrl,
       "subscription_data[metadata][crot_account_id]": accountId,
     });
+    if (plan === "trial") {
+      fields.set("payment_method_collection", "always");
+      fields.set("subscription_data[trial_period_days]", "7");
+      fields.set("subscription_data[metadata][crot_trial]", "7-day-card");
+      fields.set("subscription_data[trial_settings][end_behavior][missing_payment_method]", "cancel");
+    }
     const doc = (await providerJson(
       "https://api.stripe.com/v1/checkout/sessions",
       this.options.secretKey,
-      { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: fields.toString() },
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          ...(plan === "trial"
+            ? {
+                "Idempotency-Key":
+                  "crot-trial-" + createHmac("sha256", this.options.secretKey).update(accountId).digest("hex"),
+              }
+            : {}),
+        },
+        body: fields.toString(),
+      },
       this.options.fetch ?? fetch,
     )) as { url?: unknown };
     if (typeof doc.url !== "string" || new URL(doc.url).origin !== "https://checkout.stripe.com")
       throw new Error("invalid checkout response");
     return doc.url;
+  }
+  async portal(accountId: string, subscriptionId: string): Promise<string> {
+    if (!/^sub_[A-Za-z0-9]+$/.test(subscriptionId)) throw new Error("invalid subscription");
+    const subscription = (await providerJson(
+      `https://api.stripe.com/v1/subscriptions/${subscriptionId}`,
+      this.options.secretKey,
+      { method: "GET" },
+      this.options.fetch ?? fetch,
+    )) as { customer?: string; metadata?: { crot_account_id?: string } };
+    if (subscription.metadata?.crot_account_id !== accountId || !/^cus_[A-Za-z0-9]+$/.test(subscription.customer ?? ""))
+      throw new Error("subscription ownership mismatch");
+    const result = (await providerJson(
+      "https://api.stripe.com/v1/billing_portal/sessions",
+      this.options.secretKey,
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ customer: subscription.customer!, return_url: this.options.returnUrl }).toString(),
+      },
+      this.options.fetch ?? fetch,
+    )) as { url?: string };
+    if (typeof result.url !== "string" || new URL(result.url).origin !== "https://billing.stripe.com")
+      throw new Error("invalid billing portal");
+    return result.url;
   }
   async verifyAndResolve(raw: Buffer, signature: string): Promise<SubscriptionUpdate | undefined> {
     if (raw.length > 64 * 1024 || signature.length > 2048) throw new Error("invalid webhook");
@@ -115,7 +158,10 @@ export class StripeBillingProvider implements BillingProvider {
     )) as {
       id?: string;
       status?: string;
-      metadata?: { crot_account_id?: string };
+      metadata?: { crot_account_id?: string; crot_trial?: string };
+      default_payment_method?: string;
+      trial_start?: number;
+      trial_end?: number;
       current_period_end?: number;
       items?: { data?: Array<{ price?: { id?: string }; current_period_end?: number }> };
     };
@@ -123,11 +169,24 @@ export class StripeBillingProvider implements BillingProvider {
     if (s.id !== id || !items || items.length !== 1 || !s.metadata?.crot_account_id)
       throw new Error("unknown subscription");
     const price = items[0]?.price?.id;
-    const plan = price === this.options.prices.pro ? "pro" : price === this.options.prices.team ? "team" : undefined;
-    const expiry = s.current_period_end ?? items[0]?.current_period_end;
+    const paidPlan =
+      price === this.options.prices.pro ? "pro" : price === this.options.prices.team ? "team" : undefined;
+    const trial = s.status === "trialing";
+    if (
+      trial &&
+      (s.metadata.crot_trial !== "7-day-card" ||
+        !/^pm_[A-Za-z0-9]+$/.test(s.default_payment_method ?? "") ||
+        !Number.isSafeInteger(s.trial_start) ||
+        !Number.isSafeInteger(s.trial_end) ||
+        s.trial_end! - s.trial_start! !== 7 * 86400 ||
+        paidPlan !== "pro")
+    )
+      throw new Error("unverified card-backed trial");
+    const plan = trial ? "trial" : paidPlan;
+    const expiry = trial ? s.trial_end : (s.current_period_end ?? items[0]?.current_period_end);
     if (!plan || !Number.isSafeInteger(expiry)) throw new Error("unknown subscription price or expiry");
     const status: SubscriptionStatus =
-      s.status === "active"
+      s.status === "active" || trial
         ? "active"
         : s.status === "past_due"
           ? "past_due"

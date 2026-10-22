@@ -1,0 +1,70 @@
+.popup {
+  overflow-y: auto;
+}
+.popup header {
+  height: 60px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  justify-content: flex-start;
+  gap: 8px;
+}
+.popup main {
+  padding: 12px 16px;
+}
+.popup main > .eyebrow {
+  margin-top: 0;
+}
+.popup h1 {
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+.popup .panel {
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.popup .panel h2 {
+  margin: 0;
+}
+.popup .panel p {
+  margin: 6px 0;
+}
+.popup #tab,
+.popup #group {
+  min-height: 20px;
+  font-size: 12px;
+}
+.popup .actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 0;
+  gap: 8px;
+}
+.popup #open-app {
+  grid-column: 1 / -1;
+}
+.popup .actions button {
+  width: 100%;
+}
+.popup #install {
+  min-height: 100px;
+}
+.popup #install.connected {
+  visibility: hidden;
+}
+.popup #error {
+  font-size: 12px;
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+.step {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.step .badge {
+  flex-shrink: 0;
+}
+
+.popup .language {
+  margin-left: auto;
+}

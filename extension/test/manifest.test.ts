@@ -51,12 +51,49 @@ describe("extension manifest", () => {
     expect(manifest.host_permissions).toEqual(["<all_urls>"]);
     for (const key of [
       "content_scripts",
-      "content_security_policy",
       "externally_connectable",
       "web_accessible_resources",
       "optional_permissions",
     ]) {
       expect(key in manifest).toBe(false);
+    }
+  });
+
+  it("pins a first-party-only extension page CSP instead of forbidding an explicit policy", () => {
+    expect(manifest.content_security_policy).toEqual({
+      extension_pages: "script-src 'self'; object-src 'none'; base-uri 'none'",
+    });
+  });
+
+  it("ships a local action popup and icons without inline or remote scripts", () => {
+    const icons = {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png",
+    };
+    expect(manifest.action).toEqual({
+      default_title: "CROT Control Center",
+      default_popup: "popup.html",
+      default_icon: icons,
+    });
+    expect(manifest.icons).toEqual(icons);
+    const popup = readFileSync(new URL("../popup.html", import.meta.url), "utf8");
+    const welcome = readFileSync(new URL("../welcome.html", import.meta.url), "utf8");
+    expect(popup).toMatch(/<script src="popup\.js" defer><\/script>/);
+    for (const page of [popup, welcome]) {
+      const scripts = [...page.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+      for (const [, attributes, body] of scripts) {
+        expect(attributes).toMatch(/\bsrc="[A-Za-z0-9_-]+\.js"/);
+        expect(body?.trim()).toBe("");
+      }
+      expect(page).not.toMatch(/\son[a-z]+\s*=/i);
+    }
+    for (const [size, file] of Object.entries(icons)) {
+      const png = readFileSync(new URL("../" + file, import.meta.url));
+      expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+      expect(png.readUInt32BE(16)).toBe(Number(size));
+      expect(png.readUInt32BE(20)).toBe(Number(size));
     }
   });
 });

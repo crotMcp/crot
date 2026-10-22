@@ -5,6 +5,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, beforeEach, describe, expect, inject, it } from "vitest";
+import { parseCli } from "../../src/cli/options.js";
+import { createPrivateFileProtection } from "../../src/core/platform/private-files.js";
+import { connectToService } from "../../src/service/shim.js";
 import { REMOTE_EXPOSURE_FILE_NAME } from "../../src/core/approvals/remote-exposure.js";
 import type { ServiceStatus } from "../../src/core/service-status.js";
 import { credentialFile, serviceEndpoint } from "../../src/service/endpoints.js";
@@ -114,6 +117,41 @@ const text = (r: CallToolResult) => {
 };
 
 describe("stdio shim and CROT service (built, WP-20)", () => {
+  it(
+    "desktop bootstrap starts a ready detached managed service that outlives its bootstrap channel",
+    async () => {
+      const args = ["--workspace", dirs.workspace, "--no-audit"];
+      const command = await parseCli(args, host.env);
+      if (command.kind !== "serve") throw Error("expected serve configuration");
+      const previous = process.env;
+      let started;
+      try {
+        // Each Vitest worker has its own environment. The spawned service must use this test's private state.
+        process.env = host.env;
+        started = await connectToService({
+          command,
+          argv: args,
+          entry: bin,
+          stateDir: host.stateDir,
+          privateFiles: createPrivateFileProtection(process.platform === "win32"),
+          log: () => undefined,
+          signals: [],
+          launch: "managed",
+        });
+      } finally {
+        process.env = previous;
+      }
+      expect(started.welcome.service.launch).toBe("managed");
+      const pid = started.welcome.service.pid;
+      started.channel.destroy();
+      const attached = await shim();
+      expect((await attached.status()).service).toMatchObject({ pid, launch: "managed", state: "running" });
+      await attached.close();
+      expect(isAlive(pid)).toBe(true);
+      expect((await run(["service", "status"])).code).toBe(0);
+    },
+    TIMEOUT,
+  );
   it(
     "several stdio clients start at the same time and work concurrently through one service",
     async () => {

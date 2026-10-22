@@ -60,7 +60,8 @@ export interface CommercialService {
   deviceState(accountId: string, deviceId: string): "entitled" | "not_entitled" | "device_revoked";
   isRevoked(deviceId: string): boolean;
   onChange(fn: () => void): () => void;
-  startTrial(accountId: string): Promise<boolean>;
+  trialAvailable(accountId: string): boolean;
+  billingPortal(accountId: string, provider: BillingProvider): Promise<string>;
   register(
     accountId: string,
     deviceId: string,
@@ -250,6 +251,17 @@ export class AccountService implements CommercialService {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
+  trialAvailable(accountId: string): boolean {
+    const account = this.state.accounts.find((a) => a.accountId === accountId);
+    return !account || (!account.trialUsed && account.plan === "free");
+  }
+  async billingPortal(accountId: string, provider: BillingProvider): Promise<string> {
+    const account = this.state.accounts.find((a) => a.accountId === accountId);
+    if (!account?.subscriptionId || !provider.portal) throw new Error("billing portal unavailable");
+    return provider.portal(accountId, account.subscriptionId);
+  }
+  /** Legacy trusted provisioning helper for existing fixtures. Never routed from owner HTTP.
+   * Remove after fixture migration; hosted trial activation uses verified Stripe billing only. */
   async startTrial(accountId: string): Promise<boolean> {
     return this.mutate((state) => {
       const a = this.account(state, accountId);
@@ -257,7 +269,7 @@ export class AccountService implements CommercialService {
       a.trialUsed = true;
       a.plan = "trial";
       a.status = "active";
-      a.expiresAt = this.now() + 14 * 86400_000;
+      a.expiresAt = this.now() + 7 * 86400_000;
       return true;
     });
   }
@@ -358,7 +370,7 @@ export class AccountService implements CommercialService {
       !validId(u.eventId) ||
       !validId(u.accountId) ||
       !validId(u.subscriptionId) ||
-      !["pro", "team"].includes(u.plan) ||
+      !["trial", "pro", "team"].includes(u.plan) ||
       !["active", "past_due", "canceled", "expired"].includes(u.status) ||
       !Number.isSafeInteger(u.expiresAt) ||
       u.expiresAt < 0
@@ -368,6 +380,10 @@ export class AccountService implements CommercialService {
     if (a.subscriptionId && a.subscriptionId !== u.subscriptionId) {
       if (this.view(a).entitled) return;
       a.retiredSubscriptions = [...(a.retiredSubscriptions ?? []), a.subscriptionId];
+    }
+    if (u.plan === "trial") {
+      if (a.trialUsed && a.subscriptionId !== u.subscriptionId) throw new Error("trial already used");
+      a.trialUsed = true;
     }
     a.subscriptionId = u.subscriptionId;
     a.plan = u.plan;

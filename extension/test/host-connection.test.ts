@@ -67,6 +67,27 @@ const received = (port: FakePort) => port.sent.map((message) => parseBrowserMess
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 describe("HostConnection", () => {
+  it("opens only the fixed owner UI and waits for the host acknowledgement", async () => {
+    const { connection, port } = connect();
+    const result = connection.openControlCenter();
+    const message = parseBrowserMessage(port.sent.at(-1));
+    expect(message.type).toBe("ui_open");
+    if (message.type !== "ui_open") throw new Error("missing UI request");
+    await expect(connection.openControlCenter()).resolves.toBe(false);
+    port.deliver({ type: "ui_result", id: message.id, ok: true });
+    await expect(result).resolves.toBe(true);
+    expect(connection.state).toBe("connected");
+  });
+
+  it("fails closed for offline or disconnected owner-UI requests", async () => {
+    const offline = setup();
+    await expect(offline.connection.openControlCenter()).resolves.toBe(false);
+    const { connection, port } = connect();
+    const result = connection.openControlCenter();
+    port.hostDisconnect();
+    await expect(result).resolves.toBe(false);
+  });
+
   it("connects to the CROT native host and sends hello first", () => {
     const { runtime, connection } = setup();
     expect(connection.state).toBe("disconnected");

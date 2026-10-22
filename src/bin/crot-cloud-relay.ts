@@ -39,6 +39,7 @@ async function main(): Promise<void> {
   const metricsToken = config.metricsTokenFile ? (await readFile(config.metricsTokenFile, "utf8")).trim() : undefined;
   if (metricsToken !== undefined && metricsToken.length < 32) throw new Error("metrics token is too short");
   const relay = new CloudRelay({
+    artifactDirectory: config.artifactDirectory,
     accounts,
     billing,
     portalClientIds: config.portalClientIds,

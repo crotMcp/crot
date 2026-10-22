@@ -5141,3 +5141,69 @@ to one release-pinned origin, while a forged or foreign JWT fails signature,
 `iss` and `aud`. This is a bounded interoperability decision, not a weakening
 of token verification and not permission to ignore an `iss` value that is
 actually returned.
+
+### AD-37 — First-party product surfaces and card-backed trial admission
+
+The Control Center, browser popup/onboarding and account website share the static
+Obsidian tokens and capability catalog in `src/ui/theme.ts`. These are presentation
+surfaces, not additional policy engines. AD-19 remains authoritative: no renderer
+network, external code, arbitrary shell commands or renderer-selected URLs. Owner
+UI actions use the existing authenticated control path and main-process URL/action
+allowlists. Approval subjects remain complete and escaped; ordinary diagnostics
+are collapsed rather than removed from the owner's inspection surface.
+
+Free local execution remains independent of accounts and billing. The public
+`POST /account/trial` route initiates hosted Stripe Checkout with card collection
+and a seven-day subscription trial. A redirect does not grant entitlement. Only
+a verified webhook followed by a fixed-provider subscription read may activate
+the cloud trial, with a matching account marker, Pro price, seven-day interval
+and collected payment method. Trial supports two remote devices. Hosted billing
+portal sessions verify the subscription/account binding before creation.
+
+This change does not qualify a unified native installer, live payments, vendor
+signing or cross-platform L1 availability. The legacy trusted in-process trial
+provisioning helper remains for existing fixtures and is not exposed by owner
+HTTP; removing it requires a separate fixture migration. See
+`docs/FLAGSHIP_IMPLEMENTATION.md` for the actual evidence and outstanding gates.
+
+
+### AD-38 — Fixed owner UI launch channel and Linux desktop compatibility
+
+The extension may now request one additional, non-tool operation: open/focus the
+owner's Control Center. This is not a general extension-initiated Core operation.
+Only the exact packaged popup/welcome URLs (optional local fragment, no query)
+can send the background message. Content scripts and other origins/pages cannot.
+The native `ui_open` frame contains only a bounded request id: no command, path,
+URL or tool arguments. Both directions reject extra keys. The authenticated
+browser bridge caps UI requests at 20 per minute and throttles launches to one per two seconds and invokes a fixed
+first-party Electron launcher. A boolean acknowledgement means the OS accepted
+launch, not proof that a window rendered. Extension pending requests are bounded
+to one, time out after five seconds and fail on disconnect. Core permissions,
+approval decisions and browser command authorization remain unchanged.
+
+The owner UI alone can open its actual workspace folder or copy an MCP config
+constructed by Electron main with absolute executable/entry/workspace paths and
+service launch flags. Renderer IPC cannot provide paths, config bytes or URLs.
+Default stdio `crot-mcp` behavior is unchanged. Explicit `crot-mcp app` / npm start
+registers the native host, starts/reuses the service and launches Control Center.
+First use without a configured workspace writes an owner-private desktop config
+with the current directory and browser bridge enabled; existing policies are not
+silently replaced. New desktop services use managed, not on-demand, lifecycle.
+The desktop bootstrap uses the existing authenticated service-start lock and waits
+for the service welcome before launching Electron. A newly started managed service
+is detached with its private log; it and the UI outlive the launcher/terminal.
+The default stdio shim still starts an on-demand service.
+
+**Explicit exception to AD-19:** at the owner's request the Linux launcher passes
+`--no-sandbox` before Electron bootstrap, and main also appends the switch. This
+removes Chromium's process sandbox on Linux; do not describe the renderer as OS
+sandboxed there. Context isolation, Node denial, permission denial, CSP, navigation
+blocking and no renderer network remain. It does not disable L1 tool confinement
+or OS security controls. Restoring an OS-sandboxed desktop distribution remains a
+release-hardening gate. No blanket GPU-sandbox flag is added.
+
+This decision does not add privileged L1 installation from the service. Existing
+AD-20 installation separation is retained pending a qualified, consented installer
+helper. A repair guide is not a working one-click installer. Likewise, a packaged
+setup guide is not a downloadable signed release. These remain open acceptance
+criteria, not successful checks.

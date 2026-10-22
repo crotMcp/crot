@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import {
   app,
   BrowserWindow,
+  clipboard,
   ipcMain,
   Menu,
   nativeImage,
@@ -30,8 +31,13 @@ import { hostDirectories } from "../core/platform/node-platform.js";
 import { createPrivateFileProtection } from "../core/platform/private-files.js";
 import { PRESET_VALUES, type PresetValue } from "../service/protocol.js";
 import { TRAY_CSP, TRAY_ORIGIN, trayAsset } from "./assets.js";
+import { repairL1 } from "./l1-repair.js";
 import { TrayController } from "./controller.js";
 import { trayView, type TrayView } from "./view-model.js";
+
+// Linux compatibility: the launcher also passes this before Electron bootstrap.
+// Deliberately documented sandbox trade-off; context isolation and Node/network denial remain.
+if (process.platform === "linux") app.commandLine.appendSwitch("no-sandbox");
 
 const ORIGIN_PREFIX = `${TRAY_ORIGIN}/`;
 const MAX_ID = 512;
@@ -138,10 +144,13 @@ function showWindow(): void {
 function createWindow(): void {
   rendererReady = false;
   window = new BrowserWindow({
-    width: 560,
-    height: 720,
+    width: 1100,
+    height: 820,
+    minWidth: 420,
+    minHeight: 560,
+    backgroundColor: "#09090B",
     show: false,
-    title: "CROT",
+    title: "CROT Control Center",
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(path.dirname(fileURLToPath(import.meta.url)), "preload.cjs"),
@@ -214,6 +223,53 @@ function clientKey(p: Record<string, unknown>): { accountId: string; deviceId: s
 }
 
 async function runAction(name: unknown, params: unknown): Promise<boolean> {
+  // Fixed owner-UI actions only. Renderer never supplies an external URL or clipboard bytes.
+  if (typeof name === "string" && name.startsWith("ui.") && isRecord(params) && Object.keys(params).length === 0) {
+    if (name === "ui.openWorkspace") {
+      if (!view.workspace || !path.isAbsolute(view.workspace)) return false;
+      return (await shell.openPath(view.workspace)) === "";
+    }
+    if (name === "ui.copyConfig") {
+      if (!view.workspace || !path.isAbsolute(view.workspace)) return false;
+      const bin = fileURLToPath(new URL("../bin/crot-mcp.js", import.meta.url));
+      // Electron can run the Node entry without relying on a user's PATH or guessing a Node binary.
+      clipboard.writeText(
+        JSON.stringify(
+          {
+            mcpServers: {
+              crot: {
+                command: process.execPath,
+                args: [bin, ...(view.mcpArgs ?? ["--workspace", view.workspace])],
+                env: { ELECTRON_RUN_AS_NODE: "1" },
+              },
+            },
+          },
+          null,
+          2,
+        ),
+      );
+      return true;
+    }
+    if (name === "ui.copyDiagnostics") {
+      clipboard.writeText(JSON.stringify({ status: view.status, notes: view.remoteNotes }, null, 2));
+      return true;
+    }
+    if (name === "ui.copyConnection") {
+      if (!view.resourceUri || new URL(view.resourceUri).protocol !== "https:") return false;
+      clipboard.writeText(view.resourceUri);
+      return true;
+    }
+    if (name === "ui.openPortal" || name === "ui.openInstall") {
+      const target = new URL(view.portalUrl ?? "https://relay-staging.crot.network/portal");
+      if (target.protocol !== "https:" || target.username || target.password) return false;
+      target.pathname = "/portal";
+      target.search = "";
+      target.hash = name === "ui.openInstall" ? "install" : "";
+      await shell.openExternal(target.href);
+      return true;
+    }
+    return false;
+  }
   if (typeof name !== "string" || !ACTIONS.has(name) || !isRecord(params)) return false;
   switch (name) {
     case "preset.set":
@@ -246,7 +302,29 @@ async function runAction(name: unknown, params: unknown): Promise<boolean> {
   return false;
 }
 
+let repairingL1 = false;
+
 function registerIpc(): void {
+  ipcMain.handle("repair-l1", async (event, ...args: unknown[]) => {
+    if (smokeReport || !fromTray(event) || args.length || repairingL1) return { ok: false };
+    repairingL1 = true;
+    let completed = false;
+    try {
+      await repairL1({ platform: process.platform, root: fileURLToPath(new URL("../../", import.meta.url)), stateDir });
+      completed = true;
+    } catch {
+      /* No raw installer output or filesystem details cross into the renderer. */
+    }
+    try {
+      const checked = await controller.refreshL1();
+      return {
+        ok: completed && checked,
+        available: checked && controller.state.overview?.confinement.available === true,
+      };
+    } finally {
+      repairingL1 = false;
+    }
+  });
   ipcMain.on("ready", (event) => {
     if (!fromTray(event)) return;
     rendererReady = true;
@@ -315,7 +393,7 @@ void app.whenReady().then(async () => {
     }
   }
   createWindow();
-  if (!tray && !smokeReport) window!.show();
+  if (!smokeReport) showWindow();
   publish();
   void controller.start();
   if (smokeReport) {

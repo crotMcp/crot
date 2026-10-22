@@ -131,6 +131,22 @@ export async function packageExtension({
   const entries = [
     { name: "manifest.json", data: Buffer.from(JSON.stringify(manifest, null, 2) + "\n") },
     ...(await files(dist, "dist")),
+    ...(await Promise.all(
+      [
+        "popup-geometry.css",
+        "i18n.js",
+        "welcome.js",
+        "popup.html",
+        "popup.js",
+        "welcome.html",
+        "ui.css",
+        "popup.css",
+      ].map(async (name) => ({
+        name,
+        data: await readFile(path.join(repo, "extension", name)),
+      })),
+    )),
+    ...(await files(path.join(repo, "extension", "icons"), "icons")).filter((entry) => entry.name.endsWith(".png")),
   ];
   if (entries.length < 2) throw new Error("extension/dist is empty; run npm run build:extension");
   const archive = zip(entries);

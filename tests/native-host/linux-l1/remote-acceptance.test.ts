@@ -57,6 +57,9 @@ it.runIf(required && process.arch === "x64")(
     }
     const tsc = createRequire(import.meta.url).resolve("typescript/bin/tsc");
     execFileSync(process.execPath, [tsc, "-p", "tsconfig.build.json"], { stdio: "inherit" });
+    // A clean L1 job bypasses npm run build:extension: emit its manifest-referenced
+    // CSS/icons too, otherwise Chromium rejects the extension before native messaging.
+    execFileSync(process.execPath, ["scripts/build-extension-ui.mjs"], { stdio: "inherit" });
     execFileSync(process.execPath, [tsc, "-p", "extension/tsconfig.json"], { stdio: "inherit" });
     const saved = {
       chrome: process.env.CROT_E2E_CHROME,

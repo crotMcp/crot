@@ -19,6 +19,9 @@
  * browser tool call is authorized by Core's PermissionEngine.
  */
 import os from "node:os";
+import path from "node:path";
+import { writeFile } from "node:fs/promises";
+import { launchControlCenter } from "../tray/launch.js";
 import { runUpdate } from "../cli/update.js";
 import { fileURLToPath } from "node:url";
 import {
@@ -41,7 +44,7 @@ import { ControlClient, waitForServiceExit } from "../service/control-client.js"
 import { secretCredentialStore } from "../service/endpoints.js";
 import type { ControlStatus } from "../service/protocol.js";
 import { CrotService } from "../service/service.js";
-import { runShim } from "../service/shim.js";
+import { connectToService, runShim } from "../service/shim.js";
 
 const log = (message: string) => process.stderr.write(`crot: ${message}\n`);
 
@@ -53,6 +56,7 @@ const SHUTDOWN_SIGNALS = windows ? ["SIGINT", "SIGTERM", "SIGBREAK", "SIGHUP"] :
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
+  if (argv[0] === "app") return desktop(argv.slice(1));
   if (argv[0] === "update") return runUpdate(argv.slice(1));
   const command = await parseCli(argv);
   switch (command.kind) {
@@ -81,6 +85,65 @@ async function main(): Promise<void> {
       if (parseConfig(command.config).http.enabled) return runService(command, "managed");
       return shim(command, argv);
   }
+}
+
+/** Explicit desktop entry: leave default stdio MCP behavior untouched. */
+async function desktop(argv: readonly string[]): Promise<void> {
+  await installBrowser();
+  const existing = await controlClient();
+  if (existing) {
+    existing.close();
+    if (!(await launchControlCenter(hostDirectories(process.env).state)))
+      throw new CrotError(
+        "OPERATION_FAILED",
+        "Cannot launch Electron. Install development dependencies or use a qualified desktop package.",
+      );
+    return;
+  }
+  let command;
+  let serviceArgv = argv;
+  try {
+    command = await parseCli(argv);
+  } catch (error) {
+    if (argv.length || !(error instanceof Error) || !error.message.startsWith("A workspace is required:")) throw error;
+    const directories = hostDirectories(process.env);
+    const protection = createServicePrivateFiles(windows);
+    await protection.ensureDirectory(directories.state);
+    const configFile = path.join(directories.state, "desktop-config.json");
+    try {
+      await writeFile(
+        configFile,
+        JSON.stringify({ workspace: { root: process.cwd() }, browser: { enabled: true } }, null, 2),
+        { flag: "wx", mode: 0o600 },
+      );
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+    }
+    await protection.protectFile?.(configFile);
+    serviceArgv = ["--config", configFile];
+    command = await parseCli(serviceArgv);
+    log("desktop workspace: current directory on first launch; saved in desktop-config.json");
+  }
+  if (command.kind !== "serve") throw new CrotError("INVALID_INPUT", "app accepts service configuration options only.");
+  // Validate before displaying a window; never replace an explicit user policy.
+  parseConfig(command.config);
+  const stateDir = hostDirectories(process.env).state;
+  // Reuse the authenticated, start-lock protected bootstrap, but keep desktop service managed.
+  // Wait for readiness before opening the UI; the launcher and terminal can then exit independently.
+  const { channel } = await connectToService({
+    command,
+    argv: serviceArgv,
+    entry: fileURLToPath(import.meta.url),
+    stateDir,
+    privateFiles: createServicePrivateFiles(windows),
+    log,
+    signals: SHUTDOWN_SIGNALS,
+    windows,
+    launch: "managed",
+  });
+  channel.destroy();
+  if (!(await launchControlCenter(stateDir)))
+    throw new CrotError("OPERATION_FAILED", "Cannot launch Electron. Run npm install with development dependencies.");
 }
 
 function startupNotes(command: ServeCommand): void {

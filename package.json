@@ -1,7 +1,7 @@
 {
   "name": "crot",
   "version": "0.1.0",
-  "description": "CROT \u2014 universal local AI-agent bridge. Core, permission engine and MCP interface.",
+  "description": "CROT — universal local AI-agent bridge. Core, permission engine and MCP interface.",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
@@ -26,19 +26,20 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run lint && npm run format:check && npm run check:docs && npm run typecheck && npm run typecheck:extension && npm run build && npm run build:extension && npm test && npm run test:extension",
-    "start": "node dist/bin/crot-mcp.js",
-    "build:extension": "tsc -p extension/tsconfig.json",
+    "start": "node dist/bin/crot-mcp.js app",
+    "build:extension": "node scripts/build-extension-ui.mjs && tsc -p extension/tsconfig.json",
     "typecheck:extension": "tsc -p extension/tsconfig.test.json",
     "test:extension": "vitest run --config extension/vitest.config.ts",
     "test:e2e:browser": "npm run build && npm run build:extension && vitest run --config tests-e2e/vitest.config.ts",
-    "tray": "electron dist/tray/main.js",
+    "tray": "node dist/bin/crot-mcp.js app",
     "test:browser-files:native": "node scripts/browser-files-native-qualification.mjs",
     "build:release": "node scripts/build-release.mjs",
     "staging": "node scripts/staging.mjs",
     "package:extension": "npm run build:extension && node scripts/package-extension.mjs",
     "package:supply-chain": "node scripts/generate-supply-chain.mjs dist-release",
     "build:rc": "node scripts/build-rc.mjs",
-    "check:docs": "node scripts/check-docs.mjs"
+    "check:docs": "node scripts/check-docs.mjs",
+    "package:desktop": "node scripts/package-desktop.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",

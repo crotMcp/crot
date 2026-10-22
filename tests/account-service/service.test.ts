@@ -40,15 +40,15 @@ describe("AD-34 cloud-only commercial state", () => {
     expect(await a.register("user_01", generateDeviceId(), register)).toBe("entitlement_required");
     expect(register).not.toHaveBeenCalled();
   });
-  it("trial is explicit, fourteen days and one-time, including after restart", async () => {
+  it("trial is explicit, seven days and one-time, including after restart", async () => {
     let now = Date.now();
     const dir = await mkdtemp(path.join(os.tmpdir(), "crot-commerce-"));
     dirs.push(dir);
     const file = path.join(dir, "accounts.json");
     let a = await AccountService.open(file, { now: () => now });
     expect(await a.startTrial("user_01")).toBe(true);
-    expect(a.snapshot("user_01")).toMatchObject({ maxDevices: 2, expiresAt: now + 14 * 86400000, entitled: true });
-    now += 14 * 86400000;
+    expect(a.snapshot("user_01")).toMatchObject({ maxDevices: 2, expiresAt: now + 7 * 86400000, entitled: true });
+    now += 7 * 86400000;
     a = await AccountService.open(file, { now: () => now });
     expect(a.snapshot("user_01")).toMatchObject({ status: "expired", entitled: false });
     expect(await a.startTrial("user_01")).toBe(false);

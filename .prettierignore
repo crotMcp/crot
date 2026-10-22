@@ -12,3 +12,9 @@ package-lock.json
 
 # Pages loaded by the real-browser E2E; kept byte-for-byte
 tests-e2e/browser/fixtures/
+
+# Generated from first-party design tokens and icon source
+extension/ui.css
+extension/icons/*.png
+
+extension/i18n.js

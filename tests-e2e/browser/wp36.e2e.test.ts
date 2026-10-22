@@ -9,7 +9,7 @@ import { RelayHarness } from "../../tests/cloud-relay/harness.js";
 import { TEST_RELAY } from "../../tests/identity/test-authorization-server.js";
 import { chromeExecutable } from "./harness.js";
 
-it("WP-36 real Chromium portal: PKCE login, explicit trial, device/client list, remote revoke and no token persistence", async () => {
+it("WP-36 real Chromium portal: PKCE login, checkout failure stays Free, verified fixture trial, device/client list, remote revoke and no token persistence", async () => {
   const profile = await mkdtemp("/tmp/crot-portal-");
   const accounts = new AccountService();
   const h = new RelayHarness();
@@ -140,10 +140,30 @@ it("WP-36 real Chromium portal: PKCE login, explicit trial, device/client list, 
       "!!document.getElementById('signin') && typeof document.getElementById('signin').onclick === 'function'",
     );
     await until("!document.getElementById('signin').disabled");
+    expect(await evaluate("getComputedStyle(document.documentElement).backgroundColor")).toBe("rgb(9, 9, 11)");
     await evaluate("document.getElementById('signin').click()");
     await until("document.getElementById('plan')?.textContent === 'free · active'");
     expect(await evaluate("location.search")).toBe("");
     await evaluate("document.getElementById('trial').click()");
+    await until("document.getElementById('notice')?.textContent.includes('Request refused')");
+    expect(accounts.snapshot("user_01").entitled).toBe(false);
+    // No live card flow is claimed: this test uses a trusted provider fixture after checking failure closed.
+    await accounts.billing(
+      {
+        checkout: async () => "https://checkout.stripe.com/test",
+        verifyAndResolve: async () => ({
+          eventId: "evt_portal_trial",
+          accountId: "user_01",
+          subscriptionId: "sub_portal_trial",
+          plan: "trial",
+          status: "active",
+          expiresAt: Date.now() + 7 * 86400000,
+        }),
+      },
+      Buffer.from("{}"),
+      "fixture",
+    );
+    await evaluate("document.getElementById('refresh').click()");
     await until("document.getElementById('plan')?.textContent === 'trial · active'");
     const p = h.newDevice();
     await h.register(p);
@@ -167,7 +187,7 @@ it("WP-36 real Chromium portal: PKCE login, explicit trial, device/client list, 
     expect(TEST_RELAY).toBe(h.as.relayHost);
   } finally {
     ws?.close();
-    if (chrome && chrome.exitCode === null) {
+    if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
       const exited = new Promise<void>((r) => chrome!.once("exit", () => r()));
       chrome.kill("SIGTERM");
       const timer = setTimeout(() => chrome!.kill("SIGKILL"), 3000);
@@ -176,6 +196,8 @@ it("WP-36 real Chromium portal: PKCE login, explicit trial, device/client list, 
     }
     await new Promise<void>((r) => proxy.close(() => r()));
     await h.stop();
-    await rm(profile, { recursive: true, force: true });
+    // Chromium helpers may finish profile writes just after the parent exits.
+    // Retry only filesystem cleanup; do not retry or mask any portal assertion.
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });

@@ -10,7 +10,7 @@ informational and never grants or blocks local capabilities.
 | Plan | Remote enabled | Device limit | Duration |
 | --- | --- | --- | --- |
 | free | no | 0 | unlimited local use |
-| trial | yes | 2 | 14 days, explicitly started once per account |
+| trial | yes | 2 | 7 days, card-backed Stripe Checkout, once per account |
 | pro | yes | 5 | active paid period |
 | team | yes | 20 | active paid period; v1 remains one account per user |
 
@@ -75,8 +75,8 @@ complete relay config):
 
 `accountFile` defaults to `<registryFile>.accounts`, distinct from the registry.
 `portalClientIds` defaults to an empty allowlist (owner access denied).
-Without billing configuration the explicit trial/API still work, but checkout
-and webhooks return unavailable. Without `workosSecretFile`, provider revocation
+Without billing configuration Free local use remains available; trial checkout,
+paid checkout and webhooks return unavailable. No cardless HTTP trial is granted. Without `workosSecretFile`, provider revocation
 reports `not_available`. Configured secret files must exist; provider secrets
 are read **only on the cloud host**. They never enter an installed device,
 release identity artifact, Git, or logs. The staging compose already mounts
@@ -90,7 +90,7 @@ Open **`https://<relayHost>/portal`**. The shipped static page signs in through
 the provider's hosted authorization endpoint using PKCE S256, random one-use
 state and a ten-minute callback deadline. It lists the plan, device quota,
 devices, online/offline/revoked status and observed clients. It can start a
-trial, redirect to hosted Stripe Checkout for Pro/Team, refresh status and
+card-backed trial checkout, redirect to hosted Stripe Checkout for Pro/Team, refresh status and
 revoke a lost device after confirmation. All dynamic labels use textContent;
 there are no third-party scripts, telemetry or embedded card/password forms.
 
@@ -119,8 +119,9 @@ No account id, limits or subscription state from a request body is trusted.
 | Path | Method | Result |
 | --- | --- | --- |
 | `/account` | GET | plan/status/quota and device/client list; no device public keys or provider session ids |
-| `/account/trial` | POST `{}` | start the one-time 14-day trial; 409 when unavailable |
+| `/account/trial` | POST `{}` | create hosted 7-day card-backed checkout; no entitlement until a verified subscription; 409 when unavailable |
 | `/account/checkout` | POST `{"plan":"pro"}` or `{"plan":"team"}` | fixed-provider hosted checkout URL |
+| `/account/billing-portal` | POST `{}` | fixed-provider billing portal for subscription management/cancellation |
 | `/account/devices/<deviceId>/revoke` | POST `{}` | revoke this owner's device, 404 for foreign ids |
 | `/.well-known/oauth-protected-resource/account` | GET | distinct account resource metadata |
 
@@ -235,3 +236,27 @@ The test providers are fixtures: live WorkOS/Stripe, crot.network DNS/TLS,
 Oracle ARM64 host deployment, financial/legal/residency decisions and operational
 runbooks remain explicit owner release gates. No merge or live payment is part
 of this PR's automated acceptance.
+
+## Flagship UI and revised trial contract
+
+The first-party `/` and `/welcome` routes present implemented capabilities and
+explicitly labeled roadmap integrations. `/portal` uses the shared Obsidian
+system, PKCE sign-in and friendly device labels with opt-in technical details.
+Installation cards disclose package qualification status rather than linking
+nonexistent installers.
+
+`POST /account/trial` redirects to Stripe Checkout with
+`payment_method_collection=always`, `subscription_data[trial_period_days]=7`,
+and a configured Pro recurring price. The trial converts to Pro unless canceled;
+Checkout presents the operator's configured price and billing period before
+confirmation. The return URL grants no rights. The signed webhook's authoritative
+subscription must be `trialing`, carry the server trial marker, have a default
+payment method and an exact seven-day provider trial interval. Trial remote
+quota is two devices. A second trial subscription cannot reissue entitlement.
+Retries use an account-bound provider idempotency key. Trial eligibility and
+provider fixture coverage are distinct from live merchant qualification.
+
+The legacy trusted `AccountService.startTrial` fixture/provisioning helper is
+not exposed by the owner HTTP API. Its removal/migration is tracked as a remaining
+hardening task in the flagship work; it is not evidence of card verification.
+Live Stripe/card/cancellation qualification remains an external release gate.
