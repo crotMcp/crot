@@ -22,7 +22,7 @@ node dist/bin/crot-mcp.js service autostart status
 node dist/bin/crot-mcp.js service autostart remove
 ```
 
-Generators invoke the exact Node binary plus JS entrypoint, not a non-executable JS file. Linux daemon-reloads user units and uses failure restart/tmpfiles exclusion. macOS uses LaunchAgent. Windows uses a least-privilege per-user task with honest UTF-8 XML. Automated tests validate generation/lifecycle via controlled runners; actual systemd/launchd/schtasks installation is a separate qualification, not implied by these tests. Use absolute paths. `CROT_CONFIG` is carried into service arguments.
+Generators invoke the exact Node binary plus JS entrypoint, not a non-executable JS file. Linux daemon-reloads user units and uses failure restart/tmpfiles exclusion. macOS uses LaunchAgent. Windows uses a least-privilege per-user task with UTF-16LE XML and BOM (the schtasks importer rejected UTF-8 in real CI). Automated tests validate generation/lifecycle via controlled runners; Windows CI additionally imports and executes a disposable task. Actual product systemd/launchd installation remains a separate qualification. Use absolute paths. `CROT_CONFIG` is carried into service arguments.
 
 ## Signed RC/update format and CLI
 

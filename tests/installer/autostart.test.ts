@@ -29,7 +29,13 @@ describe("WP-34 per-user autostart", () => {
     };
     const plan = await installAutostart(input, runner);
     expect(await autostartStatus(input, runner)).toBe(true);
-    for (const artifact of plan.artifacts) expect(await readFile(artifact.file, "utf8")).toBe(artifact.content);
+    for (const artifact of plan.artifacts)
+      expect(await readFile(artifact.file, artifact.encoding ?? "utf8")).toBe(artifact.content);
+    if (osFamily === "windows") {
+      const bytes = await readFile(plan.artifacts[0]!.file);
+      expect([...bytes.subarray(0, 2)]).toEqual([0xff, 0xfe]);
+      expect(bytes.subarray(2).toString("utf16le")).toMatch(/^<\?xml.*encoding="UTF-16"/);
+    }
     await removeAutostart(input, runner);
     expect(await autostartStatus(input, runner)).toBe(false);
     const encodedExecutable =
@@ -57,7 +63,7 @@ describe("WP-34 per-user autostart", () => {
   it("uses launchd unsuccessful-exit KeepAlive and a Windows per-user logon task", async () => {
     expect(autostartPlan(await spec("macos")).artifacts[0]?.content).toContain("<key>SuccessfulExit</key><false/>");
     const windows = autostartPlan(await spec("windows")).artifacts[0]?.content ?? "";
-    expect(windows).toContain('encoding="UTF-8"');
+    expect(windows).toContain('encoding="UTF-16"');
     expect(windows).toContain("<LogonTrigger>");
     expect(windows).toContain("<RestartOnFailure>");
     expect(windows).toContain("LeastPrivilege");

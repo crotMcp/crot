@@ -9,7 +9,7 @@ import { expect, it } from "vitest";
 import { autostartPlan, WINDOWS_TASK_NAME } from "../../src/installer/autostart.js";
 const exec = promisify(execFile);
 it.skipIf(process.platform !== "win32" || process.env.GITHUB_ACTIONS !== "true")(
-  "imports honest UTF-8 XML and runs exact Node + JS in Task Scheduler",
+  "imports UTF-16LE XML with BOM and runs exact Node + JS in Task Scheduler",
   async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "crot-task-"));
     const name = `CROT qualification ${process.pid}-${Date.now()}`;
@@ -19,7 +19,7 @@ it.skipIf(process.platform !== "win32" || process.env.GITHUB_ACTIONS !== "true")
       await writeFile(script, `require('node:fs').writeFileSync(${JSON.stringify(marker)},process.execPath)`);
       const plan = autostartPlan({ os: "windows", home: root, executable: process.execPath, script });
       const file = path.join(root, "task.xml");
-      await writeFile(file, plan.artifacts[0]!.content, "utf8");
+      await writeFile(file, plan.artifacts[0]!.content, plan.artifacts[0]!.encoding ?? "utf8");
       await exec("schtasks.exe", ["/Create", "/TN", name, "/XML", file, "/F"]);
       await exec("schtasks.exe", ["/Run", "/TN", name]);
       let result = "";
