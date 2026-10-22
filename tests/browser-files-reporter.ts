@@ -9,11 +9,19 @@ export default class BrowserFilesReporter {
         const file = item as {
           filepath?: string;
           result?: { state?: string; errors?: { name?: string; message?: string }[] };
+          tasks?: unknown[];
         };
         if (file.result?.state !== "fail") continue;
+        const errors: { name?: string; message?: string }[] = [];
+        const visit = (raw: unknown) => {
+          const task = raw as { result?: { errors?: { name?: string; message?: string }[] }; tasks?: unknown[] };
+          errors.push(...(task.result?.errors ?? []));
+          for (const child of task.tasks ?? []) visit(child);
+        };
+        visit(file);
         const detail = JSON.stringify({
           file: file.filepath,
-          errors: file.result.errors?.map((e) => ({ name: e.name, message: e.message?.slice(0, 1800) })),
+          errors: errors.slice(0, 4).map((e) => ({ name: e.name, message: e.message?.slice(0, 1800) })),
         });
         writeSync(
           1,
