@@ -25,7 +25,9 @@ async function main(): Promise<void> {
     process.stdout.write("restore complete\n");
   }
 }
-main().catch(() => {
-  process.stderr.write("crot-relay-ops: operation failed; state was not partially accepted\n");
+main().catch((error: unknown) => {
+  process.stderr.write(
+    `crot-relay-ops: operation failed; keep relay stopped and inspect recovery state${error instanceof AggregateError ? "; ROLLBACK INCOMPLETE" : ""}\n`,
+  );
   process.exit(1);
 });

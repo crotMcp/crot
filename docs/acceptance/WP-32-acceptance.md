@@ -1,5 +1,7 @@
 # WP-32 automatic acceptance and WP-38 repository delivery
 
+> Historical design/package baseline, not current status. Implementation, verification, delivery and operations are tracked independently in root STATUS/roadmap. Old “not merged/not implemented” statements refer to this record’s original stage. Original full-product DoD (including publication/GUI installation) remains open where STATUS says partial/external; repository delivery does not silently satisfy it.
+
 ## Scope and release boundary
 
 This change implements the automatic, client-independent WP-32 acceptance suite

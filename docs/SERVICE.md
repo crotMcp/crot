@@ -1,5 +1,7 @@
 # CROT service, stdio shim and control channel
 
+> Current delivery clarification: service autostart generators invoke exact Node + JS entrypoint. Platform registration is separately qualified; GUI installer/runtime bundling remains incomplete. See INSTALL.
+
 Since WP-20 (ARCHITECTURE.md §27 AD-17) every OS user has **one CROT
 service**: one long-running `crot-mcp` process that owns Core, the Native
 Host, the browser bridge and the loopback HTTP server (later also the device

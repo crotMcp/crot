@@ -1,5 +1,7 @@
 # Approval Gates — Design (WP-14)
 
+> Historical design/package baseline, not current status. Implementation, verification, delivery and operations are tracked independently in root STATUS/roadmap. Old “not merged/not implemented” statements refer to this record’s original stage. Original full-product DoD (including publication/GUI installation) remains open where STATUS says partial/external; repository delivery does not silently satisfy it.
+
 > **Status: Implemented (WP-15).** This document fixes the mechanism of user
 > confirmations (ARCHITECTURE.md §21); WP-15 implements it in
 > `src/core/approvals/`, `src/core/execution/guard.ts`, the browser bridge and

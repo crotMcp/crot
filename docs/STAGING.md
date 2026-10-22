@@ -5,6 +5,10 @@ verified health command and a pinned identity build. Public infrastructure and
 live WorkOS qualification are **not** implied; the local TLS acceptance emulator
 is documented separately in [WP-32 acceptance](acceptance/WP-32-acceptance.md).
 
+## Owner-reported live deployment (not a fresh qualification)
+
+The owner reports `https://relay-staging.crot.network` deployed on Oracle Linux 9 ARM64, `158.180.32.253`, with Let's Encrypt through Caddy. WorkOS Staging issuer: `https://prestigious-continent-62-staging.authkit.app`; pairing client: `client_01M5FJB95CE7KH33Y1SPE5X77Q`. The compose direct-TLS example below is a separate deployment topology: Caddy deployments must explicitly choose upstream TLS termination/trust and avoid authorization/body logging. Production and live Stripe remain open operator gates.
+
 ## Prepare trusted operator configuration
 
 1. Create `deploy/staging/config/` (gitignored). Copy `relay.example.json` to
@@ -16,14 +20,15 @@ is documented separately in [WP-32 acceptance](acceptance/WP-32-acceptance.md).
    `config/tls.key`, readable only by the service uid 10001 (directory traversal
    limited to the operator/service). Use 0700 directory and 0600 key on POSIX;
    owner/service-only ACLs on Windows. Never commit keys, accounts or tokens.
-3. The allowlisted `.dockerignore` excludes local keys/configuration, `.git` and
+3. Create the mandatory metrics token before startup: `umask 077; openssl rand -hex 32 > deploy/staging/config/metrics.token`. Make it readable by service uid 10001 only. Keep metrics behind private routing/ACLs in addition to its bearer check. Configure account storage, portal client audiences and provider/billing inputs using [ACCOUNTS](ACCOUNTS.md). Sign in to `/portal` and activate Trial/Pro **before** pairing a device. Examples without these settings are not a turnkey commercial environment.
+4. The allowlisted `.dockerignore` excludes local keys/configuration, `.git` and
    workspace/test data from the Docker build context. Compose builds the locked dependency graph (`npm ci`), runs as uid 10001,
    drops capabilities and disallows privilege escalation, uses a read-only root
    filesystem and a 16 MiB temporary filesystem. Only registry state is writable
    persistently in the dedicated named volume. Registry ownership is initialized
    by the image's `/state` directory owner on an empty volume. Back up and protect
    that volume: it contains public device/account bindings, not device keys.
-4. The default bind is **127.0.0.1:8443**, intentionally not an accidental public
+5. The default bind is **127.0.0.1:8443**, intentionally not an accidental public
    service. A public operator must explicitly provision the TLS domain/network
    route (normally port 443) without a logging proxy that captures authorization,
    query strings or bodies. The relay terminates TLS directly. Renew certificates

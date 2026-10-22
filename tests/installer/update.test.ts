@@ -111,4 +111,60 @@ describe("WP-34 signed update lifecycle", () => {
     expect(await installedVersion(layout)).toBe("2.0.0");
     expect(registrations).toEqual(["2.0.0", "2.1.0", "2.0.0"]);
   });
+  it.each(["false", "throw", "register"])(
+    "preserves same-version bytes and registration on %s failure",
+    async (failure) => {
+      const base = await root();
+      const keys = generateKeyPairSync("ed25519");
+      const layout = { installRoot: path.join(base, "install"), stateRoot: path.join(base, "state") };
+      const hooks: InstallHooks = {
+        register: async () => {},
+        unregister: async () => {},
+        healthCheck: async () => true,
+      };
+      await applyUpdate(await pack(base, "3.0.0", keys.privateKey, "original"), keys.publicKey, layout, hooks);
+      const updated = await pack(base, "3.0.0", keys.privateKey, "replacement");
+      let registrations = 0;
+      let unregistered = 0;
+      const faulty: InstallHooks = {
+        register: async () => {
+          if (++registrations === 1 && failure === "register") throw new Error("register failure");
+        },
+        unregister: async () => {
+          unregistered++;
+        },
+        healthCheck: async () => {
+          if (failure === "throw") throw new Error("health failure");
+          return false;
+        },
+      };
+      const operation = applyUpdate(updated, keys.publicKey, layout, faulty);
+      if (failure === "false") expect((await operation).rolledBack).toBe(true);
+      else await expect(operation).rejects.toThrow("failure");
+      expect(await installedVersion(layout)).toBe("3.0.0");
+      expect(await readFile(path.join(layout.installRoot, "versions/3.0.0/bin/crot-mcp"), "utf8")).toBe("original");
+      expect(registrations).toBe(2);
+      expect(unregistered).toBe(1);
+    },
+  );
+  it.each([false, true])("unregisters failed fresh install (throw=%s)", async (throws) => {
+    const base = await root();
+    const keys = generateKeyPairSync("ed25519");
+    const layout = { installRoot: path.join(base, "install"), stateRoot: path.join(base, "state") };
+    let removed = 0;
+    const operation = applyUpdate(await pack(base, "4.0.0", keys.privateKey), keys.publicKey, layout, {
+      register: async () => {},
+      unregister: async () => {
+        removed++;
+      },
+      healthCheck: async () => {
+        if (throws) throw new Error("failed health");
+        return false;
+      },
+    });
+    if (throws) await expect(operation).rejects.toThrow("failed health");
+    else expect((await operation).rolledBack).toBe(true);
+    expect(await installedVersion(layout)).toBeUndefined();
+    expect(removed).toBe(1);
+  });
 });

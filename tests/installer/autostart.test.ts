@@ -14,7 +14,8 @@ async function spec(osFamily: OsFamily) {
   return {
     os: osFamily,
     home,
-    executable: path.join(home, "CROT bin", "crot-mcp"),
+    executable: process.execPath,
+    script: path.join(home, "CROT bin", "crot-mcp.js"),
     configFile: path.join(home, "config.json"),
   };
 }
@@ -28,9 +29,29 @@ describe("WP-34 per-user autostart", () => {
     };
     const plan = await installAutostart(input, runner);
     expect(await autostartStatus(input, runner)).toBe(true);
-    for (const artifact of plan.artifacts) expect(await readFile(artifact.file, "utf8")).toBe(artifact.content);
+    for (const artifact of plan.artifacts)
+      expect(await readFile(artifact.file, artifact.encoding ?? "utf8")).toBe(artifact.content);
+    if (osFamily === "windows") {
+      const bytes = await readFile(plan.artifacts[0]!.file);
+      expect([...bytes.subarray(0, 2)]).toEqual([0xff, 0xfe]);
+      expect(bytes.subarray(2).toString("utf16le")).toMatch(/^<\?xml.*encoding="UTF-16"/);
+    }
     await removeAutostart(input, runner);
     expect(await autostartStatus(input, runner)).toBe(false);
+    const encodedExecutable =
+      osFamily === "linux"
+        ? `"${process.execPath
+            .replaceAll("\\", "\\\\")
+            .replaceAll('"', '\\"')
+            .replaceAll("$", () => "$$")
+            .replaceAll("%", "%%")}"`
+        : process.execPath
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;");
+    expect(plan.artifacts[0]?.content).toContain(encodedExecutable);
+    expect(plan.artifacts[0]?.content).toContain("crot-mcp.js");
     expect(calls.length).toBeGreaterThanOrEqual(3);
   });
   it("uses failure restart and protects Linux L1 storage", async () => {
@@ -42,8 +63,14 @@ describe("WP-34 per-user autostart", () => {
   it("uses launchd unsuccessful-exit KeepAlive and a Windows per-user logon task", async () => {
     expect(autostartPlan(await spec("macos")).artifacts[0]?.content).toContain("<key>SuccessfulExit</key><false/>");
     const windows = autostartPlan(await spec("windows")).artifacts[0]?.content ?? "";
+    expect(windows).toContain('encoding="UTF-16"');
     expect(windows).toContain("<LogonTrigger>");
     expect(windows).toContain("<RestartOnFailure>");
     expect(windows).toContain("LeastPrivilege");
+  });
+  it("escapes systemd percent specifiers and environment substitutions in exact paths", async () => {
+    const input = await spec("linux");
+    const plan = autostartPlan({ ...input, script: path.join(input.home, "$HOME-%u.js") });
+    expect(plan.artifacts[0]?.content).toContain("$$HOME-%%u.js");
   });
 });

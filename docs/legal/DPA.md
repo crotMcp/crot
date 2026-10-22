@@ -1,5 +1,7 @@
 # Data Processing Addendum (DPA) — template
 
+> **Pre-release template — not an active legal/support commitment.** Before sales/publication the owner must fill and approve: legal entity/address, jurisdiction, operator contact, privacy/security/support channels, response commitments, retention/subprocessors and effective date as applicable. Placeholder channels must not be represented as operational.
+
 > Complete all schedules and obtain counsel before execution. This template does not identify a controller, processor, governing law, subprocessor region or transfer mechanism.
 
 This DPA is between **Customer** `[NAME/ADDRESS]` and **Provider** `[NAME/ADDRESS]`, effective `[DATE]`, and supplements `[AGREEMENT]`.

@@ -1,0 +1,7 @@
+# Git-history secret scan
+
+Gitleaks 8.24.2 was run with redaction over `--all --reflog --full-history`: 505 commits, about 19.07 MB of patch content. This includes local/remote-tracking refs and reflog-reachable alternative commits, not only main. The audited unreachable trees were independently equal to reachable trees; no history is pruned or rewritten.
+
+Eight detections were triaged: documentation prose (1), evidence SHA/file/git hashes (5), a historical C++ numeric-constant switch (1), and the public extension identity key (1). No confirmed credential/private-key leak was identified by this scan. This is a scanner result, not proof that no secret can exist. An additional scan decoded all 103 historical gzip+base64 evidence blobs (11,174,341 decoded bytes) and found no detections. Arbitrary binary formats remain outside semantic secret detection. No secret values or raw matches are published; metadata is in secret-scan-baseline.json. New commits require a final scan/update in NORMALIZATION.
+
+Reproduce with trusted Gitleaks 8.24.2: `gitleaks git --log-opts='--all --reflog --full-history' --redact --report-format json --report-path /private/report.json`. Triage must not blindly suppress all generic API-key findings. Local opencode/config/secrets remain ignored; they are never deleted by this process. Confirmed credentials would require owner-led revocation/rotation before any history-cleanup decision.

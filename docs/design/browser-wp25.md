@@ -1,5 +1,7 @@
 # WP-25 — Browser lifecycle implementation and qualification
 
+> Historical design/package baseline, not current status. Implementation, verification, delivery and operations are tracked independently in root STATUS/roadmap. Old “not merged/not implemented” statements refer to this record’s original stage. Original full-product DoD (including publication/GUI installation) remains open where STATUS says partial/external; repository delivery does not silently satisfy it.
+
 Base: `main` merge PR #30, `e072e614480f5ac4e688ba1601a4adae8991cc10`.
 AD-16 remains normative; AD-32 records passive, content-free notices and the
 browser version decision before code. No L1 / authentication / exposure gates

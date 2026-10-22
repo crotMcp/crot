@@ -1,5 +1,7 @@
 # CROT v1 security and architecture whitepaper
 
+> Pre-release implementation description, not independent security certification. Signed package/CLI update is operator-managed; autonomous GUI installers and vendor signing remain incomplete. See INSTALL and the findings register for runtime/crash limits.
+
 ## Executive summary
 
 CROT is a local-first MCP bridge. One Core and PermissionEngine authorize operations regardless of whether a request arrives through local stdio/loopback or the optional Cloud Relay. The relay authenticates and routes but cannot authorize or execute a tool. Local mode is accountless and remains available when cloud services are unavailable.

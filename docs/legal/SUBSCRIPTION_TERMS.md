@@ -1,5 +1,7 @@
 # CROT subscription terms — publication template
 
+> **Pre-release template — not an active legal/support commitment.** Before sales/publication the owner must fill and approve: legal entity/address, jurisdiction, operator contact, privacy/security/support channels, response commitments, retention/subprocessors and effective date as applicable. Placeholder channels must not be represented as operational.
+
 These terms supplement the Terms of Service. **Merchant of record, legal entity, prices, currency, tax treatment, billing interval, refund law and effective date must be inserted and legally reviewed before checkout is enabled.**
 
 ## Plans

@@ -1,5 +1,7 @@
 # WP-29 — Cloud Relay completion evidence
 
+> Historical design/package baseline, not current status. Implementation, verification, delivery and operations are tracked independently in root STATUS/roadmap. Old “not merged/not implemented” statements refer to this record’s original stage. Original full-product DoD (including publication/GUI installation) remains open where STATUS says partial/external; repository delivery does not silently satisfy it.
+
 Base: PR #33 merged at `ca6280a467d4fc0f7787ff27dd0806c84042534e`.
 This completion is a separate PR; package Done does not mean merged, deployed
 or accepted as a whole-product release. AD-22 point 4/question 3 is refined

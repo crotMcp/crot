@@ -31,6 +31,15 @@ export async function generateSupplyChain(out) {
       };
     })
     .sort((a, b) => a.purl.localeCompare(b.purl));
+  components.push({
+    type: "library",
+    name: "Microsoft Detours",
+    version: "4.0.1",
+    licenses: [{ license: { id: "MIT" } }],
+    properties: [
+      { name: "crot:scope", value: "vendored native source; compiled only for Windows qualification/build" },
+    ],
+  });
   const sbom = {
     bomFormat: "CycloneDX",
     specVersion: "1.5",

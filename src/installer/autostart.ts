@@ -12,6 +12,8 @@ export interface AutostartSpec {
   readonly os: OsFamily;
   readonly home: string;
   readonly executable: string;
+  /** JS entrypoint executed by executable (the exact Node binary). */
+  readonly script?: string;
   readonly configFile?: string;
   readonly env?: NodeJS.ProcessEnv;
 }
@@ -19,6 +21,7 @@ export interface AutostartArtifact {
   readonly file: string;
   readonly content: string;
   readonly mode?: number;
+  readonly encoding?: "utf8" | "utf16le";
 }
 export interface AutostartPlan {
   readonly artifacts: readonly AutostartArtifact[];
@@ -33,16 +36,26 @@ function xml(value: string): string {
 }
 function systemdQuote(value: string): string {
   if (/[\r\n\0]/.test(value)) throw new Error("autostart path contains a control character");
-  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  return `"${value
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', '\\"')
+    .replaceAll("$", () => "$$")
+    .replaceAll("%", "%%")}"`;
 }
 function args(spec: AutostartSpec): string[] {
-  return ["service", "run", ...(spec.configFile ? ["--config", spec.configFile] : [])];
+  return [
+    ...(spec.script ? [spec.script] : []),
+    "service",
+    "run",
+    ...(spec.configFile ? ["--config", spec.configFile] : []),
+  ];
 }
 
 export function autostartPlan(spec: AutostartSpec): AutostartPlan {
   if (!path.isAbsolute(spec.home) || !path.isAbsolute(spec.executable))
     throw new Error("autostart paths must be absolute");
   if (spec.configFile && !path.isAbsolute(spec.configFile)) throw new Error("autostart config path must be absolute");
+  if (spec.script && !path.isAbsolute(spec.script)) throw new Error("autostart script must be absolute");
   const serviceArgs = args(spec);
   if (spec.os === "linux") {
     const unit = path.join(spec.home, ".config/systemd/user/crot-mcp.service");
@@ -88,7 +101,8 @@ export function autostartPlan(spec: AutostartSpec): AutostartPlan {
     artifacts: [
       {
         file: taskFile,
-        content: `<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers><Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings><Actions Context="Author"><Exec><Command>${command}</Command><Arguments>${argumentsXml}</Arguments></Exec></Actions></Task>\n`,
+        encoding: "utf16le",
+        content: `\uFEFF<?xml version="1.0" encoding="UTF-16"?>\n<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers><Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings><Actions Context="Author"><Exec><Command>${command}</Command><Arguments>${argumentsXml}</Arguments></Exec></Actions></Task>\n`,
         mode: 0o600,
       },
     ],
@@ -113,8 +127,12 @@ export async function installAutostart(
   const plan = autostartPlan(spec);
   for (const artifact of plan.artifacts) {
     await mkdir(path.dirname(artifact.file), { recursive: true, mode: 0o700 });
-    await writeFile(artifact.file, artifact.content, { mode: artifact.mode ?? 0o600 });
+    await writeFile(artifact.file, artifact.content, {
+      mode: artifact.mode ?? 0o600,
+      encoding: artifact.encoding ?? "utf8",
+    });
   }
+  if (spec.os === "linux") await runner("systemctl", ["--user", "daemon-reload"]);
   await run(plan.installCommand, runner);
   return plan;
 }

@@ -7,10 +7,12 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+import { validateOutput } from "./output-path.mjs";
 const args = process.argv.slice(2);
 const has = (x) => args.includes(x);
 const value = (x) => args[args.indexOf(x) + 1];
 const repositoryTest = has("--repository-test");
+const out = await validateOutput(root, path.resolve(root, has("--out") ? value("--out") : "artifacts/rc"));
 const identity = has("--environment") ? value("--environment") : process.env.RELEASE_IDENTITY_ENVIRONMENT;
 if (!identity) throw new Error("RELEASE_IDENTITY_ENVIRONMENT or --environment is required");
 if (!repositoryTest && !process.env.CROT_E2E_CHROME) throw new Error("CROT_E2E_CHROME is required for an RC");
@@ -18,7 +20,7 @@ if (!repositoryTest && !process.env.CROT_UPDATE_SIGNING_KEY)
   throw new Error("CROT_UPDATE_SIGNING_KEY is required for an RC");
 if (!repositoryTest && (has("--skip-check") || has("--skip-e2e")))
   throw new Error("production RC builds cannot skip repository checks or browser E2E");
-const out = path.resolve(root, has("--out") ? value("--out") : "artifacts/rc");
+
 const run = (cmd, argv, env = {}) =>
   execFileSync(cmd, argv, { cwd: root, stdio: "inherit", env: { ...process.env, ...env } });
 if (!has("--skip-check")) run(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "check"]);
@@ -37,6 +39,35 @@ async function walk(dir, prefix = "") {
   }
   return list;
 }
+// Produce exactly the canonical schema consumed by verifyUpdatePackage/applyUpdate.
+const update = path.join(out, "update");
+await mkdir(update, { recursive: true });
+const { cp } = await import("node:fs/promises");
+await cp(release, path.join(update, "payload"), { recursive: true });
+const pkg = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+const updateFiles = [];
+for (const rel of await walk(path.join(update, "payload"))) {
+  const data = await readFile(path.join(update, "payload", rel));
+  updateFiles.push({ path: rel, sha256: createHash("sha256").update(data).digest("hex") });
+}
+const updateManifest = {
+  schema: 1,
+  product: "crot",
+  version: pkg.version,
+  identityEnvironment: JSON.parse(await readFile(path.join(release, "release-identity.json"), "utf8")).id,
+  files: updateFiles,
+};
+await writeFile(path.join(update, "update-manifest.json"), JSON.stringify(updateManifest) + "\n");
+let signingKey;
+if (process.env.CROT_UPDATE_SIGNING_KEY) {
+  signingKey = createPrivateKey(await readFile(process.env.CROT_UPDATE_SIGNING_KEY));
+  if (signingKey.asymmetricKeyType !== "ed25519") throw new Error("Ed25519 signing key required");
+  await writeFile(
+    path.join(update, "update-manifest.sig"),
+    sign(null, Buffer.from(JSON.stringify(updateManifest) + "\n"), signingKey).toString("base64") + "\n",
+  );
+}
+const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
 const files = [];
 for (const rel of await walk(out)) {
   if (rel.startsWith("rc-manifest")) continue;
@@ -55,17 +86,34 @@ if (!files.some((file) => file.path.endsWith(".zip"))) throw new Error("missing 
 const manifest = {
   schema: 1,
   product: "crot",
-  channel: "rc",
+  channel: repositoryTest ? "repository-test" : "rc",
+  repositoryTest,
+  commitSha: git("rev-parse", "HEAD"),
+  treeSha: git("rev-parse", "HEAD^{tree}"),
+  dirty: git("status", "--porcelain").length > 0,
+  tools: {
+    node: process.version,
+    typescript: JSON.parse(await readFile(path.join(root, "node_modules/typescript/package.json"), "utf8")).version,
+    chromium: process.env.CROT_E2E_CHROME
+      ? execFileSync(process.env.CROT_E2E_CHROME, ["--version"], { encoding: "utf8" }).trim()
+      : null,
+  },
   createdAt: new Date().toISOString(),
-  identity: JSON.parse(await readFile(identity, "utf8")),
+  identity: JSON.parse(await readFile(path.join(release, "release-identity.json"), "utf8")),
   checks: { repositoryCheck: !has("--skip-check"), browserE2e: !has("--skip-e2e"), sbom: true, extensionPackage: true },
   readinessCriteria: {
-    corePermissionsAndAudit: "repository_verified",
-    browserChain: "repository_verified",
-    crossPlatformIsolation: "repository_verified",
-    remoteIdentityAndRelay: "repository_verified",
-    signedSupplyChain: "repository_verified",
-    securityReview: "repository_verified",
+    corePermissionsAndAudit: repositoryTest
+      ? "not_qualified_test_artifact"
+      : "checks_executed_platform_evidence_required",
+    browserChain: repositoryTest ? "not_qualified_test_artifact" : "checks_executed_platform_evidence_required",
+    crossPlatformIsolation: repositoryTest
+      ? "not_qualified_test_artifact"
+      : "checks_executed_platform_evidence_required",
+    remoteIdentityAndRelay: repositoryTest
+      ? "not_qualified_test_artifact"
+      : "checks_executed_platform_evidence_required",
+    signedSupplyChain: repositoryTest ? "not_qualified_test_artifact" : "checks_executed_platform_evidence_required",
+    securityReview: repositoryTest ? "not_qualified_test_artifact" : "checks_executed_platform_evidence_required",
     legalPublication: "operator_required",
     storePublication: "operator_required",
     liveCloudDrills: "operator_required",
@@ -76,8 +124,7 @@ const manifest = {
 };
 const bytes = Buffer.from(JSON.stringify(manifest, null, 2) + "\n");
 await writeFile(path.join(out, "rc-manifest.json"), bytes);
-if (process.env.CROT_UPDATE_SIGNING_KEY) {
-  const key = createPrivateKey(await readFile(process.env.CROT_UPDATE_SIGNING_KEY));
-  await writeFile(path.join(out, "rc-manifest.sig"), sign(null, bytes, key).toString("base64") + "\n");
+if (signingKey) {
+  await writeFile(path.join(out, "rc-manifest.sig"), sign(null, bytes, signingKey).toString("base64") + "\n");
 }
 process.stdout.write(`${out}\n`);
