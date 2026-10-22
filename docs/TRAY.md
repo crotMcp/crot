@@ -4,14 +4,16 @@
 
 The tray is the first approval UI for CROT and the place for the device-side
 controls (ARCHITECTURE.md §27 AD-19). It is a separate Electron application
-and only a client of the service's authenticated control channel
-([`SERVICE.md`](SERVICE.md), AD-17): it has no MCP connection, no tools, no
-access to Core or to the state files, and no approval authority of its own.
+and a client of the service's authenticated control channel
+([`SERVICE.md`](SERVICE.md), AD-17). Workspace operations now use a separate
+ordinary MCP client (see [AD-39](CONTROL_CENTER_ARCHITECTURE.md)); the control
+channel still exposes no tools. The tray has no direct access to Core and no
+approval authority of its own.
 The service holds the approval provider and checks every decision.
 
 ```text
 CROT service ── control endpoint (authenticated, owner-only) ──► tray main process
-  approval provider "tray"                                        │ fixed preload API (4 functions)
+  approval provider "tray"                                        │ fixed preload API
   device settings, remote clients                                  ▼
                                                                 renderer (sandboxed page, text only)
 ```

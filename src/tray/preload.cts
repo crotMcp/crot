@@ -10,6 +10,7 @@ electron.contextBridge.exposeInMainWorld("crot", {
   onView: (callback: (view: unknown) => void): void => {
     electron.ipcRenderer.on("view", (_event, view: unknown) => callback(view));
   },
+  tool: (name: string, input: unknown): Promise<unknown> => electron.ipcRenderer.invoke("tool", name, input),
   repairL1: (): Promise<unknown> => electron.ipcRenderer.invoke("repair-l1"),
   ready: (): void => electron.ipcRenderer.send("ready"),
   decide: (requestId: string, decision: string): Promise<unknown> =>

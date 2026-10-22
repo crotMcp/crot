@@ -1,7 +1,8 @@
 /**
  * CROT tray (WP-22, AD-19 point 1): an Electron process that is only a
- * client of the service's authenticated control channel. It has no MCP
- * connection, no tools and no approval authority of its own; the service
+ * client of the service's authenticated control channel. Workspace screens
+ * use a separate ordinary MCP client (AD-39), never control-channel execution.
+ * It has no approval authority of its own; the service
  * checks every decision against the request id and the subject digest shown.
  *
  * Run with `npm run tray` (after `npm run build`) or
@@ -31,6 +32,7 @@ import { hostDirectories } from "../core/platform/node-platform.js";
 import { createPrivateFileProtection } from "../core/platform/private-files.js";
 import { PRESET_VALUES, type PresetValue } from "../service/protocol.js";
 import { TRAY_CSP, TRAY_ORIGIN, trayAsset } from "./assets.js";
+import { TrayToolClient } from "./tool-client.js";
 import { repairL1 } from "./l1-repair.js";
 import { TrayController } from "./controller.js";
 import { trayView, type TrayView } from "./view-model.js";
@@ -174,6 +176,7 @@ function createWindow(): void {
 function quit(): void {
   quitting = true;
   controller.stop();
+  void toolClient?.close();
   app.quit();
 }
 
@@ -304,7 +307,34 @@ async function runAction(name: unknown, params: unknown): Promise<boolean> {
 
 let repairingL1 = false;
 
+let toolClient: TrayToolClient | undefined;
+
 function registerIpc(): void {
+  ipcMain.handle("tool", async (event, name: unknown, input: unknown) => {
+    if (
+      smokeReport ||
+      !fromTray(event) ||
+      !view.workspace ||
+      view.connection !== "connected" ||
+      path.resolve(hostDirectories(process.env).state) !== stateDir
+    )
+      return { isError: true, content: [{ type: "text", text: "Service unavailable" }] };
+    try {
+      toolClient ??= new TrayToolClient({
+        command: process.execPath,
+        entry: fileURLToPath(new URL("../bin/crot-mcp.js", import.meta.url)),
+        args: view.mcpArgs ?? ["--workspace", view.workspace],
+      });
+      return await toolClient.call(name, input);
+    } catch {
+      return {
+        isError: true,
+        content: [
+          { type: "text", text: "Operation unavailable or refused. Check permissions and service connection." },
+        ],
+      };
+    }
+  });
   ipcMain.handle("repair-l1", async (event, ...args: unknown[]) => {
     if (smokeReport || !fromTray(event) || args.length || repairingL1) return { ok: false };
     repairingL1 = true;
@@ -348,6 +378,8 @@ async function smoke(file: string): Promise<void> {
   while (Date.now() < deadline && !(rendererReady && view.connection === "connected" && view.cards.length > 0))
     await wait(100);
   await wait(300);
+  // Explicit smoke harness admission only; never decides approvals or calls tools.
+  if (window) await window.webContents.executeJavaScript(`document.getElementById("local-mode").click()`);
   const page = window
     ? ((await window.webContents.executeJavaScript(
         `({
