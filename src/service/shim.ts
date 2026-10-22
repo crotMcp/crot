@@ -51,6 +51,8 @@ export interface ShimOptions {
   readonly log: (message: string) => void;
   readonly signals: readonly string[];
   readonly windows?: boolean;
+  /** Explicit owner desktop launch keeps the detached service alive without stdio clients. */
+  readonly launch?: "managed" | "on-demand";
 }
 
 type Welcome = Extract<ServiceToShim, { t: "welcome" }>;
@@ -182,7 +184,7 @@ function hello(
 }
 
 /**
- * Start an on-demand service: detached (it outlives this shim and serves the
+ * Start a service (on-demand by default, managed for explicit desktop launch): detached (it outlives this shim and serves the
  * other clients), output to the service log in the private state directory.
  * Credentials are never passed: the service reads or creates them itself.
  */
@@ -205,7 +207,14 @@ async function startService(options: ShimOptions) {
     if (size > MAX_SERVICE_LOG_BYTES) ftruncateSync(fd, 0);
     const child = spawn(
       process.execPath,
-      [...process.execArgv, options.entry, "service", "run", "--on-demand", ...options.argv],
+      [
+        ...process.execArgv,
+        options.entry,
+        "service",
+        "run",
+        ...(options.launch === "managed" ? [] : ["--on-demand"]),
+        ...options.argv,
+      ],
       {
         detached: true,
         stdio: ["ignore", fd, fd],

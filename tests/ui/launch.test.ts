@@ -1,3 +1,5 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ spawn: vi.fn(), electron: vi.fn() }));
@@ -21,7 +23,7 @@ describe("fixed Control Center launcher", () => {
     const [executable, args, options] = mocks.spawn.mock.calls[0]!;
     expect(executable).toBe("/opt/CROT/electron");
     expect(args.at(-1)).toBe("--state-dir=/private/owner state");
-    expect(args.at(-2)).toMatch(/\/tray\/main\.js$/);
+    expect(args.at(-2)).toBe(path.resolve(fileURLToPath(new URL("../../src/tray/main.js", import.meta.url))));
     expect(args.includes("--no-sandbox")).toBe(process.platform === "linux");
     expect(options.shell).toBeUndefined();
     expect(options.env.ELECTRON_RUN_AS_NODE).toBeUndefined();

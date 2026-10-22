@@ -456,6 +456,8 @@ export class CloudRelay {
     const target = req.url ?? "";
     const q = target.indexOf("?");
     const pathname = q === -1 ? target : target.slice(0, q);
+    // Resolve public HTML before every asynchronous API/download/MCP dispatcher.
+    if (this.accountHttp.handlePage(req, res, pathname)) return;
     if (await this.downloads.handle(req, res, pathname)) return;
     if (this.accountHttp.matches(pathname) && (await this.accountHttp.handle(req, res, pathname))) return;
     let m: RegExpExecArray | null;

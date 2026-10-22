@@ -5189,6 +5189,10 @@ registers the native host, starts/reuses the service and launches Control Center
 First use without a configured workspace writes an owner-private desktop config
 with the current directory and browser bridge enabled; existing policies are not
 silently replaced. New desktop services use managed, not on-demand, lifecycle.
+The desktop bootstrap uses the existing authenticated service-start lock and waits
+for the service welcome before launching Electron. A newly started managed service
+is detached with its private log; it and the UI outlive the launcher/terminal.
+The default stdio shim still starts an on-demand service.
 
 **Explicit exception to AD-19:** at the owner's request the Linux launcher passes
 `--no-sandbox` before Electron bootstrap, and main also appends the switch. This

@@ -1,5 +1,8 @@
 # Desktop L1 repair and release downloads
 
+For the subsequent full-checkout, public HTML and real desktop-launch evidence, see
+[HTML and desktop acceptance](HTML_DESKTOP_ACCEPTANCE.md). The environment limitations below describe the earlier `c04afe0` work session.
+
 Follow-up to `7d3535a` on `feat/flagship-control-center`. This document distinguishes implementation from platform/release qualification; passing browser tests is not proof of a successful privileged install.
 
 ## Owner-initiated L1 repair

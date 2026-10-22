@@ -44,7 +44,7 @@ import { ControlClient, waitForServiceExit } from "../service/control-client.js"
 import { secretCredentialStore } from "../service/endpoints.js";
 import type { ControlStatus } from "../service/protocol.js";
 import { CrotService } from "../service/service.js";
-import { runShim } from "../service/shim.js";
+import { connectToService, runShim } from "../service/shim.js";
 
 const log = (message: string) => process.stderr.write(`crot: ${message}\n`);
 
@@ -101,6 +101,7 @@ async function desktop(argv: readonly string[]): Promise<void> {
     return;
   }
   let command;
+  let serviceArgv = argv;
   try {
     command = await parseCli(argv);
   } catch (error) {
@@ -119,15 +120,30 @@ async function desktop(argv: readonly string[]): Promise<void> {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
     }
     await protection.protectFile?.(configFile);
-    command = await parseCli(["--config", configFile]);
+    serviceArgv = ["--config", configFile];
+    command = await parseCli(serviceArgv);
     log("desktop workspace: current directory on first launch; saved in desktop-config.json");
   }
   if (command.kind !== "serve") throw new CrotError("INVALID_INPUT", "app accepts service configuration options only.");
   // Validate before displaying a window; never replace an explicit user policy.
   parseConfig(command.config);
-  if (!(await launchControlCenter(hostDirectories(process.env).state)))
+  const stateDir = hostDirectories(process.env).state;
+  // Reuse the authenticated, start-lock protected bootstrap, but keep desktop service managed.
+  // Wait for readiness before opening the UI; the launcher and terminal can then exit independently.
+  const { channel } = await connectToService({
+    command,
+    argv: serviceArgv,
+    entry: fileURLToPath(import.meta.url),
+    stateDir,
+    privateFiles: createServicePrivateFiles(windows),
+    log,
+    signals: SHUTDOWN_SIGNALS,
+    windows,
+    launch: "managed",
+  });
+  channel.destroy();
+  if (!(await launchControlCenter(stateDir)))
     throw new CrotError("OPERATION_FAILED", "Cannot launch Electron. Run npm install with development dependencies.");
-  return runService(command, "managed");
 }
 
 function startupNotes(command: ServeCommand): void {
