@@ -1,0 +1,34 @@
+.popup {
+  width: 380px;
+  max-width: 100vw;
+  padding: 20px;
+}
+.popup .brand {
+  margin-bottom: 24px;
+}
+.popup h1 {
+  font-size: 26px;
+}
+.popup .panel {
+  padding: 18px;
+}
+.popup .actions {
+  flex-direction: column;
+}
+.popup a {
+  width: 100%;
+}
+.popup footer {
+  margin-top: 24px;
+}
+.step {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.step .badge {
+  flex-shrink: 0;
+}
+.popup details {
+  margin-top: 16px;
+}

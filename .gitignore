@@ -19,3 +19,7 @@ opencode.json
 .env.local
 *.private.pem
 *.key
+
+# Generated from first-party design tokens and deterministic icon sources
+/extension/ui.css
+/extension/icons/*.png

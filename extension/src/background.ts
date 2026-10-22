@@ -5,7 +5,7 @@
  * The extension is the browser end of CROT's browser bridge. It connects to
  * the CROT Host through native messaging and executes the fixed set of
  * browser commands the host sends; the host only sends commands that Core's
- * PermissionEngine has authorized. The extension has no UI, takes no action
+ * PermissionEngine has authorized. The popup reports connection state; the bridge takes no tool action
  * on its own and runs no code in pages other than the fixed functions in
  * page-functions.ts.
  *
@@ -46,8 +46,35 @@ const connection = new HostConnection({
   },
 });
 
+// This UI channel is read-only and extension-origin-only. It cannot execute browser tools.
+const uiRuntime = chrome.runtime as typeof chrome.runtime & {
+  getURL?: (path: string) => string;
+  onMessage?: {
+    addListener(listener: (message: unknown, sender: { url?: string }, reply: (value: unknown) => void) => void): void;
+  };
+};
+uiRuntime.onMessage?.addListener((message, sender, reply) => {
+  const origin = uiRuntime.getURL?.("");
+  if (
+    !origin ||
+    !sender.url?.startsWith(origin) ||
+    typeof message !== "object" ||
+    message === null ||
+    Object.keys(message).length !== 1 ||
+    (message as { type?: unknown }).type !== "crot.ui.status"
+  )
+    return;
+  reply({ connection: connection.state });
+});
+
 chrome.runtime.onStartup.addListener(() => connection.ensureConnected());
-chrome.runtime.onInstalled.addListener(() => connection.ensureConnected());
+chrome.runtime.onInstalled.addListener((details?: { reason?: string }) => {
+  connection.ensureConnected();
+  if (details?.reason === "install") {
+    const welcome = uiRuntime.getURL?.("welcome.html");
+    if (welcome) void chrome.tabs.create({ url: welcome, active: true }).catch(() => undefined);
+  }
+});
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === RECONNECT_ALARM) connection.ensureConnected();
 });

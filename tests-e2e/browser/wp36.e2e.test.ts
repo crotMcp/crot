@@ -9,7 +9,7 @@ import { RelayHarness } from "../../tests/cloud-relay/harness.js";
 import { TEST_RELAY } from "../../tests/identity/test-authorization-server.js";
 import { chromeExecutable } from "./harness.js";
 
-it("WP-36 real Chromium portal: PKCE login, explicit trial, device/client list, remote revoke and no token persistence", async () => {
+it("WP-36 real Chromium portal: PKCE login, checkout failure stays Free, verified fixture trial, device/client list, remote revoke and no token persistence", async () => {
   const profile = await mkdtemp("/tmp/crot-portal-");
   const accounts = new AccountService();
   const h = new RelayHarness();
@@ -144,6 +144,25 @@ it("WP-36 real Chromium portal: PKCE login, explicit trial, device/client list, 
     await until("document.getElementById('plan')?.textContent === 'free · active'");
     expect(await evaluate("location.search")).toBe("");
     await evaluate("document.getElementById('trial').click()");
+    await until("document.getElementById('notice')?.textContent.includes('Request refused')");
+    expect(accounts.snapshot("user_01").entitled).toBe(false);
+    // No live card flow is claimed: this test uses a trusted provider fixture after checking failure closed.
+    await accounts.billing(
+      {
+        checkout: async () => "https://checkout.stripe.com/test",
+        verifyAndResolve: async () => ({
+          eventId: "evt_portal_trial",
+          accountId: "user_01",
+          subscriptionId: "sub_portal_trial",
+          plan: "trial",
+          status: "active",
+          expiresAt: Date.now() + 7 * 86400000,
+        }),
+      },
+      Buffer.from("{}"),
+      "fixture",
+    );
+    await evaluate("document.getElementById('refresh').click()");
     await until("document.getElementById('plan')?.textContent === 'trial · active'");
     const p = h.newDevice();
     await h.register(p);

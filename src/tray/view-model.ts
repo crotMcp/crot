@@ -157,6 +157,10 @@ export interface PairingRow {
 }
 
 export interface TrayView {
+  readonly commercial?: ControlOverview["commercial"];
+  readonly resourceUri?: string;
+  readonly portalUrl?: string;
+  readonly modules?: readonly { title: string; value: string; ready: boolean; note?: string; repair?: boolean }[];
   readonly connection: Connection;
   readonly headline: string;
   readonly notice?: string;
@@ -295,6 +299,38 @@ export function trayView(state: TrayState): TrayView {
     ? `CROT — ${headline}`
     : `CROT — ${cards.length > 0 ? headline : o.remote.mode ? "remote mode ON" : "running"}`;
   return {
+    ...(o?.commercial ? { commercial: o.commercial } : {}),
+    ...(o?.pairing.device?.resourceUri ? { resourceUri: o.pairing.device.resourceUri } : {}),
+    ...(o?.pairing.environment ? { portalUrl: `https://${o.pairing.environment.relayHost}/portal` } : {}),
+    modules: [
+      {
+        title: "Local service",
+        value: offline ? "Not running" : "Online",
+        ready: !offline,
+        note: "Local tools are independent of your cloud plan.",
+      },
+      {
+        title: "Browser & CDP",
+        value: o?.browser.state === "connected" ? `${o.browser.name ?? "Browser"} connected` : "Not connected",
+        ready: o?.browser.state === "connected",
+        note: o?.cdp.available
+          ? "Controlled browser automation is ready."
+          : "Connect the CROT extension in Chrome, Edge or Brave.",
+      },
+      {
+        title: "L1 sandbox",
+        value: o?.confinement.available ? "Available" : "Setup required",
+        ready: o?.confinement.available ?? false,
+        repair: !o?.confinement.available,
+        note: "Platform confinement is checked by the service, never inferred from installation.",
+      },
+      {
+        title: "Cloud tunnel",
+        value: o?.remote.mode ? "Remote mode enabled" : "Local mode",
+        ready: o?.remote.mode ?? false,
+        note: "Remote admission requires a current cloud entitlement.",
+      },
+    ],
     connection: state.connection,
     headline,
     ...(state.notice ? { notice: visibleText(state.notice) } : {}),

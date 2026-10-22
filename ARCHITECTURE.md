@@ -5141,3 +5141,27 @@ to one release-pinned origin, while a forged or foreign JWT fails signature,
 `iss` and `aud`. This is a bounded interoperability decision, not a weakening
 of token verification and not permission to ignore an `iss` value that is
 actually returned.
+
+### AD-37 — First-party product surfaces and card-backed trial admission
+
+The Control Center, browser popup/onboarding and account website share the static
+Obsidian tokens and capability catalog in `src/ui/theme.ts`. These are presentation
+surfaces, not additional policy engines. AD-19 remains authoritative: no renderer
+network, external code, arbitrary shell commands or renderer-selected URLs. Owner
+UI actions use the existing authenticated control path and main-process URL/action
+allowlists. Approval subjects remain complete and escaped; ordinary diagnostics
+are collapsed rather than removed from the owner's inspection surface.
+
+Free local execution remains independent of accounts and billing. The public
+`POST /account/trial` route initiates hosted Stripe Checkout with card collection
+and a seven-day subscription trial. A redirect does not grant entitlement. Only
+a verified webhook followed by a fixed-provider subscription read may activate
+the cloud trial, with a matching account marker, Pro price, seven-day interval
+and collected payment method. Trial supports two remote devices. Hosted billing
+portal sessions verify the subscription/account binding before creation.
+
+This change does not qualify a unified native installer, live payments, vendor
+signing or cross-platform L1 availability. The legacy trusted in-process trial
+provisioning helper remains for existing fixtures and is not exposed by owner
+HTTP; removing it requires a separate fixture migration. See
+`docs/FLAGSHIP_IMPLEMENTATION.md` for the actual evidence and outstanding gates.

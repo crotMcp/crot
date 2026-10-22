@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>CROT</title>
+    <link rel="stylesheet" href="ui.css" />
+    <link rel="stylesheet" href="popup.css" />
+    <script src="popup.js" defer></script>
+  </head>
+  <body class="popup">
+    <header class="brand">
+      <span class="brand-mark" aria-hidden="true">C</span>CROT <span class="badge">FREE · LOCAL</span>
+    </header>
+    <main>
+      <p class="eyebrow">Your browser bridge</p>
+      <h1>Ready when you are.</h1>
+      <section class="panel">
+        <h2>Desktop connection</h2>
+        <p id="connection" class="badge warning" role="status">Checking connection…</p>
+        <p id="tab" class="note">Checking active tab…</p>
+        <p id="group" class="note"></p>
+        <p class="note">Cloud plan: check your account. Local connection status does not verify a subscription.</p>
+        <button id="refresh">Refresh status</button>
+      </section>
+      <section id="install" class="panel" hidden>
+        <h2>Bring your AI to your computer.</h2>
+        <p class="note">Desktop App Not Detected. Install CROT or start the local service, then reconnect.</p>
+        <a class="button primary" href="https://crot.network/welcome#install" target="_blank" rel="noopener noreferrer"
+          >Installation & downloads</a
+        >
+      </section>
+      <div class="actions">
+        <button id="control-guide">Open Control Center guide</button
+        ><a class="button primary" href="https://crot.network/portal" target="_blank" rel="noopener noreferrer"
+          >Account & plans</a
+        ><a class="button" href="welcome.html" target="_blank" rel="noopener noreferrer">Guide & capabilities</a>
+      </div>
+      <p id="open-help" class="banner" hidden>
+        Open CROT from your system tray. For a source checkout, run npm run tray after building the application.
+      </p>
+      <p id="error" role="status"></p>
+    </main>
+    <footer>Every browser action follows CROT permissions. Local tools stay free.</footer>
+  </body>
+</html>

@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import {
   app,
   BrowserWindow,
+  clipboard,
   ipcMain,
   Menu,
   nativeImage,
@@ -138,10 +139,13 @@ function showWindow(): void {
 function createWindow(): void {
   rendererReady = false;
   window = new BrowserWindow({
-    width: 560,
-    height: 720,
+    width: 1100,
+    height: 820,
+    minWidth: 420,
+    minHeight: 560,
+    backgroundColor: "#090A0F",
     show: false,
-    title: "CROT",
+    title: "CROT Control Center",
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(path.dirname(fileURLToPath(import.meta.url)), "preload.cjs"),
@@ -214,6 +218,28 @@ function clientKey(p: Record<string, unknown>): { accountId: string; deviceId: s
 }
 
 async function runAction(name: unknown, params: unknown): Promise<boolean> {
+  // Fixed owner-UI actions only. Renderer never supplies an external URL or clipboard bytes.
+  if (typeof name === "string" && name.startsWith("ui.") && isRecord(params) && Object.keys(params).length === 0) {
+    if (name === "ui.copyDiagnostics") {
+      clipboard.writeText(JSON.stringify({ status: view.status, notes: view.remoteNotes }, null, 2));
+      return true;
+    }
+    if (name === "ui.copyConnection") {
+      if (!view.resourceUri || new URL(view.resourceUri).protocol !== "https:") return false;
+      clipboard.writeText(view.resourceUri);
+      return true;
+    }
+    if (name === "ui.openPortal" || name === "ui.openInstall") {
+      const target = new URL(view.portalUrl ?? "https://crot.network/portal");
+      if (target.protocol !== "https:" || target.username || target.password) return false;
+      target.pathname = name === "ui.openPortal" ? "/portal" : "/welcome";
+      target.search = "";
+      target.hash = "";
+      await shell.openExternal(target.href);
+      return true;
+    }
+    return false;
+  }
   if (typeof name !== "string" || !ACTIONS.has(name) || !isRecord(params)) return false;
   switch (name) {
     case "preset.set":

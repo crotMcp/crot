@@ -1,3 +1,5 @@
+import { CAPABILITIES, CROT_CSS } from "../ui/theme.js";
+
 /**
  * The tray window's page, served from memory on the privileged
  * `crot-tray://app/` scheme (AD-19 point 1). No remote content, no inline
@@ -23,43 +25,22 @@ export const TRAY_CSP = [
 ].join("; ");
 
 const HTML = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${TRAY_CSP}">
-<title>CROT</title>
-<link rel="stylesheet" href="${TRAY_ORIGIN}/app.css">
-<script src="${TRAY_ORIGIN}/renderer.js" defer></script>
-</head>
-<body>
-<header><h1 id="headline">CROT</h1><p id="notice" hidden></p></header>
-<section id="approvals" aria-label="Approval requests"></section>
-<section aria-label="Approval preset"><h2>Approval preset</h2><div id="presets"></div><p id="preset-blocked" class="note" hidden></p></section>
-<section aria-label="Remote"><h2>Remote access</h2><div id="remote"></div><div id="clients"></div></section>
-<section aria-label="Status"><h2>Status</h2><dl id="status"></dl></section>
-</body>
-</html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${TRAY_CSP}"><title>CROT Control Center</title>
+<link rel="stylesheet" href="${TRAY_ORIGIN}/app.css"><script src="${TRAY_ORIGIN}/renderer.js" defer></script></head>
+<body><header class="topbar"><div class="brand"><span class="brand-mark" aria-hidden="true">C</span>CROT <span class="muted">/ Control Center</span></div><div class="actions"><span id="connection" class="badge">Connecting</span><button id="plan-badge" aria-label="Account and plan">FREE · LOCAL</button></div></header>
+<div class="shell"><nav class="sidebar" role="tablist" aria-label="Control Center"><button id="tab-dashboard" role="tab" aria-controls="dashboard" aria-selected="true">Overview & control</button><button id="tab-capabilities" role="tab" aria-controls="capabilities" aria-selected="false" tabindex="-1">Capabilities & studio</button><button id="tab-queue" role="tab" aria-controls="queue" aria-selected="false" tabindex="-1">Approvals <span id="queue-count" class="badge">0</span></button><button id="tab-account" role="tab" aria-controls="account" aria-selected="false" tabindex="-1">Account & plan</button><p class="note">Your computer. Your rules.<br>Local tools are always free.</p></nav>
+<main class="content"><div class="intro"><p class="eyebrow">Your AI, securely connected</p><h1 id="headline">CROT Control Center</h1><p class="muted">One place to manage your computer, browser and agent permissions.</p><p id="notice" role="status" hidden></p></div>
+<section id="dashboard" role="tabpanel" aria-labelledby="tab-dashboard"><div id="modules" class="grid"></div><section class="panel" aria-label="Approval preset"><h2>Security & approvals</h2><p class="muted">Control approval-gated effects. Capability and workspace restrictions always apply.</p><div id="presets"></div><p id="preset-blocked" class="banner" hidden></p></section><section class="panel" aria-label="Remote"><h2>Remote access</h2><p class="muted">Connect trusted MCP clients through the cloud relay. Local tools do not need a subscription.</p><div id="remote" class="actions"></div><div id="remote-summary"></div><div id="clients"></div></section></section>
+<section id="capabilities" role="tabpanel" aria-labelledby="tab-capabilities" hidden><h2>Capabilities & Studio Hub</h2><p class="muted">A single permission engine across your workspace. Upcoming integrations are labeled Roadmap.</p><div id="capability-grid" class="grid"></div></section>
+<section id="queue" role="tabpanel" aria-labelledby="tab-queue" hidden><h2>Approvals queue</h2><p class="muted">Review the complete operation and its effects before allowing an agent to continue.</p><p id="approval-empty" class="empty">All clear. No requests need your approval.</p><div id="approvals" aria-label="Approval requests"></div></section>
+<section id="account" role="tabpanel" aria-labelledby="tab-account" hidden><section class="panel"><p class="eyebrow">Account & plan</p><h2 id="account-plan">Free local access</h2><p id="account-status" class="muted">Full local functionality. No account or card required.</p><p id="device-count"></p><div class="actions"><button id="sign-in">Sign in / create account</button><button id="trial" class="primary">Try 7 days free</button><button id="upgrade">Choose Pro / Team</button></div><p class="note">Trial requires a card in hosted Stripe Checkout. Remote access for up to 2 devices. Cancel before the trial ends to avoid a subscription charge. Billing availability depends on the operator.</p></section></section>
+<details class="diagnostics"><summary>Developer Diagnostics</summary><button id="copy-diagnostics">Copy diagnostics</button><p id="copy-notice" role="status"></p><dl id="status"></dl><div id="technical-notes"></div></details>
+</main></div><dialog id="paywall" aria-labelledby="paywall-title" aria-describedby="paywall-copy"><p class="eyebrow">Unlock remote access</p><h2 id="paywall-title">Your workspace, wherever you are.</h2><p id="paywall-copy">This feature requires Pro or Trial. Start a 7-day trial after adding a card, or choose a paid plan to control your computer and browser remotely.</p><p class="muted">Your local tools remain free. Trial includes up to 2 devices. You can cancel from your account.</p><div class="actions"><button id="paywall-checkout" class="primary">View trial & plans</button><button id="paywall-close">Stay local</button></div></dialog></body></html>
 `;
 
-const CSS = `
-:root { color-scheme: light dark; font: 13px system-ui, sans-serif; }
-body { margin: 0; padding: 12px 16px; }
-h1 { font-size: 16px; margin: 0 0 8px; }
-h2 { font-size: 13px; margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .04em; opacity: .7; }
-#notice { padding: 6px 8px; border-radius: 4px; background: #8884; }
-.card { border: 2px solid #c80; border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
-.card h3 { font-size: 14px; margin: 0 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.banner { background: #b00; color: #fff; font-weight: 700; padding: 4px 6px; margin: 4px 0; border-radius: 3px; }
-dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; margin: 0; }
-dt { font-weight: 600; }
-dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
-.mark { display: inline-block; margin-left: 6px; padding: 0 4px; border-radius: 3px; background: #c80; color: #000; font: 600 11px system-ui, sans-serif; }
-.mark.remote, .mark.full-control, .mark.outside-workspace { background: #b00; color: #fff; }
-.actions { margin-top: 8px; display: flex; gap: 8px; }
-button { font: inherit; padding: 4px 12px; }
-.note { opacity: .75; }
-.client { border-top: 1px solid #8884; padding: 6px 0; }
-`;
+const CSS =
+  CROT_CSS + `#modules{margin-bottom:20px}.module .badge{align-self:flex-start}#capability-grid{margin-top:24px}`;
 
 /**
  * The renderer: receives a TrayView (plain strings) and builds the page with
@@ -80,7 +61,10 @@ const RENDERER = `"use strict";
     const b = el("button", text);
     b.type = "button";
     b.disabled = !!disabled;
-    b.addEventListener("click", () => { b.disabled = true; onClick(); });
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await onClick(); } finally { if (b.isConnected) b.disabled = !!disabled; }
+    });
     return b;
   };
   const rows = (dl, list) => {
@@ -92,11 +76,81 @@ const RENDERER = `"use strict";
       dl.appendChild(dd);
     }
   };
+  const tabs = ["dashboard", "capabilities", "queue", "account"];
+  function selectTab(id, focus) {
+    for (const key of tabs) {
+      const tab = document.getElementById("tab-" + key);
+      tab.setAttribute("aria-selected", String(key === id)); tab.tabIndex = key === id ? 0 : -1;
+      document.getElementById(key).hidden = key !== id;
+      if (key === id && focus) tab.focus();
+    }
+  }
+  for (const [index, key] of tabs.entries()) {
+    const tab = document.getElementById("tab-" + key);
+    tab.addEventListener("click", () => selectTab(key));
+    tab.addEventListener("keydown", e => {
+      const next = e.key === "ArrowRight" || e.key === "ArrowDown" ? (index + 1) % tabs.length : e.key === "ArrowLeft" || e.key === "ArrowUp" ? (index + tabs.length - 1) % tabs.length : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : -1;
+      if (next >= 0) { e.preventDefault(); selectTab(tabs[next], true); }
+    });
+  }
+  document.getElementById("plan-badge").onclick = () => selectTab("account");
+  const dialog = document.getElementById("paywall");
+  let returnFocus, firstConnected = true;
+  const paywall = () => { returnFocus = document.activeElement; if (!dialog.open) dialog.showModal(); document.getElementById("paywall-checkout").focus(); };
+  dialog.addEventListener("close", () => returnFocus?.focus());
+  document.getElementById("paywall-close").onclick = () => dialog.close();
+  const portal = () => api.action("ui.openPortal", {});
+  for (const id of ["sign-in", "trial", "upgrade", "paywall-checkout"]) document.getElementById(id).onclick = portal;
+  document.getElementById("copy-diagnostics").onclick = async () => {
+    const ok = await api.action("ui.copyDiagnostics", {});
+    document.getElementById("copy-notice").textContent = ok ? "Copied to clipboard." : "Copy unavailable. Try again.";
+  };
+  const iconPaths = {
+    files: "M4 4h7l2 3h7v13H4z M8 12h8 M8 16h5",
+    terminal: "M4 5h16v14H4z M7 9l3 3-3 3 M13 15h4",
+    browser: "M3 4h18v16H3z M3 9h18 M6 6h1 M9 6h1 M12 6h1",
+    container: "M12 3l9 5v9l-9 5-9-5V8z M3 8l9 5 9-5 M12 13v9",
+    video: "M3 6h13v12H3z M16 10l5-3v10l-5-3",
+    audio: "M9 4h6v10H9z M5 11v2a7 7 0 0014 0v-2 M12 20v2 M8 22h8",
+    publish: "M12 16V3 M7 8l5-5 5 5 M4 14v7h16v-7",
+    shield: "M12 3l8 3v6c0 5-8 10-8 10S4 17 4 12V6z M8 12l3 3 5-6",
+    cloud: "M7 18a5 5 0 01-1-10 7 7 0 0113 3 4 4 0 01-1 7z",
+  };
+  const icon = name => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("fill", "none"); svg.setAttribute("stroke", "currentColor"); svg.setAttribute("stroke-width", "1.7"); svg.setAttribute("aria-hidden", "true");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", iconPaths[name] || iconPaths.terminal); svg.appendChild(path); return svg;
+  };
+  for (const feature of ${JSON.stringify(CAPABILITIES)}) {
+    const card = el("article", undefined, "capability"); card.append(icon(feature.icon), el("h3", feature.title), el("p", feature.description), el("span", feature.status, "badge"));
+    document.getElementById("capability-grid").appendChild(card);
+  }
+  const descriptions = {"require-approval":"Ask before approval-gated effects. Reads still follow your permissions.","autonomous-browser":"Let browser workflows proceed within the configured policy. Other effects can still require approval.",off:"Disable built-in approval prompts, not capability checks. Use only with trusted agents."};
   const render = (view) => {
-    document.getElementById("headline").textContent = view.headline;
+    document.getElementById("headline").textContent = view.connection === "error" ? "Unable to connect to CROT" : view.headline;
+    if (view.connection === "connected" && firstConnected) { firstConnected = false; if (view.cards.length) selectTab("queue"); }
+    const connected = view.connection === "connected";
+    const known = view.commercial?.state === "current";
+    const plan = known ? view.commercial.plan : undefined;
+    document.getElementById("connection").textContent = connected ? (view.remoteMode ? "Remote Active" : "Local Mode") : "Offline";
+    document.getElementById("connection").className = "badge " + (connected ? "ready" : "warning");
+    document.getElementById("plan-badge").textContent = plan ? (plan === "trial" ? "TRIAL · 7 DAYS" : plan.toUpperCase()) : view.pairing.state === "paired" ? "PLAN UNKNOWN" : "FREE · LOCAL";
+    document.getElementById("account-plan").textContent = plan ? plan.toUpperCase() + " · " + view.commercial.status : "Free local access";
+    document.getElementById("account-status").textContent = known ? (view.commercial.entitled ? "Remote access is included in your active plan." : "Local tools are free. Upgrade to enable cloud relay access.") : view.pairing.state === "paired" ? "Cloud plan could not be refreshed. Local tools are unaffected." : "This device is not paired. Local tools are free without an account.";
+    document.getElementById("device-count").textContent = known ? "Remote devices: " + view.commercial.deviceCount + " / " + view.commercial.maxDevices : "Remote device quota: not available offline";
+    document.getElementById("queue-count").textContent = String(view.cards.length);
+    document.getElementById("approval-empty").hidden = view.cards.length > 0;
+    const modules = document.getElementById("modules"); clear(modules);
+    for (const m of view.modules || []) {
+      const box = el("article", undefined, "module"); box.append(icon(["terminal", "browser", "shield", "cloud"][(view.modules || []).indexOf(m)]), el("h3", m.title), el("span", m.value, "badge " + (m.ready ? "ready" : "warning")));
+      if (m.note) box.appendChild(el("p", m.note, "note"));
+      if (m.repair) box.appendChild(button("Installation & repair guide", () => api.action("ui.openInstall", {})));
+      modules.appendChild(box);
+    }
     const notice = document.getElementById("notice");
     notice.hidden = !view.notice;
-    notice.textContent = view.notice || "";
+    notice.textContent = view.notice ? "The action needs attention. See Developer Diagnostics for details; local tools are unaffected." : "";
     const approvals = document.getElementById("approvals");
     clear(approvals);
     for (const card of view.cards) {
@@ -117,31 +171,37 @@ const RENDERER = `"use strict";
     const presets = document.getElementById("presets");
     clear(presets);
     for (const p of view.presets) {
-      const line = el("div");
+      const line = el("div", undefined, "preset");
       const b = button((p.selected ? "● " : "○ ") + p.label, () => api.action("preset.set", { value: p.value }), p.selected || !p.available);
+      b.setAttribute("aria-pressed", String(p.selected));
       line.appendChild(b);
-      if (p.note) line.appendChild(el("span", " " + p.note, "note"));
+      line.appendChild(el("p", descriptions[p.value], "note"));
+      if (p.note) line.appendChild(el("span", "Unavailable in the current configuration.", "note"));
       presets.appendChild(line);
     }
     const blocked = document.getElementById("preset-blocked");
     blocked.hidden = !view.presetBlockedBy;
-    blocked.textContent = view.presetBlockedBy ? "Changes wait until CROT is idle: " + view.presetBlockedBy : "";
+    blocked.textContent = view.presetBlockedBy ? "Wait for running actions to finish before changing the security preset." : "";
     const remote = document.getElementById("remote");
     clear(remote);
     if (view.connection === "connected") {
-      remote.appendChild(button(view.remoteMode ? "Turn remote mode off" : "Turn remote mode on", () => api.action("remote.setMode", { enabled: !view.remoteMode })));
+      remote.appendChild(button(view.remoteMode ? "Turn remote mode off" : "Turn remote mode on", () => { if (!view.remoteMode && (view.commercial?.state === "current" && !view.commercial.entitled || view.pairing.state === "unpaired")) { paywall(); return; } return api.action("remote.setMode", { enabled: !view.remoteMode }); }));
       remote.appendChild(button(view.fullControl ? "Withdraw remote full control opt-in" : "Opt in to remote full control", () => api.action("remote.setFullControl", { enabled: !view.fullControl })));
       const pairing = view.pairing;
       if (pairing.action === "pair") remote.appendChild(button("Pair this device", () => api.action("pairing.start", {}), !pairing.available));
       if (pairing.action === "cancel") remote.appendChild(button("Cancel pairing", () => api.action("pairing.cancel", {})));
       if (pairing.action === "unpair") remote.appendChild(button("Unpair this device", () => api.action("device.unpair", {})));
     }
-    for (const n of [view.fullControlNote, ...view.pairing.lines, ...view.remoteNotes]) if (n) remote.appendChild(el("p", n, "note"));
+    if (view.resourceUri) remote.appendChild(button("Copy MCP connection link", () => api.action("ui.copyConnection", {})));
+    document.getElementById("remote-summary").textContent = view.pairing.state === "paired" ? "Device paired. Remote requests still follow the security profile and permissions." : "Pair this device after activating a remote plan in your account.";
+    const technical = document.getElementById("technical-notes"); clear(technical);
+    for (const n of [view.notice, view.fullControlNote, ...view.pairing.lines, ...view.remoteNotes]) if (n) technical.appendChild(el("p", n, "note"));
     const clients = document.getElementById("clients");
     clear(clients);
     for (const c of view.clients) {
       const line = el("div", undefined, "client");
-      line.appendChild(el("div", c.text + (c.revoked ? " — revoked" : "") + " — exposure: " + c.exposure));
+      line.appendChild(el("div", "MCP client " + (view.clients.indexOf(c) + 1) + (c.revoked ? " · revoked" : " · connected previously") + " · exposure: " + c.exposure));
+      technical.appendChild(el("p", c.text, "note"));
       const key = { accountId: c.accountId, deviceId: c.deviceId, clientId: c.clientId };
       const actions = el("div", undefined, "actions");
       actions.appendChild(button("Reset exposure", () => api.action("remote.resetExposure", key), c.exposure !== "exposed"));

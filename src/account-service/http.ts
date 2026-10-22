@@ -1,4 +1,4 @@
-import { PORTAL_HTML, PORTAL_SCRIPT, PORTAL_CSS } from "./portal.js";
+import { PORTAL_HTML, PORTAL_SCRIPT, PORTAL_CSS, LANDING_HTML } from "./portal.js";
 import type { AuthorizationServerMetadata } from "../identity/authorization-server.js";
 /** Embedded cloud account API. No MCP bodies enter this module. Owner and device credentials are separate. */
 import { randomBytes } from "node:crypto";
@@ -39,6 +39,8 @@ export class AccountHttp {
   matches(pathname: string): boolean {
     return (
       [
+        "/",
+        "/welcome",
         "/portal",
         "/portal/callback",
         "/portal.js",
@@ -53,7 +55,9 @@ export class AccountHttp {
     );
   }
   async handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
-    if (["/portal", "/portal/callback", "/portal.js", "/portal.css", "/portal/config"].includes(pathname)) {
+    if (
+      ["/", "/welcome", "/portal", "/portal/callback", "/portal.js", "/portal.css", "/portal/config"].includes(pathname)
+    ) {
       this.options.discard(req);
       if (req.method !== "GET") {
         res.writeHead(405).end();
@@ -93,7 +97,15 @@ export class AccountHttp {
               ? "text/css"
               : "text/html; charset=utf-8",
       });
-      res.end(pathname === "/portal.js" ? PORTAL_SCRIPT : pathname === "/portal.css" ? PORTAL_CSS : PORTAL_HTML);
+      res.end(
+        pathname === "/portal.js"
+          ? PORTAL_SCRIPT
+          : pathname === "/portal.css"
+            ? PORTAL_CSS
+            : pathname === "/" || pathname === "/welcome"
+              ? LANDING_HTML
+              : PORTAL_HTML,
+      );
       return true;
     }
     const managed = /^\/d\/([a-z2-7]{26})\/(account|clients\/([^/]+)\/revoke)$/.exec(pathname);
@@ -217,9 +229,26 @@ export class AccountHttp {
     if (pathname === "/account/trial") {
       const body = await jsonBody(req);
       if (!body || Object.keys(body).length) return reply(400, "invalid_request");
-      return (await this.options.accounts.startTrial(account))
-        ? reply(200, "trial_started", this.options.accounts.snapshot(account))
-        : reply(409, "trial_unavailable");
+      if (!this.options.accounts.trialAvailable(account)) return reply(409, "trial_unavailable");
+      if (!this.options.billing) return reply(503, "billing_unavailable");
+      try {
+        // A checkout URL grants nothing. Only a verified provider subscription can activate a trial.
+        return reply(200, "trial_checkout", { url: await this.options.billing.checkout(account, "trial") });
+      } catch {
+        return reply(503, "billing_unavailable");
+      }
+    }
+    if (pathname === "/account/billing-portal") {
+      const body = await jsonBody(req);
+      if (!body || Object.keys(body).length) return reply(400, "invalid_request");
+      if (!this.options.billing) return reply(503, "billing_unavailable");
+      try {
+        return reply(200, "billing_portal", {
+          url: await this.options.accounts.billingPortal(account, this.options.billing),
+        });
+      } catch {
+        return reply(503, "billing_unavailable");
+      }
     }
     if (pathname === "/account/checkout") {
       const body = await jsonBody(req);
