@@ -79,6 +79,7 @@ export interface ControlConnection {
 }
 
 export interface ControlCenterHost {
+  readonly mcpArgs?: readonly string[];
   readonly holder: CoreHolder;
   readonly settings: DeviceSettingsStore;
   readonly clients: RemoteClientRegistry;
@@ -934,6 +935,7 @@ export class ControlCenter implements RemoteAdmission {
     const browser = this.host.browserState();
     const blockedBy = this.host.holder.busyReason();
     return {
+      ...(this.host.mcpArgs ? { mcpArgs: this.host.mcpArgs } : {}),
       commercial: this.host.identity.commercialStatus(),
       service: {
         state: status.state,

@@ -1,4 +1,4 @@
-import { PORTAL_HTML, PORTAL_SCRIPT, PORTAL_CSS, LANDING_HTML } from "./portal.js";
+import { PORTAL_I18N, PORTAL_HTML, PORTAL_SCRIPT, PORTAL_CSS, LANDING_HTML } from "./portal.js";
 import type { AuthorizationServerMetadata } from "../identity/authorization-server.js";
 /** Embedded cloud account API. No MCP bodies enter this module. Owner and device credentials are separate. */
 import { randomBytes } from "node:crypto";
@@ -43,6 +43,7 @@ export class AccountHttp {
         "/welcome",
         "/portal",
         "/portal/callback",
+        "/i18n.js",
         "/portal.js",
         "/portal.css",
         "/portal/config",
@@ -56,7 +57,16 @@ export class AccountHttp {
   }
   async handle(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
     if (
-      ["/", "/welcome", "/portal", "/portal/callback", "/portal.js", "/portal.css", "/portal/config"].includes(pathname)
+      [
+        "/i18n.js",
+        "/",
+        "/welcome",
+        "/portal",
+        "/portal/callback",
+        "/portal.js",
+        "/portal.css",
+        "/portal/config",
+      ].includes(pathname)
     ) {
       this.options.discard(req);
       if (req.method !== "GET") {
@@ -90,21 +100,22 @@ export class AccountHttp {
       }
       res.writeHead(200, {
         ...headers,
-        "content-type":
-          pathname === "/portal.js"
-            ? "text/javascript"
-            : pathname === "/portal.css"
-              ? "text/css"
-              : "text/html; charset=utf-8",
+        "content-type": ["/i18n.js", "/portal.js"].includes(pathname)
+          ? "text/javascript"
+          : pathname === "/portal.css"
+            ? "text/css"
+            : "text/html; charset=utf-8",
       });
       res.end(
-        pathname === "/portal.js"
-          ? PORTAL_SCRIPT
-          : pathname === "/portal.css"
-            ? PORTAL_CSS
-            : pathname === "/" || pathname === "/welcome"
-              ? LANDING_HTML
-              : PORTAL_HTML,
+        pathname === "/i18n.js"
+          ? PORTAL_I18N
+          : pathname === "/portal.js"
+            ? PORTAL_SCRIPT
+            : pathname === "/portal.css"
+              ? PORTAL_CSS
+              : pathname === "/" || pathname === "/welcome"
+                ? LANDING_HTML
+                : PORTAL_HTML,
       );
       return true;
     }

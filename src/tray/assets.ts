@@ -1,3 +1,4 @@
+import { I18N_SCRIPT } from "../ui/i18n.js";
 import { CAPABILITIES, CROT_CSS } from "../ui/theme.js";
 
 /**
@@ -27,11 +28,14 @@ export const TRAY_CSP = [
 const HTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${TRAY_CSP}"><title>CROT Control Center</title>
-<link rel="stylesheet" href="${TRAY_ORIGIN}/app.css"><script src="${TRAY_ORIGIN}/renderer.js" defer></script></head>
+<link rel="stylesheet" href="${TRAY_ORIGIN}/app.css"><script src="${TRAY_ORIGIN}/i18n.js" defer></script><script src="${TRAY_ORIGIN}/renderer.js" defer></script></head>
 <body><header class="topbar"><div class="brand"><span class="brand-mark" aria-hidden="true">C</span>CROT <span class="muted">/ Control Center</span></div><div class="actions"><span id="connection" class="badge">Connecting</span><button id="plan-badge" aria-label="Account and plan">FREE · LOCAL</button></div></header>
 <div class="shell"><nav class="sidebar" role="tablist" aria-label="Control Center"><button id="tab-dashboard" role="tab" aria-controls="dashboard" aria-selected="true">Overview & control</button><button id="tab-capabilities" role="tab" aria-controls="capabilities" aria-selected="false" tabindex="-1">Capabilities & studio</button><button id="tab-queue" role="tab" aria-controls="queue" aria-selected="false" tabindex="-1">Approvals <span id="queue-count" class="badge">0</span></button><button id="tab-account" role="tab" aria-controls="account" aria-selected="false" tabindex="-1">Account & plan</button><p class="note">Your computer. Your rules.<br>Local tools are always free.</p></nav>
 <main class="content"><div class="intro"><p class="eyebrow">Your AI, securely connected</p><h1 id="headline">CROT Control Center</h1><p class="muted">One place to manage your computer, browser and agent permissions.</p><p id="notice" role="status" hidden></p></div>
-<section id="dashboard" role="tabpanel" aria-labelledby="tab-dashboard"><div id="modules" class="grid"></div><section class="panel" aria-label="Approval preset"><h2>Security & approvals</h2><p class="muted">Control approval-gated effects. Capability and workspace restrictions always apply.</p><div id="presets"></div><p id="preset-blocked" class="banner" hidden></p></section><section class="panel" aria-label="Remote"><h2>Remote access</h2><p class="muted">Connect trusted MCP clients through the cloud relay. Local tools do not need a subscription.</p><div id="remote" class="actions"></div><div id="remote-summary"></div><div id="clients"></div></section></section>
+<section id="dashboard" role="tabpanel" aria-labelledby="tab-dashboard"><section class="panel quick-start"><h2>Quick start in 3 steps</h2>
+<h3>1. Project workspace</h3><code id="workspace" data-no-i18n>—</code><div class="actions"><button id="open-workspace">Open folder</button><button id="copy-config">Copy Claude / Cursor config</button></div>
+<h3>2. Protection &amp; browser</h3><p id="quick-protection" class="note"></p>
+<h3>3. Cloud access &amp; plan</h3><div class="actions"><button id="quick-pair">Pair this device</button><button id="quick-copy">Copy MCP connection link</button></div><p id="quick-feedback" role="status" aria-live="polite"></p></section><div id="modules" class="grid"></div><section class="panel" aria-label="Approval preset"><h2>Security & approvals</h2><p class="muted">Control approval-gated effects. Capability and workspace restrictions always apply.</p><div id="presets"></div><p id="preset-blocked" class="banner" hidden></p></section><section class="panel" aria-label="Remote"><h2>Remote access</h2><p class="muted">Connect trusted MCP clients through the cloud relay. Local tools do not need a subscription.</p><div id="remote" class="actions"></div><div id="remote-summary"></div><div id="clients"></div></section></section>
 <section id="capabilities" role="tabpanel" aria-labelledby="tab-capabilities" hidden><h2>Capabilities & Studio Hub</h2><p class="muted">A single permission engine across your workspace. Upcoming integrations are labeled Roadmap.</p><div id="capability-grid" class="grid"></div></section>
 <section id="queue" role="tabpanel" aria-labelledby="tab-queue" hidden><h2>Approvals queue</h2><p class="muted">Review the complete operation and its effects before allowing an agent to continue.</p><p id="approval-empty" class="empty">All clear. No requests need your approval.</p><div id="approvals" aria-label="Approval requests"></div></section>
 <section id="account" role="tabpanel" aria-labelledby="tab-account" hidden><section class="panel"><p class="eyebrow">Account & plan</p><h2 id="account-plan">Free local access</h2><p id="account-status" class="muted">Full local functionality. No account or card required.</p><p id="device-count"></p><div class="actions"><button id="sign-in">Sign in / create account</button><button id="trial" class="primary">Try 7 days free</button><button id="upgrade">Choose Pro / Team</button></div><p class="note">Trial requires a card in hosted Stripe Checkout. Remote access for up to 2 devices. Cancel before the trial ends to avoid a subscription charge. Billing availability depends on the operator.</p></section></section>
@@ -40,7 +44,8 @@ const HTML = `<!doctype html>
 `;
 
 const CSS =
-  CROT_CSS + `#modules{margin-bottom:20px}.module .badge{align-self:flex-start}#capability-grid{margin-top:24px}`;
+  CROT_CSS +
+  `#modules{margin-bottom:12px}.module .badge{align-self:flex-start}#capability-grid{margin-top:12px}.quick-start h3:not(:first-of-type){margin-top:16px}`;
 
 /**
  * The renderer: receives a TrayView (plain strings) and builds the page with
@@ -50,12 +55,19 @@ const CSS =
 const RENDERER = `"use strict";
 (() => {
   const api = window.crot;
+  const text = (id, value) => {
+    const node = document.getElementById(id), source = String(value);
+    if (window.CrotI18n) window.CrotI18n.setText(node, source);
+    else if (node.textContent !== source) node.textContent = source;
+  };
   const el = (tag, text, cls) => {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
     if (cls) node.className = cls;
     return node;
   };
+  const rendered = new Map();
+  const changed = (key, value) => { const next = JSON.stringify(value); if (rendered.get(key) === next) return false; rendered.set(key, next); return true; };
   const clear = (node) => { while (node.firstChild) node.removeChild(node.firstChild); };
   const button = (text, onClick, disabled) => {
     const b = el("button", text);
@@ -103,7 +115,7 @@ const RENDERER = `"use strict";
   for (const id of ["sign-in", "trial", "upgrade", "paywall-checkout"]) document.getElementById(id).onclick = portal;
   document.getElementById("copy-diagnostics").onclick = async () => {
     const ok = await api.action("ui.copyDiagnostics", {});
-    document.getElementById("copy-notice").textContent = ok ? "Copied to clipboard." : "Copy unavailable. Try again.";
+    text("copy-notice", ok ? "Copied to clipboard." : "Copy unavailable. Try again.");
   };
   const iconPaths = {
     files: "M4 4h7l2 3h7v13H4z M8 12h8 M8 16h5",
@@ -127,20 +139,44 @@ const RENDERER = `"use strict";
     document.getElementById("capability-grid").appendChild(card);
   }
   const descriptions = {"require-approval":"Ask before approval-gated effects. Reads still follow your permissions.","autonomous-browser":"Let browser workflows proceed within the configured policy. Other effects can still require approval.",off:"Disable built-in approval prompts, not capability checks. Use only with trusted agents."};
+  const feedback = async name => {
+    let ok = false; try { ok = await api.action(name, {}); } catch { /* Show a visible failure, never an unhandled rejection. */ }
+    text("quick-feedback", ok ? (name.startsWith("ui.copy") ? "Copied to clipboard." : "") : "Action failed. Check the desktop service and try again.");
+  };
+  document.getElementById("open-workspace").onclick = () => feedback("ui.openWorkspace");
+  document.getElementById("copy-config").onclick = () => feedback("ui.copyConfig");
+  document.getElementById("quick-copy").onclick = () => feedback("ui.copyConnection");
+  document.getElementById("quick-pair").onclick = () => feedback("pairing.start");
   const render = (view) => {
-    document.getElementById("headline").textContent = view.connection === "error" ? "Unable to connect to CROT" : view.headline;
+    text("workspace", view.workspace || "—");
+    for (const id of ["open-workspace", "copy-config"]) document.getElementById(id).disabled = !view.workspace;
+    document.getElementById("quick-copy").disabled = !view.resourceUri;
+    document.getElementById("quick-pair").disabled = !view.pairing.available || view.pairing.action !== "pair";
+    if (changed("quick-protection", view.modules)) {
+      const protection = document.getElementById("quick-protection"); clear(protection);
+      for (const m of (view.modules || []).filter(m => ["Browser & CDP", "L1 sandbox"].includes(m.title))) {
+        protection.append(el("span", m.title), document.createTextNode(": "), el("span", m.value), document.createTextNode(" · "));
+      }
+    }
+    text("headline", view.connection === "error" ? "Unable to connect to CROT" : view.headline);
     if (view.connection === "connected" && firstConnected) { firstConnected = false; if (view.cards.length) selectTab("queue"); }
     const connected = view.connection === "connected";
     const known = view.commercial?.state === "current";
     const plan = known ? view.commercial.plan : undefined;
-    document.getElementById("connection").textContent = connected ? (view.remoteMode ? "Remote Active" : "Local Mode") : "Offline";
+    text("connection", connected ? (view.remoteMode ? "Remote Active" : "Local Mode") : "Offline");
     document.getElementById("connection").className = "badge " + (connected ? "ready" : "warning");
-    document.getElementById("plan-badge").textContent = plan ? (plan === "trial" ? "TRIAL · 7 DAYS" : plan.toUpperCase()) : view.pairing.state === "paired" ? "PLAN UNKNOWN" : "FREE · LOCAL";
-    document.getElementById("account-plan").textContent = plan ? plan.toUpperCase() + " · " + view.commercial.status : "Free local access";
-    document.getElementById("account-status").textContent = known ? (view.commercial.entitled ? "Remote access is included in your active plan." : "Local tools are free. Upgrade to enable cloud relay access.") : view.pairing.state === "paired" ? "Cloud plan could not be refreshed. Local tools are unaffected." : "This device is not paired. Local tools are free without an account.";
-    document.getElementById("device-count").textContent = known ? "Remote devices: " + view.commercial.deviceCount + " / " + view.commercial.maxDevices : "Remote device quota: not available offline";
-    document.getElementById("queue-count").textContent = String(view.cards.length);
+    text("plan-badge", plan ? (plan === "trial" ? "TRIAL · 7 DAYS" : plan.toUpperCase()) : view.pairing.state === "paired" ? "PLAN UNKNOWN" : "FREE · LOCAL");
+    const accountPlan = document.getElementById("account-plan");
+    if (changed("account-plan", [plan,view.commercial?.status])) {
+      clear(accountPlan);
+      if (plan) accountPlan.append(document.createTextNode(plan.toUpperCase() + " · "), el("span", view.commercial.status));
+      else accountPlan.textContent = "Free local access";
+    }
+    text("account-status", known ? (view.commercial.entitled ? "Remote access is included in your active plan." : "Local tools are free. Upgrade to enable cloud relay access.") : view.pairing.state === "paired" ? "Cloud plan could not be refreshed. Local tools are unaffected." : "This device is not paired. Local tools are free without an account.");
+    text("device-count", known ? "Remote devices: " + view.commercial.deviceCount + " / " + view.commercial.maxDevices : "Remote device quota: not available offline");
+    text("queue-count", String(view.cards.length));
     document.getElementById("approval-empty").hidden = view.cards.length > 0;
+    if (changed("modules", view.modules)) {
     const modules = document.getElementById("modules"); clear(modules);
     for (const m of view.modules || []) {
       const box = el("article", undefined, "module"); box.append(icon(["terminal", "browser", "shield", "cloud"][(view.modules || []).indexOf(m)]), el("h3", m.title), el("span", m.value, "badge " + (m.ready ? "ready" : "warning")));
@@ -148,9 +184,11 @@ const RENDERER = `"use strict";
       if (m.repair) box.appendChild(button("Installation & repair guide", () => api.action("ui.openInstall", {})));
       modules.appendChild(box);
     }
+    }
     const notice = document.getElementById("notice");
     notice.hidden = !view.notice;
     notice.textContent = view.notice ? "The action needs attention. See Developer Diagnostics for details; local tools are unaffected." : "";
+    if (changed("approvals", view.cards)) {
     const approvals = document.getElementById("approvals");
     clear(approvals);
     for (const card of view.cards) {
@@ -168,6 +206,8 @@ const RENDERER = `"use strict";
       box.appendChild(actions);
       approvals.appendChild(box);
     }
+    }
+    if (changed("presets", view.presets)) {
     const presets = document.getElementById("presets");
     clear(presets);
     for (const p of view.presets) {
@@ -179,9 +219,11 @@ const RENDERER = `"use strict";
       if (p.note) line.appendChild(el("span", "Unavailable in the current configuration.", "note"));
       presets.appendChild(line);
     }
+    }
     const blocked = document.getElementById("preset-blocked");
     blocked.hidden = !view.presetBlockedBy;
     blocked.textContent = view.presetBlockedBy ? "Wait for running actions to finish before changing the security preset." : "";
+    if (changed("remote", [view.connection,view.remoteMode,view.fullControl,view.pairing.action,view.pairing.available,view.resourceUri,view.commercial?.state,view.commercial?.entitled,view.pairing.state])) {
     const remote = document.getElementById("remote");
     clear(remote);
     if (view.connection === "connected") {
@@ -193,7 +235,9 @@ const RENDERER = `"use strict";
       if (pairing.action === "unpair") remote.appendChild(button("Unpair this device", () => api.action("device.unpair", {})));
     }
     if (view.resourceUri) remote.appendChild(button("Copy MCP connection link", () => api.action("ui.copyConnection", {})));
-    document.getElementById("remote-summary").textContent = view.pairing.state === "paired" ? "Device paired. Remote requests still follow the security profile and permissions." : "Pair this device after activating a remote plan in your account.";
+    }
+    text("remote-summary", view.pairing.state === "paired" ? "Device paired. Remote requests still follow the security profile and permissions." : "Pair this device after activating a remote plan in your account.");
+    if (changed("clients", [view.notice,view.fullControlNote,view.pairing.lines,view.remoteNotes,view.clients])) {
     const technical = document.getElementById("technical-notes"); clear(technical);
     for (const n of [view.notice, view.fullControlNote, ...view.pairing.lines, ...view.remoteNotes]) if (n) technical.appendChild(el("p", n, "note"));
     const clients = document.getElementById("clients");
@@ -210,9 +254,12 @@ const RENDERER = `"use strict";
       line.appendChild(actions);
       clients.appendChild(line);
     }
+    }
+    if (changed("status", view.status)) {
     const status = document.getElementById("status");
     clear(status);
     rows(status, view.status);
+    }
   };
   api.onView(render);
   api.ready();
@@ -227,6 +274,7 @@ export interface TrayAsset {
 export const TRAY_ASSETS: Readonly<Record<string, TrayAsset>> = {
   "/index.html": { body: HTML, type: "text/html; charset=utf-8" },
   "/app.css": { body: CSS, type: "text/css; charset=utf-8" },
+  "/i18n.js": { body: I18N_SCRIPT, type: "text/javascript; charset=utf-8" },
   "/renderer.js": { body: RENDERER, type: "text/javascript; charset=utf-8" },
 };
 

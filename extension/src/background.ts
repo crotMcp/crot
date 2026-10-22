@@ -15,6 +15,7 @@
 import { detectBrowser } from "./browser-info.js";
 import { CdpSessions } from "./cdp.js";
 import { createCommandHandlers } from "./commands.js";
+import { ownerUiAction } from "./owner-ui.js";
 import { HostConnection } from "./host-connection.js";
 
 /** Wakes the service worker to reconnect while CROT is not reachable. 30 s is the shortest period Chrome allows. */
@@ -46,24 +47,22 @@ const connection = new HostConnection({
   },
 });
 
-// This UI channel is read-only and extension-origin-only. It cannot execute browser tools.
+// Fixed owner UI channel. Only exact packaged UI pages; never content scripts or browser tools.
 const uiRuntime = chrome.runtime as typeof chrome.runtime & {
   getURL?: (path: string) => string;
   onMessage?: {
-    addListener(listener: (message: unknown, sender: { url?: string }, reply: (value: unknown) => void) => void): void;
+    addListener(
+      listener: (message: unknown, sender: { url?: string }, reply: (value: unknown) => void) => boolean | void,
+    ): void;
   };
 };
 uiRuntime.onMessage?.addListener((message, sender, reply) => {
-  const origin = uiRuntime.getURL?.("");
-  if (
-    !origin ||
-    !sender.url?.startsWith(origin) ||
-    typeof message !== "object" ||
-    message === null ||
-    Object.keys(message).length !== 1 ||
-    (message as { type?: unknown }).type !== "crot.ui.status"
-  )
-    return;
+  const action = ownerUiAction(message, sender.url, uiRuntime.getURL?.(""));
+  if (!action) return;
+  if (action === "open") {
+    void connection.openControlCenter().then((ok) => reply({ ok }));
+    return true;
+  }
   reply({ connection: connection.state });
 });
 

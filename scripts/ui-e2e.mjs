@@ -18,6 +18,7 @@ const repo = fileURLToPath(new URL("../", import.meta.url));
 const artifacts = path.join(process.env.CROT_E2E_ARTIFACTS ?? path.join(repo, "artifacts"), "flagship-ui");
 await mkdir(artifacts, { recursive: true });
 const fixture = {
+  workspace: "/workspace/project",
   connection: "connected",
   headline: "CROT is running",
   cards: [],
@@ -44,7 +45,7 @@ const fixture = {
     { title: "Cloud tunnel", value: "Local mode", ready: false },
   ],
 };
-const shim = `window.fixture=${JSON.stringify(fixture)};window.actions=[];window.crot={onView(fn){window.render=fn},ready(){window.render(window.fixture)},decide:async(...args)=>{window.actions.push(args);return true},action:async(...args)=>{window.actions.push(args);return true}};window.chrome={runtime:{sendMessage:async()=>({connection:'disconnected'})},tabs:{query:async()=>[{status:'complete',windowId:1,groupId:-1}]},tabGroups:{query:async()=>[]}};`;
+const shim = `window.fixture=${JSON.stringify(fixture)};window.actions=[];window.crot={onView(fn){window.render=fn},ready(){window.render(window.fixture)},decide:async(...args)=>{window.actions.push(args);return true},action:async(...args)=>{window.actions.push(args);return true}};window.chrome={runtime:{getURL:p=>'/extension/'+p,sendMessage:async(m)=>{window.actions.push(['extension',m.type]);return m.type==='crot.ui.openApp'?{ok:true}:{connection:'disconnected'}}},tabs:{create:async(o)=>{window.actions.push(['tab',o.url]);return o},query:async()=>[{status:'complete',windowId:1,groupId:-1}]},tabGroups:{query:async()=>[]}};`;
 const inject = (html) => html.replace("<head>", '<head><script src="/ui-fixture.js"></script>');
 let origin;
 const server = createServer((req, res) => {
@@ -75,6 +76,9 @@ const server = createServer((req, res) => {
       return;
     } else if (
       [
+        "/extension/popup-geometry.css",
+        "/extension/i18n.js",
+        "/extension/welcome.js",
         "/extension/popup.html",
         "/extension/popup.js",
         "/extension/welcome.html",
@@ -135,11 +139,13 @@ try {
     socket.addEventListener("open", resolve);
     socket.addEventListener("error", reject);
   });
+  const runtimeErrors = [];
   let id = 0;
   const pending = new Map();
   socket.addEventListener("message", (event) => {
     const m = JSON.parse(String(event.data)),
       p = pending.get(m.id);
+    if (m.method === "Runtime.exceptionThrown") runtimeErrors.push(m.params.exceptionDetails.text);
     if (p) {
       pending.delete(m.id);
       if (m.error) p.reject(new Error(m.error.message));
@@ -156,6 +162,7 @@ try {
   const { targetId } = await send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
   const call = (method, params = {}) => send(method, params, sessionId);
+  await call("Runtime.enable");
   async function evaluate(expression) {
     const result = await call("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
     if (result.exceptionDetails) throw new Error("UI evaluation failed: " + expression);
@@ -201,6 +208,26 @@ try {
   for (const value of ["user_01CANARY", "pid 4242", "RFC 9207"])
     assert(!text.includes(value), "technical details leaked: " + value);
   await screenshot("dashboard");
+  await click("copy-config");
+  assert(await evaluate("actions.some(a=>a[0]==='ui.copyConfig')"), "copy config was not delegated");
+  await evaluate(
+    "window.moduleNode=document.querySelector('#modules article');window.remoteButton=document.querySelector('#remote button');remoteButton.focus();render(fixture);render(fixture)",
+  );
+  assert(
+    await evaluate(
+      "moduleNode===document.querySelector('#modules article')&&remoteButton===document.querySelector('#remote button')&&document.activeElement===remoteButton",
+    ),
+    "status polling replaced nodes or focus",
+  );
+  await evaluate("window.CrotI18n.setLanguage('ru')");
+  assert(
+    await evaluate(
+      "document.documentElement.lang==='ru'&&document.querySelector('.quick-start h2').textContent==='Быстрый старт за 3 шага'",
+    ),
+    "Russian UI not applied",
+  );
+  await screenshot("dashboard-ru");
+  await evaluate("window.CrotI18n.setLanguage('en')");
   await evaluate(
     "[...document.querySelectorAll('#remote button')].find(b => b.textContent === 'Turn remote mode on').click()",
   );
@@ -235,13 +262,70 @@ try {
     await size(1280, 960);
     await navigate(pathname);
     await screenshot(name);
+    for (const language of ["ru", "es", "de", "zh", "en"]) {
+      await evaluate(`window.CrotI18n.setLanguage(${JSON.stringify(language)})`);
+      assert(
+        await evaluate(`document.documentElement.lang===${JSON.stringify(language)}`),
+        "language not applied: " + language,
+      );
+    }
+    if (name === "extension-welcome") {
+      await click("open-app");
+      await click("refresh");
+      assert(
+        await evaluate("actions.some(a=>a[0]==='extension'&&a[1]==='crot.ui.openApp')"),
+        "welcome did not open native app",
+      );
+      await evaluate("document.querySelector('a[href*=portal]').click()");
+      assert(
+        await evaluate("actions.some(a=>a[0]==='tab'&&a[1]==='https://relay-staging.crot.network/portal')"),
+        "welcome portal target is not absolute",
+      );
+    }
     await size(390, 844);
     await screenshot(name + "-mobile");
   }
-  await size(380, 800);
+  await size(380, 520);
   await navigate("/extension/popup.html");
   await until("document.getElementById('connection').textContent === 'Desktop App Not Detected'");
+  assert(
+    await evaluate(
+      "[document.documentElement,document.body].every(e=>e.getBoundingClientRect().width===380&&e.getBoundingClientRect().height===520)",
+    ),
+    "popup geometry differs from 380x520",
+  );
+  await evaluate("window.popupNode=document.getElementById('connection')");
+  await click("refresh");
+  await delay(100);
+  assert(
+    await evaluate(
+      "popupNode===document.getElementById('connection')&&document.body.getBoundingClientRect().height===520",
+    ),
+    "popup refresh replaced skeleton or size",
+  );
+  for (const id of ["open-app", "account", "download", "guide"]) await click(id);
+  await delay(100);
+  assert(
+    await evaluate("actions.some(a=>a[0]==='extension'&&a[1]==='crot.ui.openApp')"),
+    "popup native app action missing",
+  );
+  assert(
+    await evaluate("actions.some(a=>a[0]==='tab'&&a[1]==='https://relay-staging.crot.network/portal')"),
+    "popup account target missing",
+  );
+  assert(
+    await evaluate("actions.some(a=>a[0]==='tab'&&a[1]==='/extension/welcome.html#install')"),
+    "installation guide must be packaged, not a remote 404",
+  );
   await screenshot("popup");
+  await evaluate("window.CrotI18n.setLanguage('ru')");
+  assert(
+    await evaluate("document.getElementById('open-app').textContent==='Открыть приложение CROT'"),
+    "Russian popup action missing",
+  );
+  await screenshot("popup-ru");
+  await evaluate("window.CrotI18n.setLanguage('en')");
+  assert(runtimeErrors.length === 0, "browser exceptions: " + runtimeErrors.join(", "));
   await writeFile(
     path.join(artifacts, "verification.json"),
     JSON.stringify(

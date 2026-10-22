@@ -17,6 +17,7 @@ async function cleanCheckout(): Promise<string> {
   for (const file of [
     "scripts/build-extension-ui.mjs",
     "src/ui/theme.ts",
+    "src/ui/i18n.ts",
     "extension/icons/source.json",
     "extension/manifest.json",
   ]) {
@@ -39,6 +40,7 @@ describe("clean-checkout extension UI build (including the L1 qualification path
     const files = [
       ...new Set([...Object.values(manifest.icons), ...Object.values(manifest.action.default_icon)]),
       "ui.css",
+      "i18n.js",
     ];
     for (const file of files) await expect(access(path.join(root, "extension", file))).rejects.toThrow();
     await build(root);
@@ -57,7 +59,7 @@ describe("clean-checkout extension UI build (including the L1 qualification path
       expect(png.readUInt32BE(16)).toBe(Number(size));
       expect(png.readUInt32BE(20)).toBe(Number(size));
     }
-    expect(await readFile(path.join(root, "extension/ui.css"), "utf8")).toContain("#090A0F");
+    expect(await readFile(path.join(root, "extension/ui.css"), "utf8")).toContain("#09090B");
     await build(root);
     expect(await digest()).toEqual(first);
   });

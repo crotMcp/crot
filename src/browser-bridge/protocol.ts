@@ -91,7 +91,17 @@ export type BrowserNotice =
       readonly dialogType: BrowserDialogType;
     }
   | { readonly type: "browser_notice"; readonly event: "cdp_status"; readonly available: boolean };
-export type BrowserToHostMessage = BrowserHello | BrowserResponse | BrowserNotice;
+/** Fixed owner-UI request: no command, path, URL or tool arguments (AD-38). */
+export interface BrowserUiOpen {
+  readonly type: "ui_open";
+  readonly id: string;
+}
+export interface HostUiResult {
+  readonly type: "ui_result";
+  readonly id: string;
+  readonly ok: boolean;
+}
+export type BrowserToHostMessage = BrowserHello | BrowserResponse | BrowserNotice | BrowserUiOpen;
 
 /** Host -> extension: the hello was accepted. */
 export interface HostWelcome {
@@ -124,7 +134,7 @@ export interface HostChunk {
   readonly data: string;
 }
 
-export type HostToBrowserMessage = HostWelcome | HostRequest | HostChunk;
+export type HostToBrowserMessage = HostWelcome | HostRequest | HostChunk | HostUiResult;
 
 /** Relay -> host: first frame on the IPC connection, proving the relay runs as the user. Never forwarded to the browser. */
 export interface RelayAuth {
@@ -334,7 +344,7 @@ export class ChunkReassembler {
   }
 
   /** Returns the complete message, or undefined while a chunked request is incomplete. */
-  accept(message: HostToBrowserMessage): HostWelcome | HostRequest | undefined {
+  accept(message: HostToBrowserMessage): HostWelcome | HostRequest | HostUiResult | undefined {
     if (message.type !== "chunk") {
       if (this.stream) throw this.fail("Message interleaved with a chunked request.");
       return message;
@@ -389,6 +399,10 @@ function invalid(what: string): never {
 export function parseBrowserMessage(value: unknown): BrowserToHostMessage {
   if (!isObject(value)) invalid("message");
   switch (value.type) {
+    case "ui_open":
+      if (!isRequestId(value.id) || Object.keys(value).length !== 2) invalid("owner UI request");
+      return { type: "ui_open", id: value.id };
+
     case "hello": {
       const browser = value.browser;
       if (!isProtocolNumber(value.protocol) || !isObject(browser)) invalid("hello");
@@ -462,6 +476,11 @@ export function parseBrowserMessage(value: unknown): BrowserToHostMessage {
 export function parseHostMessage(value: unknown): HostToBrowserMessage {
   if (!isObject(value)) invalid("message");
   switch (value.type) {
+    case "ui_result":
+      if (!isRequestId(value.id) || typeof value.ok !== "boolean" || Object.keys(value).length !== 3)
+        invalid("owner UI result");
+      return { type: "ui_result", id: value.id, ok: value.ok };
+
     case "welcome": {
       if (!isProtocolNumber(value.protocol)) invalid("welcome");
       const connectionId = value.connectionId;

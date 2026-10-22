@@ -157,6 +157,8 @@ export interface PairingRow {
 }
 
 export interface TrayView {
+  readonly workspace?: string;
+  readonly mcpArgs?: readonly string[];
   readonly commercial?: ControlOverview["commercial"];
   readonly resourceUri?: string;
   readonly portalUrl?: string;
@@ -299,6 +301,8 @@ export function trayView(state: TrayState): TrayView {
     ? `CROT — ${headline}`
     : `CROT — ${cards.length > 0 ? headline : o.remote.mode ? "remote mode ON" : "running"}`;
   return {
+    ...(o?.mcpArgs ? { mcpArgs: o.mcpArgs } : {}),
+    ...(o?.workspace ? { workspace: o.workspace } : {}),
     ...(o?.commercial ? { commercial: o.commercial } : {}),
     ...(o?.pairing.device?.resourceUri ? { resourceUri: o.pairing.device.resourceUri } : {}),
     ...(o?.pairing.environment ? { portalUrl: `https://${o.pairing.environment.relayHost}/portal` } : {}),

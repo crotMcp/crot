@@ -8,6 +8,12 @@ const theme = await readFile(path.join(repo, "src/ui/theme.ts"), "utf8");
 const css = /export const CROT_CSS = `([\s\S]*?)`;/.exec(theme)?.[1];
 if (!css || css.includes("${")) throw new Error("shared theme must be a static CSS literal");
 await writeFile(path.join(repo, "extension/ui.css"), css);
+const i18n = await readFile(path.join(repo, "src/ui/i18n.ts"), "utf8");
+const messages = /export const UI_MESSAGES_JSON = String\.raw`([\s\S]*?)`;/.exec(i18n)?.[1];
+const runtime = /export const UI_I18N_RUNTIME = String\.raw`([\s\S]*?)`;/.exec(i18n)?.[1];
+if (!messages || !runtime || runtime.includes("${")) throw new Error("invalid static localization source");
+JSON.parse(messages);
+await writeFile(path.join(repo, "extension/i18n.js"), runtime + "(" + messages + ");");
 const source = JSON.parse(await readFile(path.join(repo, "extension/icons/source.json"), "utf8"));
 await mkdir(path.join(repo, "extension/icons"), { recursive: true });
 for (const size of [16, 32, 48, 128]) {

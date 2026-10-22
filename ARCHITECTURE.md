@@ -5165,3 +5165,41 @@ signing or cross-platform L1 availability. The legacy trusted in-process trial
 provisioning helper remains for existing fixtures and is not exposed by owner
 HTTP; removing it requires a separate fixture migration. See
 `docs/FLAGSHIP_IMPLEMENTATION.md` for the actual evidence and outstanding gates.
+
+
+### AD-38 — Fixed owner UI launch channel and Linux desktop compatibility
+
+The extension may now request one additional, non-tool operation: open/focus the
+owner's Control Center. This is not a general extension-initiated Core operation.
+Only the exact packaged popup/welcome URLs (optional local fragment, no query)
+can send the background message. Content scripts and other origins/pages cannot.
+The native `ui_open` frame contains only a bounded request id: no command, path,
+URL or tool arguments. Both directions reject extra keys. The authenticated
+browser bridge caps UI requests at 20 per minute and throttles launches to one per two seconds and invokes a fixed
+first-party Electron launcher. A boolean acknowledgement means the OS accepted
+launch, not proof that a window rendered. Extension pending requests are bounded
+to one, time out after five seconds and fail on disconnect. Core permissions,
+approval decisions and browser command authorization remain unchanged.
+
+The owner UI alone can open its actual workspace folder or copy an MCP config
+constructed by Electron main with absolute executable/entry/workspace paths and
+service launch flags. Renderer IPC cannot provide paths, config bytes or URLs.
+Default stdio `crot-mcp` behavior is unchanged. Explicit `crot-mcp app` / npm start
+registers the native host, starts/reuses the service and launches Control Center.
+First use without a configured workspace writes an owner-private desktop config
+with the current directory and browser bridge enabled; existing policies are not
+silently replaced. New desktop services use managed, not on-demand, lifecycle.
+
+**Explicit exception to AD-19:** at the owner's request the Linux launcher passes
+`--no-sandbox` before Electron bootstrap, and main also appends the switch. This
+removes Chromium's process sandbox on Linux; do not describe the renderer as OS
+sandboxed there. Context isolation, Node denial, permission denial, CSP, navigation
+blocking and no renderer network remain. It does not disable L1 tool confinement
+or OS security controls. Restoring an OS-sandboxed desktop distribution remains a
+release-hardening gate. No blanket GPU-sandbox flag is added.
+
+This decision does not add privileged L1 installation from the service. Existing
+AD-20 installation separation is retained pending a qualified, consented installer
+helper. A repair guide is not a working one-click installer. Likewise, a packaged
+setup guide is not a downloadable signed release. These remain open acceptance
+criteria, not successful checks.

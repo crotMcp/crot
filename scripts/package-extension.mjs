@@ -132,7 +132,16 @@ export async function packageExtension({
     { name: "manifest.json", data: Buffer.from(JSON.stringify(manifest, null, 2) + "\n") },
     ...(await files(dist, "dist")),
     ...(await Promise.all(
-      ["popup.html", "popup.js", "welcome.html", "ui.css", "popup.css"].map(async (name) => ({
+      [
+        "popup-geometry.css",
+        "i18n.js",
+        "welcome.js",
+        "popup.html",
+        "popup.js",
+        "welcome.html",
+        "ui.css",
+        "popup.css",
+      ].map(async (name) => ({
         name,
         data: await readFile(path.join(repo, "extension", name)),
       })),

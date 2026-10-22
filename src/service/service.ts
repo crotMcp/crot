@@ -20,6 +20,7 @@
  * (PermissionEngine, ExecutionGuard, audit) exactly as before.
  */
 import type net from "node:net";
+import { launchControlCenter } from "../tray/launch.js";
 import { lstat } from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_HTTP_TOKEN_FILE_NAME, LocalTokenVerifier, loadOrCreateLocalToken } from "../adapters/http/auth.js";
@@ -409,6 +410,7 @@ export class CrotService {
             }
           : this.native.platform;
       this.bridge = await startBrowserBridge({
+        openControlCenter: () => launchControlCenter(stateDir),
         enabled: parsed.browser.enabled,
         stateDir,
         privateFiles: servicePlatform.privateFiles,
@@ -452,7 +454,14 @@ export class CrotService {
       );
       const holder = new CoreHolder(initial.core, initial.handle);
       this.holder = holder;
+      const mcpArgs: string[] = [];
+      if (command.configFile) mcpArgs.push("--config", command.configFile);
+      mcpArgs.push("--workspace", initial.core.status().workspace.root, "--mode", parsed.permissions.mode);
+      if (command.config.audit?.sink === "none") mcpArgs.push("--no-audit");
+      else if (command.config.audit?.path)
+        mcpArgs.push("--audit-log", initial.core.status().audit.path ?? command.config.audit.path);
       const control = new TunnelControlCenter({
+        mcpArgs,
         providerRevocation: (client) => identity.revokeProvider(client),
         holder,
         settings,

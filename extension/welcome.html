@@ -6,11 +6,13 @@
     <title>Welcome to CROT</title>
     <link rel="stylesheet" href="ui.css" />
     <link rel="stylesheet" href="popup.css" />
+    <script src="i18n.js" defer></script>
+    <script src="welcome.js" defer></script>
   </head>
   <body>
     <header class="topbar">
       <div class="brand"><span class="brand-mark" aria-hidden="true">C</span>CROT</div>
-      <a class="button" href="https://crot.network/portal" rel="noopener noreferrer">Account & plans</a>
+      <a class="button" href="https://relay-staging.crot.network/portal" rel="noopener noreferrer">Account & plans</a>
     </header>
     <main class="wrap">
       <section class="hero">
@@ -21,17 +23,24 @@
           account or a card.
         </p>
         <div class="actions">
-          <a class="button primary" href="https://crot.network/welcome#install">Get CROT for your computer</a
-          ><a class="button" href="https://crot.network/portal">Create an account</a>
+          <a class="button primary" href="#install">Installation guide</a
+          ><a class="button" href="https://relay-staging.crot.network/portal">Create an account</a>
         </div>
       </section>
-      <section class="section">
-        <h2>Three steps. One controlled workspace.</h2>
+      <section id="install" class="section">
+        <h2>Quick start in 3 steps</h2>
+        <p>Open Control Center to configure your workspace and connect your AI client.</p>
+        <div class="actions">
+          <button id="open-app" class="primary">Open CROT App</button
+          ><button id="copy-launch">Copy launch command</button><button id="refresh">Refresh status</button>
+        </div>
+        <p id="connection" class="badge warning" role="status">Checking connection…</p>
+        <p id="feedback" role="status"></p>
         <div class="feature-grid">
           <article class="panel step">
             <span class="badge">01</span>
             <div>
-              <h3>Install the desktop app</h3>
+              <h3>1. Project workspace</h3>
               <p class="note">
                 Use a package qualified for your operating system. This browser extension alone does not install L1 or
                 the local service.
@@ -41,14 +50,14 @@
           <article class="panel step">
             <span class="badge">02</span>
             <div>
-              <h3>Check your connection</h3>
+              <h3>2. Protection &amp; browser</h3>
               <p class="note">Start CROT and open the extension. Connected confirms the native bridge is ready.</p>
             </div>
           </article>
           <article class="panel step">
             <span class="badge">03</span>
             <div>
-              <h3>Choose your permissions</h3>
+              <h3>3. Cloud access &amp; plan</h3>
               <p class="note">
                 Review workspace boundaries and approvals in Control Center before connecting an AI client.
               </p>

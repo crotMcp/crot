@@ -10,6 +10,7 @@ import type { PrivateFileProtection } from "../core/platform/types.js";
  * PermissionEngine. Nothing here grants a capability.
  */
 export interface BrowserWiringOptions {
+  readonly openControlCenter?: () => Promise<boolean>;
   /** `browser.enabled` from the parsed configuration. */
   readonly enabled: boolean;
   /** CROT state directory (token file, POSIX socket). */
@@ -49,6 +50,7 @@ export async function startBrowserBridge(options: BrowserWiringOptions): Promise
       privateFiles: options.privateFiles,
       ...(options.token ? { token: options.token } : {}),
       log: options.log,
+      ...(options.openControlCenter ? { openControlCenter: options.openControlCenter } : {}),
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);

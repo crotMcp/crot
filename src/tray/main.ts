@@ -34,6 +34,10 @@ import { TRAY_CSP, TRAY_ORIGIN, trayAsset } from "./assets.js";
 import { TrayController } from "./controller.js";
 import { trayView, type TrayView } from "./view-model.js";
 
+// Linux compatibility: the launcher also passes this before Electron bootstrap.
+// Deliberately documented sandbox trade-off; context isolation and Node/network denial remain.
+if (process.platform === "linux") app.commandLine.appendSwitch("no-sandbox");
+
 const ORIGIN_PREFIX = `${TRAY_ORIGIN}/`;
 const MAX_ID = 512;
 
@@ -143,7 +147,7 @@ function createWindow(): void {
     height: 820,
     minWidth: 420,
     minHeight: 560,
-    backgroundColor: "#090A0F",
+    backgroundColor: "#09090B",
     show: false,
     title: "CROT Control Center",
     autoHideMenuBar: true,
@@ -220,6 +224,31 @@ function clientKey(p: Record<string, unknown>): { accountId: string; deviceId: s
 async function runAction(name: unknown, params: unknown): Promise<boolean> {
   // Fixed owner-UI actions only. Renderer never supplies an external URL or clipboard bytes.
   if (typeof name === "string" && name.startsWith("ui.") && isRecord(params) && Object.keys(params).length === 0) {
+    if (name === "ui.openWorkspace") {
+      if (!view.workspace || !path.isAbsolute(view.workspace)) return false;
+      return (await shell.openPath(view.workspace)) === "";
+    }
+    if (name === "ui.copyConfig") {
+      if (!view.workspace || !path.isAbsolute(view.workspace)) return false;
+      const bin = fileURLToPath(new URL("../bin/crot-mcp.js", import.meta.url));
+      // Electron can run the Node entry without relying on a user's PATH or guessing a Node binary.
+      clipboard.writeText(
+        JSON.stringify(
+          {
+            mcpServers: {
+              crot: {
+                command: process.execPath,
+                args: [bin, ...(view.mcpArgs ?? ["--workspace", view.workspace])],
+                env: { ELECTRON_RUN_AS_NODE: "1" },
+              },
+            },
+          },
+          null,
+          2,
+        ),
+      );
+      return true;
+    }
     if (name === "ui.copyDiagnostics") {
       clipboard.writeText(JSON.stringify({ status: view.status, notes: view.remoteNotes }, null, 2));
       return true;
@@ -230,11 +259,11 @@ async function runAction(name: unknown, params: unknown): Promise<boolean> {
       return true;
     }
     if (name === "ui.openPortal" || name === "ui.openInstall") {
-      const target = new URL(view.portalUrl ?? "https://crot.network/portal");
+      const target = new URL(view.portalUrl ?? "https://relay-staging.crot.network/portal");
       if (target.protocol !== "https:" || target.username || target.password) return false;
-      target.pathname = name === "ui.openPortal" ? "/portal" : "/welcome";
+      target.pathname = "/portal";
       target.search = "";
-      target.hash = "";
+      target.hash = name === "ui.openInstall" ? "install" : "";
       await shell.openExternal(target.href);
       return true;
     }
@@ -341,7 +370,7 @@ void app.whenReady().then(async () => {
     }
   }
   createWindow();
-  if (!tray && !smokeReport) window!.show();
+  if (!smokeReport) showWindow();
   publish();
   void controller.start();
   if (smokeReport) {
