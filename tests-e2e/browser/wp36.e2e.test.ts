@@ -187,7 +187,7 @@ it("WP-36 real Chromium portal: PKCE login, checkout failure stays Free, verifie
     expect(TEST_RELAY).toBe(h.as.relayHost);
   } finally {
     ws?.close();
-    if (chrome && chrome.exitCode === null) {
+    if (chrome && chrome.exitCode === null && chrome.signalCode === null) {
       const exited = new Promise<void>((r) => chrome!.once("exit", () => r()));
       chrome.kill("SIGTERM");
       const timer = setTimeout(() => chrome!.kill("SIGKILL"), 3000);
@@ -196,6 +196,8 @@ it("WP-36 real Chromium portal: PKCE login, checkout failure stays Free, verifie
     }
     await new Promise<void>((r) => proxy.close(() => r()));
     await h.stop();
-    await rm(profile, { recursive: true, force: true });
+    // Chromium helpers may finish profile writes just after the parent exits.
+    // Retry only filesystem cleanup; do not retry or mask any portal assertion.
+    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 });

@@ -31,3 +31,12 @@ A real managed-bootstrap integration test checks service survival after the boot
 The full-checkout `npm run check` passed: 2199 unit/integration tests passed, 218 skipped; 193 extension tests passed. This includes the real Electron smoke, five HTML contracts and managed bootstrap. No checks were disabled.
 Browser E2E completion and fixed-head CI must be recorded separately in the PR after execution, not inferred from earlier commits.
 Privileged L1 installation on every OS, signed native installers, live Stripe qualification and staging deployment remain separate release/operational gates.
+
+## Chromium CI cleanup follow-up
+
+A full graphical Xvfb run also passed all 57 tests (3 skipped).
+The owner-provided log for head `3385907` identified the remaining CI failure as
+`ENOTEMPTY` deleting the temporary Chromium profile in the portal test teardown,
+not a portal assertion failure. The test now checks signal termination as well as
+exit status and retries profile removal with the same bounded filesystem policy
+used by the other browser suites. Portal assertions are not retried or suppressed.
