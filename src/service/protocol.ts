@@ -59,6 +59,7 @@ export const CONTROL_METHODS = [
   "status",
   "shutdown",
   "overview",
+  "confinement.refresh",
   "approvals.subscribe",
   "approvals.unsubscribe",
   "approvals.decide",

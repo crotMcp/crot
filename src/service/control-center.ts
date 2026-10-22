@@ -245,6 +245,9 @@ export class ControlCenter implements RemoteAdmission {
   /** Handle a WP-22 control request; undefined for methods the service handles itself (ping, status, shutdown). */
   handle(connection: ControlConnection, request: ControlRequest): Promise<Result> | undefined {
     switch (request.method) {
+      case "confinement.refresh":
+        // AD-20: nonprivileged verification only. Installation belongs to the explicit desktop UI.
+        return this.host.holder.instance.refreshConfinement().then(() => ({ ok: true }));
       case "overview":
         return (this.host.identity.refreshCommercialIfNeeded() ?? Promise.resolve()).then(
           () => this.overview() as unknown as Result,

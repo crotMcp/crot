@@ -1,4 +1,4 @@
-/* global chrome, document, URL, window, setTimeout */
+/* global chrome, document, URL, window, navigator, setTimeout */
 "use strict";
 const byId = (id) => document.getElementById(id);
 const FALLBACK_PORTAL = "https://relay-staging.crot.network/portal";
@@ -80,7 +80,15 @@ byId("open-app").addEventListener(
 byId("account").addEventListener("click", () => void run(() => openTab(destination("/portal"))));
 byId("download").addEventListener(
   "click",
-  () => void run(() => openTab(chrome.runtime.getURL("welcome.html") + "#install")),
+  () =>
+    void run(() =>
+      openTab(
+        destination(
+          "/download/" +
+            (/Win/i.test(navigator.platform) ? "windows" : /Mac/i.test(navigator.platform) ? "macos" : "linux"),
+        ),
+      ),
+    ),
 );
 byId("guide").addEventListener("click", () => void run(() => openTab(chrome.runtime.getURL("welcome.html"))));
 void refreshStatus();

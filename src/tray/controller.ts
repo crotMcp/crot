@@ -112,6 +112,10 @@ export class TrayController {
     return this.done(decision === "approve" ? "Approved." : "Rejected.", true);
   }
 
+  refreshL1(): Promise<boolean> {
+    return this.action("confinement.refresh", {}, () => "L1 availability checked.");
+  }
+
   setPreset(value: PresetValue): Promise<boolean> {
     return this.action("preset.set", { value }, (r) =>
       isRecord(r) && r.unchanged === true ? "The preset is already selected." : `Preset set to '${value}'.`,

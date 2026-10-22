@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, URL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
+import { ReleaseDownloads } from "../dist/cloud-relay/downloads.js";
 import { TRAY_ASSETS } from "../dist/tray/assets.js";
 import { PORTAL_HTML, PORTAL_CSS, PORTAL_SCRIPT, LANDING_HTML } from "../dist/account-service/portal.js";
 
@@ -45,12 +46,14 @@ const fixture = {
     { title: "Cloud tunnel", value: "Local mode", ready: false },
   ],
 };
-const shim = `window.fixture=${JSON.stringify(fixture)};window.actions=[];window.crot={onView(fn){window.render=fn},ready(){window.render(window.fixture)},decide:async(...args)=>{window.actions.push(args);return true},action:async(...args)=>{window.actions.push(args);return true}};window.chrome={runtime:{getURL:p=>'/extension/'+p,sendMessage:async(m)=>{window.actions.push(['extension',m.type]);return m.type==='crot.ui.openApp'?{ok:true}:{connection:'disconnected'}}},tabs:{create:async(o)=>{window.actions.push(['tab',o.url]);return o},query:async()=>[{status:'complete',windowId:1,groupId:-1}]},tabGroups:{query:async()=>[]}};`;
+const shim = `window.fixture=${JSON.stringify(fixture)};window.actions=[];window.crot={repairL1:async()=>{window.actions.push(["repair-l1"]);return {ok:true,available:false}},onView(fn){window.render=fn},ready(){window.render(window.fixture)},decide:async(...args)=>{window.actions.push(args);return true},action:async(...args)=>{window.actions.push(args);return true}};window.chrome={runtime:{getURL:p=>'/extension/'+p,sendMessage:async(m)=>{window.actions.push(['extension',m.type]);return m.type==='crot.ui.openApp'?{ok:true}:{connection:'disconnected'}}},tabs:{create:async(o)=>{window.actions.push(['tab',o.url]);return o},query:async()=>[{status:'complete',windowId:1,groupId:-1}]},tabGroups:{query:async()=>[]}};`;
 const inject = (html) => html.replace("<head>", '<head><script src="/ui-fixture.js"></script>');
 let origin;
+const downloads = new ReleaseDownloads({ origin: "https://relay-staging.crot.network" });
 const server = createServer((req, res) => {
   void (async () => {
     const pathname = new URL(req.url, origin).pathname;
+    if (await downloads.handle(req, res, pathname)) return;
     let body, type;
     const key = pathname === "/control-center" ? "/index.html" : pathname;
     if (Object.hasOwn(TRAY_ASSETS, key)) {
@@ -209,6 +212,11 @@ try {
     assert(!text.includes(value), "technical details leaked: " + value);
   await screenshot("dashboard");
   await click("copy-config");
+  await evaluate(
+    "[...document.querySelectorAll('#modules button')].find(b=>b.textContent==='Install / repair L1').click()",
+  );
+  await until("actions.some(a=>a[0]==='repair-l1')");
+  await until("document.getElementById('quick-feedback').textContent.includes('not available')");
   assert(await evaluate("actions.some(a=>a[0]==='ui.copyConfig')"), "copy config was not delegated");
   await evaluate(
     "window.moduleNode=document.querySelector('#modules article');window.remoteButton=document.querySelector('#remote button');remoteButton.focus();render(fixture);render(fixture)",
@@ -285,6 +293,16 @@ try {
     await size(390, 844);
     await screenshot(name + "-mobile");
   }
+  const attachment = await globalThis.fetch(origin + "/download/linux");
+  assert(
+    attachment.status === 200 && attachment.headers.get("content-disposition").includes("attachment"),
+    "download endpoint must return an installer attachment",
+  );
+  const installer = await attachment.text();
+  assert(
+    installer.includes("/download/bundle/linux") && installer.includes("checksum mismatch"),
+    "bootstrap must verify a real release bundle",
+  );
   await size(380, 520);
   await navigate("/extension/popup.html");
   await until("document.getElementById('connection').textContent === 'Desktop App Not Detected'");
@@ -314,8 +332,8 @@ try {
     "popup account target missing",
   );
   assert(
-    await evaluate("actions.some(a=>a[0]==='tab'&&a[1]==='/extension/welcome.html#install')"),
-    "installation guide must be packaged, not a remote 404",
+    await evaluate("actions.some(a=>a[0]==='tab'&&a[1]==='https://relay-staging.crot.network/download/linux')"),
+    "installer button must target the real absolute OS download route",
   );
   await screenshot("popup");
   await evaluate("window.CrotI18n.setLanguage('ru')");

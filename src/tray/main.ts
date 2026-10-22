@@ -31,6 +31,7 @@ import { hostDirectories } from "../core/platform/node-platform.js";
 import { createPrivateFileProtection } from "../core/platform/private-files.js";
 import { PRESET_VALUES, type PresetValue } from "../service/protocol.js";
 import { TRAY_CSP, TRAY_ORIGIN, trayAsset } from "./assets.js";
+import { repairL1 } from "./l1-repair.js";
 import { TrayController } from "./controller.js";
 import { trayView, type TrayView } from "./view-model.js";
 
@@ -301,7 +302,29 @@ async function runAction(name: unknown, params: unknown): Promise<boolean> {
   return false;
 }
 
+let repairingL1 = false;
+
 function registerIpc(): void {
+  ipcMain.handle("repair-l1", async (event, ...args: unknown[]) => {
+    if (smokeReport || !fromTray(event) || args.length || repairingL1) return { ok: false };
+    repairingL1 = true;
+    let completed = false;
+    try {
+      await repairL1({ platform: process.platform, root: fileURLToPath(new URL("../../", import.meta.url)), stateDir });
+      completed = true;
+    } catch {
+      /* No raw installer output or filesystem details cross into the renderer. */
+    }
+    try {
+      const checked = await controller.refreshL1();
+      return {
+        ok: completed && checked,
+        available: checked && controller.state.overview?.confinement.available === true,
+      };
+    } finally {
+      repairingL1 = false;
+    }
+  });
   ipcMain.on("ready", (event) => {
     if (!fromTray(event)) return;
     rendererReady = true;

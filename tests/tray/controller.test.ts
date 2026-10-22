@@ -99,6 +99,16 @@ function controller(sent: Sent[] = [], opened: string[] = []): { tray: TrayContr
 }
 
 describe("WP-22: tray controller", () => {
+  it("refreshes L1 through the nonprivileged service control channel", async () => {
+    const service = await startService();
+    const sent: Sent[] = [];
+    const { tray } = controller(sent);
+    await tray.start();
+    expect(await tray.refreshL1()).toBe(true);
+    expect(sent.some((request) => request.method === "confinement.refresh")).toBe(true);
+    expect(tray.state.overview?.confinement).toEqual(service.core.confinementStatus());
+  });
+
   it("shows the pending request and approves it with the presented digest", async () => {
     const service = await startService();
     const sent: Sent[] = [];

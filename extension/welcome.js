@@ -5,6 +5,9 @@ const feedback = (text) => {
   byId("feedback").textContent = text;
   window.CrotI18n?.apply();
 };
+const os = /Win/i.test(navigator.platform) ? "windows" : /Mac/i.test(navigator.platform) ? "macos" : "linux";
+for (const link of document.querySelectorAll("a[href*='/download/']"))
+  link.href = "https://relay-staging.crot.network/download/" + os;
 // All external navigation happens in a browser tab, never under chrome-extension://.
 for (const link of document.querySelectorAll("a[href^='https://']"))
   link.addEventListener("click", (event) => {

@@ -147,6 +147,13 @@ const RENDERER = `"use strict";
   document.getElementById("copy-config").onclick = () => feedback("ui.copyConfig");
   document.getElementById("quick-copy").onclick = () => feedback("ui.copyConnection");
   document.getElementById("quick-pair").onclick = () => feedback("pairing.start");
+  const repairL1 = async () => {
+    text("quick-feedback", "Waiting for system authorization and L1 verification…");
+    try {
+      const result = await api.repairL1();
+      text("quick-feedback", result?.available ? "L1 is available." : result?.ok ? "Setup finished, but L1 is not available. See Developer Diagnostics." : "L1 setup was canceled or failed. Review the installation guide.");
+    } catch { text("quick-feedback", "L1 setup was canceled or failed. Review the installation guide."); }
+  };
   const render = (view) => {
     text("workspace", view.workspace || "—");
     for (const id of ["open-workspace", "copy-config"]) document.getElementById(id).disabled = !view.workspace;
@@ -181,7 +188,7 @@ const RENDERER = `"use strict";
     for (const m of view.modules || []) {
       const box = el("article", undefined, "module"); box.append(icon(["terminal", "browser", "shield", "cloud"][(view.modules || []).indexOf(m)]), el("h3", m.title), el("span", m.value, "badge " + (m.ready ? "ready" : "warning")));
       if (m.note) box.appendChild(el("p", m.note, "note"));
-      if (m.repair) box.appendChild(button("Installation & repair guide", () => api.action("ui.openInstall", {})));
+      if (m.repair) box.appendChild(button("Install / repair L1", repairL1));
       modules.appendChild(box);
     }
     }

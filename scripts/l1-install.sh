@@ -29,6 +29,10 @@
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Bundles use scripts/, while a system package may put this entry at /usr/lib/crot/l1-install.sh.
+if [ ! -f "$repo/src/native-host/linux-l1/components.ts" ] && [ -f "$(dirname "${BASH_SOURCE[0]}")/src/native-host/linux-l1/components.ts" ]; then
+  repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 components_ts="$repo/src/native-host/linux-l1/components.ts"
 
 # Single source of truth: the version and the pinned release are read from components.ts.
@@ -86,6 +90,17 @@ render_policy() { # <abi> <out>
 do_install() {
   [ "$(id -u)" = 0 ] || die "install must run as root"
   [ "$(uname -s)" = Linux ] || die "L1 is Linux only"
+  # Explicit owner-authorized setup only. Do not put this in the service's probe/refresh path.
+  if ! command -v cc >/dev/null || ! command -v meson >/dev/null || ! command -v ninja >/dev/null || ! pkg-config --exists libcap 2>/dev/null; then
+    if [ -x /usr/bin/apt-get ]; then
+      /usr/bin/apt-get update
+      /usr/bin/apt-get install -y gcc meson ninja-build pkg-config libcap-dev xz-utils curl apparmor python3
+    elif [ -x /usr/bin/dnf ]; then
+      /usr/bin/dnf install -y gcc meson ninja-build pkgconf-pkg-config libcap-devel xz curl python3
+    else
+      die "install gcc, meson, ninja, pkg-config, libcap development headers, xz, curl and python3, then retry"
+    fi
+  fi
   for t in cc meson ninja pkg-config sha256sum tar install; do need "$t"; done
   work="$(mktemp -d)"
   trap cleanup EXIT
