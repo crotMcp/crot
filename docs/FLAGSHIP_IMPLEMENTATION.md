@@ -40,7 +40,10 @@ These checks do **not** replace service/Electron integration, live Stripe/OAuth,
 real extension-native messaging or platform installer qualification. The local
 workspace contains a source subset obtained through GitHub MCP, not a complete
 checkout, so a full repository `npm run check` has not been established locally.
-Exact-head GitHub CI and complete browser E2E remain required.
+Exact-head GitHub CI and complete browser E2E remain required. GitHub MCP readback
+of PR #1 check runs and combined commit status returned HTTP 403 (`Resource not
+accessible by personal access token`). The connection can push code and create
+PRs but cannot currently read those CI results; no 11/11 result is asserted.
 
 ## Outstanding release work
 
