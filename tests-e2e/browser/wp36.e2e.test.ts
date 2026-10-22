@@ -140,6 +140,7 @@ it("WP-36 real Chromium portal: PKCE login, checkout failure stays Free, verifie
       "!!document.getElementById('signin') && typeof document.getElementById('signin').onclick === 'function'",
     );
     await until("!document.getElementById('signin').disabled");
+    expect(await evaluate("getComputedStyle(document.documentElement).backgroundColor")).toBe("rgb(9, 9, 11)");
     await evaluate("document.getElementById('signin').click()");
     await until("document.getElementById('plan')?.textContent === 'free · active'");
     expect(await evaluate("location.search")).toBe("");

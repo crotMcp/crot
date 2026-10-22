@@ -3,6 +3,7 @@
  * No live Stripe/native installer qualification is claimed by this visual suite.
  */
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 import process from "node:process";
 import { createServer } from "node:http";
@@ -100,8 +101,7 @@ const server = createServer((req, res) => {
       .writeHead(200, {
         "content-type": type,
         "cache-control": "no-store",
-        "content-security-policy":
-          "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+        "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self' 'sha256-${createHash("sha256").update(PORTAL_CSS).digest("base64")}'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
       })
       .end(body);
   })().catch(() => res.writeHead(500).end());
@@ -269,6 +269,10 @@ try {
   ]) {
     await size(1280, 960);
     await navigate(pathname);
+    assert(
+      await evaluate("getComputedStyle(document.documentElement).backgroundColor === 'rgb(9, 9, 11)'"),
+      name + " must render the shipped Zinc theme under CSP",
+    );
     await screenshot(name);
     for (const language of ["ru", "es", "de", "zh", "en"]) {
       await evaluate(`window.CrotI18n.setLanguage(${JSON.stringify(language)})`);
