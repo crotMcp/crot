@@ -43,6 +43,7 @@ const SOURCE_CAPABILITY: Record<string, Capability> = {
   "browser.snapshot": "browser.read",
   "browser.tabs_list": "browser.read",
   "network.request": "network.access",
+  "mcp.call": "filesystem.read",
 };
 
 /** Operations with effects (AD-12 point 4) and a capability each requires. */
@@ -127,6 +128,7 @@ describe("session exposure: definitions", () => {
       "browser.screenshot",
       "browser.snapshot",
       "browser.tabs_list",
+      "mcp.call",
       "network.request",
     ]);
     for (const op of EXPOSURE_SOURCES) expect(KNOWN_OPERATIONS).toContain(op);

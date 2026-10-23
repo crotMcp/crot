@@ -17,7 +17,7 @@ import type {
   RemoteClientKey,
   RemoteTokenFacts,
 } from "../adapters/http/server.js";
-import type { PairingOutcome } from "../identity/pairing.js";
+import type { PairingOutcome, SignInOptions } from "../identity/pairing.js";
 import type { UntrustedContentSetting } from "../core/approvals/exposure.js";
 import type { RemoteExposureResettable, RemoteExposureStore } from "../core/approvals/remote-exposure.js";
 import type { PresentedApproval, TerminalApprovalStatus } from "../core/approvals/types.js";
@@ -42,6 +42,8 @@ import type {
   RemoteClientView,
 } from "./protocol.js";
 import { isValidRemoteId, type RemoteClientRegistry } from "./remote-clients.js";
+import { PRODUCT_METHODS, type ProductMethod } from "./product-protocol.js";
+import type { ProductRuntime } from "./product-runtime.js";
 import { TrayApprovalProvider, type ApprovalSubscriber } from "./tray-provider.js";
 
 /** Presets the PermissionEngine implements (AD-19 point 5, WP-31). */
@@ -105,6 +107,7 @@ export interface ControlCenterHost {
   buildCore(
     preset: UntrustedContentSetting,
     remote?: RemoteProfileOptions,
+    workspace?: string,
   ): Promise<{ core: CrotCore; handle: CoreCompositionHandle }>;
   serviceStatus(): ServiceStatus;
   browserState(): BrowserConnectionState | undefined;
@@ -117,6 +120,7 @@ type Result = Record<string, unknown> | ControlRefusal | PresentedApproval[];
 const refusal = (reason: string, message: string): ControlRefusal => ({ ok: false, reason, message });
 
 export class ControlCenter implements RemoteAdmission {
+  product: ProductRuntime | undefined;
   private readonly provider: TrayApprovalProvider;
   private unregisterProvider: (() => void) | undefined;
   private readonly subscribers = new Map<ControlConnection, ApprovalSubscriber>();
@@ -244,6 +248,11 @@ export class ControlCenter implements RemoteAdmission {
 
   /** Handle a WP-22 control request; undefined for methods the service handles itself (ping, status, shutdown). */
   handle(connection: ControlConnection, request: ControlRequest): Promise<Result> | undefined {
+    if ((PRODUCT_METHODS as string[]).includes(request.method))
+      return (
+        this.product?.request(request.method as ProductMethod, "params" in request ? request.params : {}) ??
+        Promise.resolve(refusal("unavailable", "Product runtime unavailable"))
+      );
     switch (request.method) {
       case "confinement.refresh":
         // AD-20: nonprivileged verification only. Installation belongs to the explicit desktop UI.
@@ -278,7 +287,7 @@ export class ControlCenter implements RemoteAdmission {
       case "remote.regrantClient":
         return this.serial(() => this.regrantClient(request.params));
       case "pairing.start":
-        return this.serial(() => this.startPairing());
+        return this.serial(() => this.startPairing(request.params));
       case "pairing.cancel":
         return Promise.resolve(
           this.host.identity.cancelPairing() ? { ok: true } : refusal("not_pairing", "No pairing is in progress."),
@@ -342,6 +351,28 @@ export class ControlCenter implements RemoteAdmission {
    * Build a Core with this preset and remote profile and install it (AD-19 point 5): only while the current
    * Core is idle, checked again right before the synchronous switch. On a refusal nothing changed.
    */
+  async disconnectProductAgent(id: string): Promise<void> {
+    if (!id.startsWith("remote:")) return;
+    const [accountId, deviceId, clientId] = JSON.parse(id.slice(7)) as string[];
+    for (const entry of this.remoteEntries)
+      await entry.endRemoteClient({ accountId: accountId!, deviceId: deviceId!, clientId: clientId! });
+  }
+
+  async selectWorkspace(root: string): Promise<void> {
+    const busy = this.host.holder.busyReason();
+    if (busy) throw new Error(`Workspace switch requires idle Core: ${busy}`);
+    const preset = ControlCenter.effectivePreset(this.host.settings, this.host.configuredPreset).effective;
+    const built = await this.host.buildCore(preset, this.requestedRemoteProfile(), root);
+    if (this.host.holder.busyReason()) {
+      await built.core.shutdown();
+      throw new Error("Core became busy; selection refused");
+    }
+    const previous = this.host.holder.swap(built.core, built.handle);
+    this.moveProvider(built.handle);
+    await previous.shutdown();
+    this.stateChanged();
+  }
+
   private async replaceCore(
     preset: UntrustedContentSetting,
     remote: RemoteProfileOptions | undefined,
@@ -734,7 +765,7 @@ export class ControlCenter implements RemoteAdmission {
 
   // ---- pairing and unpairing (WP-28, AD-21) -----------------------------------------------------
 
-  private async startPairing(): Promise<Result> {
+  private async startPairing(signIn: SignInOptions = {}): Promise<Result> {
     const identity = this.host.identity;
     const environment = identity.environment;
     if (!environment)
@@ -748,7 +779,10 @@ export class ControlCenter implements RemoteAdmission {
     if (binding.paired) return refusal("already_paired", "This device is already paired. Unpair it first.");
     let pending;
     try {
-      pending = await identity.startPairing((outcome, deviceId) => void this.pairingFinished(outcome, deviceId));
+      pending = await identity.startPairing(
+        (outcome, deviceId) => void this.pairingFinished(outcome, deviceId),
+        signIn,
+      );
     } catch (error) {
       return refusal("pairing_failed", `Pairing could not start: ${errorText(error)}`);
     }

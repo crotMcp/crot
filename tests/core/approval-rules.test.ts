@@ -17,7 +17,7 @@ describe("gate rule operation names", () => {
     const found = new Set<string>();
     for (const file of await sources(path.join(import.meta.dirname, "../../src/core/capabilities"))) {
       const text = await readFile(file, "utf8");
-      for (const match of text.matchAll(/"((?:filesystem|process|git|docker|network|browser)\.[a-z_]+)"/g))
+      for (const match of text.matchAll(/"((?:filesystem|process|git|docker|network|browser|mcp)\.[a-z_]+)"/g))
         found.add(match[1] as string);
     }
     for (const capability of CAPABILITIES) found.delete(capability);

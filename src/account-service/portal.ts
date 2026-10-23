@@ -51,6 +51,11 @@ export const PORTAL_SCRIPT = String.raw`"use strict";
     const u = new URL(config.authorizationEndpoint);
     for (const [k,v] of Object.entries({ response_type: "code", client_id: config.clientId, redirect_uri: redirect,
       scope: "openid", resource: config.resource, state, code_challenge_method: "S256", code_challenge: b64(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)))) })) u.searchParams.set(k,v);
+    const entry = new URLSearchParams(location.search);
+    const provider = entry.get("provider");
+    if (["GoogleOAuth", "GitHubOAuth", "authkit"].includes(provider)) u.searchParams.set("provider", provider);
+    const hint = entry.get("login_hint");
+    if (hint && hint.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(hint)) u.searchParams.set("login_hint", hint);
     location.assign(u.href);
   });
   el("signout").onclick = () => { token = undefined; sessionStorage.removeItem("crot-oauth"); el("account").hidden = true; el("signout").hidden = true; el("signin").hidden = false; say("Signed out of this portal. Provider SSO may remain signed in."); };
@@ -67,6 +72,7 @@ export const PORTAL_SCRIPT = String.raw`"use strict";
   try {
     const r = await fetch("/portal/config", { cache: "no-store", credentials: "omit", redirect: "error" });
     if (!r.ok) throw new Error("Account sign-in is not configured. Contact the operator."); config = await r.json(); el("signin").disabled = false;
+    if (location.pathname === "/portal" && params.has("provider") && !params.has("code") && !params.has("error")) el("signin").click();
     if (params.has("code") || params.has("error")) {
       const saved = JSON.parse(sessionStorage.getItem("crot-oauth") || "null"); sessionStorage.removeItem("crot-oauth");
       if (!saved || params.get("state") !== saved.state || Date.now() - saved.created > 600000 || (params.has("iss") && params.get("iss") !== config.issuer) || params.has("error")) throw new Error("Sign-in could not be verified. Please try again.");

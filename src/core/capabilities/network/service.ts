@@ -131,7 +131,7 @@ export class NetworkService {
               ],
             },
           },
-          () => this.send(current, target, method, headers, body, maxBytes, deadline),
+          () => this.send(current, target, method, headers, body, maxBytes, deadline, context.signal),
         );
         const location = response.location;
         if (req.followRedirects && REDIRECT_STATUSES.has(response.status) && location !== undefined) {
@@ -245,6 +245,7 @@ export class NetworkService {
     body: Buffer | undefined,
     maxBytes: number,
     deadline: number,
+    signal?: AbortSignal,
   ): Promise<RawResponse> {
     this.assertOpen();
     const addresses = target.addresses ?? [];
@@ -289,6 +290,7 @@ export class NetworkService {
         else resolve(value!);
       };
       const options: https.RequestOptions = {
+        ...(signal ? { signal } : {}),
         method,
         protocol: secure ? "https:" : "http:",
         host: target.hostKind === "address" ? first.text : target.host,

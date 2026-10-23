@@ -19,6 +19,8 @@
  * The service makes no permission decision: every tool call goes through Core
  * (PermissionEngine, ExecutionGuard, audit) exactly as before.
  */
+import { newLocalExposureScope } from "../core/auth/principal.js";
+import { ProductRuntime, productPaths } from "./product-runtime.js";
 import type net from "node:net";
 import { launchControlCenter } from "../tray/launch.js";
 import { lstat } from "node:fs/promises";
@@ -145,6 +147,7 @@ export class CrotService {
   private endpoints: { service: ServiceEndpoint; control: ServiceEndpoint } | undefined;
   private native: NativeHost | undefined;
   private bridge: BrowserBridge | undefined;
+  private product: ProductRuntime | undefined;
   private holder: CoreHolder | undefined;
   private control: ControlCenter | undefined;
   private deviceIdentity: DeviceIdentity | undefined;
@@ -391,6 +394,7 @@ export class CrotService {
         ...secretStoreProtectedPaths(stateDir),
         ...browserProtectedPaths(parsed.browser.enabled, stateDir),
         ...serviceProtectedPaths(stateDir),
+        ...productPaths(stateDir),
       ].filter((p): p is string => p !== undefined);
 
       // Native resources first; Core is built on the Native Host platform.
@@ -429,22 +433,37 @@ export class CrotService {
         ...(remoteExposure ? { remoteExposure } : {}),
         platform: servicePlatform,
         ...(this.bridge ? { browser: this.bridge } : {}),
+        additionalAuthorization: (context, operation) => this.product?.authorize(context, operation),
         serviceStatus: () => this.status(),
       };
       const configuredPreset = parsed.permissions.approvals.untrustedContent;
       // Every Core gets the preset and the remote profile (WP-31) of the device state; none widens by default.
+      let activeWorkspace = parsed.workspace.root;
+      let activeAuditPath = command.config.audit?.path;
       const build = async (
         preset: UntrustedContentSetting,
         exposure?: CoreCompositionHandle["exposure"],
         remote?: RemoteProfileOptions,
+        workspace = activeWorkspace,
       ) => {
         let handle: CoreCompositionHandle | undefined;
-        const core = await CrotCore.create(withPreset(command.config, preset, configuredPreset), {
-          ...coreOptions,
-          ...(exposure ? { exposure } : {}),
-          ...(remote ? { remoteProfile: remote } : {}),
-          composition: (h) => (handle = h),
-        });
+        const core = await CrotCore.create(
+          withPreset(
+            {
+              ...command.config,
+              workspace: { ...command.config.workspace, root: workspace },
+              ...(activeAuditPath ? { audit: { ...command.config.audit, path: activeAuditPath } } : {}),
+            },
+            preset,
+            configuredPreset,
+          ),
+          {
+            ...coreOptions,
+            ...(exposure ? { exposure } : {}),
+            ...(remote ? { remoteProfile: remote } : {}),
+            composition: (h) => (handle = h),
+          },
+        );
         return { core, handle: handle! };
       };
       const initial = await build(
@@ -452,6 +471,7 @@ export class CrotService {
         undefined,
         ControlCenter.remoteProfile(settings, binding),
       );
+      activeAuditPath = initial.core.status().audit.path;
       const holder = new CoreHolder(initial.core, initial.handle);
       this.holder = holder;
       const mcpArgs: string[] = [];
@@ -470,7 +490,7 @@ export class CrotService {
         identity,
         remoteExposure,
         configuredPreset,
-        buildCore: (preset, remote) => build(preset, holder.composition.exposure, remote),
+        buildCore: (preset, remote, workspace) => build(preset, holder.composition.exposure, remote, workspace),
         serviceStatus: () => this.status(),
         browserState: () => this.bridge?.state(),
         agents: () => ({
@@ -481,6 +501,19 @@ export class CrotService {
         log,
       });
       this.control = control;
+      this.product = await ProductRuntime.open({
+        stateDir,
+        secrets: secrets.store,
+        privateFiles: servicePlatform.privateFiles,
+        core: () => holder.instance,
+        disconnectAgent: (id) => control.disconnectProductAgent(id),
+        selectWorkspace: async (root) => {
+          await control.selectWorkspace(root);
+          activeWorkspace = root;
+        },
+      });
+      control.product = this.product;
+      holder.operation = (member, method, args, run) => this.product!.execute(member, method, args, run);
       this.banner();
       if (http.enabled) await this.startHttp(http, legacyTokenFile);
       if (identity.environment) {
@@ -691,11 +724,21 @@ export class CrotService {
           "All stdio clients of a user share one service: use the same configuration (config file and flags) in every MCP client, or stop the service with 'crot-mcp service stop'.",
       );
     }
-    const server = createCrotMcpServer(this.core, { resolveContext: localContextResolver("stdio") });
+    const resolver = localContextResolver("stdio"),
+      scope = newLocalExposureScope();
+    const server = createCrotMcpServer(this.core, {
+      resolveContext: (request) => ({ ...resolver(request), exposureScope: scope }),
+    });
+    const agentId = `local:${scope.id}`;
+    this.product?.attachAgent(agentId, async () => {
+      await server.close();
+      shim.channel.close();
+    });
     const transport = new ChannelServerTransport(shim.channel);
     await server.connect(transport);
     shim.transport = transport;
     shim.close = async () => {
+      this.product?.detachAgent(agentId);
       try {
         await server.close();
       } catch {
@@ -931,6 +974,7 @@ export class CrotService {
     this.deviceIdentity?.cancelPairing();
     await this.tunnel?.close();
     if (this.http) await this.http.close();
+    await this.product?.close();
     if (this.holder) await this.holder.instance.shutdown();
     await this.control?.flush();
     await this.bridge?.close();

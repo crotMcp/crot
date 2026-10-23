@@ -147,8 +147,8 @@ export class TrayController {
   }
 
   /** Start pairing (WP-28): the service returns the sign-in URL, which opens in the user's browser. */
-  startPairing(): Promise<boolean> {
-    return this.action("pairing.start", undefined, (r) => {
+  startPairing(params: import("../identity/pairing.js").SignInOptions = {}): Promise<boolean> {
+    return this.action("pairing.start", { ...params }, (r) => {
       const url = isRecord(r) && typeof r.authorizationUrl === "string" ? r.authorizationUrl : undefined;
       if (url !== undefined && isHttpsUrl(url) && this.options.openSignIn) {
         this.options.openSignIn(url);
@@ -156,6 +156,15 @@ export class TrayController {
       }
       return "Pairing started: open the sign-in page shown in the pairing section.";
     });
+  }
+
+  /** Validated owner product RPC; the service owns schemas and authorization. */
+  async product(
+    method: import("../service/product-protocol.js").ProductMethod,
+    params: Readonly<Record<string, unknown>>,
+  ): Promise<unknown> {
+    if (!this.client) throw new Error("Service disconnected");
+    return this.client.request(method, params);
   }
 
   /** Cancel a running pairing; the service refuses (`not_pairing`) when none is in progress. */

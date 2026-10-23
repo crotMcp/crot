@@ -31,6 +31,9 @@ export class CoreHolder {
   private current: CrotCore;
   private handle: CoreCompositionHandle;
   private calls = 0;
+  operation:
+    | ((member: string, method: string, args: unknown[], run: (args: unknown[]) => unknown) => Promise<unknown>)
+    | undefined;
   /** The object handed to adapters: always forwards to the current Core. */
   readonly core: CrotCore;
 
@@ -45,7 +48,7 @@ export class CoreHolder {
         if (SERVICE_MEMBERS.has(prop) && typeof value === "object" && value !== null) {
           const cached = services.get(prop);
           if (cached && cached.target === value) return cached.proxy;
-          const proxy = this.countingProxy(value);
+          const proxy = this.countingProxy(value, String(prop));
           services.set(prop, { target: value, proxy });
           return proxy;
         }
@@ -95,7 +98,7 @@ export class CoreHolder {
     return previous;
   }
 
-  private countingProxy(service: object): object {
+  private countingProxy(service: object, member: string): object {
     return new Proxy(service, {
       get: (target, prop) => {
         const value: unknown = Reflect.get(target, prop, target);
@@ -105,7 +108,9 @@ export class CoreHolder {
           this.calls++;
           let result: unknown;
           try {
-            result = fn.apply(target, args);
+            result = this.operation
+              ? this.operation(member, String(prop), args, (a) => fn.apply(target, a))
+              : fn.apply(target, args);
           } catch (error) {
             this.calls--;
             throw error;

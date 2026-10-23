@@ -4,7 +4,7 @@ import { it } from "vitest";
 import { chromeExecutable } from "./harness.js";
 
 it(
-  "flagship UI: real Chromium renders all surfaces, Free paywall, approval delegation and narrow layouts",
+  "product UI: real Chromium checks auth, 13 sections, 7 project tabs, 11 settings, approvals and narrow layouts",
   { timeout: 120_000 },
   async () => {
     await promisify(execFile)(process.execPath, ["scripts/ui-e2e.mjs"], {

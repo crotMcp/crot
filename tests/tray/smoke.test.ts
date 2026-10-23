@@ -151,7 +151,7 @@ describe.skipIf(launch.problem !== undefined && !onCi)("WP-22: Electron tray smo
     const page = parsed.page as Record<string, unknown>;
     expect(page.cards).toBe(1);
     expect(page.nodeVisible).toBe(false);
-    expect(page.api).toEqual(["action", "decide", "onView", "ready", "repairL1"]);
+    expect(page.api).toEqual(["action", "decide", "onView", "product", "ready", "repairL1", "tool"]);
     expect(page.links).toBe(0);
     expect(page.headline).toBe("1 request waiting for your approval");
     expect(page.text).toContain("evil[U+202E]txt.exe");

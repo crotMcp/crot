@@ -50,6 +50,7 @@ export async function existingPrivateStateFiles(stateDir: string): Promise<strin
     ...secretStoreProtectedPaths(stateDir),
     ...serviceProtectedPaths(stateDir),
     path.join(stateDir, REMOTE_EXPOSURE_FILE_NAME),
+    path.join(stateDir, "product-state.json"),
     ...SECRET_NAMES.map((name) => path.join(dpapiDirectory(stateDir), `${name}.dpapi`)),
   ];
   const found: string[] = [];

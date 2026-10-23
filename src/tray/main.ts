@@ -1,7 +1,8 @@
 /**
  * CROT tray (WP-22, AD-19 point 1): an Electron process that is only a
- * client of the service's authenticated control channel. It has no MCP
- * connection, no tools and no approval authority of its own; the service
+ * client of the service's authenticated control channel. Workspace screens
+ * use a separate ordinary MCP client (AD-39), never control-channel execution.
+ * It has no approval authority of its own; the service
  * checks every decision against the request id and the subject digest shown.
  *
  * Run with `npm run tray` (after `npm run build`) or
@@ -9,6 +10,7 @@
  * `--smoke-test=<file>` renders once, writes a JSON report and quits; it
  * never decides anything.
  */
+import { parseProduct, type ProductMethod } from "../service/product-protocol.js";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +18,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -31,6 +34,7 @@ import { hostDirectories } from "../core/platform/node-platform.js";
 import { createPrivateFileProtection } from "../core/platform/private-files.js";
 import { PRESET_VALUES, type PresetValue } from "../service/protocol.js";
 import { TRAY_CSP, TRAY_ORIGIN, trayAsset } from "./assets.js";
+import { TrayToolClient } from "./tool-client.js";
 import { repairL1 } from "./l1-repair.js";
 import { TrayController } from "./controller.js";
 import { trayView, type TrayView } from "./view-model.js";
@@ -174,6 +178,7 @@ function createWindow(): void {
 function quit(): void {
   quitting = true;
   controller.stop();
+  void toolClient?.close();
   app.quit();
 }
 
@@ -225,6 +230,19 @@ function clientKey(p: Record<string, unknown>): { accountId: string; deviceId: s
 async function runAction(name: unknown, params: unknown): Promise<boolean> {
   // Fixed owner-UI actions only. Renderer never supplies an external URL or clipboard bytes.
   if (typeof name === "string" && name.startsWith("ui.") && isRecord(params) && Object.keys(params).length === 0) {
+    if (name === "ui.exportDiagnostics") {
+      if (smokeReport || !window) return false;
+      const result = await controller.product("monitoring.exportReport", {});
+      if (!isRecord(result) || result.ok !== true || !isRecord(result.report)) return false;
+      const choice = await dialog.showSaveDialog(window, {
+        title: "Export diagnostics",
+        defaultPath: "crot-diagnostics.json",
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (choice.canceled || !choice.filePath) return false;
+      await writeFile(choice.filePath, JSON.stringify(result.report, null, 2), { mode: 0o600 });
+      return true;
+    }
     if (name === "ui.openWorkspace") {
       if (!view.workspace || !path.isAbsolute(view.workspace)) return false;
       return (await shell.openPath(view.workspace)) === "";
@@ -293,7 +311,7 @@ async function runAction(name: unknown, params: unknown): Promise<boolean> {
       return key ? controller.regrantClient(key) : false;
     }
     case "pairing.start":
-      return controller.startPairing();
+      return controller.startPairing(params);
     case "pairing.cancel":
       return controller.cancelPairing();
     case "device.unpair":
@@ -304,7 +322,50 @@ async function runAction(name: unknown, params: unknown): Promise<boolean> {
 
 let repairingL1 = false;
 
+let toolClient: TrayToolClient | undefined;
+
 function registerIpc(): void {
+  ipcMain.handle("product", async (event, method: unknown, input: unknown) => {
+    if (
+      smokeReport ||
+      !fromTray(event) ||
+      typeof method !== "string" ||
+      JSON.stringify(input ?? {}).length > 256 * 1024
+    )
+      return { ok: false, message: "Invalid request" };
+    const params = parseProduct(method, input);
+    if (!params) return { ok: false, message: "Invalid request" };
+    try {
+      return await controller.product(method as ProductMethod, params);
+    } catch {
+      return { ok: false, message: "Request refused. Check service policy and connection." };
+    }
+  });
+  ipcMain.handle("tool", async (event, name: unknown, input: unknown) => {
+    if (
+      smokeReport ||
+      !fromTray(event) ||
+      !view.workspace ||
+      view.connection !== "connected" ||
+      path.resolve(hostDirectories(process.env).state) !== stateDir
+    )
+      return { isError: true, content: [{ type: "text", text: "Service unavailable" }] };
+    try {
+      toolClient ??= new TrayToolClient({
+        command: process.execPath,
+        entry: fileURLToPath(new URL("../bin/crot-mcp.js", import.meta.url)),
+        args: view.mcpArgs ?? ["--workspace", view.workspace],
+      });
+      return await toolClient.call(name, input);
+    } catch {
+      return {
+        isError: true,
+        content: [
+          { type: "text", text: "Operation unavailable or refused. Check permissions and service connection." },
+        ],
+      };
+    }
+  });
   ipcMain.handle("repair-l1", async (event, ...args: unknown[]) => {
     if (smokeReport || !fromTray(event) || args.length || repairingL1) return { ok: false };
     repairingL1 = true;
@@ -348,6 +409,8 @@ async function smoke(file: string): Promise<void> {
   while (Date.now() < deadline && !(rendererReady && view.connection === "connected" && view.cards.length > 0))
     await wait(100);
   await wait(300);
+  // Explicit smoke harness admission only; never decides approvals or calls tools.
+  if (window) await window.webContents.executeJavaScript(`document.getElementById("local-mode").click()`);
   const page = window
     ? ((await window.webContents.executeJavaScript(
         `({

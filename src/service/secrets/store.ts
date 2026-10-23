@@ -170,7 +170,12 @@ export class SecretStore {
  * CROT tools may not read or modify them in any mode.
  */
 export function stateSecretPaths(stateDir: string): string[] {
-  return [...SECRET_NAMES.map((n) => secretFile(stateDir, n)), dpapiDirectory(stateDir)];
+  return [
+    ...SECRET_NAMES.map((n) => secretFile(stateDir, n)),
+    dpapiDirectory(stateDir),
+    path.join(stateDir, "product-vault.enc"),
+    path.join(stateDir, "product-state.json"),
+  ];
 }
 
 /** Non-secret files of the store that CROT tools may not modify. */

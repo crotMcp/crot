@@ -122,6 +122,8 @@ export interface AuthContext {
    * CROT process (AD-15 point 7). Correlates audit events only.
    */
   readonly requestId?: string;
+  /** Service-created product identifiers for durable audit filtering; never tool arguments. */
+  readonly productContext?: { readonly project: string; readonly agent: string };
   /**
    * Aborted when the caller gives up (MCP cancellation, transport closed).
    * Supplied by adapters; a pending approval request is then cancelled.

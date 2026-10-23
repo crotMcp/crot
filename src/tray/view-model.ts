@@ -157,6 +157,8 @@ export interface PairingRow {
 }
 
 export interface TrayView {
+  readonly agents?: ControlOverview["agents"];
+  readonly browser?: ControlOverview["browser"];
   readonly workspace?: string;
   readonly mcpArgs?: readonly string[];
   readonly commercial?: ControlOverview["commercial"];
@@ -335,6 +337,8 @@ export function trayView(state: TrayState): TrayView {
         note: "Remote admission requires a current cloud entitlement.",
       },
     ],
+    agents: o?.agents,
+    browser: o?.browser,
     connection: state.connection,
     headline,
     ...(state.notice ? { notice: visibleText(state.notice) } : {}),

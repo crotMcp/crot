@@ -59,6 +59,8 @@ export interface ExposureSnapshot {
 }
 
 export interface ExecutionGuardOptions {
+  /** Service-owned narrowing policy, checked again after approvals. Never grants a capability. */
+  readonly additionalAuthorization?: (context: AuthContext, operation: string) => void;
   /**
    * Called when the audit sink fails. For operations without an approval gate
    * the operation is not affected; for gated operations a failed mandatory
@@ -179,13 +181,19 @@ export class ExecutionGuard {
       ...(context.requestId !== undefined ? { requestId: context.requestId } : {}),
       paths: op.auditPaths ?? (op.paths ?? []).map((p) => p.absolute),
       ...(op.network !== undefined && op.network.length > 0 ? { network: op.network.map(auditTarget) } : {}),
-      ...(op.details !== undefined ? { details: op.details } : {}),
     };
+    // Capabilities may append audit-safe result metadata during execution (e.g. file sizes).
+    // Snapshot it when recording, not before the operation runs.
+    const auditDetails = () =>
+      op.details !== undefined || context.productContext
+        ? { details: { ...op.details, ...context.productContext } }
+        : {};
     const record = (outcome: AuditEvent["outcome"], error?: unknown, approval?: AuditApproval) =>
       this.record({
         id: newAuditEventId(),
         timestamp: new Date(started).toISOString(),
         ...base,
+        ...auditDetails(),
         outcome,
         durationMs: Date.now() - started,
         ...(error !== undefined
@@ -312,6 +320,7 @@ export class ExecutionGuard {
         id: newAuditEventId(),
         timestamp: new Date(started).toISOString(),
         ...base,
+        ...auditDetails(),
         durationMs: Date.now() - started,
         approval,
       });
@@ -354,6 +363,11 @@ export class ExecutionGuard {
     op: OperationDescriptor,
     capabilities: readonly Capability[],
   ): PermissionDeniedError | undefined {
+    try {
+      this.options.additionalAuthorization?.(context, op.operation);
+    } catch {
+      return new PermissionDeniedError("Project or agent policy refuses the operation", { operation: op.operation });
+    }
     for (const capability of capabilities) {
       const decision = this.engine.authorize({
         ...(op.operation === "browser.file_upload" ? { operation: op.operation } : {}),

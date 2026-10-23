@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { discoverAuthorizationServer } from "../../src/identity/authorization-server.js";
 import { canonicalDeviceUri, generateDeviceId } from "../../src/identity/device-id.js";
 import { IssuerKeySet } from "../../src/identity/jwks.js";
-import { startPairing, type PairingFlow } from "../../src/identity/pairing.js";
+import { startPairing, type PairingFlow, type SignInOptions } from "../../src/identity/pairing.js";
 import { PAIRING_CLIENT, TestAuthorizationServer } from "./test-authorization-server.js";
 
 /**
@@ -11,7 +11,10 @@ import { PAIRING_CLIENT, TestAuthorizationServer } from "./test-authorization-se
  * RFC 8707 resource; the token is verified like a remote request's.
  */
 
-async function begin(as: TestAuthorizationServer, overrides: { timeoutMs?: number } = {}): Promise<PairingFlow> {
+async function begin(
+  as: TestAuthorizationServer,
+  overrides: SignInOptions & { timeoutMs?: number } = {},
+): Promise<PairingFlow> {
   const http = as.http();
   const metadata = await discoverAuthorizationServer(as.issuer, http);
   const keys = new IssuerKeySet({ issuer: as.issuer, http });
@@ -32,6 +35,19 @@ async function get(url: string): Promise<number> {
 }
 
 describe("pairing", () => {
+  it.each(["authkit", "GoogleOAuth", "GitHubOAuth"] as const)(
+    "routes %s and login_hint without changing PKCE",
+    async (provider) => {
+      const flow = await begin(new TestAuthorizationServer(), { provider, login_hint: "person@example.test" });
+      const url = new URL(flow.authorizationUrl);
+      expect(url.searchParams.get("provider")).toBe(provider);
+      expect(url.searchParams.get("login_hint")).toBe("person@example.test");
+      expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+      flow.cancel();
+      await flow.outcome;
+    },
+  );
+
   it("requests a token for the new device's canonical URI and establishes the account from sub", async () => {
     const as = new TestAuthorizationServer();
     const flow = await begin(as);

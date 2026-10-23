@@ -269,28 +269,41 @@ describe("WP-26 native Core file contour (Linux/macOS/Windows, no OS skips)", ()
     expect(browser.uploads).toEqual([]);
     expect(browser.downloads).toBe(0);
   });
-  it("AD-23.8: both exposed calls wait for matching user approval; audit has paths/sizes, never bytes", async () => {
-    await core.browser.readPage(ctx, { tabId: 7 });
-    const uploading = upload();
-    await ui.next();
-    expect(browser.uploads).toEqual([]);
-    ui.approveLast();
-    await uploading;
-    const downloading = download();
-    await ui.next();
-    expect(browser.downloads).toBe(0);
-    ui.approveLast();
-    await downloading;
-    const events = audit.events.filter(
-      (e) => e.operation === "browser.file_upload" || e.operation === "browser.download",
-    );
-    expect(events.filter((e) => e.outcome === "success")).toHaveLength(2);
-    const text = JSON.stringify(events);
-    expect(text).not.toContain(CONTENT);
-    expect(text).not.toContain("CROT-private-staging");
-    expect(text).not.toContain(dirs.workspace);
-    expect(text).toContain("fixture.txt");
-    expect(text).toContain("result.bin");
-    expect(text).toContain(String(Buffer.byteLength(CONTENT)));
-  });
+  it.each([false, true])(
+    "AD-23.8: matching approval audits exact paths/sizes, never bytes (product context: %s)",
+    async (correlated) => {
+      if (correlated) ctx = { ...ctx, productContext: { project: "audit-project", agent: "audit-agent" } };
+      await core.browser.readPage(ctx, { tabId: 7 });
+      const uploading = upload();
+      await ui.next();
+      expect(browser.uploads).toEqual([]);
+      ui.approveLast();
+      await uploading;
+      const downloading = download();
+      await ui.next();
+      expect(browser.downloads).toBe(0);
+      ui.approveLast();
+      await downloading;
+      const events = audit.events.filter(
+        (e) => e.operation === "browser.file_upload" || e.operation === "browser.download",
+      );
+      expect(events.filter((e) => e.outcome === "success")).toHaveLength(2);
+      const text = JSON.stringify(events);
+      expect(text).not.toContain(CONTENT);
+      expect(text).not.toContain("CROT-private-staging");
+      expect(text).not.toContain(dirs.workspace);
+      expect(text).toContain("fixture.txt");
+      expect(text).toContain("result.bin");
+      // A number occurring in random request IDs/digests is not evidence of recorded file sizes.
+      expect(events.find((e) => e.operation === "browser.file_upload" && e.outcome === "success")).toMatchObject({
+        details: { files: [{ path: "fixture.txt", size: Buffer.byteLength(CONTENT) }] },
+      });
+      expect(events.find((e) => e.operation === "browser.download" && e.outcome === "success")).toMatchObject({
+        details: { size: Buffer.byteLength(CONTENT) },
+      });
+      if (correlated)
+        for (const event of events)
+          expect(event.details).toMatchObject({ project: "audit-project", agent: "audit-agent" });
+    },
+  );
 });

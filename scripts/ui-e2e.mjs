@@ -16,8 +16,13 @@ import { ReleaseDownloads } from "../dist/cloud-relay/downloads.js";
 import { TRAY_ASSETS } from "../dist/tray/assets.js";
 import { PORTAL_HTML, PORTAL_CSS, PORTAL_SCRIPT, LANDING_HTML } from "../dist/account-service/portal.js";
 
+const serviceMode = process.argv.includes("--service");
+const real = serviceMode ? await (await import("./ui-service-harness.mjs")).serviceHarness() : undefined;
 const repo = fileURLToPath(new URL("../", import.meta.url));
-const artifacts = path.join(process.env.CROT_E2E_ARTIFACTS ?? path.join(repo, "artifacts"), "flagship-ui");
+const artifacts = path.join(
+  process.env.CROT_E2E_ARTIFACTS ?? path.join(repo, "artifacts"),
+  serviceMode ? "service-ui" : "flagship-ui",
+);
 await mkdir(artifacts, { recursive: true });
 const fixture = {
   workspace: "/workspace/project",
@@ -40,6 +45,8 @@ const fixture = {
   clients: [],
   pairing: { state: "unpaired", available: true, action: "pair", lines: ["user_01CANARY"] },
   commercial: { state: "current", plan: "free", status: "active", entitled: false, maxDevices: 0, deviceCount: 0 },
+  agents: { stdio: 1, httpSessions: 0, remoteClients: 0 },
+  browser: { state: "connected", name: "Chromium" },
   modules: [
     { title: "Local service", value: "Online", ready: true },
     { title: "Browser & CDP", value: "Chrome connected", ready: true },
@@ -47,21 +54,23 @@ const fixture = {
     { title: "Cloud tunnel", value: "Local mode", ready: false },
   ],
 };
-const shim = `window.fixture=${JSON.stringify(fixture)};window.actions=[];window.crot={repairL1:async()=>{window.actions.push(["repair-l1"]);return {ok:true,available:false}},onView(fn){window.render=fn},ready(){window.render(window.fixture)},decide:async(...args)=>{window.actions.push(args);return true},action:async(...args)=>{window.actions.push(args);return true}};window.chrome={runtime:{getURL:p=>'/extension/'+p,sendMessage:async(m)=>{window.actions.push(['extension',m.type]);return m.type==='crot.ui.openApp'?{ok:true}:{connection:'disconnected'}}},tabs:{create:async(o)=>{window.actions.push(['tab',o.url]);return o},query:async()=>[{status:'complete',windowId:1,groupId:-1}]},tabGroups:{query:async()=>[]}};`;
+const shim = `window.fixture=${JSON.stringify(fixture)};window.actions=[];window.crot={product:async(name,input={})=>{window.actions.push([name,input]);const p={id:'fixture-project',name:'project',path:'/workspace/project',favorite:false,tools:[],agents:[],connectors:[]};return {ok:true,...(name==='projects.list'?{projects:[p],active:p.id}:name==='connectors.list'?{connectors:[]}:name==='mcpServers.list'?{servers:[]}:name==='agents.list'?{agents:[],calls:[]}:name==='tasks.list'?{tasks:[]}:name==='monitoring.queryAudit'?{events:[]}:name==='monitoring.metrics'?{tasks:{running:0,total:0},workspace:p.id,connectedServers:0}:{})}},tool:async(name,input)=>{window.actions.push([name,input]);return {content:[{type:"text",text:JSON.stringify(name==="fs_list_directory"?{entries:[{path:"README.md",type:"file"}]}:name==="fs_stat"?{exists:true,type:"directory"}:name==="fs_read_file"?{content:"# Test project"}:name==="browser_tabs_list"?{tabs:[{id:42,title:"Test tab",url:"https://example.test"}]}:{ok:true})}]}},repairL1:async()=>{window.actions.push(["repair-l1"]);return {ok:true,available:false}},onView(fn){window.render=fn},ready(){window.render(window.fixture)},decide:async(...args)=>{window.actions.push(args);return true},action:async(...args)=>{window.actions.push(args);return true}};window.chrome={runtime:{getURL:p=>'/extension/'+p,sendMessage:async(m)=>{window.actions.push(['extension',m.type]);return m.type==='crot.ui.openApp'?{ok:true}:{connection:'disconnected'}}},tabs:{create:async(o)=>{window.actions.push(['tab',o.url]);return o},query:async()=>[{status:'complete',windowId:1,groupId:-1}]},tabGroups:{query:async()=>[]}};`;
 const inject = (html) => html.replace("<head>", '<head><script src="/ui-fixture.js"></script>');
 let origin;
 const downloads = new ReleaseDownloads({ origin: "https://relay-staging.crot.network" });
 const server = createServer((req, res) => {
   void (async () => {
     const pathname = new URL(req.url, origin).pathname;
+    if (real && (await real.handle(req, res, pathname))) return;
     if (await downloads.handle(req, res, pathname)) return;
     let body, type;
     const key = pathname === "/control-center" ? "/index.html" : pathname;
     if (Object.hasOwn(TRAY_ASSETS, key)) {
       body = TRAY_ASSETS[key].body.replaceAll("crot-tray://app", origin);
+      if (real) body = body.replace("connect-src 'none'", "connect-src 'self'"); // Test IPC bridge only; production keeps network denied.
       type = TRAY_ASSETS[key].type;
     } else if (pathname === "/ui-fixture.js") {
-      body = shim;
+      body = real ? real.shim : shim;
       type = "text/javascript";
     } else if (pathname === "/portal.css") {
       body = PORTAL_CSS;
@@ -101,7 +110,7 @@ const server = createServer((req, res) => {
       .writeHead(200, {
         "content-type": type,
         "cache-control": "no-store",
-        "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self' 'sha256-${createHash("sha256").update(PORTAL_CSS).digest("base64")}'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
+        "content-security-policy": `default-src 'none'; script-src 'self'; img-src data:; style-src 'self' 'sha256-${createHash("sha256").update(PORTAL_CSS).digest("base64")}'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
       })
       .end(body);
   })().catch(() => res.writeHead(500).end());
@@ -111,6 +120,7 @@ let browser, socket;
 try {
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   origin = `http://127.0.0.1:${server.address().port}`;
+  if (real) await real.start(origin);
   const executable = process.env.CROT_E2E_CHROME;
   if (!executable) throw new Error("CROT_E2E_CHROME must identify the qualified Chromium binary");
   browser = spawn(
@@ -179,7 +189,15 @@ try {
       } catch {
         /* navigation changes the context */
       }
-      if (Date.now() > end) throw new Error("UI condition timed out: " + expression);
+      if (Date.now() > end)
+        throw new Error(
+          "UI condition timed out: " +
+            expression +
+            "\n" +
+            JSON.stringify(
+              await evaluate("({text:document.body.innerText,errors:" + JSON.stringify(runtimeErrors) + "})"),
+            ),
+        );
       await delay(50);
     }
   }
@@ -204,163 +222,289 @@ try {
     await until("document.readyState === 'complete'");
     await delay(100);
   };
-  await size(1280, 960);
-  await navigate("/control-center");
-  await until("document.querySelectorAll('#modules article').length === 4");
-  const text = await evaluate("document.body.innerText");
-  for (const value of ["user_01CANARY", "pid 4242", "RFC 9207"])
-    assert(!text.includes(value), "technical details leaked: " + value);
-  await screenshot("dashboard");
-  await click("copy-config");
-  await evaluate(
-    "[...document.querySelectorAll('#modules button')].find(b=>b.textContent==='Install / repair L1').click()",
-  );
-  await until("actions.some(a=>a[0]==='repair-l1')");
-  await until("document.getElementById('quick-feedback').textContent.includes('not available')");
-  assert(await evaluate("actions.some(a=>a[0]==='ui.copyConfig')"), "copy config was not delegated");
-  await evaluate(
-    "window.moduleNode=document.querySelector('#modules article');window.remoteButton=document.querySelector('#remote button');remoteButton.focus();render(fixture);render(fixture)",
-  );
-  assert(
-    await evaluate(
-      "moduleNode===document.querySelector('#modules article')&&remoteButton===document.querySelector('#remote button')&&document.activeElement===remoteButton",
-    ),
-    "status polling replaced nodes or focus",
-  );
-  await evaluate("window.CrotI18n.setLanguage('ru')");
-  assert(
-    await evaluate(
-      "document.documentElement.lang==='ru'&&document.querySelector('.quick-start h2').textContent==='Быстрый старт за 3 шага'",
-    ),
-    "Russian UI not applied",
-  );
-  await screenshot("dashboard-ru");
-  await evaluate("window.CrotI18n.setLanguage('en')");
-  await evaluate(
-    "[...document.querySelectorAll('#remote button')].find(b => b.textContent === 'Turn remote mode on').click()",
-  );
-  assert(await evaluate("document.getElementById('paywall').open"), "Free remote request did not open paywall");
-  assert(!(await evaluate("actions.some(a => a[0] === 'remote.setMode')")), "UI dispatched paid enable before upgrade");
-  await screenshot("paywall");
-  await call("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-  await call("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-  await until("!document.getElementById('paywall').open");
-  for (const tab of ["capabilities", "account", "queue"]) {
-    await click("tab-" + tab);
-    assert(await evaluate(`!document.getElementById('${tab}').hidden`), tab + " did not open");
-    await screenshot(tab);
-  }
-  await evaluate(
-    "fixture.cards=[{requestId:'test-approval',title:'Write project file',banners:['OUTSIDE THE WORKSPACE'],rows:[{label:'Path',value:'/workspace/evil[U+202E]txt.exe',marks:['outside workspace'],length:32}],expiresAt:'2026-10-22T05:00:00Z'}];render(fixture)",
-  );
-  await screenshot("approval-request");
-  await evaluate("document.querySelector('#approvals button').click()");
-  assert(
-    await evaluate("actions.some(a => a[0] === 'test-approval' && a[1] === 'approve')"),
-    "approval was not delegated",
-  );
-  await click("tab-dashboard");
-  await size(390, 844);
-  await screenshot("dashboard-mobile");
-  for (const [name, pathname] of [
-    ["welcome", "/welcome"],
-    ["portal", "/portal"],
-    ["extension-welcome", "/extension/welcome.html"],
-  ]) {
+  if (real) {
+    await (
+      await import("./ui-service-scenarios.mjs")
+    ).runServiceScenarios({ real, call, evaluate, until, size, screenshot, navigate, artifacts });
+  } else {
     await size(1280, 960);
-    await navigate(pathname);
+    await navigate("/control-center");
+    await until("document.querySelectorAll('[data-section]').length===13");
     assert(
-      await evaluate("getComputedStyle(document.documentElement).backgroundColor === 'rgb(9, 9, 11)'"),
-      name + " must render the shipped Zinc theme under CSP",
+      await evaluate("!document.getElementById('auth-gate').hidden && document.getElementById('app').hidden"),
+      "first launch must show auth gate",
     );
-    await screenshot(name);
-    for (const language of ["ru", "es", "de", "zh", "en"]) {
-      await evaluate(`window.CrotI18n.setLanguage(${JSON.stringify(language)})`);
+    assert(!(await evaluate("document.getElementById('auth-gate').innerText.includes('SSO')")), "SSO must not exist");
+    for (const lang of ["en", "ru", "es", "de", "zh"]) {
+      await evaluate(`window.CrotI18n.setLanguage('${lang}')`);
+      assert(await evaluate(`document.documentElement.lang==='${lang}'`), "auth language missing: " + lang);
       assert(
-        await evaluate(`document.documentElement.lang===${JSON.stringify(language)}`),
-        "language not applied: " + language,
+        await evaluate("document.querySelectorAll('#auth-language [data-language]').length===1"),
+        "duplicate language selectors",
+      );
+      if (lang === "ru")
+        assert(
+          await evaluate("document.getElementById('work-email').placeholder==='Введите рабочую почту'"),
+          "email placeholder not localized",
+        );
+      if (lang === "en" || lang === "ru") await screenshot("auth-" + lang);
+    }
+    await evaluate("window.CrotI18n.setLanguage('en')");
+    await evaluate("document.getElementById('work-email').value='person@example.test'");
+    for (const [id, provider] of [
+      ["google", "GoogleOAuth"],
+      ["github", "GitHubOAuth"],
+      ["login", "authkit"],
+    ]) {
+      await click(id);
+      assert(
+        await evaluate(
+          `window.actions.some(a=>a[0]==='pairing.start'&&a[1]?.provider==='${provider}'&&a[1]?.login_hint==='person@example.test')`,
+        ),
+        "Auth provider routing missing: " + provider,
       );
     }
-    if (name === "extension-welcome") {
-      await click("open-app");
-      await click("refresh");
-      assert(
-        await evaluate("actions.some(a=>a[0]==='extension'&&a[1]==='crot.ui.openApp')"),
-        "welcome did not open native app",
-      );
-      await evaluate("document.querySelector('a[href*=portal]').click()");
-      assert(
-        await evaluate("actions.some(a=>a[0]==='tab'&&a[1]==='https://relay-staging.crot.network/portal')"),
-        "welcome portal target is not absolute",
-      );
+    await click("local-mode");
+    assert(
+      await evaluate("document.getElementById('auth-gate').hidden&&!document.getElementById('app').hidden"),
+      "local admission failed",
+    );
+    assert(
+      await evaluate("document.getElementById('plan-badge').textContent==='Free (Local)'"),
+      "local plan must not be unknown",
+    );
+    const text = await evaluate("document.body.innerText");
+    for (const value of ["user_01CANARY", "pid 4242", "RFC 9207"])
+      assert(!text.includes(value), "technical details leaked: " + value);
+    await navigate("/control-center");
+    assert(await evaluate("document.getElementById('auth-gate').hidden"), "local choice did not persist");
+    const sections = [
+      "Home",
+      "Projects",
+      "Agents",
+      "Connectors",
+      "MCP Servers",
+      "Browser",
+      "Files",
+      "Terminal",
+      "Git",
+      "Docker",
+      "Tasks",
+      "Monitoring",
+      "Settings",
+    ];
+    for (const lang of ["en", "ru"]) {
+      await evaluate(`window.CrotI18n.setLanguage('${lang}')`);
+      for (const section of sections) {
+        const slug = section.toLowerCase().replaceAll(" ", "-");
+        await click("nav-" + slug);
+        assert(
+          await evaluate(`document.querySelector('[data-section="${section}"]').getAttribute('aria-current')==='page'`),
+          section + " not active",
+        );
+        assert(await evaluate("document.querySelector('#page h1')!==null"), "missing page heading: " + section);
+        if (section === "Projects") {
+          assert(
+            await evaluate("document.querySelectorAll('[data-project-tab]').length===7"),
+            "project must have seven tabs",
+          );
+          for (const tab of ["Overview", "Files", "Git", "Tasks", "Agents", "Connectors", "Settings"]) {
+            await evaluate(`document.querySelector('[data-project-tab="${tab}"]').click()`);
+            assert(
+              await evaluate(
+                `document.querySelector('[data-project-tab="${tab}"]').getAttribute('aria-selected')==='true'`,
+              ),
+              "project tab failed: " + tab,
+            );
+          }
+          await evaluate("document.querySelector('[data-project-tab=Overview]').click()");
+        }
+        if (section === "Browser")
+          assert(
+            await evaluate("document.querySelectorAll('#browser-workspace>.panel').length===3"),
+            "browser must have three columns",
+          );
+        if (section === "Settings") {
+          assert(
+            await evaluate("document.querySelectorAll('[data-setting]').length===11"),
+            "settings must have eleven sections",
+          );
+          for (const setting of [
+            "General",
+            "Device & Account",
+            "Remote Access",
+            "Security",
+            "Permissions",
+            "Browser",
+            "Network",
+            "Integrations",
+            "MCP",
+            "Updates & Diagnostics",
+            "About",
+          ]) {
+            await evaluate(`document.querySelector('[data-setting="${setting}"]').click()`);
+            assert(
+              await evaluate(
+                `document.querySelector('[data-setting="${setting}"]').getAttribute('aria-selected')==='true'`,
+              ),
+              "settings navigation failed: " + setting,
+            );
+          }
+          await evaluate("document.querySelector('[data-setting=General]').click()");
+        }
+        await delay(80);
+        if (lang === "en" || ["Home", "Projects", "Connectors", "Browser", "Settings"].includes(section))
+          await screenshot(slug + "-" + lang);
+      }
     }
+    await evaluate("window.CrotI18n.setLanguage('en')");
+    await click("nav-agents");
+    await evaluate(
+      "[...document.querySelectorAll('#page button')].find(b=>b.textContent==='Copy configuration').click()",
+    );
+    assert(await evaluate("actions.some(a=>a[0]==='ui.copyConfig')"), "config copy not delegated");
+    await click("nav-home");
+    await evaluate(
+      "fixture.cards=[{requestId:'test-approval',title:'Write project file',banners:['OUTSIDE THE WORKSPACE'],rows:[{label:'Path',value:'/workspace/evil[U+202E]txt.exe',marks:['outside workspace'],length:32}],expiresAt:'2026-10-22T05:00:00Z'}];render(fixture)",
+    );
+    await screenshot("approval-request");
+    await evaluate(
+      "window.approvalButton=document.querySelector('#approvals button');approvalButton.focus();render(fixture);render(fixture)",
+    );
+    assert(
+      await evaluate(
+        "approvalButton===document.querySelector('#approvals button')&&document.activeElement===approvalButton",
+      ),
+      "polling replaced approval focus",
+    );
+    await evaluate("document.querySelector('#approvals button').click()");
+    assert(await evaluate("actions.some(a=>a[0]==='test-approval'&&a[1]==='approve')"), "approval not delegated");
+    await click("nav-settings");
+    await evaluate("document.querySelector('[data-setting=Security]').click()");
+    await evaluate(
+      "[...document.querySelectorAll('#page button')].find(b=>b.textContent==='Enable Full Control').click()",
+    );
+    assert(
+      await evaluate("document.getElementById('action-dialog').open"),
+      "dangerous change must require confirmation",
+    );
+    assert(
+      !(await evaluate("actions.some(a=>a[0]==='remote.setFullControl')")),
+      "dangerous change dispatched before confirmation",
+    );
+    await evaluate("[...document.querySelectorAll('#action-dialog button')].find(b=>b.textContent==='Cancel').click()");
+    await click("nav-home");
     await size(390, 844);
-    await screenshot(name + "-mobile");
+    await screenshot("home-mobile");
+    await evaluate("document.getElementById('menu-toggle').click()");
+    assert(
+      await evaluate("getComputedStyle(document.getElementById('navigation')).display!=='none'"),
+      "mobile navigation inaccessible",
+    );
+    await click("nav-browser");
+    await screenshot("browser-mobile");
+    await size(1280, 960);
+    for (const [name, pathname] of [
+      ["welcome", "/welcome"],
+      ["portal", "/portal"],
+      ["extension-welcome", "/extension/welcome.html"],
+    ]) {
+      await size(1280, 960);
+      await navigate(pathname);
+      assert(
+        await evaluate("getComputedStyle(document.documentElement).backgroundColor === 'rgb(9, 9, 11)'"),
+        name + " must render the shipped Zinc theme under CSP",
+      );
+      await screenshot(name);
+      for (const language of ["ru", "es", "de", "zh", "en"]) {
+        await evaluate(`window.CrotI18n.setLanguage(${JSON.stringify(language)})`);
+        assert(
+          await evaluate(`document.documentElement.lang===${JSON.stringify(language)}`),
+          "language not applied: " + language,
+        );
+      }
+      if (name === "extension-welcome") {
+        await click("open-app");
+        await click("refresh");
+        assert(
+          await evaluate("actions.some(a=>a[0]==='extension'&&a[1]==='crot.ui.openApp')"),
+          "welcome did not open native app",
+        );
+        await evaluate("document.querySelector('a[href*=portal]').click()");
+        assert(
+          await evaluate("actions.some(a=>a[0]==='tab'&&a[1]==='https://relay-staging.crot.network/portal')"),
+          "welcome portal target is not absolute",
+        );
+      }
+      await size(390, 844);
+      await screenshot(name + "-mobile");
+    }
+    const attachment = await globalThis.fetch(origin + "/download/linux");
+    assert(
+      attachment.status === 200 && attachment.headers.get("content-disposition").includes("attachment"),
+      "download endpoint must return an installer attachment",
+    );
+    const installer = await attachment.text();
+    assert(
+      installer.includes("/download/bundle/linux") && installer.includes("checksum mismatch"),
+      "bootstrap must verify a real release bundle",
+    );
+    await size(380, 520);
+    await navigate("/extension/popup.html");
+    await until("document.getElementById('connection').textContent === 'Desktop App Not Detected'");
+    assert(
+      await evaluate(
+        "[document.documentElement,document.body].every(e=>e.getBoundingClientRect().width===380&&e.getBoundingClientRect().height===520)",
+      ),
+      "popup geometry differs from 380x520",
+    );
+    await evaluate("window.popupNode=document.getElementById('connection')");
+    await click("refresh");
+    await delay(100);
+    assert(
+      await evaluate(
+        "popupNode===document.getElementById('connection')&&document.body.getBoundingClientRect().height===520",
+      ),
+      "popup refresh replaced skeleton or size",
+    );
+    for (const id of ["open-app", "account", "download", "guide"]) await click(id);
+    await delay(100);
+    assert(
+      await evaluate("actions.some(a=>a[0]==='extension'&&a[1]==='crot.ui.openApp')"),
+      "popup native app action missing",
+    );
+    assert(
+      await evaluate("actions.some(a=>a[0]==='tab'&&a[1]==='https://relay-staging.crot.network/portal')"),
+      "popup account target missing",
+    );
+    assert(
+      await evaluate("actions.some(a=>a[0]==='tab'&&a[1]==='https://relay-staging.crot.network/download/linux')"),
+      "installer button must target the real absolute OS download route",
+    );
+    await screenshot("popup");
+    await evaluate("window.CrotI18n.setLanguage('ru')");
+    assert(
+      await evaluate("document.getElementById('open-app').textContent==='Открыть приложение CROT'"),
+      "Russian popup action missing",
+    );
+    await screenshot("popup-ru");
+    await evaluate("window.CrotI18n.setLanguage('en')");
+    assert(runtimeErrors.length === 0, "browser exceptions: " + runtimeErrors.join(", "));
+    await writeFile(
+      path.join(artifacts, "verification.json"),
+      JSON.stringify(
+        {
+          status: "passed",
+          scope:
+            "real Chromium rendering with owner IPC and extension status fixtures; not live provider or native installer qualification",
+        },
+        null,
+        2,
+      ),
+    );
   }
-  const attachment = await globalThis.fetch(origin + "/download/linux");
-  assert(
-    attachment.status === 200 && attachment.headers.get("content-disposition").includes("attachment"),
-    "download endpoint must return an installer attachment",
-  );
-  const installer = await attachment.text();
-  assert(
-    installer.includes("/download/bundle/linux") && installer.includes("checksum mismatch"),
-    "bootstrap must verify a real release bundle",
-  );
-  await size(380, 520);
-  await navigate("/extension/popup.html");
-  await until("document.getElementById('connection').textContent === 'Desktop App Not Detected'");
-  assert(
-    await evaluate(
-      "[document.documentElement,document.body].every(e=>e.getBoundingClientRect().width===380&&e.getBoundingClientRect().height===520)",
-    ),
-    "popup geometry differs from 380x520",
-  );
-  await evaluate("window.popupNode=document.getElementById('connection')");
-  await click("refresh");
-  await delay(100);
-  assert(
-    await evaluate(
-      "popupNode===document.getElementById('connection')&&document.body.getBoundingClientRect().height===520",
-    ),
-    "popup refresh replaced skeleton or size",
-  );
-  for (const id of ["open-app", "account", "download", "guide"]) await click(id);
-  await delay(100);
-  assert(
-    await evaluate("actions.some(a=>a[0]==='extension'&&a[1]==='crot.ui.openApp')"),
-    "popup native app action missing",
-  );
-  assert(
-    await evaluate("actions.some(a=>a[0]==='tab'&&a[1]==='https://relay-staging.crot.network/portal')"),
-    "popup account target missing",
-  );
-  assert(
-    await evaluate("actions.some(a=>a[0]==='tab'&&a[1]==='https://relay-staging.crot.network/download/linux')"),
-    "installer button must target the real absolute OS download route",
-  );
-  await screenshot("popup");
-  await evaluate("window.CrotI18n.setLanguage('ru')");
-  assert(
-    await evaluate("document.getElementById('open-app').textContent==='Открыть приложение CROT'"),
-    "Russian popup action missing",
-  );
-  await screenshot("popup-ru");
-  await evaluate("window.CrotI18n.setLanguage('en')");
-  assert(runtimeErrors.length === 0, "browser exceptions: " + runtimeErrors.join(", "));
-  await writeFile(
-    path.join(artifacts, "verification.json"),
-    JSON.stringify(
-      {
-        status: "passed",
-        scope:
-          "real Chromium rendering with owner IPC and extension status fixtures; not live provider or native installer qualification",
-      },
-      null,
-      2,
-    ),
-  );
 } finally {
+  await real?.close();
   socket?.close();
   if (browser && browser.exitCode === null) {
     const done = new Promise((resolve) => browser.once("exit", resolve));
