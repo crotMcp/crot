@@ -157,6 +157,7 @@ export interface PairingRow {
 }
 
 export interface TrayView {
+  readonly accountSignedIn?: boolean;
   readonly agents?: ControlOverview["agents"];
   readonly browser?: ControlOverview["browser"];
   readonly workspace?: string;
@@ -306,6 +307,7 @@ export function trayView(state: TrayState): TrayView {
     ...(o?.mcpArgs ? { mcpArgs: o.mcpArgs } : {}),
     ...(o?.workspace ? { workspace: o.workspace } : {}),
     ...(o?.commercial ? { commercial: o.commercial } : {}),
+    accountSignedIn: o?.accountSignedIn === true,
     ...(o?.pairing.device?.resourceUri ? { resourceUri: o.pairing.device.resourceUri } : {}),
     ...(o?.pairing.environment ? { portalUrl: `https://${o.pairing.environment.relayHost}/portal` } : {}),
     modules: [

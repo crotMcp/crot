@@ -226,58 +226,29 @@ try {
     await (
       await import("./ui-service-scenarios.mjs")
     ).runServiceScenarios({ real, call, evaluate, until, size, screenshot, navigate, artifacts });
+  } else if (process.argv.includes("--onboarding")) {
+    await (
+      await import("./ui-onboarding-scenarios.mjs")
+    ).runOnboardingScenarios({ evaluate, until, size, screenshot, navigate, assert });
+    if (runtimeErrors.length) throw new Error(JSON.stringify(runtimeErrors));
   } else {
-    await size(1280, 960);
-    await navigate("/control-center");
-    await until("document.querySelectorAll('[data-section]').length===13");
-    assert(
-      await evaluate("!document.getElementById('auth-gate').hidden && document.getElementById('app').hidden"),
-      "first launch must show auth gate",
+    await (
+      await import("./ui-onboarding-scenarios.mjs")
+    ).runOnboardingScenarios({ evaluate, until, size, screenshot, navigate, assert });
+    const route = async (name) => {
+      const slug = name.toLowerCase().replaceAll(" ", "-");
+      if (
+        !(await evaluate(`!!document.getElementById('nav-${slug}')&&!document.getElementById('nav-${slug}').hidden`))
+      ) {
+        if (!(await evaluate(`!!document.getElementById('tool-${slug}')`))) await click("nav-projects");
+        await click("tool-" + slug);
+      } else await click("nav-" + slug);
+    };
+    await evaluate(
+      "window.CrotI18n.setLanguage('en');const s=document.getElementById('global-search');s.value='GitHub';s.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))",
     );
-    assert(!(await evaluate("document.getElementById('auth-gate').innerText.includes('SSO')")), "SSO must not exist");
-    for (const lang of ["en", "ru", "es", "de", "zh"]) {
-      await evaluate(`window.CrotI18n.setLanguage('${lang}')`);
-      assert(await evaluate(`document.documentElement.lang==='${lang}'`), "auth language missing: " + lang);
-      assert(
-        await evaluate("document.querySelectorAll('#auth-language [data-language]').length===1"),
-        "duplicate language selectors",
-      );
-      if (lang === "ru")
-        assert(
-          await evaluate("document.getElementById('work-email').placeholder==='Введите рабочую почту'"),
-          "email placeholder not localized",
-        );
-      if (lang === "en" || lang === "ru") await screenshot("auth-" + lang);
-    }
-    await evaluate("window.CrotI18n.setLanguage('en')");
-    await evaluate("document.getElementById('work-email').value='person@example.test'");
-    for (const [id, provider] of [
-      ["google", "GoogleOAuth"],
-      ["github", "GitHubOAuth"],
-      ["login", "authkit"],
-    ]) {
-      await click(id);
-      assert(
-        await evaluate(
-          `window.actions.some(a=>a[0]==='pairing.start'&&a[1]?.provider==='${provider}'&&a[1]?.login_hint==='person@example.test')`,
-        ),
-        "Auth provider routing missing: " + provider,
-      );
-    }
-    await click("local-mode");
-    assert(
-      await evaluate("document.getElementById('auth-gate').hidden&&!document.getElementById('app').hidden"),
-      "local admission failed",
-    );
-    assert(
-      await evaluate("document.getElementById('plan-badge').textContent==='Free (Local)'"),
-      "local plan must not be unknown",
-    );
-    const text = await evaluate("document.body.innerText");
-    for (const value of ["user_01CANARY", "pid 4242", "RFC 9207"])
-      assert(!text.includes(value), "technical details leaked: " + value);
-    await navigate("/control-center");
-    assert(await evaluate("document.getElementById('auth-gate').hidden"), "local choice did not persist");
+    await until("document.querySelector('#action-dialog .search-result')?.textContent.includes('GitHub')");
+    await evaluate("document.getElementById('action-dialog').close()");
     const sections = [
       "Home",
       "Projects",
@@ -297,9 +268,11 @@ try {
       await evaluate(`window.CrotI18n.setLanguage('${lang}')`);
       for (const section of sections) {
         const slug = section.toLowerCase().replaceAll(" ", "-");
-        await click("nav-" + slug);
+        await route(section);
         assert(
-          await evaluate(`document.querySelector('[data-section="${section}"]').getAttribute('aria-current')==='page'`),
+          await evaluate(
+            `(document.getElementById('tool-${slug}')||document.getElementById('nav-${slug}')).getAttribute('aria-current')==='page'`,
+          ),
           section + " not active",
         );
         assert(await evaluate("document.querySelector('#page h1')!==null"), "missing page heading: " + section);
@@ -367,6 +340,7 @@ try {
     await evaluate(
       "fixture.cards=[{requestId:'test-approval',title:'Write project file',banners:['OUTSIDE THE WORKSPACE'],rows:[{label:'Path',value:'/workspace/evil[U+202E]txt.exe',marks:['outside workspace'],length:32}],expiresAt:'2026-10-22T05:00:00Z'}];render(fixture)",
     );
+    await click("notifications");
     await screenshot("approval-request");
     await evaluate(
       "window.approvalButton=document.querySelector('#approvals button');approvalButton.focus();render(fixture);render(fixture)",
@@ -379,7 +353,8 @@ try {
     );
     await evaluate("document.querySelector('#approvals button').click()");
     assert(await evaluate("actions.some(a=>a[0]==='test-approval'&&a[1]==='approve')"), "approval not delegated");
-    await click("nav-settings");
+    await evaluate("document.getElementById('action-dialog').close()");
+    await route("Settings");
     await evaluate("document.querySelector('[data-setting=Security]').click()");
     await evaluate(
       "[...document.querySelectorAll('#page button')].find(b=>b.textContent==='Enable Full Control').click()",
@@ -394,16 +369,17 @@ try {
     );
     await evaluate("[...document.querySelectorAll('#action-dialog button')].find(b=>b.textContent==='Cancel').click()");
     await click("nav-home");
-    await size(390, 844);
-    await screenshot("home-mobile");
-    await evaluate("document.getElementById('menu-toggle').click()");
+    await size(1180, 780);
+    await screenshot("home-minimum-desktop");
     assert(
-      await evaluate("getComputedStyle(document.getElementById('navigation')).display!=='none'"),
-      "mobile navigation inaccessible",
+      await evaluate(
+        "document.documentElement.scrollHeight<=document.documentElement.clientHeight&&document.querySelectorAll('#navigation>[data-section]').length===5",
+      ),
+      "minimum desktop viewport failed",
     );
-    await click("nav-browser");
-    await screenshot("browser-mobile");
-    await size(1280, 960);
+    await route("Browser");
+    await screenshot("browser-minimum-desktop");
+    await size(1280, 820);
     for (const [name, pathname] of [
       ["welcome", "/welcome"],
       ["portal", "/portal"],

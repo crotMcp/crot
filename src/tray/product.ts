@@ -40,3 +40,6 @@ export const CONNECTORS = [
   ["Slack", "Productivity"],
   ["Custom HTTP API", "Custom API"],
 ] as const;
+
+/** Five primary destinations. Tools remain available through contextual navigation. */
+export const PRIMARY_SECTIONS = ["Home", "Projects", "Agents", "Connectors", "Permissions"] as const;

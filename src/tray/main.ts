@@ -148,11 +148,11 @@ function showWindow(): void {
 function createWindow(): void {
   rendererReady = false;
   window = new BrowserWindow({
-    width: 1100,
+    width: 1280,
     height: 820,
-    minWidth: 420,
-    minHeight: 560,
-    backgroundColor: "#09090B",
+    minWidth: 1180,
+    minHeight: 780,
+    backgroundColor: "#F8FAFC",
     show: false,
     title: "CROT Control Center",
     autoHideMenuBar: true,
@@ -277,11 +277,11 @@ async function runAction(name: unknown, params: unknown): Promise<boolean> {
       clipboard.writeText(view.resourceUri);
       return true;
     }
-    if (name === "ui.openPortal" || name === "ui.openInstall") {
+    if (name === "ui.openPortal" || name === "ui.openInstall" || name === "ui.startTrial") {
       const target = new URL(view.portalUrl ?? "https://relay-staging.crot.network/portal");
       if (target.protocol !== "https:" || target.username || target.password) return false;
       target.pathname = "/portal";
-      target.search = "";
+      target.search = name === "ui.startTrial" ? "?intent=trial&provider=authkit" : "";
       target.hash = name === "ui.openInstall" ? "install" : "";
       await shell.openExternal(target.href);
       return true;

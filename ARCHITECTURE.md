@@ -5207,3 +5207,36 @@ AD-20 installation separation is retained pending a qualified, consented install
 helper. A repair guide is not a working one-click installer. Likewise, a packaged
 setup guide is not a downloadable signed release. These remain open acceptance
 criteria, not successful checks.
+
+### AD-41 — Reference-driven desktop onboarding and verified plan handoff
+
+The owner requested a fixed light desktop surface with three first-launch stages:
+authentication, plan selection and Home. Window defaults are 1280 × 820 and the
+minimum is 1180 × 780. Old fragments and saved local-mode preferences cannot skip
+this sequence. Only five destinations appear in primary navigation; all existing
+tool routes remain reachable through contextual navigation. Window scrollbars
+are forbidden; long tool and approval contents retain bounded internal scrolling
+so security subjects are never clipped to satisfy a screenshot.
+
+Account authentication is not Relay registration. Pairing reports a presentation-only
+signal after all JWT, issuer, audience, time and native-client checks, before Relay
+registration. Service retains only a short expiry (not token/profile); owner overview
+exposes a boolean. This admits the tariff screen for a Free account even when Relay
+refuses device registration. It grants no binding, principal, entitlement or capabilities.
+The signal expires within ten minutes and never later than the verified token.
+Existing paired devices may explicitly continue through the welcome screen.
+
+`ui.startTrial` accepts no renderer parameters and opens only the configured first-party
+HTTPS portal with a fixed trial intent. The portal carries this intent through its
+existing state/PKCE verification, then invokes the existing card-backed trial route.
+Checkout opening does not activate Pro. An unpaired device must complete explicit
+subscription verification/pairing; Home admission for Trial waits for paired-device
+state plus current verified commercial entitlement. Free admission remains local
+and does not cancel an existing paid subscription. No renderer network is added.
+
+The shared public catalog advertises USD 3/month and seven trial days. Cloud Checkout
+verifies the configured Stripe Pro price is active USD 300 cents/month before creating
+a session, failing closed on stale pricing. No live Stripe price or deployed config
+is changed by this source patch. Existing verified subscriptions are not rewritten.
+Advertised local feature tiers are presentation, not a new local Core policy engine;
+this change does not revoke existing local projects or connectors based on billing.

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { SECTIONS, PROJECT_TABS, SETTINGS, CONNECTORS } from "../../src/tray/product.js";
+import { SECTIONS, PROJECT_TABS, SETTINGS, CONNECTORS, PRIMARY_SECTIONS } from "../../src/tray/product.js";
 import { TRAY_ASSETS, TRAY_CSP } from "../../src/tray/assets.js";
 import { UI_TOOLS, validateUiTool } from "../../src/tray/tool-client.js";
 import { TOOLS } from "../../src/adapters/mcp/tools.js";
 
 describe("Control Center product architecture", () => {
   it("has thirteen distinct sections, seven project tabs and eleven settings sections", () => {
+    expect(PRIMARY_SECTIONS).toEqual(["Home", "Projects", "Agents", "Connectors", "Permissions"]);
     expect(SECTIONS).toHaveLength(13);
     expect(new Set(SECTIONS).size).toBe(13);
     expect(PROJECT_TABS).toHaveLength(7);
@@ -26,6 +27,15 @@ describe("Control Center product architecture", () => {
     expect(TRAY_CSP).toContain("img-src data:");
     expect(() => new Function(TRAY_ASSETS["/renderer.js"]!.body)).not.toThrow();
     expect(TRAY_ASSETS["/renderer.js"]!.body).not.toMatch(/innerHTML|insertAdjacentHTML|eval\(/);
+  });
+  it("ships three startup stages with bounded desktop geometry and offline branding", () => {
+    const html = TRAY_ASSETS["/index.html"]!.body,
+      css = TRAY_ASSETS["/app.css"]!.body;
+    for (const id of ["auth-gate", "plan-gate"]) expect(html).toContain('id="' + id + '"');
+    expect(TRAY_ASSETS["/renderer.js"]!.body).toContain("choose-free");
+    expect(css).toContain("html,body,#app{width:100vw;height:100vh;overflow:hidden}");
+    expect(html).toContain("data:image/svg+xml,");
+    expect(html).not.toContain('class="brand-mark" aria-hidden="true">C');
   });
   it("allows only fixed Core tool names and reuses Core schemas", () => {
     for (const name of UI_TOOLS) expect(TOOLS.some((t) => t.name === name)).toBe(true);
