@@ -409,8 +409,25 @@ async function smoke(file: string): Promise<void> {
   while (Date.now() < deadline && !(rendererReady && view.connection === "connected" && view.cards.length > 0))
     await wait(100);
   await wait(300);
-  // Explicit smoke harness admission only; never decides approvals or calls tools.
-  if (window) await window.webContents.executeJavaScript(`document.getElementById("local-mode").click()`);
+  // Exercise the same guest onboarding and notification controls as a user.
+  // This harness never decides approvals or calls tools; production startup is unchanged.
+  const onboarding = window
+    ? await window.webContents.executeJavaScript(`(() => {
+        const visible = id => !document.getElementById(id).hidden;
+        const stages = { auth: visible("auth-gate") };
+        if (!stages.auth) throw new Error("Smoke test must start at Auth");
+        document.getElementById("local-mode").click();
+        stages.plans = visible("plan-gate") && !visible("app");
+        if (!stages.plans) throw new Error("Guest continuation must open Plans");
+        document.getElementById("choose-free").click();
+        stages.home = visible("app") && !visible("plan-gate") && !visible("auth-gate");
+        if (!stages.home) throw new Error("Choosing Free must open Home");
+        document.getElementById("notifications").click();
+        stages.approvals = document.getElementById("action-dialog").open;
+        if (!stages.approvals) throw new Error("Notifications must open the approvals dialog");
+        return stages;
+      })()`)
+    : undefined;
   const page = window
     ? ((await window.webContents.executeJavaScript(
         `({
@@ -420,7 +437,8 @@ async function smoke(file: string): Promise<void> {
           text: document.body.innerText,
           nodeVisible: typeof require !== "undefined" || typeof process !== "undefined",
           api: Object.keys(window.crot || {}).sort(),
-          links: document.querySelectorAll("a, img, iframe, script:not([src])").length,
+          links: document.querySelectorAll("a, iframe, script:not([src])").length,
+          images: [...document.querySelectorAll("img")].map(image => image.getAttribute("src")),
         })`,
       )) as Record<string, unknown>)
     : undefined;
@@ -429,6 +447,7 @@ async function smoke(file: string): Promise<void> {
     platform: process.platform,
     connection: view.connection,
     viewCards: view.cards.length,
+    onboarding,
     page,
   };
   await writeFile(file, `${JSON.stringify(report, null, 2)}\n`);

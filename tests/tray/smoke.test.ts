@@ -10,6 +10,8 @@ import { createPrivateFileProtection } from "../../src/core/platform/private-fil
 import { ControlClient } from "../../src/service/control-client.js";
 import type { ControlOverview } from "../../src/service/protocol.js";
 import { CrotService } from "../../src/service/service.js";
+import { BRAND_ICONS } from "../../src/ui/brand-icons.js";
+import { mascotData } from "../../src/ui/mascot.js";
 import { isWindows, makeTempDirs, testContext, waitFor, type TempDirs } from "../helpers.js";
 
 /**
@@ -146,13 +148,22 @@ describe.skipIf(launch.problem !== undefined && !onCi)("WP-22: Electron tray smo
     child.stderr.on("data", (d) => (output += String(d)));
     const code = await new Promise<number | null>((resolve) => child.on("exit", resolve));
     const parsed = JSON.parse(await readFile(report, "utf8").catch(() => `{"missing":${JSON.stringify(output)}}`));
-    expect(parsed, output).toMatchObject({ connection: "connected", viewCards: 1 });
+    expect(parsed, output).toMatchObject({
+      connection: "connected",
+      viewCards: 1,
+      onboarding: { auth: true, plans: true, home: true, approvals: true },
+    });
     expect(code).toBe(0);
     const page = parsed.page as Record<string, unknown>;
     expect(page.cards).toBe(1);
     expect(page.nodeVisible).toBe(false);
     expect(page.api).toEqual(["action", "decide", "onView", "product", "ready", "repairL1", "tool"]);
     expect(page.links).toBe(0);
+    // The new UI uses bundled images, never arbitrary remote or approval-provided markup.
+    const allowedImages = new Set([mascotData(), mascotData(true), ...Object.values(BRAND_ICONS)]);
+    expect(page.images).toBeInstanceOf(Array);
+    expect((page.images as string[]).length).toBeGreaterThan(0);
+    for (const image of page.images as string[]) expect(allowedImages.has(image)).toBe(true);
     expect(page.headline).toBe("1 request waiting for your approval");
     expect(page.text).toContain("evil[U+202E]txt.exe");
 
