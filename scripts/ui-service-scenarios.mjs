@@ -16,8 +16,17 @@ export async function runServiceScenarios({ real, evaluate, until, size, screens
       `(()=>{const el=Array.from(document.querySelectorAll('label')).find(l=>l.querySelector('span')?.textContent===${JSON.stringify(label)})?.querySelector('input,textarea');if(!el)throw Error('Missing field');el.value=${JSON.stringify(value)};el.dispatchEvent(new Event('input',{bubbles:true}));})()`,
     );
   const section = async (name) => {
-    await evaluate(`document.querySelector('[data-section="${name}"]').click()`);
-    await until(`document.querySelector('[data-section="${name}"]').getAttribute('aria-current')==='page'`);
+    const slug = name.toLowerCase().replaceAll(" ", "-");
+    if (await evaluate(`!!document.getElementById('nav-${slug}')`))
+      await evaluate(`document.getElementById('nav-${slug}').click()`);
+    else {
+      if (!(await evaluate(`!!document.getElementById('tool-${slug}')`)))
+        await evaluate("document.getElementById('nav-projects').click()");
+      await evaluate(`document.getElementById('tool-${slug}').click()`);
+    }
+    await until(
+      `(document.getElementById('tool-${slug}')||document.getElementById('nav-${slug}')).getAttribute('aria-current')==='page'`,
+    );
   };
   const confirm = async () => {
     await click("Confirm", "dialog button");
@@ -28,6 +37,7 @@ export async function runServiceScenarios({ real, evaluate, until, size, screens
   await until("document.getElementById('auth-gate')&&!document.getElementById('auth-gate').hidden");
   await screenshot("01-auth-real-service");
   await click("Continue without an account");
+  await click("Choose Free");
   await until("!document.getElementById('app').hidden");
   await until("document.querySelector('#project-select option')?.textContent");
   await screenshot("02-home-real-service");

@@ -974,6 +974,7 @@ export class ControlCenter implements RemoteAdmission {
     return {
       ...(this.host.mcpArgs ? { mcpArgs: this.host.mcpArgs } : {}),
       commercial: this.host.identity.commercialStatus(),
+      accountSignedIn: this.host.identity.signedInHere(),
       service: {
         state: status.state,
         pid: status.pid,

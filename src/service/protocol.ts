@@ -222,6 +222,8 @@ export interface CommercialStatus {
   readonly checkedAt?: number;
 }
 export interface ControlOverview {
+  /** Owner UI presentation only: verified account sign-in, not device/remote entitlement. */
+  readonly accountSignedIn?: boolean;
   readonly mcpArgs?: readonly string[];
   /** Informational cloud metadata; never local authorization. Offline is unknown, not denied. */
   readonly commercial?: CommercialStatus;

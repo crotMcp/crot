@@ -1,5 +1,6 @@
 /** Provider credentials remain on the cloud host. No Core or device dependency. */
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { PLAN_CATALOG } from "./catalog.js";
 import type { AuthorizationRevoker, SubscriptionStatus } from "./service.js";
 export interface SubscriptionUpdate {
   eventId: string;
@@ -65,6 +66,31 @@ export class StripeBillingProvider implements BillingProvider {
       throw new Error("invalid billing configuration");
   }
   async checkout(accountId: string, plan: "trial" | "pro" | "team"): Promise<string> {
+    // Do not advertise $3 and silently send an operator's stale $15 price to Checkout.
+    // The cloud verifies the live price; the device cannot supply an amount or price ID.
+    if (plan === "pro" || plan === "trial") {
+      const price = (await providerJson(
+        "https://api.stripe.com/v1/prices/" + this.options.prices.pro,
+        this.options.secretKey,
+        { method: "GET" },
+        this.options.fetch ?? fetch,
+      )) as {
+        id?: unknown;
+        active?: unknown;
+        unit_amount?: unknown;
+        currency?: unknown;
+        recurring?: { interval?: unknown; interval_count?: unknown };
+      };
+      if (
+        price.id !== this.options.prices.pro ||
+        price.active !== true ||
+        price.unit_amount !== PLAN_CATALOG.pro.monthlyUsdCents ||
+        price.currency !== PLAN_CATALOG.pro.currency ||
+        price.recurring?.interval !== PLAN_CATALOG.pro.interval ||
+        price.recurring?.interval_count !== 1
+      )
+        throw new Error("configured Pro price must be USD 3 per month");
+    }
     const fields = new URLSearchParams({
       mode: "subscription",
       "line_items[0][price]": this.options.prices[plan === "trial" ? "pro" : plan],
@@ -75,7 +101,7 @@ export class StripeBillingProvider implements BillingProvider {
     });
     if (plan === "trial") {
       fields.set("payment_method_collection", "always");
-      fields.set("subscription_data[trial_period_days]", "7");
+      fields.set("subscription_data[trial_period_days]", String(PLAN_CATALOG.pro.trialDays));
       fields.set("subscription_data[metadata][crot_trial]", "7-day-card");
       fields.set("subscription_data[trial_settings][end_behavior][missing_payment_method]", "cancel");
     }

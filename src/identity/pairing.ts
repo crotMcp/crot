@@ -76,6 +76,8 @@ export interface PairingFlowOptions extends SignInOptions {
   readonly now?: () => number;
   /** Register the device at the relay after the token passed every check (AD-22 point 4). */
   readonly register?: PairingRegistration;
+  /** Presentation-only sign-in signal, after every token/client check. Never remote admission. */
+  readonly onAuthenticated?: (expiresAtSeconds: number) => void;
 }
 
 export interface PairingFlow {
@@ -195,6 +197,7 @@ export async function startPairing(options: PairingFlowOptions): Promise<Pairing
     });
     if (!checked.ok) return { ok: false, reason: "token_rejected", detail: checked.reason };
     if (checked.token.clientId !== env.pairing.clientId) return { ok: false, reason: "client_mismatch" };
+    options.onAuthenticated?.(checked.token.expiresAt);
     if (options.register) {
       let registered: Awaited<ReturnType<PairingRegistration>>;
       try {

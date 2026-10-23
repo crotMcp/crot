@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { discoverAuthorizationServer } from "../../src/identity/authorization-server.js";
 import { canonicalDeviceUri, generateDeviceId } from "../../src/identity/device-id.js";
 import { IssuerKeySet } from "../../src/identity/jwks.js";
-import { startPairing, type PairingFlow, type SignInOptions } from "../../src/identity/pairing.js";
+import { startPairing, type PairingFlow, type PairingFlowOptions } from "../../src/identity/pairing.js";
 import { PAIRING_CLIENT, TestAuthorizationServer } from "./test-authorization-server.js";
 
 /**
@@ -11,10 +11,7 @@ import { PAIRING_CLIENT, TestAuthorizationServer } from "./test-authorization-se
  * RFC 8707 resource; the token is verified like a remote request's.
  */
 
-async function begin(
-  as: TestAuthorizationServer,
-  overrides: SignInOptions & { timeoutMs?: number } = {},
-): Promise<PairingFlow> {
+async function begin(as: TestAuthorizationServer, overrides: Partial<PairingFlowOptions> = {}): Promise<PairingFlow> {
   const http = as.http();
   const metadata = await discoverAuthorizationServer(as.issuer, http);
   const keys = new IssuerKeySet({ issuer: as.issuer, http });
@@ -35,6 +32,27 @@ async function get(url: string): Promise<number> {
 }
 
 describe("pairing", () => {
+  it("reports verified account sign-in even when Relay refuses registration, without pairing", async () => {
+    const as = new TestAuthorizationServer(),
+      onAuthenticated = vi.fn();
+    const flow = await begin(as, {
+      onAuthenticated,
+      register: async () => ({ ok: false, detail: "entitlement_required" }),
+    });
+    await get(as.authorize(flow.authorizationUrl, { sub: "free_account" }).redirect);
+    expect(await flow.outcome).toMatchObject({ ok: false, reason: "relay_registration_failed" });
+    expect(onAuthenticated).toHaveBeenCalledTimes(1);
+    expect(onAuthenticated.mock.calls[0]?.[0]).toBeGreaterThan(Date.now() / 1000);
+  });
+  it("does not report account sign-in for an unverified callback", async () => {
+    const as = new TestAuthorizationServer(),
+      onAuthenticated = vi.fn();
+    const flow = await begin(as, { onAuthenticated });
+    await get(as.authorize(flow.authorizationUrl, { sub: "u", iss: "https://evil.example" }).redirect);
+    expect(await flow.outcome).toMatchObject({ ok: false, reason: "issuer_mismatch" });
+    expect(onAuthenticated).not.toHaveBeenCalled();
+  });
+
   it.each(["authkit", "GoogleOAuth", "GitHubOAuth"] as const)(
     "routes %s and login_hint without changing PKCE",
     async (provider) => {

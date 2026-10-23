@@ -24,7 +24,17 @@ function fixture(overrides: object = {}) {
   };
   const fetcher = vi.fn(async (input: string | URL | Request, _init?: RequestInit) =>
     Response.json(
-      String(input).includes("checkout/sessions") ? { url: "https://checkout.stripe.com/test" } : subscription,
+      String(input).includes("/prices/")
+        ? {
+            id: "price_pro",
+            active: true,
+            unit_amount: 300,
+            currency: "usd",
+            recurring: { interval: "month", interval_count: 1 },
+          }
+        : String(input).includes("checkout/sessions")
+          ? { url: "https://checkout.stripe.com/test" }
+          : subscription,
     ),
   );
   const provider = new StripeBillingProvider({
@@ -43,7 +53,7 @@ describe("Card-backed seven-day trial", () => {
     const account = new AccountService({ now: () => now });
     await provider.checkout("user_trial", "trial");
     expect(account.snapshot("user_trial").entitled).toBe(false);
-    const init = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    const init = fetcher.mock.calls[1] as unknown as [string, RequestInit];
     const form = new URLSearchParams(init[1].body as string);
     expect(form.get("payment_method_collection")).toBe("always");
     expect(form.get("subscription_data[trial_period_days]")).toBe("7");

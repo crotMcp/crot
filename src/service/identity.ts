@@ -56,6 +56,11 @@ export class DeviceIdentity {
   private readonly keys: IssuerKeySet | undefined;
   private readonly http: IdentityHttp;
   private flow: PairingFlow | undefined;
+  private signedInUntil = 0;
+  /** UI presentation only. Does not establish a binding, entitlement or Core principal. */
+  signedInHere(): boolean {
+    return !!this.pairedHere() || this.signedInUntil > (this.options.now ?? Date.now)();
+  }
   private registration: Promise<unknown> | undefined;
   private recovery: Promise<boolean> = Promise.resolve(true);
   private readonly rejections = new Map<TokenRejection, number>();
@@ -150,6 +155,10 @@ export class DeviceIdentity {
       http: this.http,
       keys: this.keys,
       deviceId,
+      onAuthenticated: (expiresAt) => {
+        const now = (this.options.now ?? Date.now)();
+        this.signedInUntil = Math.min(expiresAt * 1000, now + 10 * 60_000);
+      },
       register: (accessToken) => {
         const run = async () => {
           await this.options.binding.prepareRegistration(deviceId, seed, environment.relayHost);
@@ -298,6 +307,7 @@ export class DeviceIdentity {
   }
 
   cancelPairing(): boolean {
+    this.signedInUntil = 0;
     if (!this.flow) return false;
     this.flow.cancel();
     return true;
