@@ -70,10 +70,13 @@ export class ControlClient {
   request(method: ControlMethod, params?: Readonly<Record<string, unknown>>): Promise<unknown> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.waiting.delete(id);
-        reject(new ChannelError("timeout", `The CROT service did not answer '${method}'.`));
-      }, REQUEST_TIMEOUT_MS);
+      const timer = setTimeout(
+        () => {
+          this.waiting.delete(id);
+          reject(new ChannelError("timeout", `The CROT service did not answer '${method}'.`));
+        },
+        /^(projects|connectors|mcpServers|tasks|monitoring|agents)\./.test(method) ? 180000 : REQUEST_TIMEOUT_MS,
+      );
       this.waiting.set(id, {
         resolve: (v) => {
           clearTimeout(timer);

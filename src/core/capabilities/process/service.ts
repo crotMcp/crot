@@ -129,7 +129,7 @@ export class ProcessService {
         cwd: cwd.absolute,
         env,
       });
-      return this.runForeground(launcher, spec, cwd, env, args.stdin, timeoutMs, encoding);
+      return this.runForeground(launcher, spec, cwd, env, args.stdin, timeoutMs, encoding, context.signal);
     });
   }
 
@@ -151,8 +151,51 @@ export class ProcessService {
       const launcher = this.launcherFor(context);
       await assertDirectory(cwd);
       const spec = this.deps.platform.shells.command(args.script, shell);
-      return this.runForeground(launcher, spec, cwd, this.env(args.env), args.stdin, timeoutMs, encoding);
+      return this.runForeground(
+        launcher,
+        spec,
+        cwd,
+        this.env(args.env),
+        args.stdin,
+        timeoutMs,
+        encoding,
+        context.signal,
+      );
     });
+  }
+
+  /** Service-owned MCP transport: same guard, environment and L1 launcher as commands. */
+  async openTransport(
+    context: AuthContext,
+    input: { command: string; args: string[]; cwd: string },
+  ): Promise<ManagedProcess> {
+    const cwd = await this.deps.workspace.resolve(input.cwd);
+    return this.deps.guard.run(
+      context,
+      {
+        operation: "process.start",
+        capability: ["process.manage", "shell.execute"],
+        paths: [cwd],
+        details: { transport: "mcp", command: input.command },
+      },
+      async () => {
+        this.assertOpen();
+        if (this.runningCount() + this.foreground.size >= this.deps.limits.maxBackgroundProcesses)
+          throw new CrotError("LIMIT_EXCEEDED", "Too many managed processes");
+        const launcher = this.launcherFor(context);
+        await assertDirectory(cwd);
+        const env = this.env(undefined);
+        const spec = await launcher.resolveCommand(input.command, input.args, { cwd: cwd.absolute, env });
+        const proc = await launcher.launch(spec, { cwd: cwd.absolute, env, stdin: true });
+        if (this.closing) {
+          await proc.terminate("force");
+          throw shuttingDown();
+        }
+        this.foreground.add(proc);
+        void proc.exited.finally(() => this.foreground.delete(proc));
+        return proc;
+      },
+    );
   }
 
   /** Start a long-running background process (dev server, watcher, ...). */
@@ -393,13 +436,20 @@ export class ProcessService {
     stdin: string | undefined,
     timeoutMs: number,
     encoding: ResolvedEncoding,
+    signal?: AbortSignal,
   ): Promise<ExecResult> {
     const started = Date.now();
     const proc = await launcher.launch(spec, { cwd: cwd.absolute, env, stdin: stdin !== undefined });
     this.foreground.add(proc);
+    const abort = () => {
+      void proc.terminate("force");
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
     try {
       return await this.collectForeground(proc, started, stdin, timeoutMs, encoding);
     } finally {
+      signal?.removeEventListener("abort", abort);
       this.foreground.delete(proc);
     }
   }

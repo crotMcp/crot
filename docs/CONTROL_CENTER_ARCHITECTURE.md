@@ -22,7 +22,7 @@ service shutdown or remote Git operations. Input size is bounded to 256 KiB befo
 schema parsing. Core still owns workspace/secret boundaries, confinement, capability
 authorization, approval requirements and audit. This is not an owner policy bypass.
 
-The preload adds exactly one method, `tool(name, input)`. Sender-frame checks and
+AD-39 added `tool(name, input)`; AD-40 adds fixed `product(name, input)`. Sender-frame checks and
 smoke-mode denial cover it. Closing the tray closes its MCP client. The SDK transport
 uses the already-running service; service configuration mismatches fail closed.
 A lost connection discards the MCP client, including its exposure scope; the next
@@ -34,45 +34,72 @@ MCP image blocks with an allowlisted image MIME type. Untrusted results, filenam
 DOM snapshots and approval subjects are text nodes, never HTML. Clipboard actions
 still originate in main and never accept arbitrary renderer clipboard bytes.
 
-## Information architecture and actual capability scope
+## AD-40: service-owned product runtime and owner-only administration
 
-- **Auth:** first-run gate, email validation, no SSO, five-language selection,
-  remembered local admission and `Free (Local)`. The local gate is a preference,
-  not an authentication or security boundary. Paired device state comes from the
-  service, never localStorage. Account buttons open the fixed hosted portal;
-  provider-specific Google/GitHub routing and email prefill are **not implemented**.
-  No email or credential is stored by this UI. Real provider login remains external
-  qualification and is not claimed by screenshots or fixture E2E.
-- **Home:** service-derived health, four next actions, recent projects/session
-  events and complete approval subjects. No settings or diagnostic output.
-- **Projects:** local project registry, search/favorites, configured workspace
-  context, guarded directory inspection/creation, seven detail tabs. It is not a
-  multi-Core workspace manager: projects cannot expand service authorization.
-- **Agents:** generated local-client configuration, paired remote URL, real session
-  counts and registered remote-client revoke/re-grant. Local per-session disconnect,
-  per-agent editors and provider account details are not exposed by the service.
-- **Connectors:** searchable, category-filtered catalog with honest Roadmap labels.
-  All ten entries are planned; no fabricated connection or credential forms.
-  Connector runtimes, SecretStore bindings, scopes and project grants remain open.
-- **MCP Servers:** explicitly separate from Agents; external stdio/HTTP/SSE gateway
-  remains planned rather than pretending CROT already manages external servers.
-- **Browser:** three-column tabs/snapshot/inspection workspace; ordinary guarded
-  bridge calls for tabs, snapshots, screenshots, refs, forms and dialogs. No embedded
-  live browser or invented OS profile switching. Download/upload management remains
-  in Core; a dedicated UI for those workflows remains open.
-- **Files:** real directory listing and file read/write via FilesystemService.
-- **Terminal:** real background process start/output/stop through ProcessService.
-- **Git:** status/diff/log/branches/commit via GitService; network actions disabled.
-- **Docker:** guarded workspace ps/logs/Compose up/down via DockerService.
-- **Tasks / Monitoring:** metadata for operations in this UI session, not a global
-  durable job engine or full historical audit explorer. No command/credential/request
-  content is placed in monitoring event records. Native diagnostic copy remains the
-  existing status-summary action; it is not an export of tool results.
-- **Settings:** eleven navigable sections; real control-channel preset, pairing,
-  remote mode and Full Control actions, plus language/theme and service-policy
-  inspection. Unsupported policy editors/autostart/update actions are explained,
-  not represented as working toggles. Dangerous changes require a modal confirmation;
-  their existing service-side audit behavior is preserved.
+The authenticated owner channel now accepts a fixed, strictly validated product RPC
+allowlist (`product-protocol.ts`). These are **owner configuration and lifecycle**
+commands, not a tool endpoint available to MCP clients. External connector probes and
+MCP lifecycle/calls are explicit owner operations; each effect still uses Core's
+ExecutionGuard, capabilities, network policy, workspace confinement, approvals and L1.
+There is no general command/network escape on the owner channel. Workspace screens
+continue through the ordinary local MCP client described in AD-39.
+
+- **Auth:** `pairing.start` and the hosted portal carry validated `login_hint` and
+  explicit `authkit`, `GoogleOAuth` or `GitHubOAuth` provider parameters. PKCE,
+  state, issuer and device binding are unchanged. No SSO button. Real provider
+  completion requires configured AuthKit applications and external credentials;
+  automated checks verify routing and protocol behavior, not production sign-in.
+- **Projects:** service-private persistent registry, create/open/select/favorites,
+  removal from registry (never recursive deletion), tool/agent/connector settings.
+  Owner registration explicitly grants the selected directory as the service's
+  workspace. Selection rebuilds Core only while idle and retains a single audit
+  file across workspaces. Files/Terminal/Git/Docker use the selected Core, not a
+  renderer path pretending to expand authorization.
+- **Agents:** server-created connection identities (verified account/device/client
+  triples remotely; server-owned local session IDs), project/browser/rate grants,
+  sanitized calls, disconnect/revoke. Enforcement is inside ExecutionGuard and
+  repeated after approval. Local session identity is not cryptographic application
+  identity: a reconnect is a new session for the same OS owner. No claim of process
+  identity isolation between applications sharing the owner account.
+- **Connectors:** real fixed provider probes for GitHub, GitLab, ElevenLabs,
+  YouTube, TikTok, Notion, Drive and Slack; guarded custom HTTP and local FFmpeg.
+  Credentials are encrypted using AES-256-GCM; the encryption key is held in
+  SecretStore and migrates with its backend. Metadata includes configured state,
+  scopes/grants, HTTP status, check time and latency, never plaintext keys.
+  `Disconnect` disables locally; `Revoke` erases the local credential. Provider-side
+  token revocation/consent and arbitrary provider business operations are not
+  implied by local credential removal or a successful identity probe. Requested
+  scopes are configuration metadata, not proof the provider granted them.
+- **External MCP:** SDK client with guarded stdio pipes (normal L1 launcher and
+  filtered environment) or guarded Streamable HTTP JSON requests. Discovery of
+  tools/resources, JSON-schema input validation, default-deny tool policies and
+  bounded sanitized connection logs. Metadata/results mark untrusted exposure via
+  `mcp.call`; effectful calls still need normal capabilities/approvals. The HTTP
+  adapter is bounded request/response JSON, **not a claimed long-lived SSE client**.
+- **Tasks:** durable bounded metadata (latest 500), real process IDs and cancellation,
+  encrypted local replay inputs (8 MiB total retained budget), retry in the original local identity and selected
+  project with current policy re-evaluated. Remote OAuth requests are not replayed
+  as owner. Interrupted tasks are marked on restart. Progress is lifecycle state
+  (0/100), not invented intermediate percentages. Non-process adapters can only be
+  interrupted at their supported cancellation boundaries; cancellation cannot undo
+  completed external effects. Task results are not stored as plaintext request logs.
+- **Monitoring:** streaming active `audit.jsonl`, time/project/agent/type filters,
+  service/task metrics and sanitized report export. Service-created identifiers
+  remain in audit records after task retention expires. UI reports use an explicit
+  field allowlist: no headers, request/response bodies, command text or arbitrary
+  error strings. Electron main alone chooses and writes the report path through
+  a native save dialog; the renderer supplies neither a file path nor report bytes.
+- **Existing sections:** Browser remains the real three-column bridge workspace;
+  Files, Terminal, Git and Docker retain existing guarded services. Remote Git
+  operations, OS browser-profile switching and native installer qualification are
+  not fabricated by this product runtime. Settings retains eleven subsections,
+  working controls and honest explanations of platform-managed configuration.
+
+`product-state.json` and `product-vault.enc` are owner-private and Core
+secret paths; encrypted credentials and replay payloads never appear in RPC listings.
+MCP command arguments are owner configuration and should not be used to embed secrets;
+HTTP bearer credentials belong in the dedicated encrypted token field. SecretStore's
+product encryption key is deliberately excluded from blind identity-key rotation.
 
 ## Visual and localization scope
 
@@ -98,3 +125,18 @@ without SSO, local-choice persistence, 13 routes × EN/RU, 7 project tabs × EN/
 dangerous-change confirmation and narrow layouts. Screenshots are test artifacts,
 not release or production qualification. Existing browser-bridge E2E and Electron
 smoke tests remain separate gates. Do not infer CI 11/11 from local check success.
+
+## Real-service Chromium integration gate
+
+`node scripts/ui-e2e.mjs --service` serves the shipped assets with a **test-only**
+HTTP replacement for Electron IPC. The harness starts an isolated actual CrotService,
+uses authenticated ControlClient and the ordinary TrayToolClient, and never returns
+fixture project/task/audit data. Only this test page changes CSP connect-src to self;
+production renderer networking remains denied. It verifies project creation and
+workspace selection, actual disk file writes, Git status, terminal execution, a real
+local connector HTTP probe, child MCP discovery, cancellation and filtered audit.
+The provider HTTP endpoint and child MCP server are controlled peers, not a fake
+CrotService. `tests/service/product-runtime.test.ts` additionally covers SDK HTTP
+roundtrips, default-deny/schema enforcement, per-agent restrictions, retry, encrypted
+storage and daemon restart. Live provider accounts and OS installers remain separate
+operational qualification. CI status must be checked on the exact PR head.

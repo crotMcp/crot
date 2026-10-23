@@ -54,7 +54,9 @@ export type ServiceToShim =
   | { readonly t: "log"; readonly line: string }
   | { readonly t: "bye"; readonly reason: string };
 
+import { PRODUCT_METHODS, parseProduct, type ProductMethod } from "./product-protocol.js";
 export const CONTROL_METHODS = [
+  ...PRODUCT_METHODS,
   "ping",
   "status",
   "shutdown",
@@ -89,8 +91,22 @@ export type ControlRequest =
   | {
       readonly t: "request";
       readonly id: number;
+      readonly method: ProductMethod;
+      readonly params: Readonly<Record<string, unknown>>;
+    }
+  | {
+      readonly t: "request";
+      readonly id: number;
+      readonly method: "pairing.start";
+      readonly params?: import("../identity/pairing.js").SignInOptions;
+    }
+  | {
+      readonly t: "request";
+      readonly id: number;
       readonly method: Exclude<
         ControlMethod,
+        | ProductMethod
+        | "pairing.start"
         | "approvals.decide"
         | "preset.set"
         | "remote.setMode"
@@ -368,7 +384,24 @@ export function parseControlRequest(value: unknown): ControlRequest | undefined 
   const params = value.params;
   if (params !== undefined && !isRecord(params)) return undefined;
   const p = params ?? {};
+  if ((PRODUCT_METHODS as string[]).includes(method)) {
+    const parsed = parseProduct(method, p);
+    return parsed ? { t: "request", id, method: method as ProductMethod, params: parsed } : undefined;
+  }
   switch (method as ControlMethod) {
+    case "pairing.start": {
+      if (!onlyKeys(p, ["provider", "login_hint"])) return undefined;
+      if (p.provider !== undefined && !["authkit", "GoogleOAuth", "GitHubOAuth"].includes(p.provider as string))
+        return undefined;
+      if (
+        p.login_hint !== undefined &&
+        (typeof p.login_hint !== "string" ||
+          p.login_hint.length > 254 ||
+          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.login_hint))
+      )
+        return undefined;
+      return { t: "request", id, method: "pairing.start", params: p as import("../identity/pairing.js").SignInOptions };
+    }
     case "approvals.decide": {
       if (!onlyKeys(p, ["requestId", "decision", "subjectDigest"])) return undefined;
       if (typeof p.requestId !== "string" || p.requestId.length === 0 || p.requestId.length > MAX_REQUEST_ID_LENGTH)

@@ -10,6 +10,7 @@
  * `--smoke-test=<file>` renders once, writes a JSON report and quits; it
  * never decides anything.
  */
+import { parseProduct, type ProductMethod } from "../service/product-protocol.js";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +18,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -228,6 +230,19 @@ function clientKey(p: Record<string, unknown>): { accountId: string; deviceId: s
 async function runAction(name: unknown, params: unknown): Promise<boolean> {
   // Fixed owner-UI actions only. Renderer never supplies an external URL or clipboard bytes.
   if (typeof name === "string" && name.startsWith("ui.") && isRecord(params) && Object.keys(params).length === 0) {
+    if (name === "ui.exportDiagnostics") {
+      if (smokeReport || !window) return false;
+      const result = await controller.product("monitoring.exportReport", {});
+      if (!isRecord(result) || result.ok !== true || !isRecord(result.report)) return false;
+      const choice = await dialog.showSaveDialog(window, {
+        title: "Export diagnostics",
+        defaultPath: "crot-diagnostics.json",
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (choice.canceled || !choice.filePath) return false;
+      await writeFile(choice.filePath, JSON.stringify(result.report, null, 2), { mode: 0o600 });
+      return true;
+    }
     if (name === "ui.openWorkspace") {
       if (!view.workspace || !path.isAbsolute(view.workspace)) return false;
       return (await shell.openPath(view.workspace)) === "";
@@ -296,7 +311,7 @@ async function runAction(name: unknown, params: unknown): Promise<boolean> {
       return key ? controller.regrantClient(key) : false;
     }
     case "pairing.start":
-      return controller.startPairing();
+      return controller.startPairing(params);
     case "pairing.cancel":
       return controller.cancelPairing();
     case "device.unpair":
@@ -310,6 +325,22 @@ let repairingL1 = false;
 let toolClient: TrayToolClient | undefined;
 
 function registerIpc(): void {
+  ipcMain.handle("product", async (event, method: unknown, input: unknown) => {
+    if (
+      smokeReport ||
+      !fromTray(event) ||
+      typeof method !== "string" ||
+      JSON.stringify(input ?? {}).length > 256 * 1024
+    )
+      return { ok: false, message: "Invalid request" };
+    const params = parseProduct(method, input);
+    if (!params) return { ok: false, message: "Invalid request" };
+    try {
+      return await controller.product(method as ProductMethod, params);
+    } catch {
+      return { ok: false, message: "Request refused. Check service policy and connection." };
+    }
+  });
   ipcMain.handle("tool", async (event, name: unknown, input: unknown) => {
     if (
       smokeReport ||

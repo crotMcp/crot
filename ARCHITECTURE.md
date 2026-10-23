@@ -42,7 +42,7 @@ Remote requests derive principal facts from verified RS256/JWKS tokens, exact is
 
 ## 6. Service, secrets and tray
 
-`src/service/` owns lifecycle, secret-store abstraction, local control, exposure and device state. `src/tray/` is a separate owner UI on authenticated control IPC, not a second executor. Workspace screens use a separate ordinary local MCP client through the existing shim and ExecutionGuard; the control channel still executes no tools. See [AD-39](docs/CONTROL_CENTER_ARCHITECTURE.md). Its actual actions include Approve/Reject, presets, remote controls, Pair/Unpair and revocation. There is no Add client or general uninstall/purge UI.
+`src/service/` owns lifecycle, secret-store abstraction, local control, exposure and device state. `src/tray/` is a separate owner UI on authenticated control IPC, not a second executor. Workspace screens use a separate ordinary local MCP client through the existing shim and ExecutionGuard; workspace execution stays on the ordinary MCP path. Fixed owner product administration and guarded outbound integration lifecycle are described in AD-40; there is no arbitrary owner tool RPC. See [AD-39/AD-40](docs/CONTROL_CENTER_ARCHITECTURE.md). Its actual actions include Approve/Reject, presets, remote controls, Pair/Unpair and revocation. There is no Add client or general uninstall/purge UI.
 
 The label “Ask for every action” refers to approval-gated effects in exposed sessions, not every read. Capability authorization still runs; local/remote policies differ as specified by AD-12/15/23. Presets do not create a new permission system.
 

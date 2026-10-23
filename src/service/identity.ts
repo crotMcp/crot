@@ -21,7 +21,7 @@ import type { IdentityEnvironment } from "../identity/environment.js";
 import { createIdentityHttp, type IdentityHttp } from "../identity/http.js";
 import { IssuerKeySet } from "../identity/jwks.js";
 import { devicePublicKey, deviceKeyFromSeed } from "../identity/device-credential.js";
-import { startPairing, type PairingFlow, type PairingOutcome } from "../identity/pairing.js";
+import { startPairing, type SignInOptions, type PairingFlow, type PairingOutcome } from "../identity/pairing.js";
 import {
   deregisterDeviceAtRelay,
   registerDeviceAtRelay,
@@ -130,7 +130,10 @@ export class DeviceIdentity {
    * Start a pairing for a new device id. `onOutcome` runs once when the user
    * signed in (or the flow failed, timed out or was cancelled).
    */
-  async startPairing(onOutcome: (outcome: PairingOutcome, deviceId: string) => void): Promise<PendingPairing> {
+  async startPairing(
+    onOutcome: (outcome: PairingOutcome, deviceId: string) => void,
+    signIn: SignInOptions = {},
+  ): Promise<PendingPairing> {
     if (!this.environment || !this.keys) throw new Error(this.unavailableReason ?? "no identity environment");
     if (this.flow) return this.pending!;
     await this.recovery;
@@ -141,6 +144,7 @@ export class DeviceIdentity {
     const seed = generateSecret();
     const publicKey = devicePublicKey(deviceKeyFromSeed(seed));
     const flow = await startPairing({
+      ...signIn,
       environment,
       metadata,
       http: this.http,

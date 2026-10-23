@@ -24,6 +24,7 @@ describe("Control Center product architecture", () => {
     expect(TRAY_CSP).not.toMatch(/unsafe-inline|unsafe-eval|https:/);
     expect(TRAY_CSP).toContain("connect-src 'none'");
     expect(TRAY_CSP).toContain("img-src data:");
+    expect(() => new Function(TRAY_ASSETS["/renderer.js"]!.body)).not.toThrow();
     expect(TRAY_ASSETS["/renderer.js"]!.body).not.toMatch(/innerHTML|insertAdjacentHTML|eval\(/);
   });
   it("allows only fixed Core tool names and reuses Core schemas", () => {

@@ -37,7 +37,7 @@ export const BROWSER_FILE_UPLOAD_OPERATION = "browser.file_upload";
 
 /**
  * Operations whose successful result carries externally controlled content.
- * External MCP results will be added here (AD-12 point 9).
+ * External MCP metadata/results are included by AD-40 (AD-12 point 9).
  */
 export const EXPOSURE_SOURCES: readonly string[] = Object.freeze([
   "browser.page_read",
@@ -45,6 +45,7 @@ export const EXPOSURE_SOURCES: readonly string[] = Object.freeze([
   "browser.snapshot",
   "browser.tabs_list",
   "network.request",
+  "mcp.call",
 ]);
 
 const DOCKER_COMPOSE_RULE: ApprovalRule = Object.freeze({

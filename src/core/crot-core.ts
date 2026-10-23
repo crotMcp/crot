@@ -99,6 +99,7 @@ export const CORE_VERSION = "0.1.0";
 const SHUTDOWN_DRAIN_MS = 2_000;
 
 export interface CrotCoreOptions {
+  readonly additionalAuthorization?: (context: import("./auth/principal.js").AuthContext, operation: string) => void;
   /** Override the audit sink derived from configuration (embedding, tests). */
   readonly auditSink?: AuditSink;
   /** Receives audit sink failures. Defaults to a message on stderr. */
@@ -296,6 +297,7 @@ export class CrotCore {
     for (const provider of options.approvalProviders ?? []) approvalBroker.register(provider);
     const exposure = options.exposure ?? new ExposureTracker(remoteExposure ? { remote: remoteExposure } : {});
     const guard = new ExecutionGuard(permissions, audit, {
+      ...(options.additionalAuthorization ? { additionalAuthorization: options.additionalAuthorization } : {}),
       approvals: approvalBroker,
       exposure,
       // Step 4 of a gated operation: every path must still resolve to the same place.

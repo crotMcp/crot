@@ -52,6 +52,7 @@ export const KNOWN_OPERATIONS: readonly string[] = [
   "git.log",
   "git.show",
   "git.status",
+  "mcp.call",
   "network.request",
   "network.resolve",
   "process.exec",

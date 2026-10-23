@@ -60,7 +60,12 @@ export type PairingRegistration = (
   accountId: string,
 ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly detail: string }>;
 
-export interface PairingFlowOptions {
+export interface SignInOptions {
+  readonly provider?: "GoogleOAuth" | "GitHubOAuth" | "authkit";
+  readonly login_hint?: string;
+}
+
+export interface PairingFlowOptions extends SignInOptions {
   readonly environment: IdentityEnvironment;
   readonly metadata: AuthorizationServerMetadata;
   readonly http: IdentityHttp;
@@ -131,6 +136,8 @@ export async function startPairing(options: PairingFlowOptions): Promise<Pairing
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("resource", resource);
+  if (options.provider) url.searchParams.set("provider", options.provider);
+  if (options.login_hint) url.searchParams.set("login_hint", options.login_hint);
   const now = options.now ?? Date.now;
   const timeoutMs = options.timeoutMs ?? DEFAULT_PAIRING_TIMEOUT_MS;
 

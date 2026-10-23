@@ -14,12 +14,19 @@ import { CrotError } from "../../core/errors.js";
  * shown and never rotated by `crot-mcp secrets rotate` (a new key needs a new
  * pairing, so the CROT cloud learns it).
  */
-export const SECRET_NAMES = ["service-token", "control-token", "browser-token", "http-token", "device-key"] as const;
+export const SECRET_NAMES = [
+  "service-token",
+  "control-token",
+  "browser-token",
+  "http-token",
+  "device-key",
+  "product-key",
+] as const;
 export type SecretName = (typeof SECRET_NAMES)[number];
 
 /** Secrets `crot-mcp secrets rotate` may replace (the device key changes only by pairing). */
 export const ROTATABLE_SECRET_NAMES: readonly SecretName[] = Object.freeze(
-  SECRET_NAMES.filter((n) => n !== "device-key"),
+  SECRET_NAMES.filter((n) => n !== "device-key" && n !== "product-key"),
 );
 
 export function isSecretName(value: string): value is SecretName {
