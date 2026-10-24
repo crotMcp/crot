@@ -334,3 +334,30 @@ Ordinary source pushes succeeded. Running the documented native command locally
 is not evidence that the standalone job ran remotely. macOS/Windows dialogs and
 port discovery, native L1 application-secret enforcement with owner grants/revoke,
 and complete-Stage-A remote CI remain gates. No PR was merged; B/C remain unstarted.
+
+
+## AD-51 native project ports — pending cross-platform qualification
+
+Adds Darwin libproc creation/UID checks + fixed absolute-path lsof commands,
+and Windows owner-PID TCP tables, same-owner SID checks, process creation time
+and bounded read-only CurrentDirectory observation. The existing process guard
+runs first. No command-line/environment read, port scan, remote connection or
+new authorizer is introduced. Unknown/changed metadata is incomplete, not free.
+
+Linux observations before the final cancellation regression addition:
+
+- Complete npm run check passed: 197 main files / 2,285 tests passed,
+  27 files / 219 tests skipped; extension 15 files / 196 tests passed.
+- Complete Chromium E2E: 10 files; 58 passed / 3 platform placeholders skipped.
+- UI + axe: 81 checks / 29 screenshots; zero failures or page errors.
+- Native chooser did not run: xvfb-run was absent in the current environment.
+  This is a failed environment precondition, not a passed chooser check.
+
+GUI dependencies were restored afterwards. Review also found a late cancellation
+window in the new native observer; checks after awaited identity/cwd reads now
+refuse publication, with a dedicated final-recheck abort test. The final focused
+regression run passed 2 files / 18 tests. Complete checks and native chooser must
+be rerun on this final source. A Draft PR is for actual existing macOS/Windows CI,
+not a claim that parser fixtures qualify those APIs or Stage A is complete.
+General project-secret L1 enforcement and explicit owner access/revocation remain
+unimplemented; B/C remain unstarted. No merge is performed.

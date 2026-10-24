@@ -5564,3 +5564,39 @@ a language-driven rerender, releases the response and checks the result. It then
 navigates away/back without another request, switches workspaces and checks cache
 invalidation, and verifies that a subsequent explicit inspection makes exactly
 one new request. No production IPC method or authorization path is added.
+
+
+### AD-51. Native same-owner project TCP observation, not cwd inference
+
+The process.project_ports guard remains the sole authorization entry. NativeHost
+now supplies an optional read-only Platform observer on macOS/Windows. Core's
+Linux /proc implementation remains the fallback; no renderer/native direct RPC,
+actor-selected command, debug privilege or network probe is added.
+
+Darwin uses fixed /usr/sbin/lsof NUL field output for TCP listeners/current
+working directory, and libproc proc_pidinfo(PROC_PIDTBSDINFO) for effective UID
+and microsecond kernel creation identity. No shell, PATH lookup, environment or
+command-line inspection is used. Windows uses GetExtendedTcpTable owner-PID
+listener rows, a read-only process handle, equal owner-token SIDs and kernel
+creation FILETIME. It admits only a native 64-bit process ABI; bounded
+ReadProcessMemory follows PBI.PebBaseAddress, PEB.ProcessParameters and the
+CurrentDirectory UNICODE_STRING only. Executable location and .NET WorkingDirectory
+are not guesses for the real cwd. WOW64/emulated or inaccessible processes remain
+unobserved/partial. Windows libraries other than kernel32 KnownDLL are loaded
+from GetSystemDirectoryW, not the project directory or actor PATH.
+
+The shared observer canonicalizes cwd, excludes outside/sibling-prefix roots,
+intersects a second listener table, then rechecks creation identity and cwd before
+publishing. Limits are 128 listener PIDs, 512 unique returned listeners, bounded
+native tables/output, and a three-second observation deadline/cancellation signal.
+Errors and incompleteness report partial/unavailable, never fabricated free ports.
+This is point-in-time evidence, not a permission decision, live guarantee or L1
+secret protection. Foreign/unreadable process metadata is never returned to UI.
+
+Pure parser/identity, PID reuse, changed cwd, closed listener, cap, cancellation
+and guard-before-platform tests run on every host. The existing actual listener
+integration is enabled on macOS/Windows as well as Linux and exercises the real
+native bindings directly before the guarded Core result. Linux tests do not
+qualify the other OS ABIs; a green native CI run is still required before claiming
+the macOS/Windows observer qualified. General project-secret L1 enforcement and
+complete Stage A acceptance remain separate gates.

@@ -43,16 +43,18 @@ No B/C work or merge is authorized by this progress record.
   without repeating a guarded Core operation. Workspace changes discard its bounded
   snapshot; only an explicit owner inspection refreshes it. See AD-50.
 
-## Still required before Stage A acceptance / PR #5
+## Still required before Stage A acceptance
 
 - **General application-secret protection is not implemented at the L1 process
   boundary. Do not rely on this branch to protect arbitrary project `.env`,
   `*.pem` or `*.key` files from child commands.** Existing CROT service-secret
   protection remains distinct. Explicit owner access/revocation must also be
   implemented, not represented by a decorative UI control.
-- Native macOS/Windows folder-picker smoke and project-owned port observation.
-  Their current port result is explicitly unavailable; Linux
-  results are point-in-time evidence, not proof that unlisted ports are free.
+- Native macOS/Windows folder-picker smoke and actual-OS qualification of the
+  new project-owned port observers (AD-51). Darwin uses libproc identity and fixed
+  lsof fields; Windows uses owner-PID TCP tables and bounded same-owner cwd reads.
+  Linux parser tests do not qualify either native ABI. Results are point-in-time
+  evidence, never proof that unlisted ports are free.
 - Final complete-Stage-A native qualification and observed green remote CI for
   the final candidate SHA. Local checks and Chromium's test-only IPC bridge do
   not qualify macOS/Windows Electron dialogs, native L1 on other OSes or GitHub CI.
@@ -61,8 +63,9 @@ The real-service connect → task → owner approval → audit integration and s
 Chromium chat → real CrotService → inline approval → actual write → audit journey
 pass. The same UI also verifies project-persistent approval and a later action
 without another request, and real manifest inspection. No live provider/Relay
-account is claimed qualified by local fixtures. B/C remain unstarted; PR #5 is
-not yet opened and no PR was merged by the agent.
+account is claimed qualified by local fixtures. B/C remain unstarted. A Draft PR is being prepared solely to run the existing
+cross-platform CI; it is not Stage A acceptance or a request to merge. No PR was
+merged by the agent.
 
 See [verification](VERIFICATION.md) for observed command results and explicit
 qualification limits. This is not

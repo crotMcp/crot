@@ -1,10 +1,14 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { MemoryAuditSink } from "../../src/core/audit/audit.js";
 import { procListeners } from "../../src/core/capabilities/projects/ports.js";
+import { loadPortFfi } from "../../src/native-host/project-ports/ffi.js";
+import { bindMacosPorts } from "../../src/native-host/project-ports/macos.js";
+import { bindWindowsPorts } from "../../src/native-host/project-ports/windows.js";
+import { NativeHost } from "../../src/native-host/native-host.js";
 import { RuntimePermissionState } from "../../src/core/permissions/runtime.js";
 import { TestProvider } from "../approval-provider.js";
 import { createTestCore, makeTempDirs, testContext as ctx } from "../helpers.js";
@@ -146,15 +150,38 @@ describe("guarded project inspection", () => {
     }
   });
 
-  it.runIf(process.platform === "linux")(
+  it.runIf(["linux", "darwin", "win32"].includes(process.platform))(
     "finds an actual workspace listener, excludes another cwd and does not invent closed ports",
     async () => {
       const dirs = await makeTempDirs();
-      const core = await createTestCore({ workspace: { root: dirs.workspace }, permissions: { mode: "full_control" } });
+      const native = await NativeHost.start({
+        startupPath: "inherited",
+        confinement: false,
+        jobObjects: false,
+        windowsAcl: false,
+      });
+      const core = await createTestCore(
+        { workspace: { root: dirs.workspace }, permissions: { mode: "full_control" } },
+        undefined,
+        { platform: native.platform },
+      );
       const own = await listener(dirs.workspace),
         outside = await listener(dirs.outside);
       let closed = false;
       try {
+        if (process.platform !== "linux") {
+          const ffi = await loadPortFfi();
+          const api = process.platform === "darwin" ? bindMacosPorts(ffi) : bindWindowsPorts(ffi);
+          const signal = new AbortController().signal;
+          const metadata = await api.process(own.child.pid!, signal);
+          expect(metadata).not.toBeNull();
+          expect(await realpath(metadata!.cwd)).toBe(dirs.workspace);
+          expect(await api.listeners(signal)).toContainEqual({
+            pid: own.child.pid,
+            address: "127.0.0.1",
+            port: own.port,
+          });
+        }
         const result = await core.inspectProject(ctx);
         expect(result.ports.status).not.toBe("unavailable");
         expect(result.ports.listeners).toContainEqual({ pid: own.child.pid, address: "127.0.0.1", port: own.port });
@@ -166,6 +193,7 @@ describe("guarded project inspection", () => {
         if (!closed) await own.close();
         await outside.close();
         await core.shutdown();
+        await native.close();
         await dirs.cleanup();
       }
     },

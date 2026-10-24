@@ -365,6 +365,18 @@ export interface CommandConfinement {
   open(scope: ConfinementScope): Promise<CoreConfinement>;
 }
 
+/** Read-only OS evidence; never a network permission or proof of free ports. */
+export interface ProjectPort {
+  pid: number;
+  address: string;
+  port: number;
+}
+export interface ProjectPorts {
+  status: "observed" | "partial" | "unavailable";
+  scope: "same-user-workspace-cwd";
+  listeners: ProjectPort[];
+  notes: string[];
+}
 export interface Platform {
   readonly info: PlatformInfo;
   readonly paths: PathRules;
@@ -382,4 +394,6 @@ export interface Platform {
    * platform (reported as `not_implemented`).
    */
   readonly confinement?: CommandConfinement;
+  /** Caller must authorize process.project_ports through ExecutionGuard first. */
+  readonly observeProjectPorts?: (root: string, signal?: AbortSignal) => Promise<ProjectPorts>;
 }

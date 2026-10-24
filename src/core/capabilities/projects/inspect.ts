@@ -70,7 +70,7 @@ export async function inspectProject(core: CrotCore, context: AuthContext) {
       paths: [target],
       details: { observation: "same-user-workspace-cwd", transport: "tcp" },
     },
-    () => observeProjectPorts(core.workspace.root, context.signal),
+    () => (core.platform.observeProjectPorts ?? observeProjectPorts)(core.workspace.root, context.signal),
   );
   return { workspace: core.workspace.root, observedAt: new Date().toISOString(), manifests, ports };
 }

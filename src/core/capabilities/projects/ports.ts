@@ -3,17 +3,8 @@ import { open, readdir, readlink, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { CrotError } from "../../errors.js";
 
-export interface ProjectPort {
-  pid: number;
-  address: string;
-  port: number;
-}
-export interface ProjectPorts {
-  status: "observed" | "partial" | "unavailable";
-  scope: "same-user-workspace-cwd";
-  listeners: ProjectPort[];
-  notes: string[];
-}
+import type { ProjectPort, ProjectPorts } from "../../platform/types.js";
+export type { ProjectPort, ProjectPorts } from "../../platform/types.js";
 const MAX_BYTES = 1024 * 1024;
 const MAX_PIDS = 8192;
 const MAX_PROJECT_PIDS = 128;
