@@ -5377,3 +5377,45 @@ only**, not a replacement for Relay OAuth or a new full-access credential.
 Application-secret globs at the L1 boundary, stack/port discovery, provider chat,
 attachments/streaming/tool calls and project-persistent approval grants remain
 Stage A acceptance gates. Domain remains `crot.network` / `mcp.crot.network`.
+
+### AD-45 — Guarded provider streaming and transient owner chat (Stage A)
+
+This supersedes AD-43/44's unimplemented-chat description only. It does not close
+project grants, project discovery or application-secret L1 enforcement gates.
+
+1. The existing Core NetworkService accepts an optional trusted in-process stream
+   observer. No MCP/IPC schema accepts callbacks. DNS pinning, destination policy,
+   redirect rules, response limits, cancellation and audit remain on the same
+   ExecutionGuard path. Observer errors close the response; cancellation wins even
+   when delivered during the final data callback. Chat disables redirects, so
+   provider credentials cannot follow a redirect to a different destination.
+2. Owner-only provider configuration uses the encrypted product vault for keys;
+   listings expose only credential presence. Actual model inventories and bounded
+   SSE responses use Core HTTP, never renderer fetch or fabricated model lists.
+   OpenAI and OpenAI-compatible Local HTTP use chat/completions; Anthropic uses
+   messages and paginated model discovery. Explicit endpoint selection permits
+   HTTP, including non-loopback destinations if Core policy allows them; the owner
+   must use HTTPS when transport confidentiality is required. Platform fixtures
+   are not qualification of the live vendors, models or a local model server.
+3. Owner chat is a local principal, not a remote scoped credential. Its multi-step
+   generation holds the CoreHolder idle-switch barrier and a cancellable product
+   task. Individual calls still use current Core permission checks. Stop aborts
+   HTTP and pending approval; emergency stop closes the chat runtime. Subtasks
+   from owner-chat cannot persist prompt/attachment/tool arguments as retry replay
+   data. Keys, prompts and raw upstream parse errors are not audit descriptions.
+4. Conversations are transient, bounded to eight sessions, one active generation,
+   eight tool rounds, sixteen explicitly selected tools, 1 MiB per SSE response
+   and a bounded display/result transfer. Attachments are at most four / 96 KB
+   decoded, strict UTF-8 text or type-checked PNG/JPEG/WebP data. Selecting a
+   provider consents to transmitting the message, attachments and enabled tool
+   results to it; it does not authorize a network destination or a Core action.
+5. The decoder accepts split UTF-8 and CRLF frames but requires dispatched frames
+   and provider completion before invoking any tool. Unknown/unselected tools
+   return an error without execution. Actual invocations use canonical MCP tool
+   definitions and invokeTool, with the same validation, authorization, exposure
+   state, broker approvals and audit as external clients. Upstream JSON/decoder
+   failures are converted to generic errors before reaching network/task audit.
+6. Renderer polling displays streamed text and tool-call blocks as plain text,
+   never provider-supplied HTML. The shared broker queue appears inline and in the
+   header; this slice still offers only one-time approve/reject. Persistent
+   project grants and the complete native GUI acceptance journey remain open.

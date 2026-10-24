@@ -1,5 +1,6 @@
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { AccountService } from "../../src/account-service/service.js";
+import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, stat, unlink } from "node:fs/promises";
 import path from "node:path";
@@ -422,6 +423,181 @@ describe("Stage A scoped loopback tokens", () => {
     } finally {
       for (const client of clients) await client.close().catch(() => undefined);
       control.close();
+    }
+  });
+});
+
+describe("Stage A real chat provider adapters", () => {
+  it("uses live model endpoints and SSE for all three adapters, executes a guarded tool after approval, stops streaming and protects keys", async () => {
+    const seen: { url: string; body: Record<string, unknown>; authorization?: string; key?: string }[] = [];
+    let slowClosed = false;
+    const provider = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (b: Buffer) => chunks.push(b));
+      req.on("end", () => {
+        const body = chunks.length ? (JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>) : {};
+        const url = req.url ?? "";
+        seen.push({
+          url,
+          body,
+          ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}),
+          ...(typeof req.headers["x-api-key"] === "string" ? { key: req.headers["x-api-key"] } : {}),
+        });
+        if (url.includes("/models")) {
+          res
+            .writeHead(200, { "content-type": "application/json" })
+            .end(JSON.stringify({ data: [{ id: "fixture-model" }], has_more: false }));
+          return;
+        }
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const event = (name: string, data: unknown) =>
+          res.write((name ? `event: ${name}\n` : "") + `data: ${JSON.stringify(data)}\n\n`);
+        const anthropic = url.includes("anthropic"),
+          messages = body.messages as unknown[];
+        if (JSON.stringify(messages).includes("slow-fixture")) {
+          event("", { choices: [{ delta: { content: "Partial before stop" } }] });
+          res.on("close", () => {
+            slowClosed = true;
+          });
+          return;
+        }
+        if (messages.length === 1 && JSON.stringify(body.tools ?? []).includes("fs_write_file")) {
+          const args = JSON.stringify({
+            path: anthropic ? "chat-anthropic.txt" : "chat-openai.txt",
+            content: "approved-from-chat",
+          });
+          if (anthropic) {
+            event("content_block_start", {
+              index: 0,
+              content_block: { type: "tool_use", id: "call_fixture", name: "fs_write_file", input: {} },
+            });
+            event("content_block_delta", { index: 0, delta: { type: "input_json_delta", partial_json: args } });
+            event("message_stop", { type: "message_stop" });
+            res.end();
+          } else {
+            event("", {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      { index: 0, id: "call_fixture", function: { name: "fs_write_file", arguments: args } },
+                    ],
+                  },
+                },
+              ],
+            });
+            res.end("data: [DONE]\n\n");
+          }
+          return;
+        }
+        if (anthropic) {
+          event("content_block_delta", { index: 0, delta: { type: "text_delta", text: "Provider response" } });
+          event("message_stop", { type: "message_stop" });
+          res.end();
+        } else {
+          event("", { choices: [{ delta: { content: "Provider response" } }] });
+          res.end("data: [DONE]\n\n");
+        }
+      });
+    });
+    await new Promise<void>((r) => provider.listen(0, "127.0.0.1", r));
+    const port = (provider.address() as { port: number }).port,
+      auditPath = path.join(dirs.outside, "chat-audit.jsonl");
+    const started = await startService({
+      config: {
+        permissions: {
+          mode: "full_control",
+          approvals: { untrustedContent: "off" },
+          network: { allow: [`127.0.0.1:${port}`] },
+        },
+        audit: { sink: "file", path: auditPath },
+      },
+    });
+    const control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    let approval: import("../../src/core/approvals/types.js").PresentedApproval | undefined;
+    try {
+      control.onevent = (e) => {
+        if (e.event === "approval.requested") approval = e.approval;
+      };
+      await control.request("approvals.subscribe");
+      await control.request("security.setPolicy", {
+        strict: false,
+        rules: [{ operation: "filesystem.write_file", state: "ask" }],
+      });
+      for (const [name, segment] of [
+        ["OpenAI", "openai"],
+        ["Anthropic", "anthropic"],
+        ["Local HTTP", "local"],
+      ]) {
+        await control.request("chat.configure", {
+          provider: name,
+          endpoint: `http://127.0.0.1:${port}/${segment}/v1`,
+          ...(name !== "Local HTTP" ? { credential: `fixture-${segment}-key` } : {}),
+        });
+        expect(await control.request("chat.models", { provider: name })).toMatchObject({ models: ["fixture-model"] });
+        approval = undefined;
+        const c = (await control.request("chat.start", {
+          provider: name,
+          model: "fixture-model",
+          message: "Run selected fixture tool",
+          tools: name === "Local HTTP" ? [] : ["fs_write_file"],
+          attachments: [
+            { name: "note.txt", mime: "text/plain", data: Buffer.from("attached fixture text").toString("base64") },
+          ],
+        })) as { id: string };
+        if (name !== "Local HTTP") {
+          await waitFor(() => approval !== undefined);
+          const snapshot = await control.request("chat.poll", { id: c.id });
+          expect(JSON.stringify(snapshot)).toContain('"status":"running"');
+          expect(approval!.subject.operation).toBe("filesystem.write_file");
+          expect(
+            await control.request("approvals.decide", {
+              requestId: approval!.requestId,
+              subjectDigest: approval!.subjectDigest,
+              decision: "approve",
+            }),
+          ).toEqual({ ok: true });
+        }
+        await waitFor(
+          async () => ((await control.request("chat.poll", { id: c.id })) as { state: string }).state !== "running",
+        );
+        expect(await control.request("chat.poll", { id: c.id })).toMatchObject({
+          state: "completed",
+          blocks: expect.arrayContaining([expect.objectContaining({ type: "assistant", text: "Provider response" })]),
+        });
+      }
+      expect(await readFile(path.join(dirs.workspace, "chat-openai.txt"), "utf8")).toBe("approved-from-chat");
+      expect(await readFile(path.join(dirs.workspace, "chat-anthropic.txt"), "utf8")).toBe("approved-from-chat");
+      const slow = (await control.request("chat.start", {
+        provider: "Local HTTP",
+        model: "fixture-model",
+        message: "slow-fixture",
+      })) as { id: string };
+      await waitFor(async () =>
+        JSON.stringify(await control.request("chat.poll", { id: slow.id })).includes("Partial before stop"),
+      );
+      await control.request("chat.stop", { id: slow.id });
+      await waitFor(
+        async () => ((await control.request("chat.poll", { id: slow.id })) as { state: string }).state === "cancelled",
+      );
+      await waitFor(() => slowClosed);
+      const providers = JSON.stringify(await control.request("chat.providers", {}));
+      expect(providers).not.toContain("fixture-openai-key");
+      const metadata = await readFile(path.join(stateDir, "product-state.json"), "utf8"),
+        vault = await readFile(path.join(stateDir, "product-vault.enc"), "utf8"),
+        journal = await readFile(auditPath, "utf8");
+      for (const output of [metadata, vault, journal, started.logs.join("\n")])
+        expect(output).not.toContain("fixture-openai-key");
+      expect(journal).toContain('"filesystem.write_file"');
+      expect(journal).toContain('"status":"approved"');
+      expect(seen.some((r) => r.authorization === "Bearer fixture-openai-key")).toBe(true);
+      expect(seen.some((r) => r.key === "fixture-anthropic-key")).toBe(true);
+      expect(seen.some((r) => JSON.stringify(r.body).includes("attached fixture text"))).toBe(true);
+    } finally {
+      control.close();
+      await started.service.shutdown("chat fixture done");
+      provider.closeAllConnections();
+      await new Promise<void>((r) => provider.close(() => r()));
     }
   });
 });

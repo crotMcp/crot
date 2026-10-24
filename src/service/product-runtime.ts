@@ -1,4 +1,6 @@
 /** AD-40: service-owned product state. Metadata and encrypted request/credential vault are separate. */
+import { ChatRuntime, CHAT_ENDPOINTS, chatEndpoint, type ChatProviderConfig } from "./chat-runtime.js";
+import type { ChatProvider } from "./chat-protocol.js";
 import { newAuditEventId } from "../core/audit/audit.js";
 import { RuntimePolicySchema, type RuntimePolicy } from "../core/permissions/runtime.js";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -106,6 +108,7 @@ interface State {
   connectors: Connector[];
   servers: McpServer[];
   tasks: Task[];
+  chatProviders?: Partial<Record<ChatProvider, ChatProviderConfig>>;
   security?: RuntimePolicy;
   /** Uncommitted policy transaction: restart must restore this prior policy. */
   securityPrevious?: RuntimePolicy;
@@ -129,6 +132,7 @@ export interface ProductHost {
   core(): CrotCore;
   selectWorkspace(root: string): Promise<void>;
   disconnectAgent?(id: string): Promise<void>;
+  holdActivity?(work: () => Promise<unknown>): Promise<unknown>;
   tokens?: import("./client-tokens.js").ClientTokenRegistry;
   emergencyStop?(): Promise<Record<string, unknown>>;
   recordControlEvent?: (event: import("../core/audit/audit.js").ControlAuditRecord) => Promise<void>;
@@ -207,7 +211,19 @@ export class ProductRuntime {
   private rate = new Map<string, number[]>();
   private poller: NodeJS.Timeout | undefined;
   private schemaValidator = new AjvJsonSchemaValidator();
-  private constructor(private host: ProductHost) {}
+  private readonly chat: ChatRuntime;
+  private constructor(private host: ProductHost) {
+    this.chat = new ChatRuntime({
+      core: () => this.host.core(),
+      configuration: (provider) => this.state.chatProviders?.[provider],
+      credential: (provider) => this.vault.credentials[`chat:${provider}`],
+      context: () => this.context(),
+      run: (context, work) => {
+        const run = () => this.execute("$chat", "generate", [context], (args) => work(args[0] as AuthContext));
+        return this.host.holdActivity ? this.host.holdActivity(run) : run();
+      },
+    });
+  }
   static async open(host: ProductHost): Promise<ProductRuntime> {
     const r = new ProductRuntime(host);
     r.key = Buffer.from(await host.secrets.readOrCreate("product-key"), "base64url");
@@ -342,6 +358,7 @@ export class ProductRuntime {
     // Reads and long operations must not hold up cancellations/approval traffic.
     if (
       method === "security.status" ||
+      (method.startsWith("chat.") && method !== "chat.configure") ||
       method.startsWith("tokens.") ||
       method.endsWith(".list") ||
       method.startsWith("monitoring.") ||
@@ -358,6 +375,36 @@ export class ProductRuntime {
   private async dispatch(method: ProductMethod, p: Record<string, unknown>): Promise<Record<string, unknown>> {
     const id = String(p.id ?? "");
     switch (method) {
+      case "chat.providers":
+        return { ok: true, providers: this.chat.providers(), current: this.chat.current };
+      case "chat.configure": {
+        if (this.chat.running) return fail("Stop generation before changing provider configuration");
+        if (!this.host.recordControlEvent) return fail("Provider configuration audit unavailable");
+        const provider = p.provider as ChatProvider;
+        const endpoint = chatEndpoint(String(p.endpoint ?? CHAT_ENDPOINTS[provider]));
+        await this.host.recordControlEvent({
+          kind: "control",
+          id: newAuditEventId(),
+          timestamp: now(),
+          action: "chat_provider",
+          actor: { channel: "control" },
+          outcome: "applied",
+          value: provider,
+        });
+        this.state.chatProviders ??= {};
+        this.state.chatProviders[provider] = { endpoint };
+        if (p.credential !== undefined) this.vault.credentials[`chat:${provider}`] = String(p.credential);
+        await this.persist();
+        return { ok: true, providers: this.chat.providers(), current: this.chat.current };
+      }
+      case "chat.models":
+        return this.chat.models(p.provider as ChatProvider);
+      case "chat.start":
+        return this.chat.start(p);
+      case "chat.poll":
+        return this.chat.poll(id);
+      case "chat.stop":
+        return this.chat.stop(id);
       case "tokens.list":
         return { ok: true, tokens: this.host.tokens?.list() ?? [] };
       case "tokens.issue":
@@ -951,7 +998,8 @@ export class ProductRuntime {
       progress: 0,
       startedAt: now(),
       artifacts: [],
-      retryable: context.principal.kind === "local",
+      retryable:
+        context.principal.kind === "local" && context.principal.transport !== "owner-chat" && member !== "$chat",
     };
     this.state.tasks = limited([...this.state.tasks, task]);
     this.cancellations.set(task.id, controller);
@@ -1087,6 +1135,7 @@ export class ProductRuntime {
     return result.slice(-Number(p.limit ?? 200)).reverse();
   }
   async abortAll(): Promise<void> {
+    const chatStopped = this.chat.close();
     clearInterval(this.poller);
     for (const controller of this.cancellations.values()) controller.abort();
     for (const controller of this.serverControllers.values()) controller.abort();
@@ -1097,9 +1146,11 @@ export class ProductRuntime {
       }
     for (const agent of this.state.agents) agent.connected = false;
     await Promise.all([...this.clients.values()].map((c) => c.close().catch(() => undefined)));
+    await chatStopped;
     await this.persist();
   }
   async close(): Promise<void> {
+    await this.chat.close();
     clearInterval(this.poller);
     for (const controller of this.serverControllers.values()) controller.abort();
     await Promise.all([...this.connecting.values()].map((p) => p.catch(() => undefined)));

@@ -60,6 +60,16 @@ export class CoreHolder {
     });
   }
 
+  /** Service-owned multi-step workflows hold the same idle-switch barrier as adapter calls. */
+  async hold<T>(work: () => Promise<T>): Promise<T> {
+    this.calls++;
+    try {
+      return await work();
+    } finally {
+      this.calls--;
+    }
+  }
+
   /** The current Core itself (service internals only). */
   get instance(): CrotCore {
     return this.current;

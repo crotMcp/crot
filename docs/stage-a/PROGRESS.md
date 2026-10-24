@@ -21,12 +21,17 @@ No B/C work or merge is authorized by this progress record.
 - Fixed native Electron folder-picker action, canonical project registration and
   idle workspace switching. Native GUI interaction is not yet smoke-qualified.
 
+- Guarded OpenAI / Anthropic / OpenAI-compatible Local HTTP model inventory,
+  streaming, bounded text/image attachments, cancellation and opt-in tool calls.
+  Header and inline chat share the existing approval queue. Keys use the vault;
+  provider fixtures do not qualify live vendor accounts. See AD-45.
+
 ## Still required before Stage A acceptance / PR #5
 
 - Native folder-picker OS smoke, stack and project-owned port discovery, explicit
   secret access with enforcement at the L1 process boundary.
-- Provider/model inventory, attachment validation, real streaming chat, stop,
-  guarded tool-call execution and rendered tool-call/approval blocks.
+- Final chat UI/integration qualification, including refusal/cancellation paths
+  and the complete UI user journey; project-persistent approval remains open.
 - Allow once / allow for project / deny decisions through the existing broker.
 - The service-level connect → task → owner approval → audit integration test
   passes. Repeat this flow through the unfinished chat/tool-call UI before

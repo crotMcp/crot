@@ -540,6 +540,7 @@ export class CrotService {
       });
       this.product = await ProductRuntime.open({
         tokens: this.clientTokens,
+        holdActivity: (work) => holder.hold(work),
         stateDir,
         secrets: secrets.store,
         privateFiles: servicePlatform.privateFiles,

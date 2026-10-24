@@ -61,6 +61,7 @@ export const CONTROL_AUDIT_ACTIONS = [
   "emergency_stop",
   "runtime_policy",
   "token_issue",
+  "chat_provider",
   "token_rotate",
   "token_revoke",
   "preset",

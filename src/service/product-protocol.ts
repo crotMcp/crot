@@ -1,4 +1,5 @@
 /** Owner-only product configuration RPCs. Tool execution is never accepted as arbitrary RPC. */
+import { ChatConfigureSchema, ChatProviderSchema, ChatStartSchema } from "./chat-protocol.js";
 import { TokenIssueSchema } from "./client-tokens.js";
 import { z } from "zod";
 import { RuntimePolicySchema } from "../core/permissions/runtime.js";
@@ -16,6 +17,12 @@ const filter = z
   })
   .strict();
 export const PRODUCT_SCHEMAS = {
+  "chat.providers": z.object({}).strict(),
+  "chat.configure": ChatConfigureSchema,
+  "chat.models": z.object({ provider: ChatProviderSchema }).strict(),
+  "chat.start": ChatStartSchema,
+  "chat.poll": z.object({ id }).strict(),
+  "chat.stop": z.object({ id }).strict(),
   "tokens.list": z.object({}).strict(),
   "tokens.issue": TokenIssueSchema,
   "tokens.rotate": z.object({ id }).strict(),
