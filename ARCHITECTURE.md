@@ -5240,3 +5240,43 @@ a session, failing closed on stale pricing. No live Stripe price or deployed con
 is changed by this source patch. Existing verified subscriptions are not rewritten.
 Advertised local feature tiers are presentation, not a new local Core policy engine;
 this change does not revoke existing local projects or connectors based on billing.
+
+### AD-42 — Owner-requested Control Center design system and navigation
+
+Owner directive dated 2026-10-24 supersedes **only the presentation clauses** of
+AD-41: five primary destinations, fixed-light theme and 1180 × 780 minimum geometry.
+Control Center now exposes ten primary destinations: Home, Unified Chat, Agents &
+Tokens, Projects, Connectors, Accounts, Permissions, Browser, Journal and Settings.
+Existing Files/Terminal/Git/Docker/Tasks/external-MCP routes remain contextual.
+The desktop minimum is 960 × 640; below 1100px the sidebar collapses to 72px.
+Narrow browser-fixture rendering is tested but does not qualify a mobile native app.
+
+Canonical owner light/dark tokens live in `assets/brand/tokens.css`. Build-time
+assets embed local OFL Inter/JetBrains Mono (Latin/Cyrillic) and static Lucide node
+arrays. A synchronous external head script restores Light/Dark/System before CSS;
+System tracks OS changes. CSP adds only `font-src data:` for build-time embedded
+fonts; renderer network, inline scripts, eval and arbitrary privileged APIs stay
+forbidden. The public portal and extension retain their independent existing theme;
+the extension's app icons now derive from the same mascot master.
+
+Auth → Plans → Home and AD-41's verified entitlement/pairing gate remain unchanged.
+Owner pricing stays USD 3/month, seven trial days: the attached commercial review's
+annual-pricing proposal is not a pricing authorization. Local L1 availability is
+not subscription-gated. Subscription labels derive from service state, not a
+static Pro badge. No UI preference authorizes an operation.
+
+Chat generation, streaming, attachments, publication, arbitrary provider OAuth,
+Bearer token minting/rotation and provider-side revocation are **not added** by this
+visual change. Unsupported actions are disabled/explained. Accounts reads the same
+service-owned connector registry; credentials are configured only in Connectors.
+The Relay field is masked; copying remains a fixed main-process action. Existing
+OAuth identities are not replaced with an invented full-access Bearer token.
+PermissionEngine, ExecutionGuard, browser scope and L1 remain authoritative; no
+second policy, unsafe new default or renderer-only security toggle is introduced.
+
+`docs/design/SPEC.md` records the directive and attached review;
+`docs/design/IMPLEMENTATION.md` records resolved conflicts and remaining gaps.
+Raster references remain immutable evidence (including obsolete illustrated
+endpoints); they are never executable configuration. The newly supplied official
+endpoint is `https://mcp.crot.networking`. Source changes do not migrate deployed
+DNS, TLS certificates, configured OAuth issuer/audience or provider callbacks.

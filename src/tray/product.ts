@@ -1,6 +1,9 @@
 /** Product information architecture. Labels are canonical offline translation keys. */
 export const SECTIONS = [
   "Home",
+  "Chat",
+  "Accounts",
+  "Permissions",
   "Projects",
   "Agents",
   "Connectors",
@@ -41,5 +44,21 @@ export const CONNECTORS = [
   ["Custom HTTP API", "Custom API"],
 ] as const;
 
-/** Five primary destinations. Tools remain available through contextual navigation. */
-export const PRIMARY_SECTIONS = ["Home", "Projects", "Agents", "Connectors", "Permissions"] as const;
+/** Ten owner-requested destinations. Existing guarded tools remain contextual. */
+export const PRIMARY_SECTIONS = [
+  "Home",
+  "Chat",
+  "Agents",
+  "Projects",
+  "Connectors",
+  "Accounts",
+  "Permissions",
+  "Browser",
+  "Monitoring",
+  "Settings",
+] as const;
+export const SECTION_LABELS: Readonly<Record<string, string>> = {
+  Chat: "Unified Chat",
+  Agents: "Agents & Tokens",
+  Monitoring: "Journal",
+};

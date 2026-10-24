@@ -5,10 +5,21 @@ import { UI_TOOLS, validateUiTool } from "../../src/tray/tool-client.js";
 import { TOOLS } from "../../src/adapters/mcp/tools.js";
 
 describe("Control Center product architecture", () => {
-  it("has thirteen distinct sections, seven project tabs and eleven settings sections", () => {
-    expect(PRIMARY_SECTIONS).toEqual(["Home", "Projects", "Agents", "Connectors", "Permissions"]);
-    expect(SECTIONS).toHaveLength(13);
-    expect(new Set(SECTIONS).size).toBe(13);
+  it("has sixteen distinct sections, seven project tabs and eleven settings sections", () => {
+    expect(PRIMARY_SECTIONS).toEqual([
+      "Home",
+      "Chat",
+      "Agents",
+      "Projects",
+      "Connectors",
+      "Accounts",
+      "Permissions",
+      "Browser",
+      "Monitoring",
+      "Settings",
+    ]);
+    expect(SECTIONS).toHaveLength(16);
+    expect(new Set(SECTIONS).size).toBe(16);
     expect(PROJECT_TABS).toHaveLength(7);
     expect(SETTINGS).toHaveLength(11);
     expect(SECTIONS.indexOf("Agents")).not.toBe(SECTIONS.indexOf("MCP Servers"));

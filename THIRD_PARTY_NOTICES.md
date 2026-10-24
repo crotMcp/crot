@@ -36,3 +36,15 @@ offline assets, not loaded from third parties by the renderer.
 CC0: https://creativecommons.org/publicdomain/zero/1.0/ . Brand names and marks
 remain trademarks of their respective owners; this does not imply affiliation.
 The yellow CROT mole vector is a vector tracing of the owner-supplied design reference.
+
+## Owner-directed design assets (AD-42)
+
+- Local Inter Variable and JetBrains Mono Variable from the pinned Fontsource packages:
+  SIL Open Font License 1.1. Included license copies: `assets/brand/licenses/`.
+  The outlined CROT wordmark derives from Inter; the generated logo is not a font redistribution.
+- Lucide line icons: ISC. Generated static nodes retain the pinned dependency as source.
+- Simple Icons: CC0 distribution; individual service marks remain trademarks of their
+  owners and are displayed solely to identify integrations. Missing marks use a
+  neutral Lucide icon, not a fabricated brand. Package disclaimer remains applicable.
+- Hand-authored CROT mascot is an approximation of the owner-supplied screenshot.
+  All app/tray/extension variants derive from the same SVG, not independently drawn marks.

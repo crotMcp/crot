@@ -1,5 +1,9 @@
 # Reference-driven desktop onboarding
 
+> Presentation clauses (five destinations, fixed-light theme, 1180×780 minimum) are
+> superseded by [AD-42](../ARCHITECTURE.md#ad-42--owner-requested-control-center-design-system-and-navigation).
+> The verified startup/commercial handoff below remains authoritative.
+
 This change follows the owner's three supplied Russian screenshots, not the old
 thirteen-link sidebar. The invoked UI UX Pro Max skill and its pinned guidance
 were read; no local catalog generator or verified catalog search was claimed.

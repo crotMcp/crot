@@ -318,7 +318,7 @@ try {
             await evaluate(`document.querySelector('[data-setting="${setting}"]').click()`);
             assert(
               await evaluate(
-                `document.querySelector('[data-setting="${setting}"]').getAttribute('aria-selected')==='true'`,
+                `document.querySelector('[data-setting="${setting}"]').getAttribute('aria-pressed')==='true'`,
               ),
               "settings navigation failed: " + setting,
             );
@@ -369,11 +369,11 @@ try {
     );
     await evaluate("[...document.querySelectorAll('#action-dialog button')].find(b=>b.textContent==='Cancel').click()");
     await click("nav-home");
-    await size(1180, 780);
+    await size(960, 640);
     await screenshot("home-minimum-desktop");
     assert(
       await evaluate(
-        "document.documentElement.scrollHeight<=document.documentElement.clientHeight&&document.querySelectorAll('#navigation>[data-section]').length===5",
+        "document.documentElement.scrollHeight<=document.documentElement.clientHeight&&document.querySelectorAll('#navigation>[data-section]').length===10",
       ),
       "minimum desktop viewport failed",
     );
