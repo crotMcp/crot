@@ -61,10 +61,13 @@ describe("AD-42 owner design system", () => {
       expect(data[(info.width * info.height - 1) * 4 + 3]).toBe(0);
     }
   });
-  it("does not invent chat or publication support", () => {
+  it("routes real chat through owner IPC, keeps tools opt-in and renders untrusted output as text", () => {
     const code = TRAY_ASSETS["/renderer.js"]!.body;
-    expect(code).toContain("Chat generation is not connected in this runtime.");
-    expect(code).toContain("button('Send message',()=>{},'primary',true)");
+    for (const method of ["chat.providers", "chat.configure", "chat.models", "chat.start", "chat.poll", "chat.stop"])
+      expect(code).toContain(`rpc('${method}'`);
+    expect(code).toContain("enabled.filter(f=>f.input.checked)");
+    expect(code).toContain("part.append(pre(b.text))");
+    expect(code).not.toMatch(/fetch\(|XMLHttpRequest|WebSocket\(/);
     expect(code).not.toMatch(/innerHTML|insertAdjacentHTML/);
   });
 });

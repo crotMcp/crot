@@ -140,6 +140,35 @@ export async function runServiceScenarios({ real, evaluate, until, size, screens
   await screenshot("08-audit-real-service");
   if ((await evaluate("document.body.textContent")).includes("fixture-ui-secret"))
     throw Error("Credential leaked to UI");
+  // Real provider HTTP -> canonical guarded tool -> owner approval in the shared UI -> audit.
+  await real.configureChatApproval();
+  await section("Chat");
+  await until("document.querySelector('select[aria-label=\"Chat provider\"]')");
+  await evaluate(
+    "(()=>{const p=document.querySelector('select[aria-label=\"Chat provider\"]');p.value='Local HTTP';p.dispatchEvent(new Event('change'));})()",
+  );
+  await fill("API base URL", state.endpoint.replace("/provider-probe", "/chat-provider/v1"));
+  await click("Save chat provider");
+  await confirm();
+  await click("Refresh models");
+  await until("document.querySelector('select[aria-label=Model] option[value=ui-model]')");
+  await evaluate(
+    "(()=>{const m=document.querySelector('select[aria-label=Model]');m.value='ui-model';m.dispatchEvent(new Event('change'));const l=Array.from(document.querySelectorAll('label')).find(l=>l.textContent==='fs_write_file');l.querySelector('input').click();})()",
+  );
+  await fill("Message", "Run an approved fixture write");
+  await click("Send message");
+  await until(
+    "document.querySelector('[data-chat-approvals] .card')&&document.body.textContent.includes('Waiting for approved write')",
+  );
+  await screenshot("09-chat-awaiting-real-approval");
+  await click("Approve", "[data-chat-approvals] button");
+  await until("document.body.textContent.includes('UI streaming tool complete')");
+  const chatEvidence = await real.verifyChat();
+  await screenshot("10-chat-streaming-tool-real-service");
+  await section("Monitoring");
+  await fill("Event type", "filesystem.write_file");
+  await click("Apply filters");
+  await until("document.body.textContent.includes('filesystem.write_file')");
   for (const name of ["Browser", "Settings"]) {
     await section(name);
     await screenshot(name.toLowerCase() + "-real-service");
@@ -150,8 +179,9 @@ export async function runServiceScenarios({ real, evaluate, until, size, screens
       {
         status: "passed",
         scope:
-          "Shipped Chromium UI → test-only IPC bridge → real isolated CrotService; projects/files/git/terminal/connector HTTP/MCP stdio/tasks cancellation/real audit",
+          "Shipped Chromium UI → test-only IPC bridge → real isolated CrotService; projects/files/git/terminal/connector HTTP/MCP stdio/tasks cancellation/real audit/streamed chat with guarded tool approval",
         ...(await real.verify()),
+        ...chatEvidence,
       },
       null,
       2,
