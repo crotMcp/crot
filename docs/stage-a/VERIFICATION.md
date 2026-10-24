@@ -417,3 +417,19 @@ retaining a positive mediated Docker request. These must pass on actual macOS;
 Linux parser/preflight tests cannot qualify Darwin kernel behavior. Linux/Windows
 general secret-file L1 and live owner IPC/UI grant/revoke remain unimplemented.
 PR #5 stays Draft; no merge or full Stage A Pass is claimed.
+
+The first AD-52 candidate `7f9ecd59bf9f11638dd0a4b9f14a0f05865b34a0`
+passed the complete local check (main 2300 tests, extension 196), real Chromium
+(58 pass/3 platform placeholders skipped), shipped UI (81 checks, 29 screenshots,
+zero failures), and Linux native folder workflow (3 checks, zero errors). The
+new macOS late-secret test FAILED on both Node 20 and 22: an already-running
+actor read a future secret. This is real negative security evidence, not a
+flaky-test dismissal; that candidate is not qualified.
+
+Follow-up changes the regex from a raw `#` literal with string-escaped
+backslashes to an ordinary Scheme string. The native adversarial assertion is
+retained, with per-action failure labels. Admission self_test now creates a
+unique `.env.crot-l1-*` non-secret canary after the preflight layout was built
+and requires actual kernel denial of read and rename before admitting work.
+A profile compiling successfully is insufficient. Both local reruns and actual
+macOS CI must validate the follow-up; no native Pass is inferred in advance.

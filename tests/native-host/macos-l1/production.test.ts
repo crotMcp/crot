@@ -91,56 +91,63 @@ describe.runIf(mac)("macOS production Seatbelt qualification", () => {
     ).toBe("COMPILED");
   });
 
-  it("denies newly created secrets in an already running actor, including alias attempts", async () => {
-    const core = await open("on");
-    await writeFile(path.join(workspace, "public.txt"), "public");
-    const p = await core.launcher.launch(
-      {
-        file: process.execPath,
-        args: [
-          "-e",
-          `const fs=require('fs');
-const denied=f=>{try{f();throw Error('secret escaped')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}};
+  it.each(["workspace", 'project [x]+(test) "quoted"'])(
+    "denies future secrets in an already running actor (%s), including alias attempts",
+    async (name) => {
+      if (name !== "workspace") {
+        workspace = path.join(root, name);
+        await mkdir(workspace);
+      }
+      const core = await open("on");
+      await writeFile(path.join(workspace, "public.txt"), "public");
+      const p = await core.launcher.launch(
+        {
+          file: process.execPath,
+          args: [
+            "-e",
+            `const fs=require('fs');
+const denied=(label,f)=>{try{f();throw Error('secret escaped: '+label)}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}};
 console.log('READY');process.stdin.once('data',()=>{try{
 if(fs.readFileSync('public.txt','utf8')!=='public')throw Error('ordinary file broken');
-for(const name of ['.env.production','late.KEY','benign.txt'])denied(()=>fs.readFileSync(name));
-denied(()=>fs.renameSync('.env.production','renamed.txt'));
-denied(()=>fs.linkSync('.env.production','linked.txt'));
-denied(()=>fs.writeFileSync('late.KEY','bad'));
+for(const name of ['.env.production','late.KEY','benign.txt'])denied(name+':read',()=>fs.readFileSync(name));
+denied('rename',()=>fs.renameSync('.env.production','renamed.txt'));
+denied('hardlink',()=>fs.linkSync('.env.production','linked.txt'));
+denied('write',()=>fs.writeFileSync('late.KEY','bad'));
 console.log('FUTURE-SECRETS-DENIED');process.stdin.destroy();}catch(e){console.error(e);process.exit(1)}});`,
-        ],
-        display: "future secret native test",
-      },
-      { cwd: workspace, env: process.env as Record<string, string>, stdin: true },
-    );
-    const result = collect(p);
-    await new Promise<void>((resolve, reject) => {
-      let output = "";
-      const timer = setTimeout(() => reject(Error("actor did not become ready")), 5000);
-      const listener = (chunk: Buffer) => {
-        output += String(chunk);
-        if (output.includes("READY")) {
+          ],
+          display: "future secret native test",
+        },
+        { cwd: workspace, env: process.env as Record<string, string>, stdin: true },
+      );
+      const result = collect(p);
+      await new Promise<void>((resolve, reject) => {
+        let output = "";
+        const timer = setTimeout(() => reject(Error("actor did not become ready")), 5000);
+        const listener = (chunk: Buffer) => {
+          output += String(chunk);
+          if (output.includes("READY")) {
+            clearTimeout(timer);
+            p.stdout.off("data", listener);
+            resolve();
+          }
+        };
+        p.stdout.on("data", listener);
+        p.exited.then(() => {
           clearTimeout(timer);
-          p.stdout.off("data", listener);
-          resolve();
-        }
-      };
-      p.stdout.on("data", listener);
-      p.exited.then(() => {
-        clearTimeout(timer);
-        reject(Error("actor exited before host update"));
+          reject(Error("actor exited before host update"));
+        });
       });
-    });
-    await writeFile(path.join(workspace, ".env.production"), "future-private");
-    await writeFile(path.join(workspace, "late.KEY"), "future-key");
-    await symlink(path.join(workspace, ".env.production"), path.join(workspace, "benign.txt"));
-    p.stdin!.end("go");
-    const r = await result;
-    expect(r, r.err).toMatchObject({ code: 0 });
-    expect(r.out).toContain("FUTURE-SECRETS-DENIED");
-    expect(await readFile(path.join(workspace, ".env.production"), "utf8")).toBe("future-private");
-    expect(await readFile(path.join(workspace, "late.KEY"), "utf8")).toBe("future-key");
-  });
+      await writeFile(path.join(workspace, ".env.production"), "future-private");
+      await writeFile(path.join(workspace, "late.KEY"), "future-key");
+      await symlink(path.join(workspace, ".env.production"), path.join(workspace, "benign.txt"));
+      p.stdin!.end("go");
+      const r = await result;
+      expect(r, r.err).toMatchObject({ code: 0 });
+      expect(r.out).toContain("FUTURE-SECRETS-DENIED");
+      expect(await readFile(path.join(workspace, ".env.production"), "utf8")).toBe("future-private");
+      expect(await readFile(path.join(workspace, "late.KEY"), "utf8")).toBe("future-key");
+    },
+  );
   it("applies exact immutable owner opt-in and removes it only in a new drained sandbox", async () => {
     const approved = path.join(workspace, ".env");
     await writeFile(approved, "approved");

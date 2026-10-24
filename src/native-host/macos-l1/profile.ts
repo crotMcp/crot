@@ -48,7 +48,9 @@ export function projectSecretRule(policy: NonNullable<SeatbeltLayout["projectSec
     if (target !== path.posix.normalize(name)) throw new Error("Secret grant must not follow an alias");
     return `(require-not (literal ${sbplString(target)}))`;
   });
-  return `(deny file-read* file-write* (require-all (regex #${sbplString(pattern)}) ${exceptions.join(" ")}))
+  // A normal Scheme string consumes the doubled backslashes emitted by
+  // sbplString. A # regex literal preserves them and changes the pattern.
+  return `(deny file-read* file-write* (require-all (regex ${sbplString(pattern)}) ${exceptions.join(" ")}))
 ; No actor-created hardlink alias may turn a denied name into a readable one.
 ; Darwin link=9, linkat=471; immutable inherited syscall denial.
 (deny syscall-unix (syscall-number 9) (syscall-number 471))`;

@@ -49,6 +49,8 @@ describe("macOS Seatbelt profile compiler", () => {
       expect(rule).toContain(sbplString("crot-\\[project\\]\\+\\(x\\)").slice(1, -1));
       expect(rule).toContain("(syscall-number 9) (syscall-number 471)");
       expect(rule).not.toContain("(subpath ");
+      expect(rule).toContain('(regex "');
+      expect(rule).not.toContain("(regex #");
       expect(() => projectSecretRule({ root, allowedPaths: [root + "-sibling/.env"] })).toThrow("outside workspace");
       expect(() => projectSecretRule({ root, allowedPaths: [root] })).toThrow("outside workspace");
       expect(projectSecretRule({ root: "/", allowedPaths: [] })).toContain("^/([^/]+/)*");
