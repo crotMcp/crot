@@ -97,3 +97,28 @@ forced SSE disconnection: the SDK waited to reconnect a resumable stream. The
 corrected test independently asserts the service-side Cancelled task and absent
 file, then closes the obsolete client and verifies the rejected result. Native
 folder-picker GUI smoke remains unavailable without DISPLAY/Xvfb. See AD-44.
+
+
+### Verified checkpoint `57a043aa74bc265bb08a7aa0f76f0184074c709e`
+
+The exact 21 pushed files were compared byte-for-byte with the working source;
+no implementation edits overlapped the following sequential verification runs:
+
+| Command / scope | Observed result |
+| --- | --- |
+| `npm run check` | Passed: lint/docs/format/types/Core and extension builds |
+| Main tests | 192 files passed / 27 skipped; 2,244 tests passed / 219 skipped |
+| Extension tests | 15 files / 193 tests passed |
+| Linux Chromium E2E | 10 files; 58 tests passed / 3 platform placeholders skipped |
+| Design + axe Chromium QA | 81 checks, 29 screenshots; zero failures or page errors |
+
+Logs: `stage-a-tokens-check.log`, `stage-a-tokens-e2e.log`,
+`stage-a-tokens-ui.log` in the agent workspace. Native L1 execution suites and
+native Electron GUI have platform/prerequisite skips; these are not passing
+qualifications. In this service test environment, named-token process execution
+is correctly refused when L1 is unavailable. Process teardown under Strict Mode
+is independently exercised with an explicit launcher-selection/lifecycle fixture.
+
+These are local results for the named-token slice, **not** complete Stage A
+acceptance and **not** observed GitHub CI. PR #5 has not yet been created. The
+remaining acceptance gates in PROGRESS.md still apply. B/C have not begun.
