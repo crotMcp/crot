@@ -1,3 +1,4 @@
+import type { ProjectSecretPolicy } from "./project-secrets.js";
 import { RuntimePermissionState } from "./runtime.js";
 import { DEFAULT_APPROVAL_TIMEOUT_MS, ruleMatches, validateApprovalRules } from "../approvals/rules.js";
 import { presetRules, REMOTE_FULL_CONTROL_RULES, type UntrustedContentSetting } from "../approvals/exposure.js";
@@ -64,6 +65,7 @@ export interface RemoteProfileSummary {
 export interface PermissionEngineOptions {
   /** Canonical Core workspace, never a request-supplied project identifier. */
   readonly workspaceRoot?: string;
+  readonly projectSecrets?: ProjectSecretPolicy;
   readonly runtime?: RuntimePermissionState;
   /**
    * Paths CROT itself depends on (audit log, configuration). Write operations
@@ -179,6 +181,7 @@ export class PermissionEngine {
   readonly workspaceRoot: string | undefined;
   private readonly protectedPaths: readonly string[];
   private readonly secretPaths: readonly string[];
+  private readonly projectSecrets: ProjectSecretPolicy | undefined;
   private readonly contains: (ancestor: string, candidate: string) => boolean;
   private readonly networkPolicy: NetworkPolicy;
   private readonly approvalRules: readonly ApprovalRule[];
@@ -198,6 +201,7 @@ export class PermissionEngine {
     this.workspaceRoot = options.workspaceRoot;
     this.protectedPaths = options.protectedPaths ?? [];
     this.secretPaths = options.secretPaths ?? [];
+    this.projectSecrets = options.projectSecrets;
     this.contains = options.contains ?? ((a, c) => a === c || c.startsWith(a.endsWith("/") ? a : `${a}/`));
     this.networkPolicy = options.network ?? NetworkPolicy.denyAll();
     const rules = options.approvals?.rules ?? [];
@@ -445,6 +449,8 @@ export class PermissionEngine {
         };
       }
     }
+    if ((request.paths ?? []).some((target) => this.projectSecrets?.denies(target)))
+      return { allowed: false, reason: "Project secret file requires explicit owner file access.", missing: [] };
     if (
       (WRITE_CAPABILITIES.has(request.capability) || request.operation === "browser.file_upload") &&
       this.protectedPaths.length > 0

@@ -2,7 +2,11 @@ import { mkdtemp, mkdir, writeFile, link, symlink, rm, realpath } from "node:fs/
 import path from "node:path";
 import os from "node:os";
 import { describe, it, expect } from "vitest";
-import { inspectProtected, workspaceHardlinks } from "../../../src/native-host/macos-l1/hardlinks.js";
+import {
+  inspectProtected,
+  workspaceHardlinks,
+  projectSecretTargets,
+} from "../../../src/native-host/macos-l1/hardlinks.js";
 describe.runIf(process.platform !== "win32")("macOS hardlink identity preflight", () => {
   it("keeps workspace multilinks read-only and refuses multiply named secrets", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "crot-mac-links-"));
@@ -37,6 +41,28 @@ describe.runIf(process.platform !== "win32")("macOS hardlink identity preflight"
       await symlink(external, path.join(s, "alias"));
       expect(await inspectProtected([s])).toContain(await realpath(external));
       expect(await workspaceHardlinks(s)).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+  it("collects named secrets and sensitive symlink targets, and refuses pre-existing aliases", async () => {
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "crot-project-links-")));
+    try {
+      const workspace = path.join(root, "workspace");
+      await mkdir(workspace);
+      const secret = path.join(workspace, ".env"),
+        approved = path.join(workspace, "approved.key");
+      await writeFile(secret, "private");
+      await writeFile(approved, "opt-in");
+      const external = path.join(root, "external");
+      await writeFile(external, "private-target");
+      await symlink(external, path.join(workspace, "server.pem"));
+      const targets = await projectSecretTargets(workspace, [approved]);
+      expect(targets).toContain(secret);
+      expect(targets).toContain(external);
+      expect(targets).not.toContain(approved);
+      await link(secret, path.join(workspace, "innocent.txt"));
+      await expect(projectSecretTargets(workspace, [approved])).rejects.toThrow("multiple names");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

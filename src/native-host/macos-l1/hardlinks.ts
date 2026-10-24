@@ -1,3 +1,4 @@
+import { isProjectSecretName } from "../../core/permissions/project-secrets.js";
 /** Seatbelt is pathname based: a pre-existing hardlink inside workspace is
  * otherwise writable even when its other name is outside. Never mutate ACLs. */
 import type { BigIntStats } from "node:fs";
@@ -63,4 +64,27 @@ export async function writableHardlinks(roots: readonly string[]): Promise<strin
 }
 export function workspaceHardlinks(workspace: string): Promise<string[]> {
   return writableHardlinks([workspace]);
+}
+
+/** Existing sensitive symlink targets become protected too; ambiguous hardlinks refuse readiness. */
+export async function projectSecretTargets(workspace: string, allowedPaths: readonly string[]): Promise<string[]> {
+  const targets: string[] = [];
+  await walk([workspace], false, (name) => {
+    if (name !== workspace && isProjectSecretName(path.posix.basename(name)) && !allowedPaths.includes(name))
+      targets.push(name);
+  });
+  // walk does not visit a symlink's metadata callback; explicitly enumerate them
+  // with follow=true below, through inspectProtected, when their name is found.
+  const pending = [workspace];
+  let count = 0;
+  while (pending.length) {
+    const dir = pending.pop()!;
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      if (++count > LIMIT) throw Error("project secret preflight limit exceeded");
+      const name = path.join(dir, entry.name);
+      if (entry.isSymbolicLink() && isProjectSecretName(entry.name) && !allowedPaths.includes(name)) targets.push(name);
+      if (entry.isDirectory()) pending.push(name);
+    }
+  }
+  return [...new Set([...targets, ...(await inspectProtected(targets))])];
 }

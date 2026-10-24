@@ -1,5 +1,5 @@
 import { macosPlatformSupported } from "./platform.js";
-import { inspectProtected, writableHardlinks } from "./hardlinks.js";
+import { inspectProtected, writableHardlinks, projectSecretTargets } from "./hardlinks.js";
 import { runtimeProtectedPaths } from "./runtime.js";
 import { prepareRustup } from "./toolchains.js";
 import { reinitializationProbe } from "./reinitialization.js";
@@ -176,12 +176,22 @@ export class MacosConfinement implements CommandConfinement {
           .map(canonicalPath),
       ),
     ];
+    const projectSecrets = {
+      root: canonicalPath(scope.workspace),
+      allowedPaths: (scope.projectSecretAllowedPaths ?? []).map((name) => {
+        const canonical = canonicalPath(name);
+        if (canonical !== path.posix.normalize(name)) throw Error("Secret grant must not follow an alias");
+        return canonical;
+      }),
+    };
+    protectedPaths.push(...(await projectSecretTargets(projectSecrets.root, projectSecrets.allowedPaths)));
     protectedPaths.push(...(await inspectProtected(protectedPaths)));
     const readOnlyPaths = [
       ...runtimeProtectedPaths().map(canonicalPath),
       ...(await writableHardlinks([canonicalPath(scope.workspace), home, temp])),
     ];
     const layout: SeatbeltLayout = {
+      projectSecrets,
       writable: [canonicalPath(scope.workspace), home, temp],
       protectedPaths,
       readOnlyPaths,
@@ -200,7 +210,10 @@ export class MacosConfinement implements CommandConfinement {
         }),
       boundary: {
         writable: layout.writable,
-        protectedPaths: [...protectedPaths, ...readOnlyPaths],
+        // A daemon reads the original host tree, not the Seatbelt view. Refuse
+        // host bind sources (including ancestors and future secret filenames)
+        // rather than bypassing the dynamic policy via a container mount.
+        protectedPaths: ["/", ...protectedPaths, ...readOnlyPaths],
         unreadable: protectedPaths,
         daemonSockets: [
           canonicalPath("/var/run/docker.sock"),

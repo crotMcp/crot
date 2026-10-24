@@ -1,3 +1,4 @@
+import { ProjectSecretPolicy } from "./permissions/project-secrets.js";
 import { inspectProject } from "./capabilities/projects/inspect.js";
 import type { AuthContext } from "./auth/principal.js";
 import type { RuntimePermissionState } from "./permissions/runtime.js";
@@ -276,7 +277,9 @@ export class CrotCore {
       ...(config.browser.enabled ? [uploadRoot, downloadRoot] : []),
     ]);
     const protectedPaths = await resolveAll([...guarded, ...secretPaths]);
+    const projectSecrets = await ProjectSecretPolicy.create(workspace, config.permissions.projectSecrets);
     const permissions = new PermissionEngine(policy, {
+      projectSecrets,
       workspaceRoot: workspace.root,
       ...(options.runtimePermissions ? { runtime: options.runtimePermissions } : {}),
       protectedPaths,
@@ -335,6 +338,7 @@ export class CrotCore {
     const confinement: CoreConfinement = platform.confinement
       ? await platform.confinement.open({
           workspace: workspace.root,
+          projectSecretAllowedPaths: projectSecrets.allowedPaths,
           protectedPaths,
           network: confinementNetwork,
           dockerEnvironment,

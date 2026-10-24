@@ -324,6 +324,8 @@ export interface ConfinementAuditEvent {
 
 /** What one Core hands to the platform to confine the children of its process tools (AD-20 points 6-10). */
 export interface ConfinementScope {
+  /** Immutable exact owner-approved secret files; native backends must not treat these as recursive roots. */
+  readonly projectSecretAllowedPaths?: readonly string[];
   /** Workspace root (read-write in the sandbox). */
   readonly workspace: string;
   /** CROT-protected paths, computed from the resolved configuration (AD-20 point 6). */

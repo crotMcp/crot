@@ -29,10 +29,29 @@ export function sbplString(value: string): string {
 
 export interface SeatbeltLayout {
   readonly writable: readonly string[];
+  readonly projectSecrets?: { readonly root: string; readonly allowedPaths: readonly string[] };
   readonly protectedPaths: readonly string[];
   readonly readOnlyPaths?: readonly string[];
   readonly dockerSocket: string;
   readonly network: ConfinementNetwork;
+}
+
+/** Fixed POSIX-ERE grammar: no caller-supplied regex or recursive allow grant. */
+export function projectSecretRule(policy: NonNullable<SeatbeltLayout["projectSecrets"]>): string {
+  const root = canonicalPath(policy.root);
+  const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = `^${escaped === "/" ? "" : escaped}/([^/]+/)*(\\.[eE][nN][vV](\\.[^/]*)?|[^/]*\\.([pP][eE][mM]|[kK][eE][yY]))(/.*)?$`;
+  const exceptions = policy.allowedPaths.map((name) => {
+    const target = canonicalPath(name),
+      rel = path.posix.relative(root, target);
+    if (!rel || rel.startsWith("../") || path.posix.isAbsolute(rel)) throw new Error("Secret access outside workspace");
+    if (target !== path.posix.normalize(name)) throw new Error("Secret grant must not follow an alias");
+    return `(require-not (literal ${sbplString(target)}))`;
+  });
+  return `(deny file-read* file-write* (require-all (regex #${sbplString(pattern)}) ${exceptions.join(" ")}))
+; No actor-created hardlink alias may turn a denied name into a readable one.
+; Darwin link=9, linkat=471; immutable inherited syscall denial.
+(deny syscall-unix (syscall-number 9) (syscall-number 471))`;
 }
 
 export function seatbeltProfile(layout: SeatbeltLayout): string {
@@ -70,6 +89,7 @@ export function seatbeltProfile(layout: SeatbeltLayout): string {
   (literal "/dev/random") (literal "/dev/urandom"))
 ; Do not rename/unlink the policy roots or protected ancestors to evade path rules.
 (deny file-write-unlink file-write-mode file-write-owner file-write-flags ${guardedNames})
+${layout.projectSecrets ? projectSecretRule(layout.projectSecrets) : ""}
 ; Denial wins over broad host reads and writable workspace roots.
 (deny file-read* file-write* ${subpaths(layout.protectedPaths)})
 ${layout.readOnlyPaths?.length ? `(deny file-write* ${subpaths(layout.readOnlyPaths)})` : ""}

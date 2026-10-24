@@ -50,8 +50,8 @@ No B/C work or merge is authorized by this progress record.
   `*.pem` or `*.key` files from child commands.** Existing CROT service-secret
   protection remains distinct. Explicit owner access/revocation must also be
   implemented, not represented by a decorative UI control.
-- Native macOS/Windows folder-picker smoke and actual-OS qualification of the
-  new project-owned port observers (AD-51). Darwin uses libproc identity and fixed
+- Native macOS/Windows folder-picker smoke. The project-owned port observers
+  (AD-51) passed the actual-OS matrix at `48420e9`. Darwin uses libproc identity and fixed
   lsof fields; Windows uses owner-PID TCP tables and bounded same-owner cwd reads.
   Linux parser tests do not qualify either native ABI. Results are point-in-time
   evidence, never proof that unlisted ports are free.
@@ -70,3 +70,14 @@ a request to merge. No PR was merged by the agent.
 See [verification](VERIFICATION.md) for observed command results and explicit
 qualification limits. This is not
 an installable release or qualification of live providers/Relay.
+
+### Project secret-file gate (AD-52, in progress)
+
+- Previous published head `48420e9276c6ac00be405a2e1824d2dc695b31c9`:
+  all eleven existing GitHub checks passed. PR #5 remains Draft; this is not
+  complete Stage A acceptance.
+- Added mandatory shared Core filename policy and exact workspace-bound owner
+  configuration opt-ins. Native macOS dynamic filename rule and adversarial
+  tests are a candidate pending actual macOS CI, not a Linux-qualified claim.
+- Linux/Windows future-file L1 protection and live owner grant/revoke IPC/UI
+  remain open. macOS host Docker binds are conservatively refused (AD-52).

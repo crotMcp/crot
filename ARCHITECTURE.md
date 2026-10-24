@@ -5600,3 +5600,42 @@ native bindings directly before the guarded Core result. Linux tests do not
 qualify the other OS ABIs; a green native CI run is still required before claiming
 the macOS/Windows observer qualified. General project-secret L1 enforcement and
 complete Stage A acceptance remain separate gates.
+
+### AD-52. Project secret-file mandatory policy and macOS native candidate
+
+`permissions.projectSecrets.allow` is an immutable, bounded list of exact
+project-relative secret files bound to an absolute canonical workspace. It is
+not a recursive directory grant, runtime `allow`, project-operation approval or
+capability override. The shared PermissionEngine denies `.env`, `.env.*`,
+`*.pem`, `*.key` (including case variants and sensitive directory components)
+unless that exact file was opted in by the owner configuration. Symlink grants
+are refused rather than silently granting a different target. Existing CROT
+service-secret protection still takes precedence. Ordinary filesystem tool
+requests use the same guard and audit; no second execution authorizer exists.
+Core pathname checks do not protect arbitrary child processes or hardlink aliases
+and must never be described as L1 protection.
+
+The macOS candidate adds a fixed, escaped, workspace-anchored Seatbelt filename
+rule, including files created after admission. Exact literal exceptions do not
+allow a subtree. Existing sensitive symlink targets are protected and ambiguous
+pre-existing secret hardlinks refuse admission; actor-created link/linkat calls
+are denied by inherited kernel policy. Trusted host processes must not create
+new public hardlink aliases to secret inodes while an actor is running: pathname
+policies are not inode information-flow control. This limitation is explicit,
+not a watcher-based security claim. Hardlink denial also changes toolchain
+compatibility and is subject to the existing actual-macOS toolchain tests.
+
+A Docker daemon is outside Seatbelt and reads the original host tree. The macOS
+mediated endpoint therefore refuses host bind sources other than the mediated endpoint socket,
+including read-only project binds, rather than exposing future secrets through a container. The
+positive mediated daemon byte stream remains supported. An exact secret-file
+opt-in does not restore directory bind mounts.
+
+This slice supplies configuration opt-in and a fresh sandbox after old sandbox
+drain; it does not yet supply live owner IPC/UI grant/revoke. Linux and Windows
+backends do not yet implement this general project-secret filename policy.
+Their existing L1 status must not be interpreted as qualification of this new
+requirement. Static masks, preflight scans and UI filters are insufficient for
+future-file protection. The added macOS native tests must pass on actual macOS
+before its kernel rule is qualified. Until remaining native backends, live
+owner controls and their acceptance tests exist, Stage A and PR #5 remain WIP.

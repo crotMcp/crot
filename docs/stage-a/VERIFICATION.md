@@ -395,3 +395,25 @@ real child-listener tests in the existing OS matrix. That evidence does not
 qualify native folder dialogs on those OSes or the still-unimplemented general
 project-secret L1 filename policy and explicit owner grant/revoke. B/C remain
 unstarted; no merge is performed.
+
+## AD-52 project secret policy candidate (not Stage A acceptance)
+
+Prior head `48420e9276c6ac00be405a2e1824d2dc695b31c9` completed all eleven
+GitHub check runs successfully (six Node/OS combinations, four Linux L1 jobs,
+and real Chromium). This qualifies that head's tested contracts, not the new
+project-secret policy or complete Stage A.
+
+Initial local targeted AD-52 checks: 25 passed; 23 macOS-native tests skipped on
+Linux. The first full local run passed lint/format/docs/typechecks/builds but
+failed the old Compose implicit `.env`-access contract: 2297 passed, one failed,
+220 skipped. The test is updated to require the new exact owner opt-in and adds
+sandbox/full-control refusals before any Docker invocation. No security check is
+relaxed. A fresh complete run must verify this follow-up.
+
+Native macOS tests now compile the new profile, check files created after an
+actor is running, real EACCES/EPERM for reads/writes/rename/hardlink attempts,
+exact opt-in and fresh-sandbox removal, and read-only project bind refusal while
+retaining a positive mediated Docker request. These must pass on actual macOS;
+Linux parser/preflight tests cannot qualify Darwin kernel behavior. Linux/Windows
+general secret-file L1 and live owner IPC/UI grant/revoke remain unimplemented.
+PR #5 stays Draft; no merge or full Stage A Pass is claimed.

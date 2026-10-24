@@ -38,7 +38,11 @@ async function collect(p: ManagedProcess) {
   if (!p.stdout.readableEnded) await new Promise<void>((resolve) => p.stdout.once("end", resolve));
   return { out, err, code: result.code };
 }
-async function open(network: "on" | "off", upstream?: DockerUpstream) {
+async function open(
+  network: "on" | "off",
+  upstream?: DockerUpstream,
+  projectSecretAllowedPaths: readonly string[] = [],
+) {
   const provider = new MacosConfinement({
     base: createPosixLauncher(),
     stateDir: state,
@@ -48,6 +52,7 @@ async function open(network: "on" | "off", upstream?: DockerUpstream) {
   const core = await provider.open({
     workspace,
     protectedPaths: [state],
+    projectSecretAllowedPaths,
     network,
     dockerEnvironment: process.env as Record<string, string>,
     audit: (e) => {
@@ -77,12 +82,84 @@ describe.runIf(mac)("macOS production Seatbelt qualification", () => {
     const profile = seatbeltProfile({
       writable: [workspace],
       protectedPaths: [state],
+      projectSecrets: { root: workspace, allowedPaths: [] },
       dockerSocket: path.join(root, "d.sock"),
       network: "on",
     });
     expect(
       execFileSync("/usr/bin/sandbox-exec", ["-p", profile, "/bin/sh", "-c", "printf COMPILED"], { encoding: "utf8" }),
     ).toBe("COMPILED");
+  });
+
+  it("denies newly created secrets in an already running actor, including alias attempts", async () => {
+    const core = await open("on");
+    await writeFile(path.join(workspace, "public.txt"), "public");
+    const p = await core.launcher.launch(
+      {
+        file: process.execPath,
+        args: [
+          "-e",
+          `const fs=require('fs');
+const denied=f=>{try{f();throw Error('secret escaped')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}};
+console.log('READY');process.stdin.once('data',()=>{try{
+if(fs.readFileSync('public.txt','utf8')!=='public')throw Error('ordinary file broken');
+for(const name of ['.env.production','late.KEY','benign.txt'])denied(()=>fs.readFileSync(name));
+denied(()=>fs.renameSync('.env.production','renamed.txt'));
+denied(()=>fs.linkSync('.env.production','linked.txt'));
+denied(()=>fs.writeFileSync('late.KEY','bad'));
+console.log('FUTURE-SECRETS-DENIED');process.stdin.destroy();}catch(e){console.error(e);process.exit(1)}});`,
+        ],
+        display: "future secret native test",
+      },
+      { cwd: workspace, env: process.env as Record<string, string>, stdin: true },
+    );
+    const result = collect(p);
+    await new Promise<void>((resolve, reject) => {
+      let output = "";
+      const timer = setTimeout(() => reject(Error("actor did not become ready")), 5000);
+      const listener = (chunk: Buffer) => {
+        output += String(chunk);
+        if (output.includes("READY")) {
+          clearTimeout(timer);
+          p.stdout.off("data", listener);
+          resolve();
+        }
+      };
+      p.stdout.on("data", listener);
+      p.exited.then(() => {
+        clearTimeout(timer);
+        reject(Error("actor exited before host update"));
+      });
+    });
+    await writeFile(path.join(workspace, ".env.production"), "future-private");
+    await writeFile(path.join(workspace, "late.KEY"), "future-key");
+    await symlink(path.join(workspace, ".env.production"), path.join(workspace, "benign.txt"));
+    p.stdin!.end("go");
+    const r = await result;
+    expect(r, r.err).toMatchObject({ code: 0 });
+    expect(r.out).toContain("FUTURE-SECRETS-DENIED");
+    expect(await readFile(path.join(workspace, ".env.production"), "utf8")).toBe("future-private");
+    expect(await readFile(path.join(workspace, "late.KEY"), "utf8")).toBe("future-key");
+  });
+  it("applies exact immutable owner opt-in and removes it only in a new drained sandbox", async () => {
+    const approved = path.join(workspace, ".env");
+    await writeFile(approved, "approved");
+    await writeFile(path.join(workspace, "other.pem"), "private");
+    const core = await open("on", undefined, [approved]);
+    const r = await run(
+      core,
+      `const fs=require('fs');if(fs.readFileSync('.env','utf8')!=='approved')throw Error('opt-in failed');try{fs.readFileSync('other.pem');throw Error('broad grant')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}console.log('EXACT-GRANT');`,
+    );
+    expect(r, r.err).toMatchObject({ code: 0 });
+    expect(r.out).toContain("EXACT-GRANT");
+    await core.close();
+    const fresh = await open("on");
+    const revoked = await run(
+      fresh,
+      `try{require('fs').readFileSync('.env');throw Error('grant survived')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}console.log('REVOKED');`,
+    );
+    expect(revoked, revoked.err).toMatchObject({ code: 0 });
+    expect(revoked.out).toContain("REVOKED");
   });
   it("runs node, sh, git and descendants with private HOME and caches", async () => {
     const core = await open("on");
@@ -214,11 +291,11 @@ for(const p of ${JSON.stringify([path.join(root, "outside"), path.join(workspace
     });
     const r = await run(
       core,
-      `const net=require('net');async function req(target,body){return new Promise((resolve,reject)=>{const s=net.connect(process.env.DOCKER_HOST.slice(7));let out='';s.on('connect',()=>s.write((body?'POST':'GET')+' '+target+' HTTP/1.1\\r\\nHost: docker\\r\\nConnection: close\\r\\n'+(body?'Content-Length: '+Buffer.byteLength(body)+'\\r\\n':'')+'\\r\\n'+(body||'')));s.on('data',b=>out+=b);s.on('end',()=>resolve(out));s.on('error',reject)})};(async()=>{const a=await req('/_ping');if(!a.includes('200 OK'))throw Error(a);for(const bind of ${JSON.stringify([state + ":/state:ro", root + ":/host:rw"])}){const b=await req('/containers/create',JSON.stringify({Image:'test',HostConfig:{Binds:[bind]}}));if(!b.includes('403 Forbidden'))throw Error(b)}console.log('DOCKER-200-403-403')})().catch(e=>{console.error(e);process.exit(1)});`,
+      `const net=require('net');async function req(target,body){return new Promise((resolve,reject)=>{const s=net.connect(process.env.DOCKER_HOST.slice(7));let out='';s.on('connect',()=>s.write((body?'POST':'GET')+' '+target+' HTTP/1.1\\r\\nHost: docker\\r\\nConnection: close\\r\\n'+(body?'Content-Length: '+Buffer.byteLength(body)+'\\r\\n':'')+'\\r\\n'+(body||'')));s.on('data',b=>out+=b);s.on('end',()=>resolve(out));s.on('error',reject)})};(async()=>{const a=await req('/_ping');if(!a.includes('200 OK'))throw Error(a);for(const bind of ${JSON.stringify([state + ":/state:ro", root + ":/host:rw", workspace + ":/project:ro"])}){const b=await req('/containers/create',JSON.stringify({Image:'test',HostConfig:{Binds:[bind]}}));if(!b.includes('403 Forbidden'))throw Error(b)}console.log('DOCKER-200-403-403-403')})().catch(e=>{console.error(e);process.exit(1)});`,
     );
     expect(r, r.err).toMatchObject({ code: 0 });
-    expect(r.out).toContain("DOCKER-200-403-403");
-    expect(refusals).toHaveLength(2);
+    expect(r.out).toContain("DOCKER-200-403-403-403");
+    expect(refusals).toHaveLength(3);
   });
   it("does not modify an external file through a pre-existing workspace hardlink", async () => {
     const external = path.join(root, "preexisting-external");

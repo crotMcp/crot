@@ -1,3 +1,4 @@
+import { ProjectSecretAccessSchema } from "../permissions/project-secrets.js";
 import { z } from "zod";
 import {
   DEFAULT_APPROVAL_MAX_PENDING,
@@ -260,11 +261,18 @@ export const CrotConfigSchema = z
         capabilities: z.array(CapabilitySchema).optional(),
         /** Host policy of network.access; deny by default (ARCHITECTURE.md §27, AD-4). */
         network: NetworkPolicyConfigSchema.default({ allow: [], deny: [] }),
+        /** Exact owner file opt-ins, bound to a canonical workspace. No capability or ask decision overrides default secret-file denial. */
+        projectSecrets: ProjectSecretAccessSchema.default({ allow: [] }),
         /** Approval gates (AD-10). */
         approvals: ApprovalsConfigSchema.default(ApprovalsConfigSchema.parse({})),
       })
       .strict()
-      .default({ mode: "sandbox", network: { allow: [], deny: [] }, approvals: ApprovalsConfigSchema.parse({}) }),
+      .default({
+        mode: "sandbox",
+        network: { allow: [], deny: [] },
+        approvals: ApprovalsConfigSchema.parse({}),
+        projectSecrets: { allow: [] },
+      }),
     limits: LimitsSchema.default(LimitsSchema.parse({})),
     audit: AuditConfigSchema.default({ sink: "stderr" }),
     environment: EnvironmentConfigSchema.default({ path: "auto", allow: [] }),

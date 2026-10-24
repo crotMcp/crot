@@ -445,8 +445,11 @@ describe("docker.use: docker_compose_up", () => {
     expect(lastAudit()!.paths).toEqual(expect.arrayContaining([app, file, data]));
   });
 
-  it("passes the project's .env file and authorizes the env files the model names", async () => {
-    const c = await makeCore(SANDBOX_WITH_DOCKER);
+  it("passes the project's explicitly opted-in .env and authorizes the env files the model names", async () => {
+    const c = await makeCore({
+      ...SANDBOX_WITH_DOCKER,
+      projectSecrets: { allow: [{ workspace: dirs.workspace, path: "app/.env" }] },
+    });
     const app = await makeProject(path.join(dirs.workspace, "app"));
     await writeFile(path.join(app, ".env"), "TAG=1\n");
     const envFile = path.join(app, "web.env");
@@ -464,6 +467,19 @@ describe("docker.use: docker_compose_up", () => {
     expect(envFileArg(up!)).not.toBe(path.join(app, ".env"));
     expect(audit.events[1]!.paths).toContain(envFile);
   });
+
+  it.each([SANDBOX_WITH_DOCKER, { mode: "full_control" }])(
+    "refuses implicit project .env before resolving or launching Docker (%j)",
+    async (permissions) => {
+      const c = await makeCore(permissions);
+      const app = await makeProject(path.join(dirs.workspace, "app"));
+      await writeFile(path.join(app, ".env"), "UNLOGGED_SECRET=private\n");
+      await expect(c.docker.composeUp(ctx, { cwd: "app" })).rejects.toMatchObject({ code: "PERMISSION_DENIED" });
+      expect(fake.calls).toEqual([]);
+      expect(audit.events.at(-1)).toMatchObject({ operation: "docker.compose_config", outcome: "denied" });
+      expect(JSON.stringify(audit.events)).not.toContain("UNLOGGED_SECRET");
+    },
+  );
 
   describe("perimeter (sandbox denies, full_control allows)", () => {
     it("project directory outside the workspace", async () => {
