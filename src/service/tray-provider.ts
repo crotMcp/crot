@@ -103,6 +103,16 @@ export class TrayApprovalProvider implements ApprovalProvider {
     this.pending.clear();
   }
 
+  /** Trusted snapshot only for the subscribed tray and its exact pending digest. */
+  presented(subscriber: ApprovalSubscriber, requestId: string, digest?: string): PresentedApproval | undefined {
+    const entry = this.pending.get(requestId);
+    return this.subscribers.has(subscriber) &&
+      entry?.shownTo.has(subscriber) &&
+      digest === entry.presented.subjectDigest
+      ? entry.presented
+      : undefined;
+  }
+
   decide(
     subscriber: ApprovalSubscriber,
     requestId: string,

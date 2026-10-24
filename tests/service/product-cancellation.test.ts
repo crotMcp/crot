@@ -106,3 +106,75 @@ it("policy persistence fails closed on audit failure and recovers an interrupted
     await dirs.cleanup();
   }
 });
+
+it("never activates a project grant after cancellation, unavailable audit or interrupted commit", async () => {
+  const dirs = await makeTempDirs(),
+    core = await createTestCore({ workspace: { root: dirs.workspace } });
+  const privateFiles = createPrivateFileProtection(process.platform === "win32"),
+    stateDir = path.join(dirs.outside, "grants-state");
+  const { store } = await prepareSecretStore({ stateDir, privateFiles, preference: "file" });
+  let runtime: ProductRuntime | undefined,
+    auditFails = false,
+    staged = "",
+    decisions = 0;
+  const host = {
+    stateDir,
+    privateFiles,
+    secrets: store,
+    core: () => core,
+    selectWorkspace: async () => {},
+    recordControlEvent: async () => {
+      staged = await readFile(productPaths(stateDir)[0]!, "utf8");
+      if (auditFails) throw Error("audit unavailable");
+    },
+  };
+  const subject: import("../../src/core/approvals/types.js").ApprovalSubject = {
+    workspace: dirs.workspace,
+    operation: "filesystem.write_file",
+    capabilities: ["filesystem.write"],
+    paths: [],
+    network: [],
+    effects: [],
+    summary: "write",
+    principal: testContext.principal,
+    mode: "sandbox",
+    rule: "runtime.ask",
+  };
+  try {
+    runtime = await ProductRuntime.open(host);
+    await runtime.request("security.setPolicy", {
+      strict: false,
+      rules: [{ operation: "filesystem.write_file", state: "ask" }],
+    });
+    await expect(
+      runtime.approveProject(subject, () => {
+        decisions++;
+        return false;
+      }),
+    ).rejects.toThrow(/no longer pending/);
+    expect(decisions).toBe(1);
+    expect(core.permissions.runtime.policy.projectGrants).toBeUndefined();
+    auditFails = true;
+    await expect(
+      runtime.approveProject(subject, () => {
+        decisions++;
+        return true;
+      }),
+    ).rejects.toThrow("audit unavailable");
+    expect(decisions).toBe(1);
+    expect(core.permissions.runtime.policy.projectGrants).toBeUndefined();
+    auditFails = false;
+    await runtime.close();
+    runtime = undefined;
+    await writeFile(productPaths(stateDir)[0]!, staged);
+    runtime = await ProductRuntime.open(host);
+    expect(core.permissions.runtime.policy.projectGrants).toBeUndefined();
+    const stored = JSON.parse(await readFile(productPaths(stateDir)[0]!, "utf8"));
+    expect(stored.security.projectGrants).toBeUndefined();
+    expect(stored.securityPrevious).toBeUndefined();
+  } finally {
+    await runtime?.close();
+    await core.shutdown();
+    await dirs.cleanup();
+  }
+});

@@ -602,6 +602,107 @@ describe("Stage A real chat provider adapters", () => {
   });
 });
 
+describe("Stage A project approvals", () => {
+  it("binds project grants to pending digests, restores them on restart, and retains strict/deny/revoke gates", async () => {
+    const config = {
+      permissions: { mode: "full_control", approvals: { untrustedContent: "off" } },
+      audit: { sink: "file", path: path.join(dirs.outside, "project-grants.jsonl") },
+    };
+    const started = await startService({ config });
+    let client = await mcpClient(config),
+      control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    let pending: import("../../src/core/approvals/types.js").PresentedApproval | undefined;
+    const subscribe = async () => {
+      control.onevent = (e) => {
+        if (e.event === "approval.requested") pending = e.approval;
+      };
+      await control.request("approvals.subscribe");
+    };
+    const write = (name: string) =>
+      client.callTool({ name: "fs_write_file", arguments: { path: name, content: "approved" } });
+    try {
+      await subscribe();
+      await control.request("security.setPolicy", {
+        strict: false,
+        rules: [{ operation: "filesystem.write_file", state: "ask" }],
+      });
+      const first = write("first.txt");
+      await waitFor(() => !!pending);
+      expect(pending!.subject.workspace).toBe(dirs.workspace);
+      expect(
+        await control.request("approvals.decide", {
+          requestId: pending!.requestId,
+          subjectDigest: "0".repeat(64),
+          decision: "approve-project",
+        }),
+      ).toMatchObject({ ok: false });
+      expect(await control.request("security.status")).toMatchObject({ policy: { rules: [{ state: "ask" }] } });
+      expect(
+        await control.request("approvals.decide", {
+          requestId: pending!.requestId,
+          subjectDigest: pending!.subjectDigest,
+          decision: "approve-project",
+        }),
+      ).toMatchObject({ ok: true });
+      expect((await first).isError).not.toBe(true);
+      pending = undefined;
+      expect((await write("second.txt")).isError).not.toBe(true);
+      expect(pending).toBeUndefined();
+      await client.close();
+      control.close();
+      await started.service.shutdown("restart grant");
+      await startService({ config });
+      client = await mcpClient(config);
+      control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+      await subscribe();
+      const grant = { workspace: dirs.workspace, operation: "filesystem.write_file" };
+      expect(await control.request("security.status")).toMatchObject({ policy: { projectGrants: [grant] } });
+      expect((await write("restored.txt")).isError).not.toBe(true);
+      expect(pending).toBeUndefined();
+      await control.request("security.setPolicy", { strict: true, rules: [] });
+      const strict = write("strict.txt");
+      await waitFor(() => !!pending);
+      await expect(
+        control.request("approvals.decide", {
+          requestId: pending!.requestId,
+          subjectDigest: pending!.subjectDigest,
+          decision: "approve-project",
+        }),
+      ).rejects.toThrow();
+      expect(
+        await control.request("approvals.decide", {
+          requestId: pending!.requestId,
+          subjectDigest: pending!.subjectDigest,
+          decision: "reject",
+        }),
+      ).toMatchObject({ ok: true });
+      expect((await strict).isError).toBe(true);
+      pending = undefined;
+      await control.request("security.setPolicy", {
+        strict: false,
+        rules: [{ operation: "filesystem.write_file", state: "deny" }],
+      });
+      expect((await write("deny.txt")).isError).toBe(true);
+      expect(pending).toBeUndefined();
+      await control.request("security.setPolicy", {
+        strict: false,
+        rules: [{ operation: "filesystem.write_file", state: "ask" }],
+      });
+      await control.request("security.revokeProjectGrant", grant);
+      const revoked = write("revoked.txt");
+      await waitFor(() => !!pending);
+      await control.request("approvals.decide", { requestId: pending!.requestId, decision: "reject" });
+      expect((await revoked).isError).toBe(true);
+      for (const name of ["strict.txt", "deny.txt", "revoked.txt"])
+        await expect(readFile(path.join(dirs.workspace, name))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(path.join(dirs.outside, "project-grants.jsonl"), "utf8")).toContain("projectGrants");
+    } finally {
+      control.close();
+      await client.close();
+    }
+  });
+});
+
 describe("Stage A emergency owner control", () => {
   it("connects an agent, executes a real task, approves through owner IPC and observes the audit; restores policy on restart", async () => {
     const config = { audit: { sink: "file", path: path.join(dirs.outside, "stage-a-workflow.jsonl") } };

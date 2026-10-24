@@ -271,6 +271,15 @@ export class ControlCenter implements RemoteAdmission {
         if (!subscriber)
           return Promise.resolve(refusal("unknown_request", "This connection has not subscribed to approvals."));
         const { requestId, decision, subjectDigest } = request.params;
+        if (decision === "approve-project") {
+          const presented = this.provider.presented(subscriber, requestId, subjectDigest);
+          if (!presented || !this.product)
+            return Promise.resolve(refusal("unknown_request", "This request is no longer pending for this tray."));
+          return this.product.approveProject(
+            presented.subject,
+            () => this.provider.decide(subscriber, requestId, "approve", subjectDigest).ok,
+          ) as Promise<Result>;
+        }
         const result = this.provider.decide(subscriber, requestId, decision, subjectDigest);
         return Promise.resolve(result.ok ? { ok: true } : refusal(result.reason, DECIDE_MESSAGES[result.reason]));
       }

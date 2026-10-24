@@ -275,6 +275,7 @@ export class CrotCore {
     ]);
     const protectedPaths = await resolveAll([...guarded, ...secretPaths]);
     const permissions = new PermissionEngine(policy, {
+      workspaceRoot: workspace.root,
       ...(options.runtimePermissions ? { runtime: options.runtimePermissions } : {}),
       protectedPaths,
       secretPaths,

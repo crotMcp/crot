@@ -372,6 +372,76 @@ export class ProductRuntime {
     this.mutations = next.catch(() => undefined);
     return next;
   }
+  /** Only control-center passes a broker-bound subject and a synchronous one-time decision. */
+  approveProject(
+    subject: import("../core/approvals/types.js").ApprovalSubject,
+    approveOnce: () => boolean,
+  ): Promise<Record<string, unknown>> {
+    const run = async () => {
+      const runtime = this.host.core().permissions.runtime,
+        policy = runtime.policy;
+      if (
+        runtime.halted ||
+        policy.strict ||
+        subject.rule !== "runtime.ask" ||
+        subject.paths.some((p) => !p.insideWorkspace) ||
+        !subject.workspace ||
+        subject.workspace !== this.activeProject.path
+      )
+        fail("Only a current runtime ask can be remembered for this project; Strict Mode and mandatory gates cannot");
+      const grant = { workspace: subject.workspace, operation: subject.operation };
+      const grants = policy.projectGrants ?? [];
+      const next = {
+        ...policy,
+        projectGrants: grants.some((g) => g.workspace === grant.workspace && g.operation === grant.operation)
+          ? grants
+          : [...grants, grant],
+      };
+      return this.applyRuntimePolicy(next, () => {
+        if (!approveOnce()) fail("Approval is no longer pending or its digest changed");
+      });
+    };
+    const next = this.mutations.then(run, run);
+    this.mutations = next.catch(() => undefined);
+    return next;
+  }
+  private async applyRuntimePolicy(input: unknown, beforeCommit?: () => void): Promise<Record<string, unknown>> {
+    if (!this.host.recordControlEvent) fail("Security policy audit unavailable");
+    const runtime = this.host.core().permissions.runtime;
+    const next = RuntimePolicySchema.parse(input),
+      previous = runtime.policy;
+    // Persist and audit before publishing a widening. No agent can observe an unaudited grant.
+    this.state.securityPrevious = previous;
+    this.state.security = next;
+    try {
+      await this.persist();
+      await this.host.recordControlEvent!({
+        kind: "control",
+        id: newAuditEventId(),
+        timestamp: now(),
+        action: "runtime_policy",
+        actor: { channel: "control" },
+        outcome: "applied",
+        previous: JSON.stringify(previous),
+        value: JSON.stringify(next),
+      });
+      // Only the post-audit atomic snapshot commits the policy for a later restart.
+      beforeCommit?.();
+      delete this.state.securityPrevious;
+      await this.persist();
+    } catch (error) {
+      this.state.security = previous;
+      delete this.state.securityPrevious;
+      try {
+        await this.persist();
+      } catch {
+        runtime.stop();
+      }
+      throw error;
+    }
+    runtime.replace(next);
+    return { ok: true, halted: runtime.halted, policy: runtime.policy };
+  }
   private async dispatch(method: ProductMethod, p: Record<string, unknown>): Promise<Record<string, unknown>> {
     const id = String(p.id ?? "");
     switch (method) {
@@ -427,40 +497,20 @@ export class ProductRuntime {
       case "security.kill":
         return fail("Emergency stop must use the unqueued owner path");
       case "security.setPolicy": {
-        if (!this.host.recordControlEvent) fail("Security policy audit unavailable");
-        const runtime = this.host.core().permissions.runtime;
-        const next = RuntimePolicySchema.parse(p),
-          previous = runtime.policy;
-        // Persist and audit before publishing a widening. No agent can observe an unaudited grant.
-        this.state.securityPrevious = previous;
-        this.state.security = next;
-        try {
-          await this.persist();
-          await this.host.recordControlEvent!({
-            kind: "control",
-            id: newAuditEventId(),
-            timestamp: now(),
-            action: "runtime_policy",
-            actor: { channel: "control" },
-            outcome: "applied",
-            previous: JSON.stringify(previous),
-            value: JSON.stringify(next),
-          });
-          // Only the post-audit atomic snapshot commits the policy for a later restart.
-          delete this.state.securityPrevious;
-          await this.persist();
-        } catch (error) {
-          this.state.security = previous;
-          delete this.state.securityPrevious;
-          try {
-            await this.persist();
-          } catch {
-            runtime.stop();
-          }
-          throw error;
-        }
-        runtime.replace(next);
-        return { ok: true, halted: runtime.halted, policy: runtime.policy };
+        const policy = this.host.core().permissions.runtime.policy;
+        return this.applyRuntimePolicy({
+          ...p,
+          ...(p.projectGrants === undefined && policy.projectGrants ? { projectGrants: policy.projectGrants } : {}),
+        });
+      }
+      case "security.revokeProjectGrant": {
+        const policy = this.host.core().permissions.runtime.policy;
+        return this.applyRuntimePolicy({
+          ...policy,
+          projectGrants: (policy.projectGrants ?? []).filter(
+            (g) => g.workspace !== p.workspace || g.operation !== p.operation,
+          ),
+        });
       }
       case "projects.list":
         return { ok: true, projects: this.state.projects, active: this.state.active };

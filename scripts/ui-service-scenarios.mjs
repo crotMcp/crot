@@ -161,9 +161,29 @@ export async function runServiceScenarios({ real, evaluate, until, size, screens
     "document.querySelector('[data-chat-approvals] .card')&&document.body.textContent.includes('Waiting for approved write')",
   );
   await screenshot("09-chat-awaiting-real-approval");
-  await click("Approve", "[data-chat-approvals] button");
+  await click("Allow once", "[data-chat-approvals] button");
   await until("document.body.textContent.includes('UI streaming tool complete')");
   const chatEvidence = await real.verifyChat();
+  await fill("Message", "Remember this operation for the project");
+  await click("Send message");
+  await until("document.querySelector('[data-chat-approvals] .card')");
+  await click("Allow for project", "[data-chat-approvals] button");
+  await confirm();
+  await until("!document.querySelector('[data-chat-approvals] .card')");
+  await until(
+    "(async()=>{const p=await window.crot.product('chat.providers');return (await window.crot.product('chat.poll',{id:p.current})).state==='completed';})()",
+  );
+  await fill("Message", "Repeat with the remembered project grant");
+  await click("Send message");
+  await until(
+    "(async()=>{const p=await window.crot.product('chat.providers');return (await window.crot.product('chat.poll',{id:p.current})).state==='completed';})()",
+  );
+  if (await evaluate("!!document.querySelector('[data-chat-approvals] .card')"))
+    throw Error("Project grant was not applied");
+  const grantPolicy = await evaluate("window.crot.product('security.status')");
+  if (!grantPolicy.policy.projectGrants.some((g) => g.operation === "filesystem.write_file"))
+    throw Error("UI project grant was not persisted");
+
   await screenshot("10-chat-streaming-tool-real-service");
   await section("Monitoring");
   await fill("Event type", "filesystem.write_file");

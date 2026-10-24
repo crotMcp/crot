@@ -2,9 +2,21 @@
 import { z } from "zod";
 import { CapabilitySchema } from "./capabilities.js";
 
+export const ProjectGrantSchema = z
+  .object({
+    workspace: z
+      .string()
+      .min(1)
+      .max(4096)
+      .regex(/^[^\0\r\n]+$/),
+    operation: z.string().regex(/^[a-z][a-z0-9_.]{0,127}$/),
+  })
+  .strict();
+
 export const RuntimePolicySchema = z
   .object({
     strict: z.boolean(),
+    projectGrants: z.array(ProjectGrantSchema).max(256).optional(),
     rules: z
       .array(
         z
@@ -24,7 +36,8 @@ export const RuntimePolicySchema = z
   .strict()
   .refine((p) => {
     const keys = p.rules.map((r) => (r.operation ? `op:${r.operation}` : `cap:${r.capability}`));
-    return new Set(keys).size === keys.length;
+    const grants = (p.projectGrants ?? []).map((g) => JSON.stringify([g.workspace, g.operation]));
+    return new Set(keys).size === keys.length && new Set(grants).size === grants.length;
   }, "Duplicate runtime policy rule");
 export type RuntimePolicy = z.infer<typeof RuntimePolicySchema>;
 

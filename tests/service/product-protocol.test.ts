@@ -49,3 +49,35 @@ it("security RPC rejects implicit kill parameters and malformed runtime policy",
     params: {},
   });
 });
+
+it("project approval requires a pending subject digest and closed owner-only revocation shape", () => {
+  expect(
+    parseControlRequest({
+      t: "request",
+      id: 1,
+      method: "approvals.decide",
+      params: { requestId: "id", decision: "approve-project" },
+    }),
+  ).toBeUndefined();
+  expect(
+    parseControlRequest({
+      t: "request",
+      id: 1,
+      method: "approvals.decide",
+      params: { requestId: "id", decision: "approve-project", subjectDigest: "a".repeat(64) },
+    }),
+  ).toMatchObject({ params: { decision: "approve-project" } });
+  expect(
+    parseProduct("security.revokeProjectGrant", { workspace: "/ws", operation: "filesystem.write_file", bypass: true }),
+  ).toBeUndefined();
+  expect(
+    parseProduct("security.setPolicy", {
+      strict: false,
+      rules: [],
+      projectGrants: [
+        { workspace: "/ws", operation: "filesystem.write_file" },
+        { workspace: "/ws", operation: "filesystem.write_file" },
+      ],
+    }),
+  ).toBeUndefined();
+});

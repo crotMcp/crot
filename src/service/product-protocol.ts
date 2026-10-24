@@ -2,7 +2,7 @@
 import { ChatConfigureSchema, ChatProviderSchema, ChatStartSchema } from "./chat-protocol.js";
 import { TokenIssueSchema } from "./client-tokens.js";
 import { z } from "zod";
-import { RuntimePolicySchema } from "../core/permissions/runtime.js";
+import { ProjectGrantSchema, RuntimePolicySchema } from "../core/permissions/runtime.js";
 const id = z.string().min(1).max(256);
 const list = z.array(id).max(256);
 const grants = { projects: list.default([]), agents: list.default([]) };
@@ -30,6 +30,7 @@ export const PRODUCT_SCHEMAS = {
   "security.status": z.object({}).strict(),
   "security.kill": z.object({}).strict(),
   "security.setPolicy": RuntimePolicySchema,
+  "security.revokeProjectGrant": ProjectGrantSchema,
   "projects.list": z.object({}).strict(),
   "projects.create": z.object({ path: z.string().min(1).max(4096), name: id.optional() }).strict(),
   "projects.open": z.object({ path: z.string().min(1).max(4096), name: id.optional() }).strict(),

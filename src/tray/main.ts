@@ -418,7 +418,12 @@ function registerIpc(): void {
     publish();
   });
   ipcMain.handle("decide", (event, requestId: unknown, decision: unknown) => {
-    if (smokeReport || !fromTray(event) || !isId(requestId) || (decision !== "approve" && decision !== "reject"))
+    if (
+      smokeReport ||
+      !fromTray(event) ||
+      !isId(requestId) ||
+      (decision !== "approve" && decision !== "approve-project" && decision !== "reject")
+    )
       return false;
     return controller.decide(requestId, decision);
   });

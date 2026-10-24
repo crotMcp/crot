@@ -62,6 +62,8 @@ export interface RemoteProfileSummary {
 }
 
 export interface PermissionEngineOptions {
+  /** Canonical Core workspace, never a request-supplied project identifier. */
+  readonly workspaceRoot?: string;
   readonly runtime?: RuntimePermissionState;
   /**
    * Paths CROT itself depends on (audit log, configuration). Write operations
@@ -174,6 +176,7 @@ interface Profile {
  */
 export class PermissionEngine {
   readonly runtime: RuntimePermissionState;
+  readonly workspaceRoot: string | undefined;
   private readonly protectedPaths: readonly string[];
   private readonly secretPaths: readonly string[];
   private readonly contains: (ancestor: string, candidate: string) => boolean;
@@ -192,6 +195,7 @@ export class PermissionEngine {
     options: PermissionEngineOptions = {},
   ) {
     this.runtime = options.runtime ?? new RuntimePermissionState();
+    this.workspaceRoot = options.workspaceRoot;
     this.protectedPaths = options.protectedPaths ?? [];
     this.secretPaths = options.secretPaths ?? [];
     this.contains = options.contains ?? ((a, c) => a === c || c.startsWith(a.endsWith("/") ? a : `${a}/`));
@@ -331,12 +335,16 @@ export class PermissionEngine {
     const runtime = this.runtime.policy;
     const ask =
       runtime.strict ||
-      runtime.rules.some(
-        (r) =>
-          r.state === "ask" &&
-          (r.operation === request.operation ||
-            (r.capability !== undefined && request.capabilities.includes(r.capability))),
-      );
+      (!(
+        (request.paths ?? []).every((p) => p.insideWorkspace) &&
+        runtime.projectGrants?.some((g) => g.workspace === this.workspaceRoot && g.operation === request.operation)
+      ) &&
+        runtime.rules.some(
+          (r) =>
+            r.state === "ask" &&
+            (r.operation === request.operation ||
+              (r.capability !== undefined && request.capabilities.includes(r.capability))),
+        ));
     if (ask)
       return {
         required: true,

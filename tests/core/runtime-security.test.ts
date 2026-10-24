@@ -56,6 +56,51 @@ describe("Stage A runtime security", () => {
       ).toBe(false);
   });
 
+  it("project grants suppress only runtime ask, not another workspace, outside paths, mandatory gates or deny", () => {
+    const runtime = new RuntimePermissionState();
+    runtime.replace({
+      strict: false,
+      rules: [{ operation: "filesystem.write_file", state: "ask" }],
+      projectGrants: [{ workspace: "/ws", operation: "filesystem.write_file" }],
+    });
+    const policy = createPermissionPolicy({ mode: "full_control" });
+    const engine = new PermissionEngine(policy, {
+      runtime,
+      workspaceRoot: "/ws",
+      approvals: { rules: [], untrustedContent: "off" },
+    });
+    const request = {
+      operation: "filesystem.write_file",
+      capabilities: ["filesystem.write" as const],
+      paths: [{ absolute: "/ws/a", insideWorkspace: true, relative: "a" }],
+    };
+    expect(engine.approvalRequirement(ctx, request)).toEqual({ required: false });
+    expect(
+      new PermissionEngine(policy, { runtime, workspaceRoot: "/other" }).approvalRequirement(ctx, request),
+    ).toMatchObject({ required: true });
+    expect(
+      engine.approvalRequirement(ctx, {
+        ...request,
+        paths: [{ absolute: "/outside", insideWorkspace: false, relative: null }],
+      }),
+    ).toMatchObject({ required: true });
+    const mandatory = new PermissionEngine(policy, {
+      runtime,
+      workspaceRoot: "/ws",
+      approvals: {
+        rules: [{ id: "always-write", match: { operations: ["filesystem.write_file"] } }],
+        untrustedContent: "off",
+      },
+    });
+    expect(mandatory.approvalRequirement(ctx, request)).toMatchObject({ required: true, rule: "always-write" });
+    runtime.replace({ ...runtime.policy, strict: true });
+    expect(engine.approvalRequirement(ctx, request)).toMatchObject({ required: true, rule: "runtime.strict" });
+    runtime.replace({ ...runtime.policy, rules: [{ operation: "filesystem.write_file", state: "deny" }] });
+    expect(
+      engine.authorize({ context: ctx, operation: "filesystem.write_file", capability: "filesystem.write" }),
+    ).toMatchObject({ allowed: false });
+  });
+
   it("Strict Mode asks for real file reads and records approval plus execution", async () => {
     const dirs = await makeTempDirs(),
       audit = new MemoryAuditSink(),

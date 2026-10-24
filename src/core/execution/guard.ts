@@ -412,6 +412,7 @@ export class ExecutionGuard {
     if (exposed) effects.push({ label: "exposure", value: "this session read untrusted content before this request" });
     return {
       operation: op.operation,
+      ...(this.engine.workspaceRoot ? { workspace: this.engine.workspaceRoot } : {}),
       capabilities,
       summary: op.approval?.summary ?? op.operation,
       effects,

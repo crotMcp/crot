@@ -43,6 +43,7 @@ export interface DisplayRow {
 }
 
 export interface ApprovalCard {
+  readonly canApproveProject?: boolean;
   readonly requestId: string;
   readonly subjectDigest: string;
   readonly title: string;
@@ -71,6 +72,7 @@ export function approvalCard(request: PresentedApproval): ApprovalCard {
   const s = request.subject;
   const rows: DisplayRow[] = [];
   rows.push(row("Operation", s.operation));
+  if (s.workspace) rows.push(row("Project workspace", s.workspace));
   rows.push(row("Capabilities", s.capabilities.join(", ")));
   for (const effect of s.effects) {
     const mark = effect.flag ? FLAG_MARKS[effect.flag] : undefined;
@@ -108,6 +110,9 @@ export function approvalCard(request: PresentedApproval): ApprovalCard {
     banners.push("Some values were supplied by a web page and may be misleading.");
   return {
     requestId: request.requestId,
+    ...(s.workspace && s.rule === "runtime.ask" && s.paths.every((p) => p.insideWorkspace)
+      ? { canApproveProject: true }
+      : {}),
     subjectDigest: request.subjectDigest,
     title: visibleText(s.summary),
     banners,

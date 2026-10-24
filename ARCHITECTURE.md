@@ -5419,3 +5419,36 @@ project grants, project discovery or application-secret L1 enforcement gates.
    never provider-supplied HTML. The shared broker queue appears inline and in the
    header; this slice still offers only one-time approve/reject. Persistent
    project grants and the complete native GUI acceptance journey remain open.
+
+### AD-46 — Digest-bound owner project grants in the existing runtime policy
+
+1. A project grant remembers one exact Core operation for the canonical workspace
+   bound by the Core that presented the request, not a UI-supplied path or project
+   ID. Workspace is part of the immutable approval subject and its digest. The
+   subscribed owner tray must present that digest and a still-pending ticket.
+   The UI explicitly labels this grant as applying to every agent in that project.
+2. PermissionEngine alone interprets grants. They suppress only the runtime `ask`
+   gate for the matching workspace/operation and in-workspace paths. Strict Mode,
+   runtime deny, capability ceilings, token scopes, workspace/secrets/network
+   checks, configured mandatory gates and exposure/remote gates still apply.
+   Full-control outside-workspace subjects cannot be remembered for a project.
+   Process scopes retain their existing L1/full-control semantics; a project
+   grant is not a new kernel sandbox or a restriction on arbitrary command I/O.
+3. The existing protected two-phase runtime-policy transaction serializes grants,
+   revocations and owner policy changes. It stages the prior policy, writes audit,
+   rechecks/consumes the exact ticket synchronously, then commits before publishing
+   the future grant in memory. Expired/cancelled/digest-mismatched requests or audit
+   failures cannot publish a grant. An interrupted staged snapshot restores the
+   prior policy on restart. Audit records describe the attempted policy transition;
+   a later cancelled ticket/failed disk commit is not a successfully active grant.
+4. The consumed ticket still approves only its original operation, with normal
+   post-approval reauthorization, target revalidation and mandatory approval audit.
+   If final policy persistence fails, that one-time decision may already have run;
+   the future project grant is rolled back and failure is reported. Rollback
+   persistence failure latches the runtime stopped. Revocation removes the exact
+   workspace/operation pair without replacing unrelated current owner rules.
+5. Header and inline chat use the same tray controller and broker; renderer cannot
+   manufacture the subject digest. Pending Strict Mode/mandatory requests have no
+   remember-project action. Runtime settings list persisted grants and support
+   explicit revocation. Legacy policy updates that omit grants preserve them;
+   explicitly supplying an empty grant list clears them.
