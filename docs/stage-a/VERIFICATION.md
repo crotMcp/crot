@@ -74,3 +74,26 @@ persistence, native project selection/discovery, L1 application-secret file
 blocking, provider model inventory/chat, attachments, streaming or tool-call UI.
 B/C, live Relay/provider qualification, deployment, native signing and publication
 remain outside this result. See [progress](PROGRESS.md) and AD-43.
+
+
+## Next working slice: named tokens and folder-picker wiring
+
+The historical results above apply only to their recorded SHAs. On the current
+uncommitted working tree, a targeted run passed 4 files / 69 tests:
+`service.test`, `client-tokens.test`, `runtime-security.test`, `confinement.test`.
+TypeScript passed. This is not yet the full check or remote CI for this slice.
+
+Added coverage: real service owner issue/rotate/revoke; actual HTTP scope denials;
+rotation cancels a pending file-write task (file never created); old bearer
+credentials rejected; no plaintext in listing/storage/audit; TTL boundary and
+expiry invalidation; restart persistence; audit-failed issuance stays inactive;
+malformed registry rejected; bounded TTL and strict scopes; every Core capability
+intersected; scoped process execution requires L1; launcher-selection fixture
+terminates an actual token-owned process under Strict Mode while preserving an
+unrelated token's process. That last fixture is **not native L1 qualification**.
+
+An initial integration attempt timed out while awaiting an SDK promise after
+forced SSE disconnection: the SDK waited to reconnect a resumable stream. The
+corrected test independently asserts the service-side Cancelled task and absent
+file, then closes the obsolete client and verifies the rejected result. Native
+folder-picker GUI smoke remains unavailable without DISPLAY/Xvfb. See AD-44.

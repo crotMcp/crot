@@ -5320,3 +5320,60 @@ configuration, DNS, issuer/audience or OAuth callbacks to `crot.networking`.
    globs at the L1 boundary, scoped agent tokens, provider chat, model discovery,
    attachments, streaming or the full Stage A connect/task/approve/audit UI flow.
    PR #5 must not be presented as complete Stage A until these gates and CI pass.
+
+
+### AD-44 — Named loopback credentials and scoped-resource invalidation (Stage A)
+
+This supersedes only the named-token and native-folder-selection gaps in AD-43;
+Stage A as a whole remains incomplete. Relay continues to require its existing
+verified OAuth device/account identity. Named bearer credentials are **loopback
+only**, not a replacement for Relay OAuth or a new full-access credential.
+
+1. An owner-only registry issues independent 256-bit random tokens with client
+   names, explicit non-empty `files / terminal / browser` scopes and a bounded
+   TTL (60 seconds through 365 days). Only SHA-256 hashes and metadata persist in
+   protected service-secret storage. Plaintext is returned once over owner IPC,
+   displayed in a masked transient dialog, and cleared on closing; it is never
+   included in token listings, audit records, logs or localStorage. Rotation
+   retains scopes and the original expiration; old generations cannot resume.
+2. The HTTP verifier builds an immutable verified ID/generation/scope binding;
+   MCP arguments and self-reported client names cannot set it. Session ownership
+   includes that binding. The one PermissionEngine intersects scopes with the
+   configured capability ceilings. Files permits filesystem read/write, terminal
+   permits shell/process and dedicated Git operations, browser permits browser
+   read/control. Unmapped capabilities, Docker, direct network APIs and
+   filesystem.full are denied. Scoped principals always use the sandbox profile,
+   and arbitrary process execution **requires available L1**, without local
+   unconfined fallback even when the owner uses full_control. Scopes describe
+   Core capabilities, not a promise that an allowed shell command has no effects
+   within its configured L1 workspace/network boundary.
+3. ExecutionGuard's existing narrowing hook rechecks authoritative token validity
+   before execution and after approval. Every authenticated HTTP request updates
+   last-use metadata. Expiry is checked at authentication and authorization;
+   a 250 ms sweep cancels already running work, subject to event-loop scheduling
+   and OS reaping (not a zero-latency guarantee). Revocation/rotation immediately
+   invalidate the generation in memory, close its HTTP responses and legacy
+   sessions, cancel its product task controllers and terminate its background
+   process trees. Pending startup rechecks cancellation after launch, so a late
+   process ID cannot orphan a revoked client's process.
+4. `ProcessService.cancelToken` is a service lifecycle resource teardown, analogous
+   to shutdown, not an MCP tool or a way to execute arbitrary operations. It
+   matches the credential captured at the originally authorized process start,
+   never UI-supplied display names. Strict Mode cannot block teardown by asking
+   for another approval. Other token generations/agents' resources are untouched.
+5. Issuance/rotation persist an inactive credential and audit before activating
+   it; interrupted or unaudited credentials cannot authenticate on restart.
+   Revocation persists a tombstone. Storage or resource-cleanup failure latches
+   the runtime fail-closed and is reported as failure, not successful revocation.
+   A failed disk write cannot be claimed as durable revocation across restart.
+   The old bootstrap local token remains an explicitly privileged compatibility
+   credential; named-token rotation does not silently rotate that credential.
+6. The Projects Open Folder action uses a fixed Electron main-process native
+   directory picker. The renderer supplies no path/options to that action. A
+   cancelled dialog changes nothing; selected directories still pass canonical
+   project registration and idle workspace-switch checks. Native GUI interaction
+   requires separate OS smoke verification; a Chromium fixture is not that proof.
+
+Application-secret globs at the L1 boundary, stack/port discovery, provider chat,
+attachments/streaming/tool calls and project-persistent approval grants remain
+Stage A acceptance gates. Domain remains `crot.network` / `mcp.crot.network`.

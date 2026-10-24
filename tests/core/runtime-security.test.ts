@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { MemoryAuditSink } from "../../src/core/audit/audit.js";
 import { RuntimePermissionState, RuntimePolicySchema } from "../../src/core/permissions/runtime.js";
+import { CAPABILITIES } from "../../src/core/permissions/capabilities.js";
 import { PermissionEngine } from "../../src/core/permissions/engine.js";
 import { createPermissionPolicy } from "../../src/core/permissions/policy.js";
 import { TestProvider } from "../approval-provider.js";
@@ -180,4 +181,21 @@ describe("Stage A runtime security", () => {
       await dirs.cleanup();
     }
   });
+});
+
+it("named token scopes narrow every Core capability and cannot acquire full_control", () => {
+  const engine = new PermissionEngine(createPermissionPolicy({ mode: "full_control" }));
+  const expectations = {
+    files: ["filesystem.read", "filesystem.write"],
+    terminal: ["shell.execute", "process.manage", "git.read", "git.write"],
+    browser: ["browser.read", "browser.control"],
+  };
+  for (const scope of ["files", "terminal", "browser"] as const) {
+    const context = { principal: { ...ctx.principal, tokenAccess: { id: "token", generation: "1", scopes: [scope] } } };
+    expect(engine.modeFor(context)).toBe("sandbox");
+    for (const capability of CAPABILITIES)
+      expect(engine.authorize({ context, capability }).allowed, `${scope}: ${capability}`).toBe(
+        expectations[scope].includes(capability),
+      );
+  }
 });

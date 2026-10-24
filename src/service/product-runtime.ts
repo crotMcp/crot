@@ -129,6 +129,7 @@ export interface ProductHost {
   core(): CrotCore;
   selectWorkspace(root: string): Promise<void>;
   disconnectAgent?(id: string): Promise<void>;
+  tokens?: import("./client-tokens.js").ClientTokenRegistry;
   emergencyStop?(): Promise<Record<string, unknown>>;
   recordControlEvent?: (event: import("../core/audit/audit.js").ControlAuditRecord) => Promise<void>;
 }
@@ -341,6 +342,7 @@ export class ProductRuntime {
     // Reads and long operations must not hold up cancellations/approval traffic.
     if (
       method === "security.status" ||
+      method.startsWith("tokens.") ||
       method.endsWith(".list") ||
       method.startsWith("monitoring.") ||
       method === "connectors.testConnection" ||
@@ -356,6 +358,19 @@ export class ProductRuntime {
   private async dispatch(method: ProductMethod, p: Record<string, unknown>): Promise<Record<string, unknown>> {
     const id = String(p.id ?? "");
     switch (method) {
+      case "tokens.list":
+        return { ok: true, tokens: this.host.tokens?.list() ?? [] };
+      case "tokens.issue":
+      case "tokens.rotate":
+      case "tokens.revoke": {
+        const tokens = this.host.tokens;
+        if (!tokens) return fail("Client token registry unavailable");
+        return method === "tokens.issue"
+          ? tokens.issue(p)
+          : method === "tokens.rotate"
+            ? tokens.rotate(id)
+            : tokens.revoke(id);
+      }
       case "security.status":
         return {
           ok: true,
@@ -980,6 +995,21 @@ export class ProductRuntime {
       if (!task.processId) this.cancellations.delete(task.id);
       await this.persist();
     }
+  }
+  /** Invalidate only work bound to this credential, not other agents with the same displayed name. */
+  async invalidateToken(id: string, generation: string): Promise<void> {
+    const tasks = this.state.tasks.filter((t) => {
+      const binding = this.contexts.get(t.id)?.principal.tokenAccess;
+      return t.state === "Running" && binding?.id === id && binding.generation === generation;
+    });
+    for (const task of tasks) this.cancellations.get(task.id)?.abort();
+    await this.host.core().processes.cancelToken(id, generation);
+    for (const t of tasks) {
+      t.state = "Cancelled";
+      t.endedAt = now();
+      this.cancellations.delete(t.id);
+    }
+    await this.persist();
   }
   private async cancel(t: Task): Promise<void> {
     if (t.state !== "Running") fail("Task is not running");

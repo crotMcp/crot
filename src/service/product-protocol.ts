@@ -1,4 +1,5 @@
 /** Owner-only product configuration RPCs. Tool execution is never accepted as arbitrary RPC. */
+import { TokenIssueSchema } from "./client-tokens.js";
 import { z } from "zod";
 import { RuntimePolicySchema } from "../core/permissions/runtime.js";
 const id = z.string().min(1).max(256);
@@ -15,6 +16,10 @@ const filter = z
   })
   .strict();
 export const PRODUCT_SCHEMAS = {
+  "tokens.list": z.object({}).strict(),
+  "tokens.issue": TokenIssueSchema,
+  "tokens.rotate": z.object({ id }).strict(),
+  "tokens.revoke": z.object({ id }).strict(),
   "security.status": z.object({}).strict(),
   "security.kill": z.object({}).strict(),
   "security.setPolicy": RuntimePolicySchema,

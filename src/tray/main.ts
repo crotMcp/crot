@@ -244,6 +244,18 @@ function clientKey(p: Record<string, unknown>): { accountId: string; deviceId: s
 async function runAction(name: unknown, params: unknown): Promise<boolean> {
   // Fixed owner-UI actions only. Renderer never supplies an external URL or clipboard bytes.
   if (typeof name === "string" && name.startsWith("ui.") && isRecord(params) && Object.keys(params).length === 0) {
+    if (name === "ui.pickProjectFolder") {
+      if (smokeReport || !window) return false;
+      const choice = await dialog.showOpenDialog(window, {
+        title: "Open project folder",
+        properties: ["openDirectory"],
+      });
+      if (choice.canceled || choice.filePaths.length !== 1) return false;
+      const opened = await controller.product("projects.open", { path: choice.filePaths[0] });
+      if (!isRecord(opened) || !isRecord(opened.project) || typeof opened.project.id !== "string") return false;
+      await controller.product("projects.select", { id: opened.project.id });
+      return true;
+    }
     if (name === "ui.exportDiagnostics") {
       if (smokeReport || !window) return false;
       const result = await controller.product("monitoring.exportReport", {});

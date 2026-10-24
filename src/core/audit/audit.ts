@@ -60,6 +60,9 @@ export interface ApprovalAuditRecord extends Omit<AuditEvent, "outcome" | "error
 export const CONTROL_AUDIT_ACTIONS = [
   "emergency_stop",
   "runtime_policy",
+  "token_issue",
+  "token_rotate",
+  "token_revoke",
   "preset",
   "remote_mode",
   "remote_full_control",

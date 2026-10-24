@@ -46,6 +46,12 @@ export interface Principal {
   readonly accountId?: string;
   readonly deviceId?: string;
   readonly clientId?: string;
+  /** Verified named loopback credential binding; never taken from MCP arguments/client metadata. */
+  readonly tokenAccess?: {
+    readonly id: string;
+    readonly generation: string;
+    readonly scopes: readonly ("files" | "terminal" | "browser")[];
+  };
 }
 
 /**

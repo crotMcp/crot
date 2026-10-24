@@ -311,6 +311,121 @@ describe("CROT service (WP-20)", () => {
   });
 });
 
+describe("Stage A scoped loopback tokens", () => {
+  it("narrows actual HTTP tools, cancels a pending approval on rotation and rejects revoked credentials", async () => {
+    const auditPath = path.join(dirs.outside, "token-audit.jsonl");
+    const config = {
+      permissions: { mode: "full_control" },
+      http: { enabled: true, port: 0 },
+      audit: { sink: "file", path: auditPath },
+    };
+    const started = await startService({ config });
+    const control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    const clients: Client[] = [];
+    const connect = async (token: string) => {
+      const client = new Client({ name: "same self-reported name", version: "1" });
+      clients.push(client);
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(started.service.httpUrl!), {
+          requestInit: { headers: { authorization: `Bearer ${token}` } },
+        }),
+      );
+      return client;
+    };
+    let approval: import("../../src/core/approvals/types.js").PresentedApproval | undefined;
+    try {
+      const issued = (await control.request("tokens.issue", {
+        name: "file editor",
+        ttlSeconds: 3600,
+        scopes: ["files"],
+      })) as { id: string; token: string };
+      const browserToken = (await control.request("tokens.issue", {
+        name: "browser",
+        ttlSeconds: 3600,
+        scopes: ["browser"],
+      })) as { id: string; token: string };
+      const files = await connect(issued.token),
+        browser = await connect(browserToken.token);
+      expect(
+        (await files.callTool({ name: "fs_write_file", arguments: { path: "token.txt", content: "scoped" } })).isError,
+      ).not.toBe(true);
+      expect((await browser.callTool({ name: "fs_read_file", arguments: { path: "token.txt" } })).isError).toBe(true);
+      expect(
+        (
+          await files.callTool({
+            name: "fs_read_file",
+            arguments: { path: path.join(dirs.outside, "not-in-workspace") },
+          })
+        ).isError,
+      ).toBe(true);
+      control.onevent = (event) => {
+        if (event.event === "approval.requested") approval = event.approval;
+      };
+      await control.request("approvals.subscribe");
+      await control.request("security.setPolicy", { strict: true, rules: [] });
+      const pending = files
+        .callTool({ name: "fs_write_file", arguments: { path: "never-written.txt", content: "must cancel" } })
+        .then(
+          (v) => v,
+          () => ({ isError: true }),
+        );
+      await waitFor(() => approval !== undefined);
+      const rotated = (await control.request("tokens.rotate", { id: issued.id })) as { token: string };
+      // The SDK may wait for resumable SSE reconnect after a forced socket close.
+      // Verify the service-side cancellation independently, then dispose that client.
+      const tasks = (await control.request("tasks.list", {})) as { tasks: { state: string; operation: string }[] };
+      expect(tasks.tasks.some((t) => t.operation === "filesystem.writeFile" && t.state === "Cancelled")).toBe(true);
+      await files.close();
+      expect((await pending).isError).toBe(true);
+      await expect(stat(path.join(dirs.workspace, "never-written.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(connect(issued.token)).rejects.toThrow();
+      await control.request("security.setPolicy", { strict: false, rules: [] });
+      const fresh = await connect(rotated.token);
+      expect((await fresh.callTool({ name: "fs_read_file", arguments: { path: "token.txt" } })).isError).not.toBe(true);
+      const terminalToken = (await control.request("tokens.issue", {
+        name: "runner",
+        ttlSeconds: 3600,
+        scopes: ["terminal"],
+      })) as { id: string; token: string };
+      const runner = await connect(terminalToken.token);
+      const startedProcess = await runner.callTool({
+        name: "process_start",
+        arguments: { command: process.execPath, args: ["-e", "setInterval(()=>{},1000)"] },
+      });
+      const statusResult = await fresh.callTool({ name: "crot_status", arguments: {} });
+      const status = JSON.parse((statusResult.content as { text: string }[])[0]!.text);
+      if (status.confinement.available) {
+        expect(startedProcess.isError).not.toBe(true);
+        // A revoke must not prompt for process.stop, even with Strict Mode enabled.
+        await control.request("security.setPolicy", { strict: true, rules: [] });
+        await control.request("tokens.revoke", { id: terminalToken.id });
+        const runnerTasks = (await control.request("tasks.list", {})) as {
+          tasks: { operation: string; state: string }[];
+        };
+        expect(runnerTasks.tasks.some((t) => t.operation === "processes.start" && t.state === "Cancelled")).toBe(true);
+        await control.request("security.setPolicy", { strict: false, rules: [] });
+      } else {
+        expect(startedProcess.isError).toBe(true);
+        expect(JSON.stringify(startedProcess)).toContain("CONFINEMENT_UNAVAILABLE");
+        await control.request("tokens.revoke", { id: terminalToken.id });
+      }
+      const listing = await control.request("tokens.list", {});
+      expect(JSON.stringify(listing)).not.toContain(rotated.token);
+      expect(JSON.stringify(listing)).not.toMatch(/digest|generation/);
+      await control.request("tokens.revoke", { id: issued.id });
+      await expect(connect(rotated.token)).rejects.toThrow();
+      const journal = await readFile(auditPath, "utf8");
+      expect(journal).toContain('"token_rotate"');
+      expect(journal).toContain('"token_revoke"');
+      expect(journal).not.toContain(issued.token);
+      expect(journal).not.toContain(rotated.token);
+    } finally {
+      for (const client of clients) await client.close().catch(() => undefined);
+      control.close();
+    }
+  });
+});
+
 describe("Stage A emergency owner control", () => {
   it("connects an agent, executes a real task, approves through owner IPC and observes the audit; restores policy on restart", async () => {
     const config = { audit: { sink: "file", path: path.join(dirs.outside, "stage-a-workflow.jsonl") } };

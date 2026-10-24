@@ -19,6 +19,7 @@
  * The service makes no permission decision: every tool call goes through Core
  * (PermissionEngine, ExecutionGuard, audit) exactly as before.
  */
+import { ClientTokenRegistry, clientTokenPath } from "./client-tokens.js";
 import { RuntimePermissionState } from "../core/permissions/runtime.js";
 import { newAuditEventId } from "../core/audit/audit.js";
 import { newLocalExposureScope } from "../core/auth/principal.js";
@@ -149,6 +150,7 @@ export class CrotService {
   private endpoints: { service: ServiceEndpoint; control: ServiceEndpoint } | undefined;
   private native: NativeHost | undefined;
   private bridge: BrowserBridge | undefined;
+  private clientTokens: ClientTokenRegistry | undefined;
   private product: ProductRuntime | undefined;
   private readonly runtimePermissions = new RuntimePermissionState();
   private killing: Promise<Record<string, unknown>> | undefined;
@@ -438,7 +440,10 @@ export class CrotService {
         ...(remoteExposure ? { remoteExposure } : {}),
         platform: servicePlatform,
         ...(this.bridge ? { browser: this.bridge } : {}),
-        additionalAuthorization: (context, operation) => this.product?.authorize(context, operation),
+        additionalAuthorization: (context, operation) => {
+          this.clientTokens?.authorize(context.principal);
+          this.product?.authorize(context, operation);
+        },
         serviceStatus: () => this.status(),
       };
       const configuredPreset = parsed.permissions.approvals.untrustedContent;
@@ -506,7 +511,35 @@ export class CrotService {
         log,
       });
       this.control = control;
+      this.clientTokens = await ClientTokenRegistry.open({
+        file: clientTokenPath(stateDir),
+        privateFiles: servicePlatform.privateFiles,
+        failClosed: () => this.runtimePermissions.stop(),
+        audit: (action, id) =>
+          holder.composition.recordControlEvent({
+            kind: "control",
+            id: newAuditEventId(),
+            timestamp: new Date().toISOString(),
+            action,
+            actor: { channel: "control" },
+            outcome: "applied",
+            value: id,
+          }),
+        invalidate: async (id, generation) => {
+          await Promise.all([
+            this.product?.invalidateToken(id, generation),
+            this.http?.endPrincipal({
+              id: `client-token:${id}:${generation}`,
+              kind: "local",
+              transport: "http",
+              authMethod: "scoped-token",
+              tokenAccess: { id, generation, scopes: [] },
+            }),
+          ]);
+        },
+      });
       this.product = await ProductRuntime.open({
+        tokens: this.clientTokens,
         stateDir,
         secrets: secrets.store,
         privateFiles: servicePlatform.privateFiles,
@@ -634,7 +667,24 @@ export class CrotService {
         `http: access token ${existing ? "read from" : "created in"} ${store.backend.description} (fingerprint ${verifier.fingerprint}); show it with 'crot-mcp secrets show http-token'`,
       );
     }
-    this.http = await CrotHttpServer.start(core, { config: http, verifier, log });
+    const bootstrap = verifier;
+    this.http = await CrotHttpServer.start(core, {
+      config: http,
+      log,
+      principalAdmission: (principal) => {
+        try {
+          this.clientTokens?.authorize(principal);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      verifier: {
+        method: "local-token",
+        verifyAccessToken: async (token) =>
+          (await bootstrap.verifyAccessToken(token)) ?? this.clientTokens?.verifyAccessToken(token),
+      },
+    });
     log(`http: listening on ${this.http.url} (loopback only; bearer token required)`);
   }
 
@@ -983,6 +1033,7 @@ export class CrotService {
     this.deviceIdentity?.cancelPairing();
     await this.tunnel?.close();
     if (this.http) await this.http.close();
+    await this.clientTokens?.close();
     await this.product?.close();
     if (this.holder) await this.holder.instance.shutdown();
     await this.control?.flush();

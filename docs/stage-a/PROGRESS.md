@@ -12,12 +12,18 @@ No B/C work or merge is authorized by this progress record.
 - Emergency brake: Core process/network/browser cancellation, service admission
   latch, product task cancellation, HTTP/Relay close, audit, header/tray wiring.
 - Restart explicitly required after stop; owner diagnostics remain reachable.
+- Named loopback tokens: protected hash-only registry, names, bounded TTL,
+  files/terminal/browser scopes, last use, one-time display, rotation and revoke.
+  Verified transport bindings narrow the existing PermissionEngine. Scoped
+  command execution requires L1, never the owner's unconfined launcher.
+- Token invalidation cancels pending/running tasks, closes HTTP sessions/requests
+  and terminates matching background resources without Strict Mode approval.
+- Fixed native Electron folder-picker action, canonical project registration and
+  idle workspace switching. Native GUI interaction is not yet smoke-qualified.
 
 ## Still required before Stage A acceptance / PR #5
 
-- Multiple named scoped tokens, TTL, last-use, revoke/rotate, authenticated
-  transport binding and revocation of active requests/sessions.
-- Native folder selection, stack and project-owned port discovery, explicit
+- Native folder-picker OS smoke, stack and project-owned port discovery, explicit
   secret access with enforcement at the L1 process boundary.
 - Provider/model inventory, attachment validation, real streaming chat, stop,
   guarded tool-call execution and rendered tool-call/approval blocks.

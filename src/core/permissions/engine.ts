@@ -182,6 +182,7 @@ export class PermissionEngine {
   private readonly approvalTimeoutMs: number;
   private readonly untrustedContent: UntrustedContentSetting;
   private readonly localProfile: Profile;
+  private readonly tokenProfile: Profile;
   private readonly remoteDefault: Profile;
   private readonly remoteFullControl: Profile | undefined;
   private readonly fullControlBinding: RemoteFullControlBinding | undefined;
@@ -203,6 +204,13 @@ export class PermissionEngine {
     // Built-in rules are not validated against the policy: a capability that is
     // not granted is simply never authorized, so the rule never fires for it.
     this.localProfile = this.profile(policy, this.untrustedContent);
+    this.tokenProfile = this.profile(
+      Object.freeze({
+        mode: "sandbox" as const,
+        grants: new Set<Capability>([...policy.grants].filter((c) => c !== "filesystem.full")),
+      }),
+      this.untrustedContent === "off" ? "require-approval" : this.untrustedContent,
+    );
     const remoteSetting: UntrustedContentSetting =
       this.untrustedContent === "off" ? "require-approval" : this.untrustedContent;
     this.remoteDefault = this.profile(
@@ -244,6 +252,7 @@ export class PermissionEngine {
   /** The profile a principal is evaluated with. Only Core facts decide it (never principal.client). */
   private profileFor(context: AuthContext): Profile {
     const principal = context.principal;
+    if (principal.tokenAccess) return this.tokenProfile;
     if (principal.kind !== "remote") return this.localProfile;
     const binding = this.fullControlBinding;
     if (
@@ -382,6 +391,23 @@ export class PermissionEngine {
       )
     )
       return { allowed: false, reason: "Runtime policy denies this operation.", missing: [] };
+    const token = request.context.principal.tokenAccess;
+    if (token) {
+      const scope =
+        request.capability.startsWith("filesystem.") && request.capability !== "filesystem.full"
+          ? "files"
+          : ["shell.execute", "process.manage", "git.read", "git.write"].includes(request.capability)
+            ? "terminal"
+            : request.capability.startsWith("browser.")
+              ? "browser"
+              : undefined;
+      if (!scope || !token.scopes.includes(scope))
+        return {
+          allowed: false,
+          reason: "Client token scope does not permit this capability.",
+          missing: [request.capability],
+        };
+    }
     const policy = this.profileFor(request.context).policy;
     const scope = request.context.principal.kind === "remote" ? ", remote client" : "";
     if (!policy.grants.has(request.capability)) {
