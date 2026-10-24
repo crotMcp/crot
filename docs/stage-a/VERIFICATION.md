@@ -519,3 +519,12 @@ real Chromium 58 pass / 3 existing placeholders skipped; generalized actual GTK
 folder workflow 3 checks / 0 errors. No production authorization or native-dialog
 implementation changed. Only this evidence paragraph is added after the frozen
 source run. AppKit/Windows driver behavior remains pending actual native CI.
+
+
+AD-54 first native candidate `a88a2f1` FAILED actual macOS: the inspector VM
+used by Playwright has no dynamic-import callback, so the test driver could not
+load Koffi. This is a test-runtime failure before native chooser inspection,
+not native acceptance. The follow-up uses Electron's `process.getBuiltinModule`
+loader; a separate real Electron 44 local probe loaded the same Koffi module
+successfully through this API. Strict real chooser/service assertions remain.
+Actual macOS must validate the follow-up; no bypass or skip is substituted.

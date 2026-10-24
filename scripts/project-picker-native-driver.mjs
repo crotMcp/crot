@@ -60,7 +60,9 @@ export async function nativePickerDriver(electron, output, until) {
     const action = (operation, selected) =>
       electron.evaluate(
         async (_electron, input) => {
-          const { createRequire } = await import("node:module");
+          // Playwright evaluates this function in Node's inspector VM, which
+          // has no dynamic-import callback. Use Electron's real builtin loader.
+          const { createRequire } = process.getBuiltinModule("module");
           const koffi = createRequire(process.cwd() + "/package.json")("koffi");
           const objc = koffi.load("/usr/lib/libobjc.A.dylib");
           const cls = objc.func("void *objc_getClass(const char *)");
