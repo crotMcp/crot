@@ -104,6 +104,12 @@ export async function nativePickerDriver(electron, output, until) {
             }
             if (!panel) return { visible: false, found, mainThread };
             const directory = text(id0(id0(panel, selector("directoryURL")), selector("path")), selector("UTF8String"));
+            const defaultCell = id0(panel, selector("defaultButtonCell"));
+            const defaultButton = defaultCell ? id0(defaultCell, selector("controlView")) : null;
+            const defaultIsButton = defaultButton && kind(defaultButton, selector("isKindOfClass:"), cls("NSButton"));
+            const defaultTitle = defaultIsButton
+              ? text(id0(defaultButton, selector("title")), selector("UTF8String"))
+              : null;
             if (input.operation === "cancel") schedule(panel, "cancel:", null);
             else if (input.operation === "navigate") {
               const name = string(cls("NSString"), selector("stringWithUTF8String:"), input.selected);
@@ -112,14 +118,16 @@ export async function nativePickerDriver(electron, output, until) {
             } else if (input.operation === "choose") {
               if (directory !== input.selected)
                 throw Error("Native folder chooser has not navigated to the selected directory");
-              schedule(panel, "ok:", null);
+              if (!defaultIsButton || !boolean(defaultButton, selector("isEnabled")))
+                throw Error("Native chooser default button is unavailable");
+              schedule(defaultButton, "performClick:", null);
             }
-            return { visible: true, found, directory, mainThread };
+            return { visible: true, found, directory, mainThread, defaultTitle };
           },
           { operation, selected },
         )
         .then((result) => {
-          lastObservation = result;
+          lastObservation = { operation, ...result };
           return result;
         });
     return {
@@ -150,7 +158,9 @@ export async function nativePickerDriver(electron, output, until) {
       "v1.0",
       "powershell.exe",
     );
-    const pid = electron.process().pid;
+    // Bind native ownership to Electron's actual main PID, not a launcher handle.
+    const pid = await electron.evaluate(() => process.pid);
+    let lastObservation;
     const action = async (operation, selected = "") => {
       const encoded = Buffer.from(selected, "utf8").toString("base64");
       const script = String.raw`
@@ -172,21 +182,36 @@ public static class NativePickerWindow {
 }
 '@
 $script:owned=@()
+$script:visibleDialogs=@()
+# Electron's file dialog may be hosted by a child utility process. Restrict the
+# family to descendants of this exact live Electron main process, never title alone.
+$family=[System.Collections.Generic.HashSet[uint32]]::new()
+[void]$family.Add([uint32]${pid})
+$processes=@(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId)
+for($level=0;$level -lt 6;$level++){
+ foreach($p in $processes){if($family.Contains([uint32]$p.ParentProcessId)){[void]$family.Add([uint32]$p.ProcessId)}}
+}
 $callback=[NativePickerWindow+EnumCallback]{param([IntPtr]$h,[IntPtr]$unused)
  if(-not [NativePickerWindow]::IsWindowVisible($h)){return $true}
  [uint32]$ownerPid=0;[uint32]$windowPid=0
  [void][NativePickerWindow]::GetWindowThreadProcessId($h,[ref]$windowPid)
  $owner=[NativePickerWindow]::GetWindow($h,2)
  if($owner -ne [IntPtr]::Zero){[void][NativePickerWindow]::GetWindowThreadProcessId($owner,[ref]$ownerPid)}
- if($windowPid -ne ${pid} -and $ownerPid -ne ${pid}){return $true}
  $name=[System.Text.StringBuilder]::new(512);$class=[System.Text.StringBuilder]::new(128)
  [void][NativePickerWindow]::GetWindowText($h,$name,512);[void][NativePickerWindow]::GetClassName($h,$class,128)
+ if($class.ToString() -eq '#32770'){$script:visibleDialogs+=@{process=$windowPid;ownerProcess=$ownerPid}}
+ if(-not $family.Contains($windowPid) -and -not $family.Contains($ownerPid)){return $true}
  $script:owned+=@{handle=$h;title=$name.ToString();class=$class.ToString();process=$windowPid;ownerProcess=$ownerPid}
  return $true
 }
 [void][NativePickerWindow]::EnumWindows($callback,[IntPtr]::Zero)
 $candidates=@($script:owned | Where-Object {$_.class -eq '#32770'})
-if($candidates.Count -eq 0){'no-dialog';$script:owned | ForEach-Object {'owned|{0}|{1}' -f $_.class,$_.title};exit 0}
+if($candidates.Count -eq 0){
+ 'no-dialog';'main|${pid}';'family|'+(($family | Sort-Object) -join ',')
+ $script:owned | Select-Object -First 16 | ForEach-Object {'owned|{0}|{1}|{2}|{3}' -f $_.class,$_.title,$_.process,$_.ownerProcess}
+ $script:visibleDialogs | Select-Object -First 16 | ForEach-Object {'dialog-process|{0}|{1}' -f $_.process,$_.ownerProcess}
+ exit 0
+}
 if($candidates.Count -ne 1){throw 'Ambiguous native chooser windows'}
 $dialog=[System.Windows.Automation.AutomationElement]::FromHandle($candidates[0].handle)
 if($null -eq $dialog){throw 'Owned native chooser has no automation provider'}
@@ -213,6 +238,7 @@ $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).In
         ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
         { timeout: 10000, maxBuffer: 65536, windowsHide: true },
       );
+      lastObservation = { operation, mainPid: pid, native: stdout.trim() };
       return stdout.trim();
     };
     return {
@@ -228,7 +254,13 @@ $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).In
         await delay(500);
         if ((await action("inspect")).startsWith("visible")) await action("accept");
       },
-      diagnostics: () => action("inspect"),
+      async diagnostics() {
+        try {
+          return await action("inspect");
+        } catch (error) {
+          return { lastObservation, error: String(error) };
+        }
+      },
     };
   }
   throw Error("Unsupported native picker host");

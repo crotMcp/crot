@@ -35,7 +35,7 @@ const workspace = path.join(base, "initial"),
   selected = path.join(base, "chosen project"),
   stateDir = path.join(base, "state"),
   auditFile = path.join(base, "audit.jsonl");
-let service, electron, client, driver;
+let service, electron, client, driver, electronChild, page;
 const report = { platform: process.platform, checks: [], errors: [] };
 try {
   for (const dir of [workspace, selected, stateDir]) await mkdir(dir, { mode: 0o700 });
@@ -85,7 +85,8 @@ try {
     env,
     timeout: 30_000,
   });
-  const page = await electron.firstWindow();
+  electronChild = electron.process();
+  page = await electron.firstWindow();
   page.on("pageerror", (error) => report.errors.push(String(error)));
   await page.locator("#local-mode").click();
   await page.locator("#choose-free").click();
@@ -95,6 +96,7 @@ try {
   const list = () => client.request("projects.list");
   const initial = await list();
   driver = await nativePickerDriver(electron, output, until);
+  report.phase = "native cancellation";
   await button.click();
   await driver.wait();
   await driver.cancel();
@@ -103,6 +105,7 @@ try {
   assert.equal(service.core.workspace.root, workspace);
   report.checks.push("Native folder cancellation preserves registry and Core workspace");
 
+  report.phase = "native folder selection";
   await button.click();
   await driver.wait();
   await driver.choose(selected);
@@ -125,16 +128,20 @@ try {
   report.status = "passed";
 } catch (error) {
   report.status = "failed";
-  report.electronProcess = electron
-    ? { exitCode: electron.process().exitCode, signalCode: electron.process().signalCode }
+  report.electronProcess = electronChild
+    ? { exitCode: electronChild.exitCode, signalCode: electronChild.signalCode }
     : null;
   report.registry = await client?.request("projects.list").catch(() => null);
   report.coreWorkspace = service?.core?.workspace?.root;
   report.nativeDialog = await driver?.diagnostics().catch((error) => String(error));
+  report.rendererNotice = await page
+    ?.locator('[role="alert"], #toast')
+    .allTextContents()
+    .catch(() => []);
   if (
     process.platform === "darwin" &&
-    electron &&
-    (electron.process().exitCode !== null || electron.process().signalCode !== null)
+    electronChild &&
+    (electronChild.exitCode !== null || electronChild.signalCode !== null)
   ) {
     const diagnostics = path.join(homedir(), "Library", "Logs", "DiagnosticReports");
     const names = (await readdir(diagnostics).catch(() => []))
@@ -152,7 +159,7 @@ try {
         } catch {
           crash = JSON.parse(raw.slice(raw.indexOf("\n") + 1));
         }
-        if (crash.pid !== electron.process().pid) continue;
+        if (crash.pid !== electronChild.pid) continue;
         report.nativeCrash = {
           exception: crash.exception,
           termination: crash.termination,

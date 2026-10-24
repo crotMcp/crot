@@ -548,3 +548,22 @@ processes, hidden windows and ambiguous owned dialogs are refused. The exact
 real-service selected-path/cancel/audit assertions remain unchanged. Native
 window/control metadata is included on failure, rather than declaring this
 runner unsupported or skipping acceptance.
+
+
+Candidate `35c8b5b` actual macOS Node 20 now passed native cancellation/state
+preservation, but FAILED during folder selection. Its failure reporter also
+tried to retrieve the child process after Playwright had disposed its dispatcher,
+masking the primary diagnostic. Follow-up retains the real ChildProcess at
+launch and the last native action/observation. Acceptance uses the chooser's
+actual enabled default NSButton `performClick:` action (scheduled on the main
+thread), not a guessed panel OK selector. Exact real service path/cancel/audit
+requirements remain. No new native qualification is claimed until actual CI.
+
+
+The same `35c8b5b` candidate's actual Windows Node 22 job FAILED to find
+an owned common-dialog window. Follow-up binds the test driver to the actual
+Electron main PID (not a possible launcher handle) and includes only its
+process descendants/Win32 owners for utility-hosted native dialogs. Failure
+metadata retains bounded process/owner IDs and renderer notices; unrelated
+windows cannot be driven just because their title matches. This is still a
+native candidate, not a Windows acceptance result.
