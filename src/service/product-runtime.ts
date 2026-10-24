@@ -107,6 +107,8 @@ interface State {
   servers: McpServer[];
   tasks: Task[];
   security?: RuntimePolicy;
+  /** Uncommitted policy transaction: restart must restore this prior policy. */
+  securityPrevious?: RuntimePolicy;
 }
 interface Vault {
   credentials: Record<string, string>;
@@ -219,7 +221,11 @@ export class ProductRuntime {
       : { version: 1, active: "", projects: [], agents: [], connectors: [], servers: [], tasks: [] };
     if (r.state.version !== 1 || !Array.isArray(r.state.projects) || !Array.isArray(r.state.tasks))
       fail("Invalid product state; restore service state");
-    if (r.state.security) host.core().permissions.runtime.replace(r.state.security);
+    if (r.state.securityPrevious) {
+      host.core().permissions.runtime.replace(r.state.securityPrevious);
+      r.state.security = host.core().permissions.runtime.policy;
+      delete r.state.securityPrevious;
+    } else if (r.state.security) host.core().permissions.runtime.replace(r.state.security);
     const encrypted = await readFile(productPaths(host.stateDir)[1]!, "utf8").catch((e) => {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw e;
@@ -364,6 +370,7 @@ export class ProductRuntime {
         const next = RuntimePolicySchema.parse(p),
           previous = runtime.policy;
         // Persist and audit before publishing a widening. No agent can observe an unaudited grant.
+        this.state.securityPrevious = previous;
         this.state.security = next;
         try {
           await this.persist();
@@ -377,8 +384,12 @@ export class ProductRuntime {
             previous: JSON.stringify(previous),
             value: JSON.stringify(next),
           });
+          // Only the post-audit atomic snapshot commits the policy for a later restart.
+          delete this.state.securityPrevious;
+          await this.persist();
         } catch (error) {
           this.state.security = previous;
+          delete this.state.securityPrevious;
           try {
             await this.persist();
           } catch {
