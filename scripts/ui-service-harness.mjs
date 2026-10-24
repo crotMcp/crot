@@ -35,7 +35,8 @@ export async function serviceHarness() {
   });
   const bin = path.resolve("dist/bin/crot-mcp.js"),
     config = path.join(base, "config.json");
-  let tool, control, controller, view, endpoint;
+  let tool, control, controller, view, endpoint, inspectionGate, releaseInspection;
+  let inspectionCalls = 0;
   return {
     base,
     workspace,
@@ -70,6 +71,18 @@ export async function serviceHarness() {
         },
       });
       await controller.start();
+    },
+    pauseProjectInspection() {
+      inspectionGate = new Promise((resolve) => {
+        releaseInspection = resolve;
+      });
+    },
+    releaseProjectInspection() {
+      releaseInspection?.();
+      inspectionGate = undefined;
+    },
+    get inspectionCalls() {
+      return inspectionCalls;
     },
     async configureChatApproval() {
       await control.request("security.setPolicy", {
@@ -143,6 +156,10 @@ export async function serviceHarness() {
                   : kind === "action"
                     ? await controller.startPairing(input)
                     : true;
+        if (kind === "product" && name === "projects.inspect") {
+          inspectionCalls++;
+          await inspectionGate;
+        }
         res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ value }));
       } catch {
         res
@@ -159,6 +176,7 @@ export async function serviceHarness() {
       return { projects: r.projects.length, active: r.active, endpoint };
     },
     async close() {
+      releaseInspection?.();
       controller?.stop();
       control?.close();
       await tool?.close();

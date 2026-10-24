@@ -54,11 +54,42 @@ export async function runServiceScenarios({ real, evaluate, until, size, screens
     path.join(real.base, "second", "package.json"),
     JSON.stringify({ dependencies: { react: "fixture" }, devDependencies: { typescript: "fixture" } }),
   );
+  real.pauseProjectInspection();
   await click("Inspect project");
+  await until("document.querySelector('[data-project-inspection]')?.getAttribute('aria-busy')==='true'");
+  await evaluate("document.dispatchEvent(new CustomEvent('crot:language',{detail:'en'}))");
+  await until("document.querySelector('[data-project-inspection]')?.getAttribute('aria-busy')==='true'");
+  real.releaseProjectInspection();
   await until(
     "document.querySelector('[data-project-inspection]')?.textContent.includes('Node.js, TypeScript, React')",
   );
   await until("document.querySelector('[data-project-inspection]')?.textContent.includes('Listening project ports')");
+  await section("Home");
+  await section("Projects");
+  await until(
+    "document.querySelector('[data-project-inspection]')?.textContent.includes('Node.js, TypeScript, React')",
+  );
+  if (real.inspectionCalls !== 1) throw Error("Rendering replayed a project inspection request");
+  const chosenId = await evaluate("document.getElementById('project-select').value");
+  const initialId = await evaluate(
+    "Array.from(document.getElementById('project-select').options).find(o=>o.textContent==='workspace').value",
+  );
+  const selectWorkspace = async (id, expectedPath) => {
+    await evaluate(
+      `(()=>{const s=document.getElementById('project-select');s.value=${JSON.stringify(id)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+    );
+    await until(`document.querySelector('#project-detail code')?.textContent===${JSON.stringify(expectedPath)}`);
+    if (await evaluate("!!document.querySelector('[data-project-inspection]')"))
+      throw Error("Inspection survived a workspace switch");
+  };
+  await selectWorkspace(initialId, real.workspace);
+  await selectWorkspace(chosenId, path.join(real.base, "second"));
+  if (real.inspectionCalls !== 1) throw Error("Workspace switching replayed an inspection");
+  await click("Inspect project");
+  await until(
+    "document.querySelector('[data-project-inspection]')?.textContent.includes('Node.js, TypeScript, React')",
+  );
+  if (real.inspectionCalls !== 2) throw Error("Explicit inspection did not refresh the snapshot");
   await screenshot("03-projects-real-service");
   await section("Files");
   await fill("File path", path.join(real.base, "second", "proof.txt"));
