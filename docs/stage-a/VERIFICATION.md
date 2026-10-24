@@ -1,7 +1,7 @@
 # Stage A functional slices — verification
 
 The latest verified implementation checkpoint is
-`e2dd2c0315f9de8f85f3d0dfa3488871fc0ee90a`; see its section below.
+`efca35d7ff58c36a5cab34a28c300adba0da26a0`; see its section below.
 Earlier sections are historical checkpoint records, not current branch status.
 PR #4 was subsequently merged by the owner; Stage A remains incomplete.
 
@@ -273,3 +273,64 @@ owner grant/revoke workflow are **not implemented** by these checkpoints.
 Existing static CROT service-secret protection is not a substitute. This remains
 a release/Stage-A gate; it must not be marked done by adding an unenforced UI
 switch. Domain remains `crot.network` / `mcp.crot.network`; nothing was merged.
+
+
+## Native folder picker and inspection rerender — verified efca35d
+
+Implementation commits: `0ca05c5e7ddb38563a6c82db7321ac553d01389e`
+(native picker workflow/qualification) and
+`efca35d7ff58c36a5cab34a28c300adba0da26a0` (inspection rerender fix).
+The entire local source tree matched the latter remote commit byte-for-byte
+before final qualification. No source edits occurred during those runs. This
+supersedes historical statements that this Linux host could not run Electron:
+Xvfb, xdotool and GTK/GUI libraries were installed for the native test desktop.
+Environment: Linux x64, Node 24.22.1, Electron 44.5.1.
+
+| Final command / scope | Observed result |
+| --- | --- |
+| npm run check | Passed: lint/docs/format/types/builds/main/extension |
+| Main suite | 197 files passed / 26 skipped; 2,275 tests passed / 218 skipped |
+| Extension suite | 15 files / 196 tests passed |
+| Existing real Electron tray smoke | 1 test passed, no longer skipped on this host |
+| New real OS folder chooser | 3 workflow checks passed, zero errors |
+| Full Linux Chromium E2E | 10 files; 58 tests passed / 3 platform placeholders skipped |
+| Chromium design + axe QA | 81 checks / 29 screenshots; zero failures/page errors |
+
+The 14 new picker unit cases cover native-choice registration, cancellation,
+invalid paths/multiple choices, invalid registration/selection acknowledgements,
+overlap refusal and lock release after service exceptions. Native Linux evidence
+separately proves cancellation preserves registry and Core root; actual folder
+selection (with spaces) registers/selects the canonical project, refreshes the
+shipped UI, changes real Core and writes projects.open/projects.select audit.
+Neither test claims the unfinished L1 application-secret filename policy.
+
+Native qualification command (after npm run build; Linux X11 only):
+
+```sh
+xvfb-run -a -s '-screen 0 1600x1200x24' \
+  node scripts/project-picker-native-qa.mjs --output=project-picker-native.json
+```
+
+Initial native driver attempts incorrectly used Enter after GTK location input:
+the actual chooser returned cancelled. Those are failed driver attempts, not
+successful selections. Diagnostic native screenshots identified the controls;
+the final driver clicks the real native Open button once, without replacing the
+dialog or retrying a possibly committed selection. The final report is passed.
+
+An intermediate full E2E run on `0ca05c5` failed 1/61 tests (57 passed, 3 skipped):
+the real-service inspection result disappeared after a page replacement. AD-50
+fixes the production presentation race rather than increasing the timeout.
+The final real-service browser journey deterministically delays the real response,
+rerenders, verifies one request through navigation, discards the snapshot across
+workspace switches, and admits one new request only after an explicit click.
+The subsequent complete check, complete browser E2E and axe QA above passed at
+`efca35d`; the earlier failed run is not acceptance evidence.
+
+Remote CI is still not observed: this branch is partial, PR #5 is not opened,
+and workflows run on main push/PR. A proposed addition of the standalone native
+picker job was refused by GitHub with HTTP 403 (token cannot update workflows).
+No workflow change was pushed; existing CI configuration remains unchanged.
+Ordinary source pushes succeeded. Running the documented native command locally
+is not evidence that the standalone job ran remotely. macOS/Windows dialogs and
+port discovery, native L1 application-secret enforcement with owner grants/revoke,
+and complete-Stage-A remote CI remain gates. No PR was merged; B/C remain unstarted.

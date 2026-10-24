@@ -19,7 +19,9 @@ No B/C work or merge is authorized by this progress record.
 - Token invalidation cancels pending/running tasks, closes HTTP sessions/requests
   and terminates matching background resources without Strict Mode approval.
 - Fixed native Electron folder-picker action, canonical project registration and
-  idle workspace switching. Native GUI interaction is not yet smoke-qualified.
+  idle workspace switching. Real Electron/GTK cancellation and folder selection are
+  now qualified on Linux, including Core switching, shipped UI refresh and audit.
+  Concurrent pickers and false selection success are refused. See AD-49.
 
 - Guarded OpenAI / Anthropic / OpenAI-compatible Local HTTP model inventory,
   streaming, bounded text/image attachments, cancellation and opt-in tool calls.
@@ -37,6 +39,9 @@ No B/C work or merge is authorized by this progress record.
   revalidate before pressing, require trusted activation for click delivery, and
   never replay a press. The real test asserts down/up/click in the target iframe,
   not only a broad pointer count. See AD-48.
+- Project inspection survives a pending-response rerender and subsequent navigation
+  without repeating a guarded Core operation. Workspace changes discard its bounded
+  snapshot; only an explicit owner inspection refreshes it. See AD-50.
 
 ## Still required before Stage A acceptance / PR #5
 
@@ -45,12 +50,12 @@ No B/C work or merge is authorized by this progress record.
   `*.pem` or `*.key` files from child commands.** Existing CROT service-secret
   protection remains distinct. Explicit owner access/revocation must also be
   implemented, not represented by a decorative UI control.
-- Native folder-picker Electron/OS smoke and native macOS/Windows project-owned
-  port observation. Their current port result is explicitly unavailable; Linux
+- Native macOS/Windows folder-picker smoke and project-owned port observation.
+  Their current port result is explicitly unavailable; Linux
   results are point-in-time evidence, not proof that unlisted ports are free.
 - Final complete-Stage-A native qualification and observed green remote CI for
   the final candidate SHA. Local checks and Chromium's test-only IPC bridge do
-  not qualify native Electron dialogs, native L1 on other OSes or GitHub CI.
+  not qualify macOS/Windows Electron dialogs, native L1 on other OSes or GitHub CI.
 
 The real-service connect → task → owner approval → audit integration and shipped
 Chromium chat → real CrotService → inline approval → actual write → audit journey

@@ -5517,3 +5517,50 @@ shadow-frame button in addition to its server event. Unit tests separately
 serialize and execute the isolated-world probe, reject fake/untrusted clicks and
 split pointer-only completion, revalidate hover-induced layout/coverage/disabled
 changes, and assert that failure never replays a press.
+
+
+### AD-49. Native owner folder choice and acknowledged workspace switching
+
+The fixed ui.pickProjectFolder owner action opens Electron's actual OS directory
+chooser; the renderer supplies no path or dialog configuration. One picker is
+admitted at a time, including registration and selection. Cancellation, multiple
+paths, relative paths and NUL-containing paths do not mutate the registry. The
+service still canonicalizes/registers the directory and enforces its idle Core
+switch barrier. The action reports success only after projects.open and
+projects.select both acknowledge the same service-issued project id. Errors
+release the picker lock, not Core restrictions. A failed select can leave an
+owner-registered directory in the registry; it does not change the active project
+or falsely report a successful switch.
+
+The Linux qualification launches the shipped, non-smoke Electron app against a
+real CrotService. X11 input cancels one actual GTK chooser, then chooses a folder
+with spaces via the native Open button. It checks unchanged registry/Core after
+cancel, selected Core root, refreshed shipped UI and real audit events. It never
+stubs the dialog, returns a fabricated native choice, or adds a renderer bypass.
+An isolated GTK setting stabilizes the test desktop's control layout. This is
+Linux GUI evidence, not macOS/Windows dialog or application-secret L1 qualification.
+The standalone qualification requires Xvfb, xdotool and Electron's GUI libraries;
+it refuses unsupported hosts rather than silently passing.
+
+### AD-50. Keep a guarded inspection response across UI replacement, never replay it
+
+A full browser regression exposed a workspace-view refresh replacing the DOM
+while an explicitly requested project inspection was pending. The old callback
+correctly refused to write to detached nodes, but the replacement page lost the
+request/result. Merely retrying the test or repeating the Core request on every
+render would hide the race and repeat guarded operations.
+
+The renderer now keeps one bounded inspection promise/result for the exact
+selected project id and canonical workspace. Replacement views subscribe to that
+same promise or render its completed point-in-time result. Response workspace
+must match the captured workspace; detached or superseded consumers cannot paint.
+A project switch discards the snapshot. Rendering, language changes and navigation
+never request another inspection; an explicit Inspect project or error Retry can.
+Pending clicks share the admitted request. The cache is presentation state only,
+not permission state, authorization, a background scan or proof that ports are free.
+
+The shipped-UI/real-service test withholds an actual inspection response, forces
+a language-driven rerender, releases the response and checks the result. It then
+navigates away/back without another request, switches workspaces and checks cache
+invalidation, and verifies that a subsequent explicit inspection makes exactly
+one new request. No production IPC method or authorization path is added.
