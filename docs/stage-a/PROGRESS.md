@@ -34,8 +34,9 @@ No B/C work or merge is authorized by this progress record.
   and the complete UI user journey; project-persistent approval remains open.
 - Allow once / allow for project / deny decisions through the existing broker.
 - The service-level connect → task → owner approval → audit integration test
-  passes. Repeat this flow through the unfinished chat/tool-call UI before
-  accepting the complete Stage A user journey.
+  and shipped Chromium chat → real CrotService → inline approval → actual file
+  write → audit journey pass. Native Electron/OS and final complete-Stage-A
+  journey qualification are still distinct gates.
 - Full check, extension and Chromium E2E plus observed green remote CI for the
   final candidate SHA. A local source test is not remote CI evidence.
 

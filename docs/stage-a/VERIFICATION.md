@@ -122,3 +122,47 @@ is independently exercised with an explicit launcher-selection/lifecycle fixture
 These are local results for the named-token slice, **not** complete Stage A
 acceptance and **not** observed GitHub CI. PR #5 has not yet been created. The
 remaining acceptance gates in PROGRESS.md still apply. B/C have not begun.
+
+## Verified guarded-chat checkpoint `66c58f9a6b0750a4cffcfcc93829a75c29a3fce6`
+
+The implementation is in `4c6e057`; `66c58f9` adds its real-service UI scenario
+and replaces the obsolete test that required the disabled chat placeholder.
+All 19 pushed source/test files were compared byte-for-byte with the worktree;
+the preserved local merge tree also exactly matches the remote checkpoint.
+No implementation edits overlapped these sequential verification commands.
+
+| Command / scope | Observed result |
+| --- | --- |
+| `npm run check` (final repeat) | Passed: lint/docs/format/types/Core and extension builds |
+| Main tests | 194 files passed / 27 skipped; 2,248 tests passed / 219 skipped |
+| Extension tests | 15 files / 193 tests passed |
+| Linux Chromium E2E | 10 files; 58 tests passed / 3 platform placeholders skipped |
+| Design + axe Chromium QA | 81 checks, 29 screenshots; zero failures or page errors |
+
+Logs: `stage-a-chat-final-check.log`, `stage-a-chat-e2e.log`,
+`stage-a-chat-ui.log` in the agent workspace. The first full check failed one
+obsolete UI assertion requiring the chat to remain disabled; the other 2,247
+tests passed. The updated test verifies owner IPC, explicit tool selection,
+plain-text output and no direct renderer networking. The full repeat above is
+the passing evidence, not the initial failed run.
+
+Coverage includes actual local HTTP model inventory and SSE formats for OpenAI,
+Anthropic and OpenAI-compatible Local HTTP; validated text attachment transfer;
+a real Core file write held for the broker's digest-bound owner approval; audit;
+visible partial response and stop closing HTTP; no plaintext provider key in
+listing, metadata, encrypted vault, audit or logs. Negative cases reject malformed
+or incomplete streams without executing tools, refuse unselected tools, close a
+cancelled pending approval without writing, enforce runtime network deny before
+contacting the fixture, reject invalid attachments, and redact decoder failures.
+
+The shipped Chromium UI test uses an isolated real CrotService and the real tray
+controller behind a test-only IPC bridge. Its chat model list, streamed response,
+inline approval, actual file contents, registered chat identity and audit are
+asserted; they are not fabricated renderer fixtures. This does not qualify
+native Electron IPC/dialogs or live provider credentials. Presentation-only axe
+checks remain a separate fixture qualification.
+
+PR #5 is still not created and remote CI is not observed. Project-persistent
+approval grants, stack/project-port discovery and application-secret enforcement
+at the L1 process boundary remain Stage A gates. B/C have not begun, nothing has
+been merged, and the domain remains `crot.network` / `mcp.crot.network`.
