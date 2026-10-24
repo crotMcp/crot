@@ -126,6 +126,29 @@ function menu(): Menu {
     { label: view.headline, enabled: false },
     { type: "separator" },
     { label: "Open CROT", click: () => showWindow() },
+    {
+      label: "Emergency stop agents",
+      click: () => {
+        void controller
+          .product("security.kill", {})
+          .then((result) => {
+            const r = result as { ok?: boolean; message?: string };
+            dialog
+              .showMessageBox({
+                type: r.ok ? "info" : "warning",
+                title: "Emergency stop",
+                message: r.message ?? "Check the service status.",
+              })
+              .catch(() => undefined);
+          })
+          .catch(() =>
+            dialog.showErrorBox(
+              "Emergency stop unavailable",
+              "Could not reach CrotService. Stop the service from the operating system.",
+            ),
+          );
+      },
+    },
     { label: "Quit tray", click: () => quit() },
   ]);
 }

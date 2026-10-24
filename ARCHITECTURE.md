@@ -5280,3 +5280,43 @@ Raster references remain immutable evidence (including obsolete illustrated
 endpoints); they are never executable configuration. The newly supplied official
 endpoint is `https://mcp.crot.networking`. Source changes do not migrate deployed
 DNS, TLS certificates, configured OAuth issuer/audience or provider callbacks.
+
+### AD-43 — Functional Stage A: owner runtime policy and emergency brake
+
+The owner authorizes extending CrotService/Core and replacing obsolete tests,
+with Stage A required before B/C. This branch is a **partial Stage A working
+slice**, not acceptance of the entire directive. Scoped credentials, native
+project discovery/secret-file confinement, provider chat/tool execution and
+project-wide approval decisions remain unimplemented here.
+
+The final owner correction supersedes the domain sentence in AD-42: the official
+domain remains `crot.network`, MCP at `mcp.crot.network`. Do not migrate production
+configuration, DNS, issuer/audience or OAuth callbacks to `crot.networking`.
+
+1. Runtime `allow / ask / deny` configuration is consumed by the existing
+   PermissionEngine, never a second authorizer. Rules select an exact Core
+   operation or capability; any matching deny wins. Strict Mode adds an ask gate
+   to otherwise authorized operations. Allow does **not** override capability,
+   workspace, service-secret, network, exposure, remote or configured mandatory
+   approval ceilings. Post-approval reauthorization reads the current policy.
+2. Owner-only authenticated product RPCs expose `security.status`,
+   `security.setPolicy` and `security.kill`. Policy is validated, persisted in
+   protected product state and audited before publication to the running engine;
+   a failed audit does not publish a widening. Policy is restored on service
+   startup and shared across workspace/preset Core replacement.
+3. Emergency stop latches synchronously before awaiting work. It cancels pending
+   approvals, force-signals process trees (including Git/Docker commands), aborts
+   network/browser work, aborts product tasks, closes loopback HTTP and Relay
+   sessions, and refuses new shim admission. The owner control channel and audit
+   sink remain available. Calls are idempotent; cleanup/audit failure is reported,
+   never represented as complete success. Header and tray invoke this real RPC.
+4. The latch cannot be cleared by changing a permission, workspace or preset.
+   Explicit service restart is required to resume. It is a process-lifetime brake,
+   not persistent disablement across restart. It cannot undo an already committed
+   filesystem write, browser action or external side effect, nor stop processes
+   CROT did not start. Force-signalling is immediate; cleanup/reaping is bounded
+   by the existing process/guard shutdown limits, not a zero-latency guarantee.
+5. This slice does not yet implement project-scoped grants, application-secret
+   globs at the L1 boundary, scoped agent tokens, provider chat, model discovery,
+   attachments, streaming or the full Stage A connect/task/approve/audit UI flow.
+   PR #5 must not be presented as complete Stage A until these gates and CI pass.

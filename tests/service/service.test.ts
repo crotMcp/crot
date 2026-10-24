@@ -311,6 +311,84 @@ describe("CROT service (WP-20)", () => {
   });
 });
 
+describe("Stage A emergency owner control", () => {
+  it("connects an agent, executes a real task, approves through owner IPC and observes the audit; restores policy on restart", async () => {
+    const config = { audit: { sink: "file", path: path.join(dirs.outside, "stage-a-workflow.jsonl") } };
+    const started = await startService({ config });
+    const client = await mcpClient(config);
+    const control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    let approval: import("../../src/core/approvals/types.js").PresentedApproval | undefined;
+    try {
+      control.onevent = (event) => {
+        if (event.event === "approval.requested") approval = event.approval;
+      };
+      await control.request("approvals.subscribe");
+      expect(await control.request("security.setPolicy", { strict: true, rules: [] })).toMatchObject({ ok: true });
+      const task = client.callTool({
+        name: "fs_write_file",
+        arguments: { path: "approved-stage-a.txt", content: "owner-approved" },
+      });
+      await waitFor(() => approval !== undefined);
+      expect(
+        await control.request("approvals.decide", {
+          requestId: approval!.requestId,
+          decision: "approve",
+          subjectDigest: approval!.subjectDigest,
+        }),
+      ).toEqual({ ok: true });
+      expect((await task).isError).not.toBe(true);
+      expect(await readFile(path.join(dirs.workspace, "approved-stage-a.txt"), "utf8")).toBe("owner-approved");
+      expect(await control.request("monitoring.queryAudit", { type: "filesystem.write_file" })).toMatchObject({
+        ok: true,
+        events: expect.arrayContaining([
+          expect.objectContaining({ type: "filesystem.write_file", outcome: "success" }),
+        ]),
+      });
+    } finally {
+      control.close();
+      await client.close();
+    }
+    await started.service.shutdown("restart policy test");
+    await startService({ config });
+    const restarted = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    try {
+      expect(await restarted.request("security.status")).toMatchObject({
+        ok: true,
+        policy: { strict: true, rules: [] },
+      });
+    } finally {
+      restarted.close();
+    }
+  });
+
+  it("preserves owner diagnostics, closes MCP admission and records kill in the real journal", async () => {
+    const auditPath = path.join(dirs.outside, "emergency-audit.jsonl");
+    const config = { permissions: { mode: "full_control" }, audit: { sink: "file", path: auditPath } };
+    await startService({ config });
+    const client = await mcpClient(config);
+    const control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    try {
+      const result = await control.request("security.kill");
+      expect(result).toMatchObject({ ok: true, halted: true, audited: true, cleanupComplete: true });
+      expect(await control.request("security.status")).toMatchObject({ ok: true, halted: true });
+      expect(await control.request("security.kill")).toEqual(result);
+      expect((await shimConnect(config)).answer).toMatchObject({ t: "refused", reason: "shutting_down" });
+      const journal = (await readFile(auditPath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(journal.filter((e) => e.action === "emergency_stop")).toHaveLength(1);
+      expect(await control.request("monitoring.queryAudit", { type: "emergency_stop" })).toMatchObject({
+        ok: true,
+        events: [{ type: "emergency_stop", outcome: "applied" }],
+      });
+    } finally {
+      control.close();
+      await client.close();
+    }
+  });
+});
+
 describe("control channel (WP-20)", () => {
   it("answers ping and status and stops the service on shutdown; it carries no MCP", async () => {
     const s = await startService();

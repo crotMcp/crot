@@ -1,3 +1,4 @@
+import type { RuntimePermissionState } from "./permissions/runtime.js";
 import { BrowserFiles } from "./capabilities/browser/files.js";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -99,6 +100,7 @@ export const CORE_VERSION = "0.1.0";
 const SHUTDOWN_DRAIN_MS = 2_000;
 
 export interface CrotCoreOptions {
+  readonly runtimePermissions?: RuntimePermissionState;
   readonly additionalAuthorization?: (context: import("./auth/principal.js").AuthContext, operation: string) => void;
   /** Override the audit sink derived from configuration (embedding, tests). */
   readonly auditSink?: AuditSink;
@@ -273,6 +275,7 @@ export class CrotCore {
     ]);
     const protectedPaths = await resolveAll([...guarded, ...secretPaths]);
     const permissions = new PermissionEngine(policy, {
+      ...(options.runtimePermissions ? { runtime: options.runtimePermissions } : {}),
       protectedPaths,
       secretPaths,
       contains: (a, c) => workspace.contains(a, c),
@@ -414,6 +417,43 @@ export class CrotCore {
       childEnvironment.summary,
       confinement,
     );
+  }
+
+  /** Owner-only emergency brake. Keep audit/control alive; resuming requires a service restart. */
+  emergencyStop(): Promise<void> {
+    // Latch synchronously before any await: pending approvals and new operations cannot race the stop.
+    this.permissions.runtime.stop();
+    this.approvalBroker.cancelAll("shutdown");
+    this.browser.shutdown();
+    this.network.shutdown();
+    return this.stopWork();
+  }
+
+  private emergencyWork: Promise<void> | undefined;
+  private stopWork(): Promise<void> {
+    return (this.emergencyWork ??= (async () => {
+      const forceErrors: unknown[] = [];
+      for (const stop of [
+        () => this.processes.terminateAllSync(),
+        () => this.git.terminateAllSync(),
+        () => this.docker.terminateAllSync(),
+      ]) {
+        try {
+          stop();
+        } catch (error) {
+          forceErrors.push(error);
+        }
+      }
+      const results = await Promise.allSettled([
+        this.processes.shutdown(),
+        this.git.shutdown(),
+        this.docker.shutdown(),
+      ]);
+      await this.guard.drain(SHUTDOWN_DRAIN_MS);
+      if (forceErrors.length) throw forceErrors[0];
+      const failure = results.find((r) => r.status === "rejected");
+      if (failure?.status === "rejected") throw failure.reason;
+    })());
   }
 
   /**

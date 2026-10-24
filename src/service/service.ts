@@ -19,6 +19,8 @@
  * The service makes no permission decision: every tool call goes through Core
  * (PermissionEngine, ExecutionGuard, audit) exactly as before.
  */
+import { RuntimePermissionState } from "../core/permissions/runtime.js";
+import { newAuditEventId } from "../core/audit/audit.js";
 import { newLocalExposureScope } from "../core/auth/principal.js";
 import { ProductRuntime, productPaths } from "./product-runtime.js";
 import type net from "node:net";
@@ -148,6 +150,8 @@ export class CrotService {
   private native: NativeHost | undefined;
   private bridge: BrowserBridge | undefined;
   private product: ProductRuntime | undefined;
+  private readonly runtimePermissions = new RuntimePermissionState();
+  private killing: Promise<Record<string, unknown>> | undefined;
   private holder: CoreHolder | undefined;
   private control: ControlCenter | undefined;
   private deviceIdentity: DeviceIdentity | undefined;
@@ -427,6 +431,7 @@ export class CrotService {
           })
         : undefined;
       const coreOptions: CrotCoreOptions = {
+        runtimePermissions: this.runtimePermissions,
         protectedPaths,
         secretPaths,
         ...(remoteExposureFile ? { remoteExposureFile } : {}),
@@ -507,6 +512,8 @@ export class CrotService {
         privateFiles: servicePlatform.privateFiles,
         core: () => holder.instance,
         disconnectAgent: (id) => control.disconnectProductAgent(id),
+        emergencyStop: () => this.killAgents(),
+        recordControlEvent: (event) => holder.composition.recordControlEvent(event),
         selectWorkspace: async (root) => {
           await control.selectWorkspace(root);
           activeWorkspace = root;
@@ -702,6 +709,8 @@ export class CrotService {
       readonly environment?: Readonly<Record<string, string>>;
     },
   ): Promise<void> {
+    if (this.runtimePermissions.halted)
+      return this.refuse(shim, "shutting_down", "Emergency stop is active; restart the service to resume.");
     if (hello.version !== SERVICE_PROTOCOL_VERSION) {
       return this.refuse(
         shim,
@@ -985,6 +994,66 @@ export class CrotService {
       if (this.controlServer) await closeServer(this.controlServer);
       await closeServer(this.serviceServer);
     }
+  }
+
+  /** Emergency owner RPC: never queued behind approvals or long-running product operations. */
+  killAgents(): Promise<Record<string, unknown>> {
+    this.runtimePermissions.stop();
+    return (this.killing ??= this.doKillAgents());
+  }
+
+  private async doKillAgents(): Promise<Record<string, unknown>> {
+    const core = this.holder?.instance;
+    if (!core) return { ok: false, halted: true, message: "Core is unavailable" };
+    // Start all cleanup concurrently. One broken transport must not keep other processes alive.
+    const results = await Promise.allSettled([
+      core.emergencyStop(),
+      this.product?.abortAll(),
+      this.tunnel?.close(),
+      this.http?.close(),
+      ...[...this.shims].map(async (shim) => {
+        try {
+          await shim.close?.();
+        } finally {
+          shim.channel.close();
+        }
+      }),
+    ]);
+    const failed = results.some((r) => r.status === "rejected");
+    if (failed) {
+      try {
+        core.terminateProcessesSync();
+      } catch {
+        this.log("Emergency stop: forced cleanup also failed; service restart required");
+      }
+    }
+    let audited = true;
+    try {
+      await this.holder!.composition.recordControlEvent({
+        kind: "control",
+        id: newAuditEventId(),
+        timestamp: new Date().toISOString(),
+        action: "emergency_stop",
+        actor: { channel: "control" },
+        outcome: "applied",
+        value: true,
+        ...(failed ? { reason: "cleanup_incomplete" } : {}),
+      });
+    } catch {
+      audited = false;
+    }
+    this.control?.stateChanged();
+    return {
+      ok: !failed && audited,
+      halted: true,
+      audited,
+      cleanupComplete: !failed,
+      message: failed
+        ? "Emergency stop latched; some cleanup failed. Restart the service."
+        : !audited
+          ? "Emergency stop latched; audit write failed. Restart the service."
+          : "All agent work stopped. Restart the service to resume.",
+    };
   }
 
   /** Last resort when the graceful shutdown hangs: kill process trees synchronously. */

@@ -363,6 +363,8 @@ export class ExecutionGuard {
     op: OperationDescriptor,
     capabilities: readonly Capability[],
   ): PermissionDeniedError | undefined {
+    if (this.engine.runtime.halted)
+      return new PermissionDeniedError("Emergency stop is active", { operation: op.operation });
     try {
       this.options.additionalAuthorization?.(context, op.operation);
     } catch {
@@ -370,7 +372,7 @@ export class ExecutionGuard {
     }
     for (const capability of capabilities) {
       const decision = this.engine.authorize({
-        ...(op.operation === "browser.file_upload" ? { operation: op.operation } : {}),
+        operation: op.operation,
         context,
         capability,
         paths: op.paths ?? [],

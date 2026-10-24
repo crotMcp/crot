@@ -1,3 +1,4 @@
+import { RuntimePermissionState } from "./runtime.js";
 import { DEFAULT_APPROVAL_TIMEOUT_MS, ruleMatches, validateApprovalRules } from "../approvals/rules.js";
 import { presetRules, REMOTE_FULL_CONTROL_RULES, type UntrustedContentSetting } from "../approvals/exposure.js";
 import type { ApprovalRequirement, ApprovalRule } from "../approvals/types.js";
@@ -61,6 +62,7 @@ export interface RemoteProfileSummary {
 }
 
 export interface PermissionEngineOptions {
+  readonly runtime?: RuntimePermissionState;
   /**
    * Paths CROT itself depends on (audit log, configuration). Write operations
    * on them, or on any ancestor (delete/move of a parent), are always denied.
@@ -171,6 +173,7 @@ interface Profile {
  *   preset, and their shell commands always need approval.
  */
 export class PermissionEngine {
+  readonly runtime: RuntimePermissionState;
   private readonly protectedPaths: readonly string[];
   private readonly secretPaths: readonly string[];
   private readonly contains: (ancestor: string, candidate: string) => boolean;
@@ -187,6 +190,7 @@ export class PermissionEngine {
     private readonly policy: PermissionPolicy,
     options: PermissionEngineOptions = {},
   ) {
+    this.runtime = options.runtime ?? new RuntimePermissionState();
     this.protectedPaths = options.protectedPaths ?? [];
     this.secretPaths = options.secretPaths ?? [];
     this.contains = options.contains ?? ((a, c) => a === c || c.startsWith(a.endsWith("/") ? a : `${a}/`));
@@ -314,6 +318,22 @@ export class PermissionEngine {
       mode: profile.policy.mode,
       exposed: request.exposed ?? false,
     };
+    // Runtime allow never suppresses mandatory exposure, remote or configured gates.
+    const runtime = this.runtime.policy;
+    const ask =
+      runtime.strict ||
+      runtime.rules.some(
+        (r) =>
+          r.state === "ask" &&
+          (r.operation === request.operation ||
+            (r.capability !== undefined && request.capabilities.includes(r.capability))),
+      );
+    if (ask)
+      return {
+        required: true,
+        rule: runtime.strict ? "runtime.strict" : "runtime.ask",
+        timeoutMs: this.approvalTimeoutMs,
+      };
     const rule = profile.rules.find((r) => ruleMatches(r, facts));
     return rule ? { required: true, rule: rule.id, timeoutMs: this.approvalTimeoutMs } : { required: false };
   }
@@ -351,6 +371,17 @@ export class PermissionEngine {
   }
 
   authorize(request: AuthorizationRequest): AuthorizationDecision {
+    if (this.runtime.halted)
+      return { allowed: false, reason: "Emergency stop is active; restart the service to resume.", missing: [] };
+    if (
+      this.runtime.policy.rules.some(
+        (r) =>
+          r.state === "deny" &&
+          ((request.operation !== undefined && r.operation === request.operation) ||
+            r.capability === request.capability),
+      )
+    )
+      return { allowed: false, reason: "Runtime policy denies this operation.", missing: [] };
     const policy = this.profileFor(request.context).policy;
     const scope = request.context.principal.kind === "remote" ? ", remote client" : "";
     if (!policy.grants.has(request.capability)) {

@@ -1,4 +1,6 @@
 /** AD-40: service-owned product state. Metadata and encrypted request/credential vault are separate. */
+import { newAuditEventId } from "../core/audit/audit.js";
+import { RuntimePolicySchema, type RuntimePolicy } from "../core/permissions/runtime.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, realpath, stat, readFile } from "node:fs/promises";
@@ -104,6 +106,7 @@ interface State {
   connectors: Connector[];
   servers: McpServer[];
   tasks: Task[];
+  security?: RuntimePolicy;
 }
 interface Vault {
   credentials: Record<string, string>;
@@ -124,6 +127,8 @@ export interface ProductHost {
   core(): CrotCore;
   selectWorkspace(root: string): Promise<void>;
   disconnectAgent?(id: string): Promise<void>;
+  emergencyStop?(): Promise<Record<string, unknown>>;
+  recordControlEvent?: (event: import("../core/audit/audit.js").ControlAuditRecord) => Promise<void>;
 }
 const fail = (message: string): never => {
   throw new CrotError("INVALID_INPUT", message);
@@ -214,6 +219,7 @@ export class ProductRuntime {
       : { version: 1, active: "", projects: [], agents: [], connectors: [], servers: [], tasks: [] };
     if (r.state.version !== 1 || !Array.isArray(r.state.projects) || !Array.isArray(r.state.tasks))
       fail("Invalid product state; restore service state");
+    if (r.state.security) host.core().permissions.runtime.replace(r.state.security);
     const encrypted = await readFile(productPaths(host.stateDir)[1]!, "utf8").catch((e) => {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw e;
@@ -316,6 +322,10 @@ export class ProductRuntime {
   async request(method: ProductMethod, input: unknown): Promise<Record<string, unknown>> {
     const params = parseProduct(method, input);
     if (!params) fail("Invalid product request");
+    if (method === "security.kill") {
+      if (!this.host.emergencyStop) fail("Emergency stop unavailable in this host");
+      return this.host.emergencyStop!();
+    }
     const run = () =>
       ["connectors.testConnection", "mcpServers.connect", "mcpServers.callTool"].includes(method)
         ? (this.execute("$product", method, [this.context(), params], (a) =>
@@ -324,6 +334,7 @@ export class ProductRuntime {
         : this.dispatch(method, params!);
     // Reads and long operations must not hold up cancellations/approval traffic.
     if (
+      method === "security.status" ||
       method.endsWith(".list") ||
       method.startsWith("monitoring.") ||
       method === "connectors.testConnection" ||
@@ -339,6 +350,45 @@ export class ProductRuntime {
   private async dispatch(method: ProductMethod, p: Record<string, unknown>): Promise<Record<string, unknown>> {
     const id = String(p.id ?? "");
     switch (method) {
+      case "security.status":
+        return {
+          ok: true,
+          halted: this.host.core().permissions.runtime.halted,
+          policy: this.host.core().permissions.runtime.policy,
+        };
+      case "security.kill":
+        return fail("Emergency stop must use the unqueued owner path");
+      case "security.setPolicy": {
+        if (!this.host.recordControlEvent) fail("Security policy audit unavailable");
+        const runtime = this.host.core().permissions.runtime;
+        const next = RuntimePolicySchema.parse(p),
+          previous = runtime.policy;
+        // Persist and audit before publishing a widening. No agent can observe an unaudited grant.
+        this.state.security = next;
+        try {
+          await this.persist();
+          await this.host.recordControlEvent!({
+            kind: "control",
+            id: newAuditEventId(),
+            timestamp: now(),
+            action: "runtime_policy",
+            actor: { channel: "control" },
+            outcome: "applied",
+            previous: JSON.stringify(previous),
+            value: JSON.stringify(next),
+          });
+        } catch (error) {
+          this.state.security = previous;
+          try {
+            await this.persist();
+          } catch {
+            runtime.stop();
+          }
+          throw error;
+        }
+        runtime.replace(next);
+        return { ok: true, halted: runtime.halted, policy: runtime.policy };
+      }
       case "projects.list":
         return { ok: true, projects: this.state.projects, active: this.state.active };
       case "projects.create":
@@ -827,6 +877,8 @@ export class ProductRuntime {
   }
   /** Called by CoreHolder for every adapter capability operation, using adapter-created identity only. */
   async execute(member: string, method: string, args: unknown[], run: (args: unknown[]) => unknown): Promise<unknown> {
+    if (this.host.core().permissions.runtime.halted)
+      throw new CrotError("PERMISSION_DENIED", "Emergency stop is active");
     const context = args[0] as AuthContext;
     if (!context?.principal || !this.state) return run(args);
     const id = this.agentId(context);
@@ -992,6 +1044,19 @@ export class ProductRuntime {
       });
     }
     return result.slice(-Number(p.limit ?? 200)).reverse();
+  }
+  async abortAll(): Promise<void> {
+    clearInterval(this.poller);
+    for (const controller of this.cancellations.values()) controller.abort();
+    for (const controller of this.serverControllers.values()) controller.abort();
+    for (const task of this.state.tasks)
+      if (task.state === "Running") {
+        task.state = "Cancelled";
+        task.endedAt = now();
+      }
+    for (const agent of this.state.agents) agent.connected = false;
+    await Promise.all([...this.clients.values()].map((c) => c.close().catch(() => undefined)));
+    await this.persist();
   }
   async close(): Promise<void> {
     clearInterval(this.poller);
