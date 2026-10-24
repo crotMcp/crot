@@ -10,6 +10,7 @@
  * happens only while nothing runs (operations that have not reached the
  * ExecutionGuard yet included).
  */
+import { CrotError } from "../core/errors.js";
 import type { CoreActivity, CoreCompositionHandle, CrotCore } from "../core/crot-core.js";
 
 /** Core members whose methods start operations; calls into them are counted. */
@@ -31,6 +32,31 @@ export class CoreHolder {
   private current: CrotCore;
   private handle: CoreCompositionHandle;
   private calls = 0;
+  private transition: object | undefined;
+  private assertAdmission(): void {
+    if (this.transition)
+      throw new CrotError("RESOURCE_BUSY", "Core policy transition is in progress; retry after owner confirmation");
+  }
+  /** Exclusive owner lifecycle lease. Failure may deliberately leave admission closed. */
+  pauseAdmission(): { install: (core: CrotCore, handle: CoreCompositionHandle) => void; release: () => void } {
+    this.assertAdmission();
+    const token = {};
+    this.transition = token;
+    let installed = false;
+    return Object.freeze({
+      install: (core: CrotCore, handle: CoreCompositionHandle) => {
+        if (this.transition !== token || installed)
+          throw new CrotError("RESOURCE_BUSY", "Invalid Core transition lease");
+        this.current = core;
+        this.handle = handle;
+        installed = true;
+      },
+      release: () => {
+        if (this.transition !== token) throw new CrotError("RESOURCE_BUSY", "Invalid Core transition lease");
+        this.transition = undefined;
+      },
+    });
+  }
   operation:
     | ((member: string, method: string, args: unknown[], run: (args: unknown[]) => unknown) => Promise<unknown>)
     | undefined;
@@ -62,6 +88,7 @@ export class CoreHolder {
 
   /** Service-owned multi-step workflows hold the same idle-switch barrier as adapter calls. */
   async hold<T>(work: () => Promise<T>): Promise<T> {
+    this.assertAdmission();
     this.calls++;
     try {
       return await work();
@@ -88,6 +115,7 @@ export class CoreHolder {
   busyReason(): string | undefined {
     const a = this.activity();
     const parts: string[] = [];
+    if (this.transition) parts.push("Core policy transition in progress");
     if (a.adapterCalls > 0 || a.operationsInFlight > 0)
       parts.push(`${Math.max(a.adapterCalls, a.operationsInFlight)} operation(s) running`);
     if (a.pendingApprovals > 0) parts.push(`${a.pendingApprovals} approval request(s) pending`);
@@ -102,6 +130,7 @@ export class CoreHolder {
    * which the caller shuts down.
    */
   swap(next: CrotCore, handle: CoreCompositionHandle): CrotCore {
+    this.assertAdmission();
     const previous = this.current;
     this.current = next;
     this.handle = handle;
@@ -115,6 +144,7 @@ export class CoreHolder {
         if (typeof value !== "function") return value;
         const fn = value as (...a: unknown[]) => unknown;
         return (...args: unknown[]) => {
+          this.assertAdmission();
           this.calls++;
           let result: unknown;
           try {

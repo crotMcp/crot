@@ -66,13 +66,17 @@ describe("Core shutdown", () => {
     const first = core.shutdown();
     const second = core.shutdown();
     expect(second).toBe(first);
+    // Admission closes synchronously, before the asynchronous drain completes.
+    await expect(core.processes.exec(ctx, { command: node, args: ["-v"] })).rejects.toMatchObject({
+      code: "RESOURCE_BUSY",
+    });
     await first;
     await expect(core.processes.exec(ctx, { command: node, args: ["-v"] })).rejects.toMatchObject({
-      code: "OPERATION_FAILED",
-      message: expect.stringContaining("shutting down"),
+      code: "RESOURCE_BUSY",
+      message: expect.stringContaining("retired"),
     });
     await expect(core.processes.start(ctx, { command: node, args: ["-v"] })).rejects.toMatchObject({
-      code: "OPERATION_FAILED",
+      code: "RESOURCE_BUSY",
     });
   });
 

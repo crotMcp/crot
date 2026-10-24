@@ -106,6 +106,12 @@ export class ApprovalBindingError extends PermissionDeniedError {
 export class ExecutionGuard {
   /** Operations that have not finished (including their audit record). */
   private readonly inFlight = new Set<Promise<unknown>>();
+  private admissionClosed = false;
+
+  /** Irreversible per-Core lifecycle latch; never changes the shared emergency policy. */
+  closeAdmission(): void {
+    this.admissionClosed = true;
+  }
   private readonly exposure: ExposureTracker;
   private readonly snapshots = new WeakMap<
     ExposureSnapshot,
@@ -137,6 +143,7 @@ export class ExecutionGuard {
   }
 
   run<T>(context: AuthContext, op: OperationDescriptor, execute: () => Promise<T>): Promise<T> {
+    if (this.admissionClosed) return Promise.reject(new CrotError("RESOURCE_BUSY", "This Core has been retired"));
     const running = this.runGuarded(context, op, execute);
     const settled = running.then(
       () => undefined,

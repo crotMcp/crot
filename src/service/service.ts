@@ -39,6 +39,7 @@ import type { UntrustedContentSetting } from "../core/approvals/exposure.js";
 import { REMOTE_EXPOSURE_FILE_NAME, RemoteExposureStore } from "../core/approvals/index.js";
 import { parseConfig } from "../core/config/load.js";
 import { expandHome } from "../core/config/paths.js";
+import { ProjectSecretAccessStore, projectSecretAccessPath } from "./project-secret-access.js";
 import { CORE_VERSION, CrotCore, type CoreCompositionHandle, type CrotCoreOptions } from "../core/crot-core.js";
 import type { RemoteProfileOptions } from "../core/permissions/engine.js";
 import { CrotError } from "../core/errors.js";
@@ -387,7 +388,13 @@ export class CrotService {
           `warning: device binding: paired in environment ${paired.environment}, this process uses ${identity.environment.id}; every remote request is refused until the device is paired again`,
         );
       // Secret material (AD-18): neither readable nor modifiable through CROT tools, in any mode.
+      const secretAccess = await ProjectSecretAccessStore.open(
+        projectSecretAccessPath(stateDir),
+        privateFiles,
+        parsed.permissions.projectSecrets,
+      );
       const secretPaths = [
+        projectSecretAccessPath(stateDir),
         ...stateSecretPaths(stateDir),
         ...secrets.store.backend.paths,
         ...(configuredTokenFile ? [configuredTokenFile] : []),
@@ -455,6 +462,7 @@ export class CrotService {
         exposure?: CoreCompositionHandle["exposure"],
         remote?: RemoteProfileOptions,
         workspace = activeWorkspace,
+        projectSecrets = secretAccess.policy,
       ) => {
         let handle: CoreCompositionHandle | undefined;
         const core = await CrotCore.create(
@@ -462,6 +470,7 @@ export class CrotService {
             {
               ...command.config,
               workspace: { ...command.config.workspace, root: workspace },
+              permissions: { ...parsed.permissions, projectSecrets },
               ...(activeAuditPath ? { audit: { ...command.config.audit, path: activeAuditPath } } : {}),
             },
             preset,
@@ -500,7 +509,8 @@ export class CrotService {
         identity,
         remoteExposure,
         configuredPreset,
-        buildCore: (preset, remote, workspace) => build(preset, holder.composition.exposure, remote, workspace),
+        buildCore: (preset, remote, workspace, projectSecrets) =>
+          build(preset, holder.composition.exposure, remote, workspace, projectSecrets),
         serviceStatus: () => this.status(),
         browserState: () => this.bridge?.state(),
         agents: () => ({
@@ -540,6 +550,16 @@ export class CrotService {
       });
       this.product = await ProductRuntime.open({
         tokens: this.clientTokens,
+        secretFiles: {
+          status: () => ({
+            ok: true,
+            workspace: holder.instance.workspace.root,
+            policy: secretAccess.policy,
+            halted: this.runtimePermissions.halted,
+            confinement: holder.instance.status().confinement,
+          }),
+          set: (input) => control.changeProjectSecretAccess(input, secretAccess),
+        },
         holdActivity: (work) => holder.hold(work),
         stateDir,
         secrets: secrets.store,

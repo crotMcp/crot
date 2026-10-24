@@ -46,10 +46,11 @@ No B/C work or merge is authorized by this progress record.
 ## Still required before Stage A acceptance
 
 - **General application-secret protection is not implemented at the L1 process
-  boundary. Do not rely on this branch to protect arbitrary project `.env`,
+  boundary on Linux/Windows. Do not rely on this branch to protect arbitrary project `.env`,
   `*.pem` or `*.key` files from child commands.** Existing CROT service-secret
-  protection remains distinct. Explicit owner access/revocation must also be
-  implemented, not represented by a decorative UI control.
+  protection remains distinct. The macOS AD-52 native rule passed both actual
+  macOS CI jobs at `cb71d2b`; its documented hardlink/host constraints remain.
+  AD-53 adds owner IPC/UI access/revocation; current-slice qualification is separate.
 - Native macOS/Windows folder-picker smoke. The project-owned port observers
   (AD-51) passed the actual-OS matrix at `48420e9`. Darwin uses libproc identity and fixed
   lsof fields; Windows uses owner-PID TCP tables and bounded same-owner cwd reads.
@@ -81,3 +82,23 @@ an installable release or qualification of live providers/Relay.
   tests are a candidate pending actual macOS CI, not a Linux-qualified claim.
 - Linux/Windows future-file L1 protection and live owner grant/revoke IPC/UI
   remain open. macOS host Docker binds are conservatively refused (AD-52).
+
+
+### Owner secret-file controls (AD-53 candidate)
+
+The previous head `cb71d2bd57aa79a356619df41e9300c7f316430d` completed all
+11 GitHub checks successfully, including actual macOS late-secret kernel tests.
+It is not complete Stage A acceptance. AD-53 adds protected transactional owner
+state, exact-file grant/revoke controls, irreversible old-Core retirement and
+real process drain before acknowledgement. First targeted Core/service tests
+passed, including an actor holding an open secret descriptor. Full local and
+remote qualification of this new source is still required. Linux/Windows
+future-file L1 and actual macOS/Windows native folder dialogs remain open.
+B/C are not started and PR #5 is not merged.
+
+AD-53 local qualification now passes: main 2311 tests, extension 196, real
+Chromium 58 (3 existing platform placeholders skipped), shipped UI QA 81 checks
+and Linux native picker 3 checks. All 221 host-inapplicable main tests remain
+explicitly skipped; local Linux does not qualify their native implementations.
+Current-source GitHub CI must still be observed before claiming this slice
+remotely qualified. Full Stage A remains incomplete for the gates above.

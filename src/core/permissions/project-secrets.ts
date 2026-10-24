@@ -4,7 +4,7 @@ import { CrotError } from "../errors.js";
 import type { ResolvedPath, Workspace } from "../workspace/workspace.js";
 
 export const isProjectSecretName = (name: string): boolean => /^(?:\.env(?:\..*)?|.*\.(?:pem|key))$/i.test(name);
-const relativeSecret = z
+export const ProjectSecretRelativePathSchema = z
   .string()
   .min(1)
   .max(4096)
@@ -28,7 +28,7 @@ export const ProjectSecretAccessSchema = z
               .min(1)
               .max(4096)
               .regex(/^[^\x00-\x1f\x7f]+$/),
-            path: relativeSecret,
+            path: ProjectSecretRelativePathSchema,
           })
           .strict(),
       )

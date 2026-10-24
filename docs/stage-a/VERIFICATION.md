@@ -433,3 +433,62 @@ unique `.env.crot-l1-*` non-secret canary after the preflight layout was built
 and requires actual kernel denial of read and rename before admitting work.
 A profile compiling successfully is insufficient. Both local reruns and actual
 macOS CI must validate the follow-up; no native Pass is inferred in advance.
+
+
+## AD-52 observed qualification and AD-53 follow-up
+
+The regex-corrected head `cb71d2bd57aa79a356619df41e9300c7f316430d`
+completed all eleven GitHub checks successfully: six Node/OS combinations,
+four Linux L1 jobs and real Chromium. Both actual macOS jobs passed the strict
+future-secret and special-character workspace tests. Final Windows completion
+was observed at 2026-10-24T13:08:13Z. Runs:
+- https://github.com/crotMcp/crot/actions/runs/40095438256
+- https://github.com/crotMcp/crot/actions/runs/40095438287
+- https://github.com/crotMcp/crot/actions/runs/40095438222
+
+Matching frozen-tree local checks: main 2300 pass / 221 skip, extension 196
+pass; browser 58 pass / 3 platform placeholders skipped; shipped UI 81 checks,
+29 screenshots, zero failures/page errors; real Linux GTK folder workflow
+3 checks, zero errors. These results supersede the pending-correction status
+above, not the recorded failure of `7f9ecd5`.
+
+AD-53 is a new source candidate, not covered by that SHA's green CI. Initial
+targeted service/Core checks passed 36 tests; expanded transition-fault checks
+passed 33 tests before adding the drain-failure case. The first direct shipped
+UI run used stale `dist` (the unit global setup builds an isolated cache), so
+it correctly failed on the missing new control. A fresh production build and
+complete local/remote qualification remain required; this is not a UI Pass.
+Linux/Windows general secret-file L1 and actual macOS/Windows folder workflow
+remain unqualified. PR #5 stays Draft; no Stage A acceptance or merge.
+
+
+After a fresh production build, the shipped real-service Chromium scenario
+passed the new explicit cancel/grant/revoke assertions and preserved the prior
+project/chat/task/audit journey. The first complete AD-53 `npm run check`
+passed lint/format/docs/types/builds but had two failures: old browser/process
+shutdown tests expected the later capability-specific `OPERATION_FAILED`.
+The retired Guard now refuses synchronously with `RESOURCE_BUSY`. Expectations
+are updated to the stricter lifecycle contract; browser transport remains
+untouched, command admission remains denied and shutdown idempotence remains
+asserted. A new assertion covers refusal before asynchronous drain completes.
+A fresh complete run is required, not an automatic Pass from this explanation.
+
+### AD-53 complete local rerun
+
+After updating only the retired-Core expectations, the complete sequential
+frozen-source rerun passed:
+
+- `npm run check`: lint, formatting, documentation, both typechecks, both builds,
+  main **202 files / 2311 passed**, **26 files / 221 native-platform skips**;
+  extension **15 files / 196 passed**. No retries or native skips were added.
+- `npm run test:e2e:browser`: **10 files / 58 passed**, **3 existing platform
+  placeholders skipped**. The shipped real-service UI verifies explicit cancel,
+  exact grant and revoke (`ownerSecretConfirmationAndRevocation: true`) alongside
+  the existing streamed-chat/tool/approval/audit journey.
+- Shipped UI QA: **81 checks / 29 screenshots / 0 failures / 0 page errors**.
+- Actual Linux Electron 44.5.1 GTK folder workflow: **3 checks / 0 errors**.
+
+Only documentation was updated after these runs; formatting/local links are
+checked again before publication. This candidate still needs actual remote CI;
+prior-head green checks do not cover it. Linux/Windows future-secret L1 and
+actual macOS/Windows native folder workflows remain acceptance blockers.

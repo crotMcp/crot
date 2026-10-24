@@ -131,6 +131,7 @@ export interface ProductHost {
   privateFiles: PrivateFileProtection;
   core(): CrotCore;
   selectWorkspace(root: string): Promise<void>;
+  secretFiles?: { status(): Record<string, unknown>; set(input: unknown): Promise<Record<string, unknown>> };
   disconnectAgent?(id: string): Promise<void>;
   holdActivity?(work: () => Promise<unknown>): Promise<unknown>;
   tokens?: import("./client-tokens.js").ClientTokenRegistry;
@@ -489,6 +490,11 @@ export class ProductRuntime {
             ? tokens.rotate(id)
             : tokens.revoke(id);
       }
+      case "security.secretFiles.status":
+        return this.host.secretFiles?.status() ?? { ok: false, message: "Owner secret-file controls unavailable" };
+      case "security.secretFiles.set":
+        if (!this.host.secretFiles) fail("Owner secret-file controls unavailable");
+        return this.host.secretFiles!.set(p);
       case "security.status":
         return {
           ok: true,
@@ -1195,6 +1201,23 @@ export class ProductRuntime {
       });
     }
     return result.slice(-Number(p.limit ?? 200)).reverse();
+  }
+  /** Interrupt current work for an immutable Core replacement, without disabling future chat/polling. */
+  async cancelWork(): Promise<void> {
+    const stopped = this.chat.cancelAll();
+    for (const controller of this.cancellations.values()) controller.abort();
+    for (const controller of this.serverControllers.values()) controller.abort();
+    await Promise.all([...this.connecting.values()].map((p) => p.catch(() => undefined)));
+    await Promise.all([...this.clients.values()].map((c) => c.close()));
+    this.clients.clear();
+    for (const server of this.state.servers) server.status = "Disconnected";
+    for (const task of this.state.tasks)
+      if (task.state === "Running") {
+        task.state = "Cancelled";
+        task.endedAt = now();
+      }
+    await stopped;
+    await this.persist();
   }
   async abortAll(): Promise<void> {
     const chatStopped = this.chat.close();

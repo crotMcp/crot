@@ -91,6 +91,31 @@ export async function runServiceScenarios({ real, evaluate, until, size, screens
   );
   if (real.inspectionCalls !== 2) throw Error("Explicit inspection did not refresh the snapshot");
   await screenshot("03-projects-real-service");
+  // The shipped renderer uses owner IPC, never a mocked grant response.
+  const secretRoot = path.join(real.base, "second");
+  await writeFile(path.join(secretRoot, ".env"), "ui-owner-private-test");
+  const secretRead = () => evaluate("window.crot.tool('fs_read_file',{path:'.env'})");
+  if (!(await secretRead()).isError) throw Error("Secret was readable without owner grant");
+  await section("Permissions");
+  await until("!!document.getElementById('secret-file-grant')");
+  await evaluate("document.getElementById('secret-file-path').value='.env'");
+  await click("Grant secret-file access");
+  await click("Cancel", "dialog button");
+  if (!(await secretRead()).isError) throw Error("Cancelled confirmation granted secret access");
+  await click("Grant secret-file access");
+  await confirm();
+  await until("!!document.querySelector('[data-secret-path=\".env\"]')");
+  const granted = await secretRead();
+  if (granted.isError || !JSON.stringify(granted).includes("ui-owner-private-test"))
+    throw Error("Confirmed UI grant did not reach Core");
+  await click("Revoke secret-file access");
+  await confirm();
+  await until("!!document.getElementById('secret-file-grant')&&!document.querySelector('[data-secret-path=\".env\"]')");
+  if (!(await secretRead()).isError) throw Error("UI revocation did not reach Core");
+  const secretAudit = await readFile(path.join(real.base, "audit.jsonl"), "utf8");
+  if (!secretAudit.includes('"action":"project_secret_access"') || secretAudit.includes("ui-owner-private-test"))
+    throw Error("Secret-access audit missing or leaking contents");
+  await screenshot("03b-secret-access-real-service");
   await section("Files");
   await fill("File path", path.join(real.base, "second", "proof.txt"));
   await fill("Content", "UI to real CrotService");
@@ -242,6 +267,7 @@ export async function runServiceScenarios({ real, evaluate, until, size, screens
           "Shipped Chromium UI → test-only IPC bridge → real isolated CrotService; projects/files/git/terminal/connector HTTP/MCP stdio/tasks cancellation/real audit/streamed chat with guarded tool approval",
         ...(await real.verify()),
         ...chatEvidence,
+        ownerSecretConfirmationAndRevocation: true,
       },
       null,
       2,

@@ -5639,3 +5639,43 @@ requirement. Static masks, preflight scans and UI filters are insufficient for
 future-file protection. The added macOS native tests must pass on actual macOS
 before its kernel rule is qualified. Until remaining native backends, live
 owner controls and their acceptance tests exist, Stage A and PR #5 remain WIP.
+
+
+### AD-53. Owner secret-file grant/revoke and immutable Core retirement
+
+Authenticated owner product RPCs `security.secretFiles.status` and
+`security.secretFiles.set` expose the exact workspace-bound AD-52 policy. The
+renderer confirms each grant/revoke and warns that current tasks and chat
+will stop. The Core path policy is not protection for unconfined commands;
+Linux/Windows general secret-file L1 remains incomplete. These controls do not
+weaken capability, CROT-secret, native confinement or mandatory approval gates.
+
+The existing ControlCenter serialization owns the transition. After schema,
+exact-current-workspace and canonical-path validation, an exclusive CoreHolder
+lease blocks new adapter/workflow admission. ExecutionGuard retirement is
+irreversible, including held references to the old capability services. A
+protected atomic pending record is written before cancellation. Product chat,
+server clients and tasks are interrupted; the old Core cancels approvals,
+terminates processes (including actors with already-open secret descriptors),
+closes native confinement and drains operations. A nonzero activity count or
+any drain failure refuses acknowledgement. Only then is a new immutable Core
+built with the explicit policy, audited, committed to the owner state file and
+installed. No second authorizer or renderer execution path is introduced.
+
+`project-secret-access.json` is protected service state, unreadable/unwritable
+through agent capabilities. A crash with a pending record recovers deny-all,
+not the previous grant or a half-published widening. Missing state uses the
+owner configuration baseline; malformed/non-private/non-regular state refuses
+startup. If the initial protected write itself fails, existing durable state
+cannot be assumed changed: the live service halts and reports failure, never
+successful revocation. All other transition failures likewise latch the service
+halted and keep admission closed; no rollback revives an old actor. An owner
+must repair the failure before restarting. A completed revocation cannot
+retrieve bytes already disclosed to an actor; its guarantee is stopping old
+work and denying subsequent access under the replacement policy.
+
+Tests cover exact scope, old-reference retirement, pending recovery, protected
+write/build/audit/commit/drain failures, a real service actor holding an open
+secret descriptor, restart persistence, and the shipped renderer's explicit
+confirmation/cancel/grant/revoke path through a real service. These are separate
+from native backend qualification and do not close Stage A's remaining gates.

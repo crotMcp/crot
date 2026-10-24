@@ -395,9 +395,12 @@ export class ChatRuntime {
     }
     return bad("Chat tool round limit reached");
   }
-  async close(): Promise<void> {
-    this.closed = true;
+  async cancelAll(): Promise<void> {
     for (const c of this.conversations.values()) c.controller.abort();
     await Promise.all([...this.conversations.values()].map((c) => c.done));
+  }
+  async close(): Promise<void> {
+    this.closed = true;
+    await this.cancelAll();
   }
 }

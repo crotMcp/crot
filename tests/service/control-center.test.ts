@@ -11,6 +11,8 @@ import type { RemoteProfileOptions } from "../../src/core/permissions/engine.js"
 import { createPrivateFileProtection } from "../../src/core/platform/private-files.js";
 import { ControlCenter, SELECTABLE_PRESETS, type ControlConnection } from "../../src/service/control-center.js";
 import { CoreHolder } from "../../src/service/core-holder.js";
+import { ProjectSecretAccessStore, projectSecretAccessPath } from "../../src/service/project-secret-access.js";
+import type { ProjectSecretAccess } from "../../src/core/permissions/project-secrets.js";
 import { DeviceSettingsStore, SERVICE_SETTINGS_FILE_NAME } from "../../src/service/device-settings.js";
 import type { ControlEvent, ControlOverview, ControlRequest } from "../../src/service/protocol.js";
 import { RemoteClientRegistry, REMOTE_CLIENTS_FILE_NAME } from "../../src/service/remote-clients.js";
@@ -99,6 +101,7 @@ async function build(
   preset: UntrustedContentSetting,
   handover?: CoreCompositionHandle["exposure"],
   remote?: RemoteProfileOptions,
+  projectSecrets?: ProjectSecretAccess,
 ) {
   if (failNextBuild) {
     failNextBuild = false;
@@ -108,7 +111,11 @@ async function build(
   const core = await createTestCore(
     {
       workspace: { root: dirs.workspace },
-      permissions: { mode: "full_control", approvals: { untrustedContent: preset, rules, timeoutMs: 5_000 } },
+      permissions: {
+        mode: "full_control",
+        approvals: { untrustedContent: preset, rules, timeoutMs: 5_000 },
+        ...(projectSecrets ? { projectSecrets } : {}),
+      },
     },
     sink,
     {
@@ -152,7 +159,8 @@ async function setup(
     }),
     remoteExposure: exposure,
     configuredPreset: configured,
-    buildCore: (preset, remote) => build(preset, holder.composition.exposure, remote),
+    buildCore: (preset, remote, _workspace, projectSecrets) =>
+      build(preset, holder.composition.exposure, remote, projectSecrets),
     serviceStatus: () => ({
       state: "running",
       pid: process.pid,
@@ -669,4 +677,54 @@ describe("WP-29 local unpair and background deregistration ordering", () => {
     expect(await ask(new Conn(), { method: "device.unpair" })).toMatchObject({ ok: true, unchanged: true });
     releaseNetwork();
   });
+});
+
+describe("owner secret-file immutable transition", () => {
+  it("publishes only an audited exact grant; held old references remain retired after a successful replacement", async () => {
+    await setup({ configured: "off" });
+    const store = await ProjectSecretAccessStore.open(projectSecretAccessPath(dirs.outside), privateFiles, {
+      allow: [],
+    });
+    await writeFile(path.join(dirs.workspace, ".env"), "owner-test-value");
+    const retired = holder.core.filesystem;
+    const result = await center.changeProjectSecretAccess(
+      { workspace: dirs.workspace, path: ".env", allow: true },
+      store,
+    );
+    expect(result).toMatchObject({ ok: true, drained: true });
+    await expect(retired.readFile(local(), { path: ".env" })).rejects.toMatchObject({ code: "RESOURCE_BUSY" });
+    expect((await holder.core.filesystem.readFile(local(), { path: ".env" })).content).toBe("owner-test-value");
+    expect(sink.memory.controlEvents.at(-1)).toMatchObject({ action: "project_secret_access", outcome: "applied" });
+    await expect(
+      center.changeProjectSecretAccess({ workspace: dirs.outside, path: ".env", allow: false }, store),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    expect(store.policy.allow).toHaveLength(1);
+    expect(holder.busyReason()).toBeUndefined();
+  });
+  it.each(["stage", "build", "audit", "commit", "drain"] as const)(
+    "%s failure never acknowledges a grant or revives the old Core",
+    async (fault) => {
+      await setup({ configured: "off" });
+      const file = projectSecretAccessPath(dirs.outside),
+        store = await ProjectSecretAccessStore.open(file, privateFiles, { allow: [] });
+      const old = holder.instance;
+      if (fault === "stage" || fault === "commit")
+        vi.spyOn(store, fault).mockRejectedValue(new Error("injected " + fault));
+      if (fault === "build") failNextBuild = true;
+      if (fault === "drain") vi.spyOn(old, "shutdown").mockRejectedValue(new Error("injected drain"));
+      if (fault === "audit") sink.failControl = true;
+      await expect(
+        center.changeProjectSecretAccess({ workspace: dirs.workspace, path: ".env", allow: true }, store),
+      ).rejects.toThrow();
+      expect(old.permissions.runtime.halted).toBe(true);
+      expect(holder.instance).toBe(old);
+      expect(holder.busyReason()).toContain("transition");
+      await expect(old.filesystem.readFile(local(), { path: "public.txt" })).rejects.toMatchObject({
+        code: "RESOURCE_BUSY",
+      });
+      expect(() => holder.core.filesystem.readFile(local(), { path: "public.txt" })).toThrow("transition");
+      expect(store.policy.allow).toEqual([]);
+      expect((await ProjectSecretAccessStore.open(file, privateFiles, { allow: [] })).policy.allow).toEqual([]);
+    },
+  );
 });

@@ -474,6 +474,7 @@ export class CrotCore {
    * The browser bridge itself is closed by the host after this returns.
    */
   shutdown(): Promise<void> {
+    this.guard.closeAdmission();
     this.shuttingDown ??= (async () => {
       this.approvalBroker.cancelAll("shutdown");
       this.browser.shutdown();

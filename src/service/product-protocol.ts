@@ -2,6 +2,7 @@
 import { ChatConfigureSchema, ChatProviderSchema, ChatStartSchema } from "./chat-protocol.js";
 import { TokenIssueSchema } from "./client-tokens.js";
 import { z } from "zod";
+import { ProjectSecretRelativePathSchema } from "../core/permissions/project-secrets.js";
 import { ProjectGrantSchema, RuntimePolicySchema } from "../core/permissions/runtime.js";
 const id = z.string().min(1).max(256);
 const list = z.array(id).max(256);
@@ -27,6 +28,10 @@ export const PRODUCT_SCHEMAS = {
   "tokens.issue": TokenIssueSchema,
   "tokens.rotate": z.object({ id }).strict(),
   "tokens.revoke": z.object({ id }).strict(),
+  "security.secretFiles.status": z.object({}).strict(),
+  "security.secretFiles.set": z
+    .object({ workspace: z.string().min(1).max(4096), path: ProjectSecretRelativePathSchema, allow: z.boolean() })
+    .strict(),
   "security.status": z.object({}).strict(),
   "security.kill": z.object({}).strict(),
   "security.setPolicy": RuntimePolicySchema,
