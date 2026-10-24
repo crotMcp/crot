@@ -38,6 +38,7 @@ import { TRAY_CSP, TRAY_ORIGIN, trayAsset } from "./assets.js";
 import { TrayToolClient } from "./tool-client.js";
 import { repairL1 } from "./l1-repair.js";
 import { TrayController } from "./controller.js";
+import { ProjectFolderPicker } from "./project-picker.js";
 import { trayView, type TrayView } from "./view-model.js";
 
 // Linux compatibility: the launcher also passes this before Electron bootstrap.
@@ -241,20 +242,18 @@ function clientKey(p: Record<string, unknown>): { accountId: string; deviceId: s
     : undefined;
 }
 
+const projectFolderPicker = new ProjectFolderPicker();
+
 async function runAction(name: unknown, params: unknown): Promise<boolean> {
   // Fixed owner-UI actions only. Renderer never supplies an external URL or clipboard bytes.
   if (typeof name === "string" && name.startsWith("ui.") && isRecord(params) && Object.keys(params).length === 0) {
     if (name === "ui.pickProjectFolder") {
       if (smokeReport || !window) return false;
-      const choice = await dialog.showOpenDialog(window, {
-        title: "Open project folder",
-        properties: ["openDirectory"],
+      const parent = window;
+      return projectFolderPicker.open({
+        choose: () => dialog.showOpenDialog(parent, { title: "Open project folder", properties: ["openDirectory"] }),
+        product: (method, params) => controller.product(method, params),
       });
-      if (choice.canceled || choice.filePaths.length !== 1) return false;
-      const opened = await controller.product("projects.open", { path: choice.filePaths[0] });
-      if (!isRecord(opened) || !isRecord(opened.project) || typeof opened.project.id !== "string") return false;
-      await controller.product("projects.select", { id: opened.project.id });
-      return true;
     }
     if (name === "ui.exportDiagnostics") {
       if (smokeReport || !window) return false;
