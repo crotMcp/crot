@@ -50,6 +50,15 @@ export async function runServiceScenarios({ real, evaluate, until, size, screens
   await until("document.body.textContent.includes('Service E2E')");
   const state = await real.verify();
   if (state.projects !== 2) throw Error("Real project was not persisted");
+  await writeFile(
+    path.join(real.base, "second", "package.json"),
+    JSON.stringify({ dependencies: { react: "fixture" }, devDependencies: { typescript: "fixture" } }),
+  );
+  await click("Inspect project");
+  await until(
+    "document.querySelector('[data-project-inspection]')?.textContent.includes('Node.js, TypeScript, React')",
+  );
+  await until("document.querySelector('[data-project-inspection]')?.textContent.includes('Listening project ports')");
   await screenshot("03-projects-real-service");
   await section("Files");
   await fill("File path", path.join(real.base, "second", "proof.txt"));

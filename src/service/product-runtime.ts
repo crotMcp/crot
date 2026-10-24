@@ -357,6 +357,7 @@ export class ProductRuntime {
         : this.dispatch(method, params!);
     // Reads and long operations must not hold up cancellations/approval traffic.
     if (
+      method === "projects.inspect" ||
       method === "security.status" ||
       (method.startsWith("chat.") && method !== "chat.configure") ||
       method.startsWith("tokens.") ||
@@ -511,6 +512,14 @@ export class ProductRuntime {
             (g) => g.workspace !== p.workspace || g.operation !== p.operation,
           ),
         });
+      }
+      case "projects.inspect": {
+        const work = () =>
+          this.execute("$project", "inspect", [this.context()], (args) =>
+            this.host.core().inspectProject(args[0] as AuthContext),
+          );
+        const inspection = this.host.holdActivity ? await this.host.holdActivity(work) : await work();
+        return { ok: true, inspection };
       }
       case "projects.list":
         return { ok: true, projects: this.state.projects, active: this.state.active };
@@ -1049,7 +1058,10 @@ export class ProductRuntime {
       startedAt: now(),
       artifacts: [],
       retryable:
-        context.principal.kind === "local" && context.principal.transport !== "owner-chat" && member !== "$chat",
+        context.principal.kind === "local" &&
+        context.principal.transport !== "owner-chat" &&
+        member !== "$chat" &&
+        member !== "$project",
     };
     this.state.tasks = limited([...this.state.tasks, task]);
     this.cancellations.set(task.id, controller);

@@ -602,6 +602,65 @@ describe("Stage A real chat provider adapters", () => {
   });
 });
 
+describe("Stage A owner project inspection", () => {
+  it("holds the active workspace while port approval is pending, supports cancellation, and records audit", async () => {
+    const config = {
+      permissions: { mode: "full_control", approvals: { untrustedContent: "off" } },
+      audit: { sink: "file", path: path.join(dirs.outside, "inspection.jsonl") },
+    };
+    await startService({ config });
+    const control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    let pending: import("../../src/core/approvals/types.js").PresentedApproval | undefined;
+    try {
+      const other = (await control.request("projects.open", { path: dirs.outside })) as { project: { id: string } };
+      const otherId = (other.project as { id: string }).id;
+      control.onevent = (event) => {
+        if (event.event === "approval.requested") pending = event.approval;
+      };
+      await control.request("approvals.subscribe");
+      await control.request("security.setPolicy", {
+        strict: false,
+        rules: [{ operation: "process.project_ports", state: "ask" }],
+      });
+      const inspection = control.request("projects.inspect");
+      await waitFor(() => !!pending);
+      expect(pending!.subject.workspace).toBe(dirs.workspace);
+      await expect(control.request("projects.select", { id: otherId })).rejects.toThrow();
+      await control.request("approvals.decide", {
+        requestId: pending!.requestId,
+        subjectDigest: pending!.subjectDigest,
+        decision: "approve",
+      });
+      expect(await inspection).toMatchObject({
+        ok: true,
+        inspection: { workspace: dirs.workspace, manifests: expect.any(Array) },
+      });
+      const audit = await control.request("monitoring.queryAudit", { type: "process.project_ports" });
+      expect(audit).toMatchObject({
+        events: expect.arrayContaining([
+          expect.objectContaining({ type: "process.project_ports", outcome: "success" }),
+        ]),
+      });
+      pending = undefined;
+      const cancelled = control.request("projects.inspect");
+      const refused = expect(cancelled).rejects.toThrow();
+      await waitFor(() => !!pending);
+      const listing = (await control.request("tasks.list", {})) as {
+        tasks: { id: string; operation: string; state: string; retryable: boolean }[];
+      };
+      const task = (listing.tasks as { id: string; operation: string; state: string; retryable: boolean }[]).find(
+        (t) => t.operation === "$project.inspect" && t.state === "Running",
+      )!;
+      expect(task.retryable).toBe(false);
+      await control.request("tasks.cancel", { id: task.id });
+      await refused;
+      await control.request("projects.select", { id: otherId });
+    } finally {
+      control.close();
+    }
+  });
+});
+
 describe("Stage A project approvals", () => {
   it("binds project grants to pending digests, restores them on restart, and retains strict/deny/revoke gates", async () => {
     const config = {

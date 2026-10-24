@@ -1,3 +1,5 @@
+import { inspectProject } from "./capabilities/projects/inspect.js";
+import type { AuthContext } from "./auth/principal.js";
 import type { RuntimePermissionState } from "./permissions/runtime.js";
 import { BrowserFiles } from "./capabilities/browser/files.js";
 import { homedir } from "node:os";
@@ -493,6 +495,10 @@ export class CrotCore {
     this.confinement.closeSync();
     this.git.terminateAllSync();
     this.docker.terminateAllSync();
+  }
+
+  inspectProject(context: AuthContext) {
+    return inspectProject(this, context);
   }
 
   status(): CrotStatus {

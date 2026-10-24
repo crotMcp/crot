@@ -5452,3 +5452,38 @@ project grants, project discovery or application-secret L1 enforcement gates.
    remember-project action. Runtime settings list persisted grants and support
    explicit revocation. Legacy policy updates that omit grants preserve them;
    explicitly supplying an empty grant list clears them.
+
+### AD-47. Bounded owner project inspection through Core
+
+The fixed owner RPC `projects.inspect` accepts no path, command or project ID.
+It holds CoreHolder's idle-switch barrier for its entire multi-step workflow;
+ProductRuntime correlates a cancellable, non-replayable `$project.inspect` task.
+The Core reads only `package.json`, `pyproject.toml` and `Dockerfile` through
+FileSystemService and the existing ExecutionGuard. Runtime deny, Strict Mode,
+mandatory approvals, workspace and protected-path ceilings remain effective.
+No package scripts, imports, package managers, Docker builds or commands found
+in a manifest are executed. JSON is bounded to 64 KiB (and the configured Core
+read limit), parse errors are generic, and only a fixed dependency-name/stack
+allowlist is returned. Python/Docker detection means manifest presence, not a
+claim that TOML is valid or an interpreter/image is installed. Symlink manifests
+are not followed; non-files and oversized files are explicitly reported.
+
+Port observation is a separate guarded `process.project_ports` operation with
+`process.manage` and the active resolved workspace path. The Linux implementation
+observes `/proc` TCP LISTEN sockets in the service network namespace and matches
+socket descriptors to same-user processes whose canonical cwd is inside that
+workspace. It never reads environment variables, command lines or process memory.
+PID start time and cwd are rechecked before publishing. PID/FD/project-process
+counts, table sizes and elapsed scan time are bounded. Inaccessible, oversized
+or truncated observations report partial/unavailable, never "all ports free".
+This is a point-in-time association, not proof of future port availability,
+exclusive project ownership, network authorization or discovery of another
+network namespace. No network connection or remote host scan is made.
+
+The current native port observer is Linux-only. Other OSes return an explicit
+unavailable state, not fabricated listeners. Native macOS/Windows observation
+and qualification remain acceptance work. The renderer displays the actual
+manifest evidence and observer status after an explicit Inspect project action;
+there is no hidden script execution on navigation or automatic widening of
+network permissions. These observations do not implement the outstanding L1
+application-secret filename policy.

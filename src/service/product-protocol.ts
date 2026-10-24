@@ -31,6 +31,7 @@ export const PRODUCT_SCHEMAS = {
   "security.kill": z.object({}).strict(),
   "security.setPolicy": RuntimePolicySchema,
   "security.revokeProjectGrant": ProjectGrantSchema,
+  "projects.inspect": z.object({}).strict(),
   "projects.list": z.object({}).strict(),
   "projects.create": z.object({ path: z.string().min(1).max(4096), name: id.optional() }).strict(),
   "projects.open": z.object({ path: z.string().min(1).max(4096), name: id.optional() }).strict(),

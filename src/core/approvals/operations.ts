@@ -57,6 +57,7 @@ export const KNOWN_OPERATIONS: readonly string[] = [
   "network.resolve",
   "process.exec",
   "process.list",
+  "process.project_ports",
   "process.read_output",
   "process.remove",
   "process.shell",

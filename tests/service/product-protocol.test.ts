@@ -81,3 +81,9 @@ it("project approval requires a pending subject digest and closed owner-only rev
     }),
   ).toBeUndefined();
 });
+
+it("project inspection never accepts arbitrary paths or commands", () => {
+  expect(parseProduct("projects.inspect", {})).toEqual({});
+  for (const params of [{ path: "/etc" }, { command: "node" }, { project: "other" }])
+    expect(parseProduct("projects.inspect", params)).toBeUndefined();
+});
