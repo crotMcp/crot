@@ -5679,3 +5679,30 @@ write/build/audit/commit/drain failures, a real service actor holding an open
 secret descriptor, restart persistence, and the shipped renderer's explicit
 confirmation/cancel/grant/revoke path through a real service. These are separate
 from native backend qualification and do not close Stage A's remaining gates.
+
+
+### AD-54. Actual native folder-dialog qualification, not a renderer substitute
+
+The existing Linux Electron/GTK fixture is generalized with test-only native
+control drivers. All hosts launch the shipped Electron entry against a real
+isolated CrotService and exercise the unchanged `showOpenDialog` →
+ProjectFolderPicker → projects.open/select path. Cancellation must preserve the
+registry and Core; a folder containing spaces must become the real Core root,
+be visible in the shipped renderer and have both audit records. No dialog
+return value, IPC response or service acknowledgement is mocked.
+
+Linux retains X11/GTK keyboard and native-window control. macOS inspects the
+visible NSOpenPanel in the test Electron main process through AppKit, navigates
+its real directory URL and invokes its native cancel/OK actions. It does not
+use System Events, change TCC permissions or bypass an external accessibility
+requirement. Windows UIAutomation is restricted to the chooser window owned by
+the test Electron PID and exact title. ValuePattern edits its real folder field
+and InvokePattern uses the native Cancel/Select controls; no registry policies,
+security settings or provider values are changed. The real service result must
+still equal the fixture directory after the native callback.
+
+The macOS/Windows fixture runs as a mandatory test on those hosts in the
+existing Node/OS matrix; Linux's existing actual GTK qualification remains a
+separate command. Host-inapplicable execution is explicit, not qualification.
+A successful Linux run and static review cannot prove the AppKit/Windows driver
+works. Actual native CI must pass before closing either acceptance gate.

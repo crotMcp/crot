@@ -1,26 +1,26 @@
-/** Linux native-dialog qualification: shipped Electron + real CrotService + X11 keyboard input.
- * Run under an isolated xvfb-run display. Never replaces dialog.showOpenDialog or IPC.
+/** Native chooser qualification: shipped Electron + real CrotService.
+ * Linux runs under X11; AppKit/Windows use actual owned native dialog controls.
+ * Never replaces dialog.showOpenDialog or IPC. No external accessibility bypass.
  */
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
-import { promisify } from "node:util";
 import { _electron } from "playwright-core";
-import { createPrivateFileProtection } from "../dist/core/platform/private-files.js";
-import { ControlClient } from "../dist/service/control-client.js";
-import { CrotService } from "../dist/service/service.js";
-
-if (process.platform !== "linux" || !process.env.DISPLAY)
-  throw Error("This native qualification requires Linux X11; use xvfb-run -a.");
+import { pathToFileURL } from "node:url";
+import { nativePickerDriver } from "./project-picker-native-driver.mjs";
+const buildRoot = path.resolve(process.argv.find((arg) => arg.startsWith("--build-root="))?.slice(13) || "dist");
+const load = (name) => import(pathToFileURL(path.join(buildRoot, name)).href);
+const { createPrivateFileProtection } = await load("core/platform/private-files.js");
+const { ControlClient } = await load("service/control-client.js");
+const { CrotService } = await load("service/service.js");
+if (process.platform === "linux" && !process.env.DISPLAY)
+  throw Error("Linux native qualification requires X11; use xvfb-run -a.");
 const output = process.argv.find((arg) => arg.startsWith("--output="))?.slice(9);
 if (!output) throw Error("Pass --output=<report.json>; failure evidence must be retained.");
-const exec = promisify(execFile);
-const xdo = (...args) => exec("xdotool", args, { timeout: 5000, maxBuffer: 65536 });
 const until = async (predicate, label) => {
   const end = Date.now() + 20_000;
   while (Date.now() < end) {
@@ -34,14 +34,14 @@ const workspace = path.join(base, "initial"),
   selected = path.join(base, "chosen project"),
   stateDir = path.join(base, "state"),
   auditFile = path.join(base, "audit.jsonl");
-let service, electron, client;
+let service, electron, client, driver;
 const report = { platform: process.platform, checks: [], errors: [] };
 try {
   for (const dir of [workspace, selected, stateDir]) await mkdir(dir, { mode: 0o700 });
   await writeFile(path.join(stateDir, "secrets.json"), JSON.stringify({ version: 1, backend: "file" }), {
     mode: 0o600,
   });
-  const privateFiles = createPrivateFileProtection(false);
+  const privateFiles = createPrivateFileProtection(process.platform === "win32");
   service = await CrotService.start({
     command: {
       kind: "serve",
@@ -76,7 +76,11 @@ try {
   delete env.ELECTRON_RUN_AS_NODE;
   electron = await _electron.launch({
     executablePath: createRequire(import.meta.url)("electron"),
-    args: [path.resolve("dist/tray/main.js"), `--state-dir=${stateDir}`, "--no-sandbox", "--disable-gpu"],
+    args: [
+      path.join(buildRoot, "tray/main.js"),
+      `--state-dir=${stateDir}`,
+      ...(process.platform === "linux" ? ["--no-sandbox", "--disable-gpu"] : []),
+    ],
     env,
     timeout: 30_000,
   });
@@ -89,50 +93,18 @@ try {
   await button.waitFor();
   const list = () => client.request("projects.list");
   const initial = await list();
-  const dialog = async () => {
-    let id;
-    await until(async () => {
-      try {
-        const { stdout } = await xdo("search", "--onlyvisible", "--name", "^Open project folder$");
-        id = stdout.trim().split("\n")[0];
-        return /^\d+$/.test(id);
-      } catch {
-        return false;
-      }
-    }, "native GTK folder chooser");
-    await xdo("windowfocus", "--sync", id);
-    await delay(500);
-    return id;
-  };
+  driver = await nativePickerDriver(electron, output, until);
   await button.click();
-  await dialog();
-  await xdo("key", "--clearmodifiers", "Escape");
-  await until(async () => {
-    try {
-      await xdo("search", "--onlyvisible", "--name", "^Open project folder$");
-      return false;
-    } catch {
-      return true;
-    }
-  }, "native dialog cancellation");
+  await driver.wait();
+  await driver.cancel();
   await delay(300);
   assert.deepEqual(await list(), initial);
   assert.equal(service.core.workspace.root, workspace);
   report.checks.push("Native folder cancellation preserves registry and Core workspace");
 
   await button.click();
-  const chooserId = await dialog();
-  await xdo("key", "--clearmodifiers", "ctrl+l");
-  await xdo("type", "--clearmodifiers", "--delay", "1", selected);
-  await exec("magick", ["import", "-window", "root", output + ".native-chooser.png"], { timeout: 5000 }).catch(
-    () => {},
-  );
-  const geometry = (await xdo("getwindowgeometry", "--shell", chooserId)).stdout;
-  const width = Number(/^WIDTH=(\d+)$/m.exec(geometry)?.[1]);
-  const height = Number(/^HEIGHT=(\d+)$/m.exec(geometry)?.[1]);
-  assert.ok(width > 200 && height > 200);
-  await xdo("mousemove", "--sync", "--window", chooserId, String(width - 50), String(height - 24));
-  await xdo("click", "--clearmodifiers", "1");
+  await driver.wait();
+  await driver.choose(selected);
   await until(async () => {
     const result = await list();
     return result.projects.some((project) => project.path === selected && project.id === result.active);
@@ -154,10 +126,7 @@ try {
   report.status = "failed";
   report.registry = await client?.request("projects.list").catch(() => null);
   report.coreWorkspace = service?.core?.workspace?.root;
-  report.windows = await xdo("search", "--onlyvisible", "--name", ".")
-    .then((r) => r.stdout)
-    .catch(() => "");
-  await exec("magick", ["import", "-window", "root", output + ".failure.png"], { timeout: 5000 }).catch(() => {});
+  report.nativeDialog = await driver?.diagnostics().catch((error) => String(error));
   report.errors.push(String(error?.stack ?? error));
   process.exitCode = 1;
 } finally {
@@ -168,6 +137,7 @@ try {
       report.errors.push(label + ": " + error);
     }
   };
+  if (driver) await cleanup("Native dialog close", () => driver.cancel());
   if (electron) await cleanup("Electron close", () => electron.close());
   client?.close();
   if (service && service !== "already_running")

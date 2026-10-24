@@ -102,3 +102,10 @@ and Linux native picker 3 checks. All 221 host-inapplicable main tests remain
 explicitly skipped; local Linux does not qualify their native implementations.
 Current-source GitHub CI must still be observed before claiming this slice
 remotely qualified. Full Stage A remains incomplete for the gates above.
+
+
+AD-53 head `8ca0cd7` now has observed **11/11 SUCCESS** remote checks,
+including both actual Windows jobs and both macOS jobs. AD-54 next adds actual
+native-folder chooser qualification to those existing matrix jobs. It remains
+unqualified until those new tests run successfully. No workflow modifications,
+security downgrades or agent merge are performed.

@@ -492,3 +492,30 @@ Only documentation was updated after these runs; formatting/local links are
 checked again before publication. This candidate still needs actual remote CI;
 prior-head green checks do not cover it. Linux/Windows future-secret L1 and
 actual macOS/Windows native folder workflows remain acceptance blockers.
+
+
+## AD-53 observed remote qualification
+
+Head `8ca0cd7581d559b743635dcdd37d357f6ea0447f` completed all **11/11**
+GitHub checks SUCCESS. Both macOS jobs, both Ubuntu jobs, all four Linux L1
+jobs, real Chromium and both Windows jobs passed. The final Windows Node 20
+job completed at `2026-10-24T14:10:40Z`. Runs:
+- https://github.com/crotMcp/crot/actions/runs/40099838650
+- https://github.com/crotMcp/crot/actions/runs/40099838646
+- https://github.com/crotMcp/crot/actions/runs/40099838662
+
+This qualifies the AD-53 exact owner grant/revoke/retirement tests on the actual
+OS matrix. It does not prove Linux/Windows future-secret L1 or their native
+folder chooser workflows.
+
+AD-54 adds actual AppKit/Windows chooser drivers and a mandatory native-host
+integration test in the existing matrix, without workflow/security changes.
+The generalized GTK path passed 3 checks locally. AppKit/Windows are new
+candidates pending actual CI; no native Pass is inferred from the Linux result.
+
+AD-54 complete local candidate checks passed: `npm run check` main 2311 pass /
+222 skip (the new test is explicitly macOS/Windows-only), extension 196 pass;
+real Chromium 58 pass / 3 existing placeholders skipped; generalized actual GTK
+folder workflow 3 checks / 0 errors. No production authorization or native-dialog
+implementation changed. Only this evidence paragraph is added after the frozen
+source run. AppKit/Windows driver behavior remains pending actual native CI.
