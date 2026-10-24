@@ -7,7 +7,8 @@ No B/C work or merge is authorized by this progress record.
 
 - Shared runtime allow/ask/deny rules and Strict Mode in PermissionEngine;
   existing hard denials and mandatory approvals remain authoritative.
-- Owner RPC validation, protected persistence and audit for policy changes.
+- Owner RPC validation, protected two-phase persistence and audit for policy
+  changes, including fail-closed recovery of interrupted changes.
 - Emergency brake: Core process/network/browser cancellation, service admission
   latch, product task cancellation, HTTP/Relay close, audit, header/tray wiring.
 - Restart explicitly required after stop; owner diagnostics remain reachable.
@@ -21,9 +22,12 @@ No B/C work or merge is authorized by this progress record.
 - Provider/model inventory, attachment validation, real streaming chat, stop,
   guarded tool-call execution and rendered tool-call/approval blocks.
 - Allow once / allow for project / deny decisions through the existing broker.
-- Complete connect → task → owner approval → audit integration scenario.
+- The service-level connect → task → owner approval → audit integration test
+  passes. Repeat this flow through the unfinished chat/tool-call UI before
+  accepting the complete Stage A user journey.
 - Full check, extension and Chromium E2E plus observed green remote CI for the
   final candidate SHA. A local source test is not remote CI evidence.
 
-Verification results are recorded separately after commands finish. This is not
+See [verification](VERIFICATION.md) for observed command results and explicit
+qualification limits. This is not
 an installable release or qualification of live providers/Relay.
