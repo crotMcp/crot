@@ -1,7 +1,7 @@
 # Control Center product architecture
 
-> Current UI override: [three-screen desktop onboarding](CONTROL_CENTER_ONBOARDING.md).
-> Thirteen routes remain internal; only five destinations appear in the sidebar.
+> Current presentation override: [AD-42](../ARCHITECTURE.md#ad-42--owner-requested-control-center-design-system-and-navigation) and [design implementation](design/IMPLEMENTATION.md).
+> Startup onboarding remains; ten destinations now appear in the sidebar.
 > Historical mobile and local-autoadmission evidence below does not qualify the new desktop flow.
 
 ## AD-39: ordinary MCP client for owner workspace operations

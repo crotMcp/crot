@@ -1,3 +1,4 @@
+import { TRAY_MARK } from "../ui/brand-tray.js";
 /**
  * CROT tray (WP-22, AD-19 point 1): an Electron process that is only a
  * client of the service's authenticated control channel. Workspace screens
@@ -67,21 +68,11 @@ protocol.registerSchemesAsPrivileged([
 app.setPath("userData", path.join(stateDir, "tray"));
 if (!smokeReport && !app.requestSingleInstanceLock()) app.exit(0);
 
-/** A small round icon drawn in memory (BGRA), so no image file is loaded. */
-function icon(rgb: readonly [number, number, number]): NativeImage {
-  const size = 16;
-  const data = Buffer.alloc(size * size * 4);
-  for (let y = 0; y < size; y++)
-    for (let x = 0; x < size; x++) {
-      const d = Math.hypot(x - 7.5, y - 7.5);
-      const alpha = d <= 6.5 ? 255 : d <= 7.5 ? Math.round(255 * (7.5 - d)) : 0;
-      const i = (y * size + x) * 4;
-      data[i] = rgb[2];
-      data[i + 1] = rgb[1];
-      data[i + 2] = rgb[0];
-      data[i + 3] = alpha;
-    }
-  return nativeImage.createFromBitmap(data, { width: size, height: size });
+/** Master-derived template icon; status is available in tooltip and accessible UI. */
+function icon(_rgb: readonly [number, number, number]): NativeImage {
+  const mark = nativeImage.createFromDataURL(TRAY_MARK);
+  mark.setTemplateImage(true);
+  return mark;
 }
 
 const ICON_COLORS: Readonly<Record<TrayView["icon"], readonly [number, number, number]>> = {
@@ -150,8 +141,8 @@ function createWindow(): void {
   window = new BrowserWindow({
     width: 1280,
     height: 820,
-    minWidth: 1180,
-    minHeight: 780,
+    minWidth: 960,
+    minHeight: 640,
     backgroundColor: "#F8FAFC",
     show: false,
     title: "CROT Control Center",

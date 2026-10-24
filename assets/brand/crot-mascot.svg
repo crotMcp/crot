@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 128" role="img" aria-label="CROT mole mascot">
+  <g stroke="#1B2236" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <path fill="#FFC21A" d="M21 103C21 68 31 29 62 18C83 10 106 17 120 36C130 50 132 72 132 103Z"/>
+    <circle fill="#FFFFFF" cx="87" cy="43" r="16"/>
+    <circle fill="#FFFFFF" cx="113" cy="42" r="13"/>
+    <path fill="#1B2236" stroke-width="3" d="M126 47C140 40 145 45 140 51C138 55 131 55 127 53Z"/>
+    <path fill="none" stroke-width="5" d="M96 66Q109 74 121 67"/>
+    <rect fill="#FFC21A" x="37" y="91" width="32" height="23" rx="11.5"/>
+    <rect fill="#FFC21A" x="89" y="91" width="32" height="23" rx="11.5"/>
+  </g>
+  <g fill="#1B2236"><circle cx="90" cy="43" r="6"/><circle cx="115" cy="42" r="5"/></g>
+</svg>

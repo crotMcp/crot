@@ -13,7 +13,7 @@ export async function runOnboardingScenarios({ evaluate, until, size, screenshot
   ]) {
     await size(width, height);
     await navigate("/control-center?launch=" + Math.random() + "#terminal");
-    await until("document.querySelectorAll('#navigation>[data-section]').length===5");
+    await until("document.querySelectorAll('#navigation>[data-section]').length===10");
     for (const lang of ["ru", "en"]) {
       await evaluate(`window.CrotI18n.setLanguage('${lang}')`);
       assert(
@@ -41,12 +41,12 @@ export async function runOnboardingScenarios({ evaluate, until, size, screenshot
       await evaluate("document.getElementById('action-dialog').close()");
       await click("choose-free");
       await until("document.querySelector('.home-dashboard')&&document.querySelectorAll('.recent-row').length>0");
-      await geometry("home", ".home-dashboard");
+      await geometry("home", ".home-overview");
       assert(
         await evaluate(
-          "[...document.querySelectorAll('.home-dashboard button')].every(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.top>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1;})",
+          "[...document.querySelectorAll('.home-overview button')].every(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.top>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1;})",
         ),
-        "Home actions clipped",
+        "Home category actions clipped",
       );
       await screenshot(`onboarding-03-home-${lang}-${width}x${height}`);
       await navigate("/control-center?launch=" + Math.random() + "#terminal");
