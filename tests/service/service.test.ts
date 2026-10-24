@@ -313,14 +313,18 @@ describe("CROT service (WP-20)", () => {
 });
 
 describe("Stage A scoped loopback tokens", () => {
-  it("narrows actual HTTP tools, cancels a pending approval on rotation and rejects revoked credentials", async () => {
+  // Separate authorization, rotation and native process lifecycle contracts. Each
+  // retains the normal 20s budget; one slow native setup cannot consume the other
+  // contracts' budgets. No retries, platform skips or weakened assertions.
+  const setup = async () => {
     const auditPath = path.join(dirs.outside, "token-audit.jsonl");
-    const config = {
-      permissions: { mode: "full_control" },
-      http: { enabled: true, port: 0 },
-      audit: { sink: "file", path: auditPath },
-    };
-    const started = await startService({ config });
+    const started = await startService({
+      config: {
+        permissions: { mode: "full_control" },
+        http: { enabled: true, port: 0 },
+        audit: { sink: "file", path: auditPath },
+      },
+    });
     const control = (await ControlClient.connect({ stateDir, privateFiles }))!;
     const clients: Client[] = [];
     const connect = async (token: string) => {
@@ -333,8 +337,24 @@ describe("Stage A scoped loopback tokens", () => {
       );
       return client;
     };
-    let approval: import("../../src/core/approvals/types.js").PresentedApproval | undefined;
+    return {
+      control,
+      connect,
+      auditPath,
+      close: async () => {
+        for (const client of clients) await client.close().catch(() => undefined);
+        control.close();
+      },
+    };
+  };
+
+  it("narrows actual HTTP tools independently of the client name and retains workspace ceilings", async (ctx) => {
+    let phase = "service startup";
+    ctx.onTestFailed(() => console.error(`scoped HTTP authorization last phase: ${phase}`));
+    const fixture = await setup(),
+      { control, connect } = fixture;
     try {
+      phase = "issue independent tokens";
       const issued = (await control.request("tokens.issue", {
         name: "file editor",
         ttlSeconds: 3600,
@@ -345,12 +365,16 @@ describe("Stage A scoped loopback tokens", () => {
         ttlSeconds: 3600,
         scopes: ["browser"],
       })) as { id: string; token: string };
+      phase = "connect clients with identical reported names";
       const files = await connect(issued.token),
         browser = await connect(browserToken.token);
+      phase = "allowed file operation";
       expect(
         (await files.callTool({ name: "fs_write_file", arguments: { path: "token.txt", content: "scoped" } })).isError,
       ).not.toBe(true);
+      phase = "deny cross-scope operation";
       expect((await browser.callTool({ name: "fs_read_file", arguments: { path: "token.txt" } })).isError).toBe(true);
+      phase = "deny outside-workspace operation";
       expect(
         (
           await files.callTool({
@@ -359,11 +383,35 @@ describe("Stage A scoped loopback tokens", () => {
           })
         ).isError,
       ).toBe(true);
+    } finally {
+      phase = "client cleanup";
+      await fixture.close();
+    }
+  });
+
+  it("rotation cancels a pending HTTP approval, invalidates old credentials and preserves secret-free audit", async (ctx) => {
+    let phase = "service startup";
+    ctx.onTestFailed(() => console.error(`scoped token rotation last phase: ${phase}`));
+    const fixture = await setup(),
+      { control, connect, auditPath } = fixture;
+    let approval: import("../../src/core/approvals/types.js").PresentedApproval | undefined;
+    try {
+      phase = "issue and connect file token";
+      const issued = (await control.request("tokens.issue", {
+        name: "file editor",
+        ttlSeconds: 3600,
+        scopes: ["files"],
+      })) as { id: string; token: string };
+      const files = await connect(issued.token);
+      expect(
+        (await files.callTool({ name: "fs_write_file", arguments: { path: "token.txt", content: "scoped" } })).isError,
+      ).not.toBe(true);
       control.onevent = (event) => {
         if (event.event === "approval.requested") approval = event.approval;
       };
       await control.request("approvals.subscribe");
       await control.request("security.setPolicy", { strict: true, rules: [] });
+      phase = "present pending approval";
       const pending = files
         .callTool({ name: "fs_write_file", arguments: { path: "never-written.txt", content: "must cancel" } })
         .then(
@@ -371,34 +419,66 @@ describe("Stage A scoped loopback tokens", () => {
           () => ({ isError: true }),
         );
       await waitFor(() => approval !== undefined);
+      phase = "rotate and assert service-side cancellation";
       const rotated = (await control.request("tokens.rotate", { id: issued.id })) as { token: string };
       // The SDK may wait for resumable SSE reconnect after a forced socket close.
       // Verify the service-side cancellation independently, then dispose that client.
       const tasks = (await control.request("tasks.list", {})) as { tasks: { state: string; operation: string }[] };
       expect(tasks.tasks.some((t) => t.operation === "filesystem.writeFile" && t.state === "Cancelled")).toBe(true);
+      phase = "dispose rotated SDK connection";
       await files.close();
+      phase = "settle cancelled SDK request";
       expect((await pending).isError).toBe(true);
       await expect(stat(path.join(dirs.workspace, "never-written.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+      phase = "refuse old credential and admit replacement";
       await expect(connect(issued.token)).rejects.toThrow();
       await control.request("security.setPolicy", { strict: false, rules: [] });
       const fresh = await connect(rotated.token);
       expect((await fresh.callTool({ name: "fs_read_file", arguments: { path: "token.txt" } })).isError).not.toBe(true);
+      const listing = await control.request("tokens.list", {});
+      expect(JSON.stringify(listing)).not.toContain(rotated.token);
+      expect(JSON.stringify(listing)).not.toMatch(/digest|generation/);
+      phase = "revoke replacement credential";
+      await control.request("tokens.revoke", { id: issued.id });
+      await expect(connect(rotated.token)).rejects.toThrow();
+      phase = "verify redacted audit";
+      const journal = await readFile(auditPath, "utf8");
+      expect(journal).toContain('"token_rotate"');
+      expect(journal).toContain('"token_revoke"');
+      expect(journal).not.toContain(issued.token);
+      expect(journal).not.toContain(rotated.token);
+    } finally {
+      phase = "client cleanup";
+      await fixture.close();
+    }
+  });
+
+  it("terminal revoke cancels its real process under Strict Mode or refuses unconfined fallback", async (ctx) => {
+    let phase = "service startup";
+    ctx.onTestFailed(() => console.error(`scoped terminal revoke last phase: ${phase}`));
+    const fixture = await setup(),
+      { control, connect } = fixture;
+    try {
+      phase = "issue and connect terminal token";
       const terminalToken = (await control.request("tokens.issue", {
         name: "runner",
         ttlSeconds: 3600,
         scopes: ["terminal"],
       })) as { id: string; token: string };
       const runner = await connect(terminalToken.token);
+      phase = "start confined process";
       const startedProcess = await runner.callTool({
         name: "process_start",
         arguments: { command: process.execPath, args: ["-e", "setInterval(()=>{},1000)"] },
       });
-      const statusResult = await fresh.callTool({ name: "crot_status", arguments: {} });
+      phase = "read actual confinement availability";
+      const statusResult = await runner.callTool({ name: "crot_status", arguments: {} });
       const status = JSON.parse((statusResult.content as { text: string }[])[0]!.text);
       if (status.confinement.available) {
         expect(startedProcess.isError).not.toBe(true);
         // A revoke must not prompt for process.stop, even with Strict Mode enabled.
         await control.request("security.setPolicy", { strict: true, rules: [] });
+        phase = "revoke process token with Strict Mode enabled";
         await control.request("tokens.revoke", { id: terminalToken.id });
         const runnerTasks = (await control.request("tasks.list", {})) as {
           tasks: { operation: string; state: string }[];
@@ -408,21 +488,14 @@ describe("Stage A scoped loopback tokens", () => {
       } else {
         expect(startedProcess.isError).toBe(true);
         expect(JSON.stringify(startedProcess)).toContain("CONFINEMENT_UNAVAILABLE");
+        phase = "revoke token after fail-closed launch refusal";
         await control.request("tokens.revoke", { id: terminalToken.id });
       }
-      const listing = await control.request("tokens.list", {});
-      expect(JSON.stringify(listing)).not.toContain(rotated.token);
-      expect(JSON.stringify(listing)).not.toMatch(/digest|generation/);
-      await control.request("tokens.revoke", { id: issued.id });
-      await expect(connect(rotated.token)).rejects.toThrow();
-      const journal = await readFile(auditPath, "utf8");
-      expect(journal).toContain('"token_rotate"');
-      expect(journal).toContain('"token_revoke"');
-      expect(journal).not.toContain(issued.token);
-      expect(journal).not.toContain(rotated.token);
+      phase = "reject revoked process credentials";
+      await expect(connect(terminalToken.token)).rejects.toThrow();
     } finally {
-      for (const client of clients) await client.close().catch(() => undefined);
-      control.close();
+      phase = "client cleanup";
+      await fixture.close();
     }
   });
 });

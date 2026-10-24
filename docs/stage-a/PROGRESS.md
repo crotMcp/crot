@@ -63,9 +63,9 @@ The real-service connect → task → owner approval → audit integration and s
 Chromium chat → real CrotService → inline approval → actual write → audit journey
 pass. The same UI also verifies project-persistent approval and a later action
 without another request, and real manifest inspection. No live provider/Relay
-account is claimed qualified by local fixtures. B/C remain unstarted. A Draft PR is being prepared solely to run the existing
-cross-platform CI; it is not Stage A acceptance or a request to merge. No PR was
-merged by the agent.
+account is claimed qualified by local fixtures. B/C remain unstarted. [PR #5](https://github.com/crotMcp/crot/pull/5) is open as
+Draft solely for the existing cross-platform CI; it is not Stage A acceptance or
+a request to merge. No PR was merged by the agent.
 
 See [verification](VERIFICATION.md) for observed command results and explicit
 qualification limits. This is not

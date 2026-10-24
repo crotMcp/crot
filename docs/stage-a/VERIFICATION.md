@@ -361,3 +361,37 @@ be rerun on this final source. A Draft PR is for actual existing macOS/Windows C
 not a claim that parser fixtures qualify those APIs or Stage A is complete.
 General project-secret L1 enforcement and explicit owner access/revocation remain
 unimplemented; B/C remain unstarted. No merge is performed.
+
+
+## Observed remote CI and final local evidence — eaac4b8
+
+Source SHA: `eaac4b82f69b0e5176f17e5fbdfac39cf9fc0f05`. The local tree matched
+the pushed source before the final runs; no edits occurred during testing.
+
+- Final complete check: 198 main files / 2,287 tests passed, 26 files / 218 tests
+  skipped. Extension: 15 files / 196 tests passed. Real Electron smoke passed.
+- Final complete Chromium E2E: 10 files; 58 passed / 3 platform placeholders skipped.
+- Final UI/axe: 81 checks / 29 screenshots; zero failures or page errors.
+- Final real Electron/GTK chooser: all 3 workflow checks passed, zero errors.
+
+PR #5 was opened as **Draft**, not accepted or merged. Observed GitHub results
+for this SHA: **10 of 11 checks successful**. Both macOS jobs, Linux Node 20/22,
+all four Linux L1 jobs, real-chromium and Windows Node 20 passed. Windows Node 22
+failed with a 20,000 ms timeout in the composite scoped-loopback-token test
+(`tests/service/service.test.ts:316`), not a native-port assertion. This failed
+run is not full Pass. Local isolated reproduction passed; the failing phase was
+not identified by the old test's generic timeout.
+
+The follow-up splits the composite test into independent HTTP scope/identity
+ceilings, rotation/pending approval/credential invalidation/audit, and confined
+terminal revoke contracts. Every previous security assertion remains; the
+normal 20s budget is unchanged, with no retries or platform skips. Each contract
+also reports its last phase on failure. A complete service-file run passed
+locally after this refactor. Remote CI must validate the follow-up; splitting
+the contracts is not proof that the original timeout was only aggregate cost.
+
+The actual Darwin/Windows process adapters are now exercised by non-skipped
+real child-listener tests in the existing OS matrix. That evidence does not
+qualify native folder dialogs on those OSes or the still-unimplemented general
+project-secret L1 filename policy and explicit owner grant/revoke. B/C remain
+unstarted; no merge is performed.
