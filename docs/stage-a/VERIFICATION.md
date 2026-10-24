@@ -593,3 +593,24 @@ The next driver reports bounded code/signal/stderr/stdout without repeating
 its encoded source. Process-family discovery uses a bounded native Toolhelp32
 snapshot rather than introducing CIM/WMI module auto-discovery. This is a
 candidate correction plus diagnostics, not an assertion that Windows passed.
+
+
+Candidate `97382a9` real macOS cancellation/navigation still passed but NSEvent
+creation failed before dispatch: the three-argument Koffi binding supplied its
+name/return-type arguments in reverse order. The next candidate corrects that
+ABI declaration; actual macOS remains necessary to qualify native Return.
+
+The same candidate's real Windows dialog is now found by owned Win32 identity,
+but its UIAutomation view omits Cancel/Select and the filename edit. The next
+candidate inventories only descendant HWND controls in that exact dialog and
+uses the actual unique enabled visible native Button with standard ID 2/1
+through BM_CLICK when its automation node is absent. Folder text can target
+only one visible enabled native Edit beneath the standard 1148/1152 filename
+control ancestry via WM_SETTEXT. Search fields and unrelated/ambiguous windows
+are not targets. Native messages do not inject IPC results or modal return
+values; exact registry/Core/UI/audit checks are retained. Bounded HWND metadata
+is recorded if native controls are unavailable. No Windows Pass is claimed.
+
+The Windows fixture also waits for the actual enabled Cancel control, not
+merely an initially visible dialog whose shell view may still be loading.
+The original 20-second readiness bound and all service assertions remain.

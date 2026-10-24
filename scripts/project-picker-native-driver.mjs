@@ -126,7 +126,7 @@ export async function nativePickerDriver(electron, output, until) {
                 // Deliver native Return to this panel's real window, not a
                 // guessed private selector or a synthesized modal return value.
                 const point = koffi.struct({ x: "double", y: "double" });
-                const keyEvent = objc.func("void *", "objc_msgSend", [
+                const keyEvent = objc.func("objc_msgSend", "void *", [
                   "void *",
                   "void *",
                   "unsigned long",
@@ -211,6 +211,7 @@ export async function nativePickerDriver(electron, output, until) {
       const encoded = Buffer.from(selected, "utf8").toString("base64");
       const script = String.raw`
 $ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -TypeDefinition @'
@@ -248,6 +249,29 @@ public static class NativePickerWindow {
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h,StringBuilder s,int n);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr h,StringBuilder s,int n);
  [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h,uint cmd);
+ [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent,EnumCallback cb,IntPtr data);
+ [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr h);
+ [DllImport("user32.dll")] public static extern bool IsChild(IntPtr parent,IntPtr child);
+ [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr h);
+ [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr h);
+ [DllImport("user32.dll",EntryPoint="SendMessageW",ExactSpelling=true)] public static extern IntPtr SendMessage(IntPtr h,uint message,IntPtr w,IntPtr l);
+ [DllImport("user32.dll",EntryPoint="SendMessageW",CharSet=CharSet.Unicode,ExactSpelling=true)] public static extern IntPtr SendText(IntPtr h,uint message,IntPtr w,string text);
+ public sealed class Control {
+  public IntPtr handle;public int id;public string type,name;public bool enabled,visible;
+ }
+ public static Control[] Controls(IntPtr parent) {
+  var result=new List<Control>();bool exceeded=false;
+  EnumCallback callback=delegate(IntPtr h,IntPtr unused){
+   if(result.Count>=512){exceeded=true;return false;}
+   var name=new StringBuilder(128);var type=new StringBuilder(128);
+   GetWindowText(h,name,128);GetClassName(h,type,128);
+   result.Add(new Control{handle=h,id=GetDlgCtrlID(h),type=type.ToString(),name=name.ToString(),enabled=IsWindowEnabled(h),visible=IsWindowVisible(h)});
+   return true;
+  };
+  EnumChildWindows(parent,callback,IntPtr.Zero);
+  GC.KeepAlive(callback);if(exceeded)throw new InvalidOperationException("Native child-control inventory bound exceeded");
+  return result.ToArray();
+ }
 }
 '@
 $script:owned=@()
@@ -277,24 +301,49 @@ if($candidates.Count -eq 0){
  exit 0
 }
 if($candidates.Count -ne 1){throw 'Ambiguous native chooser windows'}
-$dialog=[System.Windows.Automation.AutomationElement]::FromHandle($candidates[0].handle)
+$root=$candidates[0].handle
+$native=@([NativePickerWindow]::Controls($root))
+$dialog=[System.Windows.Automation.AutomationElement]::FromHandle($root)
 if($null -eq $dialog){throw 'Owned native chooser has no automation provider'}
 $all=$dialog.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)
 if('${operation}' -eq 'inspect') {
- 'visible'; foreach($c in $all){ if($c.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit -or $c.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button){'{0}|{1}|{2}' -f $c.Current.AutomationId,$c.Current.Name,$c.Current.ControlType.ProgrammaticName} };exit 0
+ 'visible'
+ $cancelNative=@($native | Where-Object {$_.type -eq 'Button' -and $_.id -eq 2 -and $_.enabled -and $_.visible})
+ $cancelAutomation=@($all | Where-Object {$_.Current.AutomationId -eq '2' -and $_.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button -and $_.Current.IsEnabled})
+ if($cancelNative.Count -eq 1 -or $cancelAutomation.Count -eq 1){'ready'}
+ $native | Select-Object -First 48 | ForEach-Object {'hwnd|{0}|{1}|{2}|{3}|{4}' -f $_.id,$_.type,$_.enabled,$_.visible,$_.name}; foreach($c in $all){ if($c.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit -or $c.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button){'{0}|{1}|{2}' -f $c.Current.AutomationId,$c.Current.Name,$c.Current.ControlType.ProgrammaticName} };exit 0
 }
 $id=if('${operation}' -eq 'cancel'){'2'}else{'1'}
 $button=$null
 foreach($c in $all){if($c.Current.AutomationId -eq $id -and $c.Current.ControlType -eq [System.Windows.Automation.ControlType]::Button){$button=$c;break}}
-if($null -eq $button){throw 'Native dialog button unavailable'}
+$nativeButton=@($native | Where-Object {$_.type -eq 'Button' -and $_.id -eq [int]$id -and $_.enabled -and $_.visible})
+if($null -eq $button -and $nativeButton.Count -ne 1){throw 'Native dialog button unavailable or ambiguous'}
 if('${operation}' -eq 'choose'){
  $edit=$null
  foreach($c in $all){if($c.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit -and ($c.Current.AutomationId -in @('1148','1152') -or $c.Current.Name -match '^(Folder|File name):?$')){$edit=$c;break}}
- if($null -eq $edit){throw 'Native folder path edit unavailable'}
  $value=[System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'))
- $edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($value)
+ if($null -ne $edit){$edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue($value)}
+ else {
+  # Common-dialog native edit may be absent from its UIAutomation view. Only
+  # the exact filename/folder combobox ancestry in this owned dialog is eligible.
+  $edits=@($native | Where-Object {
+   if($_.type -ne 'Edit' -or -not $_.enabled -or -not $_.visible){return $false}
+   $h=$_.handle
+   for($depth=0;$depth -lt 12 -and $h -ne $root -and $h -ne [IntPtr]::Zero;$depth++){
+    if([NativePickerWindow]::GetDlgCtrlID($h) -in @(1148,1152)){return $true}
+    $h=[NativePickerWindow]::GetParent($h)
+   }
+   return $false
+  })
+  if($edits.Count -ne 1 -or -not [NativePickerWindow]::IsChild($root,$edits[0].handle)){throw 'Native folder edit unavailable or ambiguous'}
+  if([NativePickerWindow]::SendText($edits[0].handle,12,[IntPtr]::Zero,$value) -eq [IntPtr]::Zero){throw 'Native folder edit refused WM_SETTEXT'}
+ }
 }
-$button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+if($null -ne $button){$button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()}
+else {
+ if(-not [NativePickerWindow]::IsChild($root,$nativeButton[0].handle)){throw 'Native button left owned dialog'}
+ [void][NativePickerWindow]::SendMessage($nativeButton[0].handle,245,[IntPtr]::Zero,[IntPtr]::Zero)
+}
 'invoked'
 `;
       let stdout;
@@ -323,7 +372,11 @@ $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).In
       return stdout.trim();
     };
     return {
-      wait: () => until(async () => (await action("inspect")).startsWith("visible"), "actual Windows folder dialog"),
+      wait: () =>
+        until(async () => {
+          const state = await action("inspect");
+          return state.startsWith("visible") && /(?:^|\r?\n)ready(?:\r?\n|$)/.test(state);
+        }, "actual Windows folder dialog with ready native Cancel control"),
       async cancel() {
         await action("cancel");
         await until(async () => (await action("inspect")).startsWith("no-dialog"), "Windows dialog cancellation");
