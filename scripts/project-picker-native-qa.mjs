@@ -3,9 +3,9 @@
  * Never replaces dialog.showOpenDialog or IPC. No external accessibility bypass.
  */
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
@@ -29,6 +29,7 @@ const until = async (predicate, label) => {
   }
   throw Error("Timed out: " + label);
 };
+const startedAt = Date.now();
 const base = await realpath(await mkdtemp(path.join(tmpdir(), "crot-native-picker-")));
 const workspace = path.join(base, "initial"),
   selected = path.join(base, "chosen project"),
@@ -124,9 +125,48 @@ try {
   report.status = "passed";
 } catch (error) {
   report.status = "failed";
+  report.electronProcess = electron
+    ? { exitCode: electron.process().exitCode, signalCode: electron.process().signalCode }
+    : null;
   report.registry = await client?.request("projects.list").catch(() => null);
   report.coreWorkspace = service?.core?.workspace?.root;
   report.nativeDialog = await driver?.diagnostics().catch((error) => String(error));
+  if (
+    process.platform === "darwin" &&
+    electron &&
+    (electron.process().exitCode !== null || electron.process().signalCode !== null)
+  ) {
+    const diagnostics = path.join(homedir(), "Library", "Logs", "DiagnosticReports");
+    const names = (await readdir(diagnostics).catch(() => []))
+      .filter((name) => /^Electron.*\.ips$/.test(name))
+      .slice(-100);
+    for (const name of names) {
+      try {
+        const file = path.join(diagnostics, name),
+          meta = await stat(file);
+        if (meta.mtimeMs < startedAt - 1000 || meta.size > 2 * 1024 * 1024) continue;
+        const raw = await readFile(file, "utf8");
+        let crash;
+        try {
+          crash = JSON.parse(raw);
+        } catch {
+          crash = JSON.parse(raw.slice(raw.indexOf("\n") + 1));
+        }
+        if (crash.pid !== electron.process().pid) continue;
+        report.nativeCrash = {
+          exception: crash.exception,
+          termination: crash.termination,
+          faultingThread: crash.faultingThread,
+          frames: crash.threads?.[crash.faultingThread]?.frames
+            ?.slice(0, 16)
+            .map((frame) => ({ symbol: frame.symbol, imageIndex: frame.imageIndex })),
+        };
+        break;
+      } catch {
+        /* Crash reports are optional diagnostics, never an acceptance signal. */
+      }
+    }
+  }
   report.errors.push(String(error?.stack ?? error));
   process.exitCode = 1;
 } finally {

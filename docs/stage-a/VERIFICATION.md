@@ -528,3 +528,23 @@ not native acceptance. The follow-up uses Electron's `process.getBuiltinModule`
 loader; a separate real Electron 44 local probe loaded the same Koffi module
 successfully through this API. Strict real chooser/service assertions remain.
 Actual macOS must validate the follow-up; no bypass or skip is substituted.
+
+
+Loader candidate `e36ca7f` reached and recognized the real AppKit chooser, but
+both macOS jobs FAILED when cancelling it: the Electron target terminated.
+This is not native Pass. The next driver schedules native mutations through
+AppKit `performSelectorOnMainThread:withObject:waitUntilDone:` asynchronously,
+avoiding UI mutation/reentrant dialog completion inside the inspector FFI call.
+It also retains the last native main-thread observation and child exit signal
+on failure. The service/registry and all three acceptance assertions are
+unchanged. Only actual macOS can qualify this follow-up.
+
+
+The first AD-54 Windows Node 20 job also FAILED: searching only direct desktop
+UIAutomation children by title found no chooser. The follow-up resolves a
+single visible native common-dialog handle through Win32 process/owner
+identity, then drives that handle's actual UIAutomation provider. Unrelated
+processes, hidden windows and ambiguous owned dialogs are refused. The exact
+real-service selected-path/cancel/audit assertions remain unchanged. Native
+window/control metadata is included on failure, rather than declaring this
+runner unsupported or skipping acceptance.

@@ -5695,8 +5695,10 @@ Linux retains X11/GTK keyboard and native-window control. macOS inspects the
 visible NSOpenPanel in the test Electron main process through AppKit, navigates
 its real directory URL and invokes its native cancel/OK actions. It does not
 use System Events, change TCC permissions or bypass an external accessibility
-requirement. Windows UIAutomation is restricted to the chooser window owned by
-the test Electron PID and exact title. ValuePattern edits its real folder field
+requirement. Windows UIAutomation is restricted to a single visible native `#32770` chooser
+whose process or native owner belongs to the test Electron PID. Win32 enumeration
+resolves its real handle before UIAutomation; the chooser need not be exposed as
+a direct desktop automation child. Ambiguous owned dialogs refuse execution. ValuePattern edits its real folder field
 and InvokePattern uses the native Cancel/Select controls; no registry policies,
 security settings or provider values are changed. The real service result must
 still equal the fixture directory after the native callback.
