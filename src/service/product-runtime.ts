@@ -1,4 +1,8 @@
 /** AD-40: service-owned product state. Metadata and encrypted request/credential vault are separate. */
+import { ChatRuntime, CHAT_ENDPOINTS, chatEndpoint, type ChatProviderConfig } from "./chat-runtime.js";
+import type { ChatProvider } from "./chat-protocol.js";
+import { newAuditEventId } from "../core/audit/audit.js";
+import { RuntimePolicySchema, type RuntimePolicy } from "../core/permissions/runtime.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, realpath, stat, readFile } from "node:fs/promises";
@@ -104,6 +108,10 @@ interface State {
   connectors: Connector[];
   servers: McpServer[];
   tasks: Task[];
+  chatProviders?: Partial<Record<ChatProvider, ChatProviderConfig>>;
+  security?: RuntimePolicy;
+  /** Uncommitted policy transaction: restart must restore this prior policy. */
+  securityPrevious?: RuntimePolicy;
 }
 interface Vault {
   credentials: Record<string, string>;
@@ -123,7 +131,12 @@ export interface ProductHost {
   privateFiles: PrivateFileProtection;
   core(): CrotCore;
   selectWorkspace(root: string): Promise<void>;
+  secretFiles?: { status(): Record<string, unknown>; set(input: unknown): Promise<Record<string, unknown>> };
   disconnectAgent?(id: string): Promise<void>;
+  holdActivity?(work: () => Promise<unknown>): Promise<unknown>;
+  tokens?: import("./client-tokens.js").ClientTokenRegistry;
+  emergencyStop?(): Promise<Record<string, unknown>>;
+  recordControlEvent?: (event: import("../core/audit/audit.js").ControlAuditRecord) => Promise<void>;
 }
 const fail = (message: string): never => {
   throw new CrotError("INVALID_INPUT", message);
@@ -199,7 +212,19 @@ export class ProductRuntime {
   private rate = new Map<string, number[]>();
   private poller: NodeJS.Timeout | undefined;
   private schemaValidator = new AjvJsonSchemaValidator();
-  private constructor(private host: ProductHost) {}
+  private readonly chat: ChatRuntime;
+  private constructor(private host: ProductHost) {
+    this.chat = new ChatRuntime({
+      core: () => this.host.core(),
+      configuration: (provider) => this.state.chatProviders?.[provider],
+      credential: (provider) => this.vault.credentials[`chat:${provider}`],
+      context: () => this.context(),
+      run: (context, work) => {
+        const run = () => this.execute("$chat", "generate", [context], (args) => work(args[0] as AuthContext));
+        return this.host.holdActivity ? this.host.holdActivity(run) : run();
+      },
+    });
+  }
   static async open(host: ProductHost): Promise<ProductRuntime> {
     const r = new ProductRuntime(host);
     r.key = Buffer.from(await host.secrets.readOrCreate("product-key"), "base64url");
@@ -214,6 +239,11 @@ export class ProductRuntime {
       : { version: 1, active: "", projects: [], agents: [], connectors: [], servers: [], tasks: [] };
     if (r.state.version !== 1 || !Array.isArray(r.state.projects) || !Array.isArray(r.state.tasks))
       fail("Invalid product state; restore service state");
+    if (r.state.securityPrevious) {
+      host.core().permissions.runtime.replace(r.state.securityPrevious);
+      r.state.security = host.core().permissions.runtime.policy;
+      delete r.state.securityPrevious;
+    } else if (r.state.security) host.core().permissions.runtime.replace(r.state.security);
     const encrypted = await readFile(productPaths(host.stateDir)[1]!, "utf8").catch((e) => {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw e;
@@ -316,6 +346,10 @@ export class ProductRuntime {
   async request(method: ProductMethod, input: unknown): Promise<Record<string, unknown>> {
     const params = parseProduct(method, input);
     if (!params) fail("Invalid product request");
+    if (method === "security.kill") {
+      if (!this.host.emergencyStop) fail("Emergency stop unavailable in this host");
+      return this.host.emergencyStop!();
+    }
     const run = () =>
       ["connectors.testConnection", "mcpServers.connect", "mcpServers.callTool"].includes(method)
         ? (this.execute("$product", method, [this.context(), params], (a) =>
@@ -324,6 +358,10 @@ export class ProductRuntime {
         : this.dispatch(method, params!);
     // Reads and long operations must not hold up cancellations/approval traffic.
     if (
+      method === "projects.inspect" ||
+      method === "security.status" ||
+      (method.startsWith("chat.") && method !== "chat.configure") ||
+      method.startsWith("tokens.") ||
       method.endsWith(".list") ||
       method.startsWith("monitoring.") ||
       method === "connectors.testConnection" ||
@@ -336,9 +374,159 @@ export class ProductRuntime {
     this.mutations = next.catch(() => undefined);
     return next;
   }
+  /** Only control-center passes a broker-bound subject and a synchronous one-time decision. */
+  approveProject(
+    subject: import("../core/approvals/types.js").ApprovalSubject,
+    approveOnce: () => boolean,
+  ): Promise<Record<string, unknown>> {
+    const run = async () => {
+      const runtime = this.host.core().permissions.runtime,
+        policy = runtime.policy;
+      if (
+        runtime.halted ||
+        policy.strict ||
+        subject.rule !== "runtime.ask" ||
+        subject.paths.some((p) => !p.insideWorkspace) ||
+        !subject.workspace ||
+        subject.workspace !== this.activeProject.path
+      )
+        fail("Only a current runtime ask can be remembered for this project; Strict Mode and mandatory gates cannot");
+      const grant = { workspace: subject.workspace, operation: subject.operation };
+      const grants = policy.projectGrants ?? [];
+      const next = {
+        ...policy,
+        projectGrants: grants.some((g) => g.workspace === grant.workspace && g.operation === grant.operation)
+          ? grants
+          : [...grants, grant],
+      };
+      return this.applyRuntimePolicy(next, () => {
+        if (!approveOnce()) fail("Approval is no longer pending or its digest changed");
+      });
+    };
+    const next = this.mutations.then(run, run);
+    this.mutations = next.catch(() => undefined);
+    return next;
+  }
+  private async applyRuntimePolicy(input: unknown, beforeCommit?: () => void): Promise<Record<string, unknown>> {
+    if (!this.host.recordControlEvent) fail("Security policy audit unavailable");
+    const runtime = this.host.core().permissions.runtime;
+    const next = RuntimePolicySchema.parse(input),
+      previous = runtime.policy;
+    // Persist and audit before publishing a widening. No agent can observe an unaudited grant.
+    this.state.securityPrevious = previous;
+    this.state.security = next;
+    try {
+      await this.persist();
+      await this.host.recordControlEvent!({
+        kind: "control",
+        id: newAuditEventId(),
+        timestamp: now(),
+        action: "runtime_policy",
+        actor: { channel: "control" },
+        outcome: "applied",
+        previous: JSON.stringify(previous),
+        value: JSON.stringify(next),
+      });
+      // Only the post-audit atomic snapshot commits the policy for a later restart.
+      beforeCommit?.();
+      delete this.state.securityPrevious;
+      await this.persist();
+    } catch (error) {
+      this.state.security = previous;
+      delete this.state.securityPrevious;
+      try {
+        await this.persist();
+      } catch {
+        runtime.stop();
+      }
+      throw error;
+    }
+    runtime.replace(next);
+    return { ok: true, halted: runtime.halted, policy: runtime.policy };
+  }
   private async dispatch(method: ProductMethod, p: Record<string, unknown>): Promise<Record<string, unknown>> {
     const id = String(p.id ?? "");
     switch (method) {
+      case "chat.providers":
+        return { ok: true, providers: this.chat.providers(), current: this.chat.current };
+      case "chat.configure": {
+        if (this.chat.running) return fail("Stop generation before changing provider configuration");
+        if (!this.host.recordControlEvent) return fail("Provider configuration audit unavailable");
+        const provider = p.provider as ChatProvider;
+        const endpoint = chatEndpoint(String(p.endpoint ?? CHAT_ENDPOINTS[provider]));
+        await this.host.recordControlEvent({
+          kind: "control",
+          id: newAuditEventId(),
+          timestamp: now(),
+          action: "chat_provider",
+          actor: { channel: "control" },
+          outcome: "applied",
+          value: provider,
+        });
+        this.state.chatProviders ??= {};
+        this.state.chatProviders[provider] = { endpoint };
+        if (p.credential !== undefined) this.vault.credentials[`chat:${provider}`] = String(p.credential);
+        await this.persist();
+        return { ok: true, providers: this.chat.providers(), current: this.chat.current };
+      }
+      case "chat.models":
+        return this.chat.models(p.provider as ChatProvider);
+      case "chat.start":
+        return this.chat.start(p);
+      case "chat.poll":
+        return this.chat.poll(id);
+      case "chat.stop":
+        return this.chat.stop(id);
+      case "tokens.list":
+        return { ok: true, tokens: this.host.tokens?.list() ?? [] };
+      case "tokens.issue":
+      case "tokens.rotate":
+      case "tokens.revoke": {
+        const tokens = this.host.tokens;
+        if (!tokens) return fail("Client token registry unavailable");
+        return method === "tokens.issue"
+          ? tokens.issue(p)
+          : method === "tokens.rotate"
+            ? tokens.rotate(id)
+            : tokens.revoke(id);
+      }
+      case "security.secretFiles.status":
+        return this.host.secretFiles?.status() ?? { ok: false, message: "Owner secret-file controls unavailable" };
+      case "security.secretFiles.set":
+        if (!this.host.secretFiles) fail("Owner secret-file controls unavailable");
+        return this.host.secretFiles!.set(p);
+      case "security.status":
+        return {
+          ok: true,
+          halted: this.host.core().permissions.runtime.halted,
+          policy: this.host.core().permissions.runtime.policy,
+        };
+      case "security.kill":
+        return fail("Emergency stop must use the unqueued owner path");
+      case "security.setPolicy": {
+        const policy = this.host.core().permissions.runtime.policy;
+        return this.applyRuntimePolicy({
+          ...p,
+          ...(p.projectGrants === undefined && policy.projectGrants ? { projectGrants: policy.projectGrants } : {}),
+        });
+      }
+      case "security.revokeProjectGrant": {
+        const policy = this.host.core().permissions.runtime.policy;
+        return this.applyRuntimePolicy({
+          ...policy,
+          projectGrants: (policy.projectGrants ?? []).filter(
+            (g) => g.workspace !== p.workspace || g.operation !== p.operation,
+          ),
+        });
+      }
+      case "projects.inspect": {
+        const work = () =>
+          this.execute("$project", "inspect", [this.context()], (args) =>
+            this.host.core().inspectProject(args[0] as AuthContext),
+          );
+        const inspection = this.host.holdActivity ? await this.host.holdActivity(work) : await work();
+        return { ok: true, inspection };
+      }
       case "projects.list":
         return { ok: true, projects: this.state.projects, active: this.state.active };
       case "projects.create":
@@ -827,6 +1015,8 @@ export class ProductRuntime {
   }
   /** Called by CoreHolder for every adapter capability operation, using adapter-created identity only. */
   async execute(member: string, method: string, args: unknown[], run: (args: unknown[]) => unknown): Promise<unknown> {
+    if (this.host.core().permissions.runtime.halted)
+      throw new CrotError("PERMISSION_DENIED", "Emergency stop is active");
     const context = args[0] as AuthContext;
     if (!context?.principal || !this.state) return run(args);
     const id = this.agentId(context);
@@ -873,7 +1063,11 @@ export class ProductRuntime {
       progress: 0,
       startedAt: now(),
       artifacts: [],
-      retryable: context.principal.kind === "local",
+      retryable:
+        context.principal.kind === "local" &&
+        context.principal.transport !== "owner-chat" &&
+        member !== "$chat" &&
+        member !== "$project",
     };
     this.state.tasks = limited([...this.state.tasks, task]);
     this.cancellations.set(task.id, controller);
@@ -917,6 +1111,21 @@ export class ProductRuntime {
       if (!task.processId) this.cancellations.delete(task.id);
       await this.persist();
     }
+  }
+  /** Invalidate only work bound to this credential, not other agents with the same displayed name. */
+  async invalidateToken(id: string, generation: string): Promise<void> {
+    const tasks = this.state.tasks.filter((t) => {
+      const binding = this.contexts.get(t.id)?.principal.tokenAccess;
+      return t.state === "Running" && binding?.id === id && binding.generation === generation;
+    });
+    for (const task of tasks) this.cancellations.get(task.id)?.abort();
+    await this.host.core().processes.cancelToken(id, generation);
+    for (const t of tasks) {
+      t.state = "Cancelled";
+      t.endedAt = now();
+      this.cancellations.delete(t.id);
+    }
+    await this.persist();
   }
   private async cancel(t: Task): Promise<void> {
     if (t.state !== "Running") fail("Task is not running");
@@ -993,7 +1202,40 @@ export class ProductRuntime {
     }
     return result.slice(-Number(p.limit ?? 200)).reverse();
   }
+  /** Interrupt current work for an immutable Core replacement, without disabling future chat/polling. */
+  async cancelWork(): Promise<void> {
+    const stopped = this.chat.cancelAll();
+    for (const controller of this.cancellations.values()) controller.abort();
+    for (const controller of this.serverControllers.values()) controller.abort();
+    await Promise.all([...this.connecting.values()].map((p) => p.catch(() => undefined)));
+    await Promise.all([...this.clients.values()].map((c) => c.close()));
+    this.clients.clear();
+    for (const server of this.state.servers) server.status = "Disconnected";
+    for (const task of this.state.tasks)
+      if (task.state === "Running") {
+        task.state = "Cancelled";
+        task.endedAt = now();
+      }
+    await stopped;
+    await this.persist();
+  }
+  async abortAll(): Promise<void> {
+    const chatStopped = this.chat.close();
+    clearInterval(this.poller);
+    for (const controller of this.cancellations.values()) controller.abort();
+    for (const controller of this.serverControllers.values()) controller.abort();
+    for (const task of this.state.tasks)
+      if (task.state === "Running") {
+        task.state = "Cancelled";
+        task.endedAt = now();
+      }
+    for (const agent of this.state.agents) agent.connected = false;
+    await Promise.all([...this.clients.values()].map((c) => c.close().catch(() => undefined)));
+    await chatStopped;
+    await this.persist();
+  }
   async close(): Promise<void> {
+    await this.chat.close();
     clearInterval(this.poller);
     for (const controller of this.serverControllers.values()) controller.abort();
     await Promise.all([...this.connecting.values()].map((p) => p.catch(() => undefined)));

@@ -5280,3 +5280,431 @@ Raster references remain immutable evidence (including obsolete illustrated
 endpoints); they are never executable configuration. The newly supplied official
 endpoint is `https://mcp.crot.networking`. Source changes do not migrate deployed
 DNS, TLS certificates, configured OAuth issuer/audience or provider callbacks.
+
+### AD-43 — Functional Stage A: owner runtime policy and emergency brake
+
+The owner authorizes extending CrotService/Core and replacing obsolete tests,
+with Stage A required before B/C. This branch is a **partial Stage A working
+slice**, not acceptance of the entire directive. Scoped credentials, native
+project discovery/secret-file confinement, provider chat/tool execution and
+project-wide approval decisions remain unimplemented here.
+
+The final owner correction supersedes the domain sentence in AD-42: the official
+domain remains `crot.network`, MCP at `mcp.crot.network`. Do not migrate production
+configuration, DNS, issuer/audience or OAuth callbacks to `crot.networking`.
+
+1. Runtime `allow / ask / deny` configuration is consumed by the existing
+   PermissionEngine, never a second authorizer. Rules select an exact Core
+   operation or capability; any matching deny wins. Strict Mode adds an ask gate
+   to otherwise authorized operations. Allow does **not** override capability,
+   workspace, service-secret, network, exposure, remote or configured mandatory
+   approval ceilings. Post-approval reauthorization reads the current policy.
+2. Owner-only authenticated product RPCs expose `security.status`,
+   `security.setPolicy` and `security.kill`. Policy is validated, persisted in
+   protected product state and audited before publication to the running engine;
+   a failed audit does not publish a widening. Policy is restored on service
+   startup and shared across workspace/preset Core replacement.
+3. Emergency stop latches synchronously before awaiting work. It cancels pending
+   approvals, force-signals process trees (including Git/Docker commands), aborts
+   network/browser work, aborts product tasks, closes loopback HTTP and Relay
+   sessions, and refuses new shim admission. The owner control channel and audit
+   sink remain available. Calls are idempotent; cleanup/audit failure is reported,
+   never represented as complete success. Header and tray invoke this real RPC.
+4. The latch cannot be cleared by changing a permission, workspace or preset.
+   Explicit service restart is required to resume. It is a process-lifetime brake,
+   not persistent disablement across restart. It cannot undo an already committed
+   filesystem write, browser action or external side effect, nor stop processes
+   CROT did not start. Force-signalling is immediate; cleanup/reaping is bounded
+   by the existing process/guard shutdown limits, not a zero-latency guarantee.
+5. This slice does not yet implement project-scoped grants, application-secret
+   globs at the L1 boundary, scoped agent tokens, provider chat, model discovery,
+   attachments, streaming or the full Stage A connect/task/approve/audit UI flow.
+   PR #5 must not be presented as complete Stage A until these gates and CI pass.
+
+
+### AD-44 — Named loopback credentials and scoped-resource invalidation (Stage A)
+
+This supersedes only the named-token and native-folder-selection gaps in AD-43;
+Stage A as a whole remains incomplete. Relay continues to require its existing
+verified OAuth device/account identity. Named bearer credentials are **loopback
+only**, not a replacement for Relay OAuth or a new full-access credential.
+
+1. An owner-only registry issues independent 256-bit random tokens with client
+   names, explicit non-empty `files / terminal / browser` scopes and a bounded
+   TTL (60 seconds through 365 days). Only SHA-256 hashes and metadata persist in
+   protected service-secret storage. Plaintext is returned once over owner IPC,
+   displayed in a masked transient dialog, and cleared on closing; it is never
+   included in token listings, audit records, logs or localStorage. Rotation
+   retains scopes and the original expiration; old generations cannot resume.
+2. The HTTP verifier builds an immutable verified ID/generation/scope binding;
+   MCP arguments and self-reported client names cannot set it. Session ownership
+   includes that binding. The one PermissionEngine intersects scopes with the
+   configured capability ceilings. Files permits filesystem read/write, terminal
+   permits shell/process and dedicated Git operations, browser permits browser
+   read/control. Unmapped capabilities, Docker, direct network APIs and
+   filesystem.full are denied. Scoped principals always use the sandbox profile,
+   and arbitrary process execution **requires available L1**, without local
+   unconfined fallback even when the owner uses full_control. Scopes describe
+   Core capabilities, not a promise that an allowed shell command has no effects
+   within its configured L1 workspace/network boundary.
+3. ExecutionGuard's existing narrowing hook rechecks authoritative token validity
+   before execution and after approval. Every authenticated HTTP request updates
+   last-use metadata. Expiry is checked at authentication and authorization;
+   a 250 ms sweep cancels already running work, subject to event-loop scheduling
+   and OS reaping (not a zero-latency guarantee). Revocation/rotation immediately
+   invalidate the generation in memory, close its HTTP responses and legacy
+   sessions, cancel its product task controllers and terminate its background
+   process trees. Pending startup rechecks cancellation after launch, so a late
+   process ID cannot orphan a revoked client's process.
+4. `ProcessService.cancelToken` is a service lifecycle resource teardown, analogous
+   to shutdown, not an MCP tool or a way to execute arbitrary operations. It
+   matches the credential captured at the originally authorized process start,
+   never UI-supplied display names. Strict Mode cannot block teardown by asking
+   for another approval. Other token generations/agents' resources are untouched.
+5. Issuance/rotation persist an inactive credential and audit before activating
+   it; interrupted or unaudited credentials cannot authenticate on restart.
+   Revocation persists a tombstone. Storage or resource-cleanup failure latches
+   the runtime fail-closed and is reported as failure, not successful revocation.
+   A failed disk write cannot be claimed as durable revocation across restart.
+   The old bootstrap local token remains an explicitly privileged compatibility
+   credential; named-token rotation does not silently rotate that credential.
+6. The Projects Open Folder action uses a fixed Electron main-process native
+   directory picker. The renderer supplies no path/options to that action. A
+   cancelled dialog changes nothing; selected directories still pass canonical
+   project registration and idle workspace-switch checks. Native GUI interaction
+   requires separate OS smoke verification; a Chromium fixture is not that proof.
+
+Application-secret globs at the L1 boundary, stack/port discovery, provider chat,
+attachments/streaming/tool calls and project-persistent approval grants remain
+Stage A acceptance gates. Domain remains `crot.network` / `mcp.crot.network`.
+
+### AD-45 — Guarded provider streaming and transient owner chat (Stage A)
+
+This supersedes AD-43/44's unimplemented-chat description only. It does not close
+project grants, project discovery or application-secret L1 enforcement gates.
+
+1. The existing Core NetworkService accepts an optional trusted in-process stream
+   observer. No MCP/IPC schema accepts callbacks. DNS pinning, destination policy,
+   redirect rules, response limits, cancellation and audit remain on the same
+   ExecutionGuard path. Observer errors close the response; cancellation wins even
+   when delivered during the final data callback. Chat disables redirects, so
+   provider credentials cannot follow a redirect to a different destination.
+2. Owner-only provider configuration uses the encrypted product vault for keys;
+   listings expose only credential presence. Actual model inventories and bounded
+   SSE responses use Core HTTP, never renderer fetch or fabricated model lists.
+   OpenAI and OpenAI-compatible Local HTTP use chat/completions; Anthropic uses
+   messages and paginated model discovery. Explicit endpoint selection permits
+   HTTP, including non-loopback destinations if Core policy allows them; the owner
+   must use HTTPS when transport confidentiality is required. Platform fixtures
+   are not qualification of the live vendors, models or a local model server.
+3. Owner chat is a local principal, not a remote scoped credential. Its multi-step
+   generation holds the CoreHolder idle-switch barrier and a cancellable product
+   task. Individual calls still use current Core permission checks. Stop aborts
+   HTTP and pending approval; emergency stop closes the chat runtime. Subtasks
+   from owner-chat cannot persist prompt/attachment/tool arguments as retry replay
+   data. Keys, prompts and raw upstream parse errors are not audit descriptions.
+4. Conversations are transient, bounded to eight sessions, one active generation,
+   eight tool rounds, sixteen explicitly selected tools, 1 MiB per SSE response
+   and a bounded display/result transfer. Attachments are at most four / 96 KB
+   decoded, strict UTF-8 text or type-checked PNG/JPEG/WebP data. Selecting a
+   provider consents to transmitting the message, attachments and enabled tool
+   results to it; it does not authorize a network destination or a Core action.
+5. The decoder accepts split UTF-8 and CRLF frames but requires dispatched frames
+   and provider completion before invoking any tool. Unknown/unselected tools
+   return an error without execution. Actual invocations use canonical MCP tool
+   definitions and invokeTool, with the same validation, authorization, exposure
+   state, broker approvals and audit as external clients. Upstream JSON/decoder
+   failures are converted to generic errors before reaching network/task audit.
+6. Renderer polling displays streamed text and tool-call blocks as plain text,
+   never provider-supplied HTML. The shared broker queue appears inline and in the
+   header; this slice still offers only one-time approve/reject. Persistent
+   project grants and the complete native GUI acceptance journey remain open.
+
+### AD-46 — Digest-bound owner project grants in the existing runtime policy
+
+1. A project grant remembers one exact Core operation for the canonical workspace
+   bound by the Core that presented the request, not a UI-supplied path or project
+   ID. Workspace is part of the immutable approval subject and its digest. The
+   subscribed owner tray must present that digest and a still-pending ticket.
+   The UI explicitly labels this grant as applying to every agent in that project.
+2. PermissionEngine alone interprets grants. They suppress only the runtime `ask`
+   gate for the matching workspace/operation and in-workspace paths. Strict Mode,
+   runtime deny, capability ceilings, token scopes, workspace/secrets/network
+   checks, configured mandatory gates and exposure/remote gates still apply.
+   Full-control outside-workspace subjects cannot be remembered for a project.
+   Process scopes retain their existing L1/full-control semantics; a project
+   grant is not a new kernel sandbox or a restriction on arbitrary command I/O.
+3. The existing protected two-phase runtime-policy transaction serializes grants,
+   revocations and owner policy changes. It stages the prior policy, writes audit,
+   rechecks/consumes the exact ticket synchronously, then commits before publishing
+   the future grant in memory. Expired/cancelled/digest-mismatched requests or audit
+   failures cannot publish a grant. An interrupted staged snapshot restores the
+   prior policy on restart. Audit records describe the attempted policy transition;
+   a later cancelled ticket/failed disk commit is not a successfully active grant.
+4. The consumed ticket still approves only its original operation, with normal
+   post-approval reauthorization, target revalidation and mandatory approval audit.
+   If final policy persistence fails, that one-time decision may already have run;
+   the future project grant is rolled back and failure is reported. Rollback
+   persistence failure latches the runtime stopped. Revocation removes the exact
+   workspace/operation pair without replacing unrelated current owner rules.
+5. Header and inline chat use the same tray controller and broker; renderer cannot
+   manufacture the subject digest. Pending Strict Mode/mandatory requests have no
+   remember-project action. Runtime settings list persisted grants and support
+   explicit revocation. Legacy policy updates that omit grants preserve them;
+   explicitly supplying an empty grant list clears them.
+
+### AD-47. Bounded owner project inspection through Core
+
+The fixed owner RPC `projects.inspect` accepts no path, command or project ID.
+It holds CoreHolder's idle-switch barrier for its entire multi-step workflow;
+ProductRuntime correlates a cancellable, non-replayable `$project.inspect` task.
+The Core reads only `package.json`, `pyproject.toml` and `Dockerfile` through
+FileSystemService and the existing ExecutionGuard. Runtime deny, Strict Mode,
+mandatory approvals, workspace and protected-path ceilings remain effective.
+No package scripts, imports, package managers, Docker builds or commands found
+in a manifest are executed. JSON is bounded to 64 KiB (and the configured Core
+read limit), parse errors are generic, and only a fixed dependency-name/stack
+allowlist is returned. Python/Docker detection means manifest presence, not a
+claim that TOML is valid or an interpreter/image is installed. Symlink manifests
+are not followed; non-files and oversized files are explicitly reported.
+
+Port observation is a separate guarded `process.project_ports` operation with
+`process.manage` and the active resolved workspace path. The Linux implementation
+observes `/proc` TCP LISTEN sockets in the service network namespace and matches
+socket descriptors to same-user processes whose canonical cwd is inside that
+workspace. It never reads environment variables, command lines or process memory.
+PID start time and cwd are rechecked before publishing. PID/FD/project-process
+counts, table sizes and elapsed scan time are bounded; the owner response contains
+at most 512 unique listeners and reports partial if truncated. Inaccessible, oversized
+or truncated observations report partial/unavailable, never "all ports free".
+This is a point-in-time association, not proof of future port availability,
+exclusive project ownership, network authorization or discovery of another
+network namespace. No network connection or remote host scan is made.
+
+The current native port observer is Linux-only. Other OSes return an explicit
+unavailable state, not fabricated listeners. Native macOS/Windows observation
+and qualification remain acceptance work. The renderer displays the actual
+manifest evidence and observer status after an explicit Inspect project action;
+there is no hidden script execution on navigation or automatic widening of
+network permissions. These observations do not implement the outstanding L1
+application-secret filename policy.
+
+
+### AD-48. Prepare compositor routing before trusted pointer input
+
+A real Chromium regression exposed a scroll/OOPIF routing race: DOM geometry and
+hit tests already located a button in a cross-origin shadow iframe, but the first
+pointerdown still reached its parent iframe element and pointerup reached the
+button. No click was generated. A broad pointer-count delivery probe incorrectly
+accepted that partial input as click completion. Test-only isolated-world event
+evidence reproduces the different trusted down/up recipients; it is never shipped
+or used as a privileged production page-reading API.
+
+After ordinary enabled/visibility/coverage checks, actionablePoint now sends a
+move only, gives compositor routing a bounded 100 ms preparation interval, and
+rechecks position, enabled state and coverage before any press. A moved, disabled
+or covered target is refused, not clicked at its former coordinates. This is
+preparation, not a retry of input; a possibly delivered press is never repeated.
+Click delivery requires a trusted activation (click/auxclick/contextmenu/dblclick),
+not merely pointer events split across documents. Drag retains the pointer-event
+probe. A failed delivery no longer claims nothing changed: it warns that partial
+input may have happened and asks for inspection before any decision to retry.
+Existing navigation/document replacement uncertainty is unchanged. The probe is
+not an assertion that a site's business operation succeeded.
+
+The real regression checks trusted pointerdown, pointerup and click on the actual
+shadow-frame button in addition to its server event. Unit tests separately
+serialize and execute the isolated-world probe, reject fake/untrusted clicks and
+split pointer-only completion, revalidate hover-induced layout/coverage/disabled
+changes, and assert that failure never replays a press.
+
+
+### AD-49. Native owner folder choice and acknowledged workspace switching
+
+The fixed ui.pickProjectFolder owner action opens Electron's actual OS directory
+chooser; the renderer supplies no path or dialog configuration. One picker is
+admitted at a time, including registration and selection. Cancellation, multiple
+paths, relative paths and NUL-containing paths do not mutate the registry. The
+service still canonicalizes/registers the directory and enforces its idle Core
+switch barrier. The action reports success only after projects.open and
+projects.select both acknowledge the same service-issued project id. Errors
+release the picker lock, not Core restrictions. A failed select can leave an
+owner-registered directory in the registry; it does not change the active project
+or falsely report a successful switch.
+
+The Linux qualification launches the shipped, non-smoke Electron app against a
+real CrotService. X11 input cancels one actual GTK chooser, then chooses a folder
+with spaces via the native Open button. It checks unchanged registry/Core after
+cancel, selected Core root, refreshed shipped UI and real audit events. It never
+stubs the dialog, returns a fabricated native choice, or adds a renderer bypass.
+An isolated GTK setting stabilizes the test desktop's control layout. This is
+Linux GUI evidence, not macOS/Windows dialog or application-secret L1 qualification.
+The standalone qualification requires Xvfb, xdotool and Electron's GUI libraries;
+it refuses unsupported hosts rather than silently passing.
+
+### AD-50. Keep a guarded inspection response across UI replacement, never replay it
+
+A full browser regression exposed a workspace-view refresh replacing the DOM
+while an explicitly requested project inspection was pending. The old callback
+correctly refused to write to detached nodes, but the replacement page lost the
+request/result. Merely retrying the test or repeating the Core request on every
+render would hide the race and repeat guarded operations.
+
+The renderer now keeps one bounded inspection promise/result for the exact
+selected project id and canonical workspace. Replacement views subscribe to that
+same promise or render its completed point-in-time result. Response workspace
+must match the captured workspace; detached or superseded consumers cannot paint.
+A project switch discards the snapshot. Rendering, language changes and navigation
+never request another inspection; an explicit Inspect project or error Retry can.
+Pending clicks share the admitted request. The cache is presentation state only,
+not permission state, authorization, a background scan or proof that ports are free.
+
+The shipped-UI/real-service test withholds an actual inspection response, forces
+a language-driven rerender, releases the response and checks the result. It then
+navigates away/back without another request, switches workspaces and checks cache
+invalidation, and verifies that a subsequent explicit inspection makes exactly
+one new request. No production IPC method or authorization path is added.
+
+
+### AD-51. Native same-owner project TCP observation, not cwd inference
+
+The process.project_ports guard remains the sole authorization entry. NativeHost
+now supplies an optional read-only Platform observer on macOS/Windows. Core's
+Linux /proc implementation remains the fallback; no renderer/native direct RPC,
+actor-selected command, debug privilege or network probe is added.
+
+Darwin uses fixed /usr/sbin/lsof NUL field output for TCP listeners/current
+working directory, and libproc proc_pidinfo(PROC_PIDTBSDINFO) for effective UID
+and microsecond kernel creation identity. No shell, PATH lookup, environment or
+command-line inspection is used. Windows uses GetExtendedTcpTable owner-PID
+listener rows, a read-only process handle, equal owner-token SIDs and kernel
+creation FILETIME. It admits only a native 64-bit process ABI; bounded
+ReadProcessMemory follows PBI.PebBaseAddress, PEB.ProcessParameters and the
+CurrentDirectory UNICODE_STRING only. Executable location and .NET WorkingDirectory
+are not guesses for the real cwd. WOW64/emulated or inaccessible processes remain
+unobserved/partial. Windows libraries other than kernel32 KnownDLL are loaded
+from GetSystemDirectoryW, not the project directory or actor PATH.
+
+The shared observer canonicalizes cwd, excludes outside/sibling-prefix roots,
+intersects a second listener table, then rechecks creation identity and cwd before
+publishing. Limits are 128 listener PIDs, 512 unique returned listeners, bounded
+native tables/output, and a three-second observation deadline/cancellation signal.
+Errors and incompleteness report partial/unavailable, never fabricated free ports.
+This is point-in-time evidence, not a permission decision, live guarantee or L1
+secret protection. Foreign/unreadable process metadata is never returned to UI.
+
+Pure parser/identity, PID reuse, changed cwd, closed listener, cap, cancellation
+and guard-before-platform tests run on every host. The existing actual listener
+integration is enabled on macOS/Windows as well as Linux and exercises the real
+native bindings directly before the guarded Core result. Linux tests do not
+qualify the other OS ABIs; a green native CI run is still required before claiming
+the macOS/Windows observer qualified. General project-secret L1 enforcement and
+complete Stage A acceptance remain separate gates.
+
+### AD-52. Project secret-file mandatory policy and macOS native candidate
+
+`permissions.projectSecrets.allow` is an immutable, bounded list of exact
+project-relative secret files bound to an absolute canonical workspace. It is
+not a recursive directory grant, runtime `allow`, project-operation approval or
+capability override. The shared PermissionEngine denies `.env`, `.env.*`,
+`*.pem`, `*.key` (including case variants and sensitive directory components)
+unless that exact file was opted in by the owner configuration. Symlink grants
+are refused rather than silently granting a different target. Existing CROT
+service-secret protection still takes precedence. Ordinary filesystem tool
+requests use the same guard and audit; no second execution authorizer exists.
+Core pathname checks do not protect arbitrary child processes or hardlink aliases
+and must never be described as L1 protection.
+
+The macOS candidate adds a fixed, escaped, workspace-anchored Seatbelt filename
+rule, including files created after admission. Exact literal exceptions do not
+allow a subtree. Existing sensitive symlink targets are protected and ambiguous
+pre-existing secret hardlinks refuse admission; actor-created link/linkat calls
+are denied by inherited kernel policy. Trusted host processes must not create
+new public hardlink aliases to secret inodes while an actor is running: pathname
+policies are not inode information-flow control. This limitation is explicit,
+not a watcher-based security claim. Hardlink denial also changes toolchain
+compatibility and is subject to the existing actual-macOS toolchain tests.
+
+A Docker daemon is outside Seatbelt and reads the original host tree. The macOS
+mediated endpoint therefore refuses host bind sources other than the mediated endpoint socket,
+including read-only project binds, rather than exposing future secrets through a container. The
+positive mediated daemon byte stream remains supported. An exact secret-file
+opt-in does not restore directory bind mounts.
+
+This slice supplies configuration opt-in and a fresh sandbox after old sandbox
+drain; it does not yet supply live owner IPC/UI grant/revoke. Linux and Windows
+backends do not yet implement this general project-secret filename policy.
+Their existing L1 status must not be interpreted as qualification of this new
+requirement. Static masks, preflight scans and UI filters are insufficient for
+future-file protection. The added macOS native tests must pass on actual macOS
+before its kernel rule is qualified. Until remaining native backends, live
+owner controls and their acceptance tests exist, Stage A and PR #5 remain WIP.
+
+
+### AD-53. Owner secret-file grant/revoke and immutable Core retirement
+
+Authenticated owner product RPCs `security.secretFiles.status` and
+`security.secretFiles.set` expose the exact workspace-bound AD-52 policy. The
+renderer confirms each grant/revoke and warns that current tasks and chat
+will stop. The Core path policy is not protection for unconfined commands;
+Linux/Windows general secret-file L1 remains incomplete. These controls do not
+weaken capability, CROT-secret, native confinement or mandatory approval gates.
+
+The existing ControlCenter serialization owns the transition. After schema,
+exact-current-workspace and canonical-path validation, an exclusive CoreHolder
+lease blocks new adapter/workflow admission. ExecutionGuard retirement is
+irreversible, including held references to the old capability services. A
+protected atomic pending record is written before cancellation. Product chat,
+server clients and tasks are interrupted; the old Core cancels approvals,
+terminates processes (including actors with already-open secret descriptors),
+closes native confinement and drains operations. A nonzero activity count or
+any drain failure refuses acknowledgement. Only then is a new immutable Core
+built with the explicit policy, audited, committed to the owner state file and
+installed. No second authorizer or renderer execution path is introduced.
+
+`project-secret-access.json` is protected service state, unreadable/unwritable
+through agent capabilities. A crash with a pending record recovers deny-all,
+not the previous grant or a half-published widening. Missing state uses the
+owner configuration baseline; malformed/non-private/non-regular state refuses
+startup. If the initial protected write itself fails, existing durable state
+cannot be assumed changed: the live service halts and reports failure, never
+successful revocation. All other transition failures likewise latch the service
+halted and keep admission closed; no rollback revives an old actor. An owner
+must repair the failure before restarting. A completed revocation cannot
+retrieve bytes already disclosed to an actor; its guarantee is stopping old
+work and denying subsequent access under the replacement policy.
+
+Tests cover exact scope, old-reference retirement, pending recovery, protected
+write/build/audit/commit/drain failures, a real service actor holding an open
+secret descriptor, restart persistence, and the shipped renderer's explicit
+confirmation/cancel/grant/revoke path through a real service. These are separate
+from native backend qualification and do not close Stage A's remaining gates.
+
+
+### AD-54. Actual native folder-dialog qualification, not a renderer substitute
+
+The existing Linux Electron/GTK fixture is generalized with test-only native
+control drivers. All hosts launch the shipped Electron entry against a real
+isolated CrotService and exercise the unchanged `showOpenDialog` →
+ProjectFolderPicker → projects.open/select path. Cancellation must preserve the
+registry and Core; a folder containing spaces must become the real Core root,
+be visible in the shipped renderer and have both audit records. No dialog
+return value, IPC response or service acknowledgement is mocked.
+
+Linux retains X11/GTK keyboard and native-window control. macOS inspects the
+visible NSOpenPanel in the test Electron main process through AppKit, navigates
+its real directory URL and invokes its native cancel/OK actions. It does not
+use System Events, change TCC permissions or bypass an external accessibility
+requirement. Windows UIAutomation is restricted to a single visible native `#32770` chooser
+whose process or native owner belongs to the test Electron PID. Win32 enumeration
+resolves its real handle before UIAutomation; the chooser need not be exposed as
+a direct desktop automation child. Ambiguous owned dialogs refuse execution. ValuePattern edits its real folder field
+and InvokePattern uses the native Cancel/Select controls; no registry policies,
+security settings or provider values are changed. The real service result must
+still equal the fixture directory after the native callback.
+
+The macOS/Windows fixture runs as a mandatory test on those hosts in the
+existing Node/OS matrix; Linux's existing actual GTK qualification remains a
+separate command. Host-inapplicable execution is explicit, not qualification.
+A successful Linux run and static review cannot prove the AppKit/Windows driver
+works. Actual native CI must pass before closing either acceptance gate.

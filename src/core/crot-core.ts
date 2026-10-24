@@ -1,3 +1,7 @@
+import { ProjectSecretPolicy } from "./permissions/project-secrets.js";
+import { inspectProject } from "./capabilities/projects/inspect.js";
+import type { AuthContext } from "./auth/principal.js";
+import type { RuntimePermissionState } from "./permissions/runtime.js";
 import { BrowserFiles } from "./capabilities/browser/files.js";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -99,6 +103,7 @@ export const CORE_VERSION = "0.1.0";
 const SHUTDOWN_DRAIN_MS = 2_000;
 
 export interface CrotCoreOptions {
+  readonly runtimePermissions?: RuntimePermissionState;
   readonly additionalAuthorization?: (context: import("./auth/principal.js").AuthContext, operation: string) => void;
   /** Override the audit sink derived from configuration (embedding, tests). */
   readonly auditSink?: AuditSink;
@@ -272,7 +277,11 @@ export class CrotCore {
       ...(config.browser.enabled ? [uploadRoot, downloadRoot] : []),
     ]);
     const protectedPaths = await resolveAll([...guarded, ...secretPaths]);
+    const projectSecrets = await ProjectSecretPolicy.create(workspace, config.permissions.projectSecrets);
     const permissions = new PermissionEngine(policy, {
+      projectSecrets,
+      workspaceRoot: workspace.root,
+      ...(options.runtimePermissions ? { runtime: options.runtimePermissions } : {}),
       protectedPaths,
       secretPaths,
       contains: (a, c) => workspace.contains(a, c),
@@ -329,6 +338,7 @@ export class CrotCore {
     const confinement: CoreConfinement = platform.confinement
       ? await platform.confinement.open({
           workspace: workspace.root,
+          projectSecretAllowedPaths: projectSecrets.allowedPaths,
           protectedPaths,
           network: confinementNetwork,
           dockerEnvironment,
@@ -416,6 +426,43 @@ export class CrotCore {
     );
   }
 
+  /** Owner-only emergency brake. Keep audit/control alive; resuming requires a service restart. */
+  emergencyStop(): Promise<void> {
+    // Latch synchronously before any await: pending approvals and new operations cannot race the stop.
+    this.permissions.runtime.stop();
+    this.approvalBroker.cancelAll("shutdown");
+    this.browser.shutdown();
+    this.network.shutdown();
+    return this.stopWork();
+  }
+
+  private emergencyWork: Promise<void> | undefined;
+  private stopWork(): Promise<void> {
+    return (this.emergencyWork ??= (async () => {
+      const forceErrors: unknown[] = [];
+      for (const stop of [
+        () => this.processes.terminateAllSync(),
+        () => this.git.terminateAllSync(),
+        () => this.docker.terminateAllSync(),
+      ]) {
+        try {
+          stop();
+        } catch (error) {
+          forceErrors.push(error);
+        }
+      }
+      const results = await Promise.allSettled([
+        this.processes.shutdown(),
+        this.git.shutdown(),
+        this.docker.shutdown(),
+      ]);
+      await this.guard.drain(SHUTDOWN_DRAIN_MS);
+      if (forceErrors.length) throw forceErrors[0];
+      const failure = results.find((r) => r.status === "rejected");
+      if (failure?.status === "rejected") throw failure.reason;
+    })());
+  }
+
   /**
    * Release resources, in order: cancel every pending approval request (so
    * none uses up the drain window and none can be approved afterwards); stop accepting browser operations and cancel
@@ -427,6 +474,7 @@ export class CrotCore {
    * The browser bridge itself is closed by the host after this returns.
    */
   shutdown(): Promise<void> {
+    this.guard.closeAdmission();
     this.shuttingDown ??= (async () => {
       this.approvalBroker.cancelAll("shutdown");
       this.browser.shutdown();
@@ -452,6 +500,10 @@ export class CrotCore {
     this.confinement.closeSync();
     this.git.terminateAllSync();
     this.docker.terminateAllSync();
+  }
+
+  inspectProject(context: AuthContext) {
+    return inspectProject(this, context);
   }
 
   status(): CrotStatus {

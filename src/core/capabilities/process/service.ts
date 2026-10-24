@@ -68,6 +68,7 @@ const MAX_EXITED_RECORDS = 50;
 interface BackgroundProcess {
   readonly id: string;
   readonly proc: ManagedProcess;
+  readonly tokenAccess?: AuthContext["principal"]["tokenAccess"];
   readonly command: string;
   readonly cwd: ResolvedPath;
   readonly startedAt: Date;
@@ -236,14 +237,15 @@ export class ProcessService {
           ? this.deps.platform.shells.command(args.script, shell)
           : await launcher.resolveCommand(args.command!, args.args, { cwd: cwd.absolute, env });
       const proc = await launcher.launch(spec, { cwd: cwd.absolute, env, stdin: false });
-      if (this.closing) {
+      if (this.closing || context.signal?.aborted) {
         // Shutdown began while the process was starting.
         await proc.terminate("force");
-        throw shuttingDown();
+        throw this.closing ? shuttingDown() : new CrotError("OPERATION_FAILED", "Process startup cancelled");
       }
       const record: BackgroundProcess = {
         id: `p${this.nextId++}`,
         proc,
+        ...(context.principal.tokenAccess ? { tokenAccess: context.principal.tokenAccess } : {}),
         command: label,
         cwd,
         startedAt: new Date(),
@@ -344,6 +346,27 @@ export class ProcessService {
     });
   }
 
+  /** Service lifecycle only, like shutdown: terminate resources of an invalidated verified credential.
+   * Not registered as an MCP tool. Never starts work or widens authorization; Strict Mode cannot
+   * ask an invalidated client for permission to terminate its own already-authorized resource.
+   */
+  async cancelToken(id: string, generation: string): Promise<void> {
+    const records = [...this.processes.values()].filter(
+      (r) => !r.endedAt && r.tokenAccess?.id === id && r.tokenAccess.generation === generation,
+    );
+    await Promise.all(
+      records.map(async (r) => {
+        await r.proc.terminate("force");
+        await Promise.race([
+          r.proc.exited,
+          delay(5000).then(() => {
+            throw new CrotError("OPERATION_FAILED", "Client process did not terminate");
+          }),
+        ]);
+      }),
+    );
+  }
+
   /**
    * Stop accepting commands and terminate every process tree CROT started
    * (background processes and running foreground commands): graceful first,
@@ -399,11 +422,11 @@ export class ProcessService {
     // Status can honestly become unavailable after a native failure. That is
     // not permission to fall back after this Core was admitted into L1.
     if (context.principal.kind === "remote" || mode !== "full_control") confinement?.assertAdmission?.();
-    if (context.principal.kind === "remote") {
+    if (context.principal.kind === "remote" || context.principal.tokenAccess) {
       if (!confinement || !status) {
         throw new CrotError(
           "CONFINEMENT_UNAVAILABLE",
-          "Command confinement L1 is not available to this CROT instance; shell and process operations of remote clients are refused.",
+          "Command confinement L1 is not available to this CROT instance; shell and process operations of remote or scoped clients are refused.",
           { reason: "not_implemented" },
         );
       }

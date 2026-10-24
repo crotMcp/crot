@@ -58,6 +58,13 @@ export interface ApprovalAuditRecord extends Omit<AuditEvent, "outcome" | "error
 
 /** Device-side control actions audited by the service (ARCHITECTURE.md §27, AD-19 point 9). */
 export const CONTROL_AUDIT_ACTIONS = [
+  "emergency_stop",
+  "runtime_policy",
+  "project_secret_access",
+  "token_issue",
+  "chat_provider",
+  "token_rotate",
+  "token_revoke",
   "preset",
   "remote_mode",
   "remote_full_control",

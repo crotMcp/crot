@@ -93,7 +93,7 @@ export class TrayController {
   }
 
   /** Approve or reject a request with the subject digest this tray presented. */
-  async decide(requestId: string, decision: "approve" | "reject"): Promise<boolean> {
+  async decide(requestId: string, decision: "approve" | "approve-project" | "reject"): Promise<boolean> {
     const approval = this.pending.get(requestId);
     if (!approval) return this.done("This request is no longer waiting for a decision.", false);
     const result = await this.call("approvals.decide", {
@@ -109,7 +109,7 @@ export class TrayController {
       return this.done(refused, false);
     }
     this.pending.delete(requestId);
-    return this.done(decision === "approve" ? "Approved." : "Rejected.", true);
+    return this.done(decision !== "reject" ? "Approved." : "Rejected.", true);
   }
 
   refreshL1(): Promise<boolean> {

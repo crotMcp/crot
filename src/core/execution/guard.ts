@@ -106,6 +106,12 @@ export class ApprovalBindingError extends PermissionDeniedError {
 export class ExecutionGuard {
   /** Operations that have not finished (including their audit record). */
   private readonly inFlight = new Set<Promise<unknown>>();
+  private admissionClosed = false;
+
+  /** Irreversible per-Core lifecycle latch; never changes the shared emergency policy. */
+  closeAdmission(): void {
+    this.admissionClosed = true;
+  }
   private readonly exposure: ExposureTracker;
   private readonly snapshots = new WeakMap<
     ExposureSnapshot,
@@ -137,6 +143,7 @@ export class ExecutionGuard {
   }
 
   run<T>(context: AuthContext, op: OperationDescriptor, execute: () => Promise<T>): Promise<T> {
+    if (this.admissionClosed) return Promise.reject(new CrotError("RESOURCE_BUSY", "This Core has been retired"));
     const running = this.runGuarded(context, op, execute);
     const settled = running.then(
       () => undefined,
@@ -363,6 +370,8 @@ export class ExecutionGuard {
     op: OperationDescriptor,
     capabilities: readonly Capability[],
   ): PermissionDeniedError | undefined {
+    if (this.engine.runtime.halted)
+      return new PermissionDeniedError("Emergency stop is active", { operation: op.operation });
     try {
       this.options.additionalAuthorization?.(context, op.operation);
     } catch {
@@ -370,7 +379,7 @@ export class ExecutionGuard {
     }
     for (const capability of capabilities) {
       const decision = this.engine.authorize({
-        ...(op.operation === "browser.file_upload" ? { operation: op.operation } : {}),
+        operation: op.operation,
         context,
         capability,
         paths: op.paths ?? [],
@@ -410,6 +419,7 @@ export class ExecutionGuard {
     if (exposed) effects.push({ label: "exposure", value: "this session read untrusted content before this request" });
     return {
       operation: op.operation,
+      ...(this.engine.workspaceRoot ? { workspace: this.engine.workspaceRoot } : {}),
       capabilities,
       summary: op.approval?.summary ?? op.operation,
       effects,

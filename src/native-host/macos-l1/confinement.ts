@@ -1,5 +1,5 @@
 import { macosPlatformSupported } from "./platform.js";
-import { inspectProtected, writableHardlinks } from "./hardlinks.js";
+import { inspectProtected, writableHardlinks, projectSecretTargets } from "./hardlinks.js";
 import { runtimeProtectedPaths } from "./runtime.js";
 import { prepareRustup } from "./toolchains.js";
 import { reinitializationProbe } from "./reinitialization.js";
@@ -176,12 +176,22 @@ export class MacosConfinement implements CommandConfinement {
           .map(canonicalPath),
       ),
     ];
+    const projectSecrets = {
+      root: canonicalPath(scope.workspace),
+      allowedPaths: (scope.projectSecretAllowedPaths ?? []).map((name) => {
+        const canonical = canonicalPath(name);
+        if (canonical !== path.posix.normalize(name)) throw Error("Secret grant must not follow an alias");
+        return canonical;
+      }),
+    };
+    protectedPaths.push(...(await projectSecretTargets(projectSecrets.root, projectSecrets.allowedPaths)));
     protectedPaths.push(...(await inspectProtected(protectedPaths)));
     const readOnlyPaths = [
       ...runtimeProtectedPaths().map(canonicalPath),
       ...(await writableHardlinks([canonicalPath(scope.workspace), home, temp])),
     ];
     const layout: SeatbeltLayout = {
+      projectSecrets,
       writable: [canonicalPath(scope.workspace), home, temp],
       protectedPaths,
       readOnlyPaths,
@@ -200,7 +210,10 @@ export class MacosConfinement implements CommandConfinement {
         }),
       boundary: {
         writable: layout.writable,
-        protectedPaths: [...protectedPaths, ...readOnlyPaths],
+        // A daemon reads the original host tree, not the Seatbelt view. Refuse
+        // host bind sources (including ancestors and future secret filenames)
+        // rather than bypassing the dynamic policy via a container mount.
+        protectedPaths: ["/", ...protectedPaths, ...readOnlyPaths],
         unreadable: protectedPaths,
         daemonSockets: [
           canonicalPath("/var/run/docker.sock"),
@@ -373,6 +386,9 @@ class MacosCore implements CoreConfinement {
   async selfTest(): Promise<void> {
     const policy = await this.checkedLayout();
     const probeName = `.crot-l1-check-${randomUUID()}`;
+    // Created AFTER checkedLayout: it must be denied by the filename rule,
+    // never by a preflight-enumerated literal. No existing user file is used.
+    const secretProbe = path.join(this.scope.workspace, `.env.crot-l1-${randomUUID()}`);
     const canary = path.join(this.root, "canary");
     await writeFile(canary, "not-a-secret", { mode: 0o600 });
     const control = path.join(this.root, "c.sock");
@@ -381,11 +397,16 @@ class MacosCore implements CoreConfinement {
       server.once("error", reject);
       server.listen(control, resolve);
     });
+    let secretProbeCreated = false;
     try {
+      await writeFile(secretProbe, "not-a-secret", { mode: 0o600, flag: "wx" });
+      secretProbeCreated = true;
       const script = `const fs=require('fs'),net=require('net');
 ${await reinitializationProbe()}
 const denied=f=>{try{f();throw Error('escape')}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e}};
 denied(()=>fs.readFileSync(${JSON.stringify(canary)}));
+denied(()=>fs.readFileSync(${JSON.stringify(secretProbe)}));
+denied(()=>fs.renameSync(${JSON.stringify(secretProbe)},${JSON.stringify(secretProbe + "-renamed")}));
 denied(()=>fs.writeFileSync(${JSON.stringify(path.join(this.root, "outside"))},'x'));
 fs.writeFileSync(${JSON.stringify(path.join(this.scope.workspace, probeName))},'ok',{flag:'wx'});
 fs.unlinkSync(${JSON.stringify(path.join(this.scope.workspace, probeName))});
@@ -426,6 +447,7 @@ const s=net.connect(${JSON.stringify(control)});s.on('connect',()=>process.exit(
       server.close();
       await rm(control, { force: true });
       await rm(canary, { force: true });
+      if (secretProbeCreated) await rm(secretProbe, { force: true });
     }
   }
   async close(): Promise<void> {

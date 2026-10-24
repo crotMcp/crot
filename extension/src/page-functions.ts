@@ -129,8 +129,14 @@ export function pageVisibility(): PageOutcome<string> {
  * them). Only counts are kept, never targets, coordinates or page data. A
  * probe left by an earlier command is removed first.
  */
-export function installInputProbe(nonce: string): PageOutcome<boolean> {
-  const TYPES = ["pointerdown", "mousedown", "pointerup", "mouseup", "click", "auxclick", "contextmenu", "dblclick"];
+export function installInputProbe(
+  nonce: string,
+  completion: "pointer" | "activation" = "pointer",
+): PageOutcome<boolean> {
+  const TYPES =
+    completion === "activation"
+      ? ["click", "auxclick", "contextmenu", "dblclick"]
+      : ["pointerdown", "mousedown", "pointerup", "mouseup", "click", "auxclick", "contextmenu", "dblclick"];
   const holder = globalThis as unknown as Record<
     string,
     { nonce: string; count: number; stop: () => void } | undefined

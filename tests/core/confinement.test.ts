@@ -355,3 +355,43 @@ describe("ProcessService and L1 (mocked platform confinement)", () => {
     }
   });
 });
+
+describe("Stage A named token lifecycle", () => {
+  const scoped: AuthContext = {
+    principal: {
+      id: "verified-token",
+      kind: "local",
+      transport: "http",
+      tokenAccess: { id: "token-id", generation: "v1", scopes: ["terminal"] },
+    },
+  };
+  it("requires L1 for scoped commands even when owner configuration is full_control", async () => {
+    const h = await setup(unavailable, (b) => b.launch.bind(b), "full_control");
+    expect(h.core.permissions.modeFor(scoped)).toBe("sandbox");
+    await expect(exec(h.core, scoped)).rejects.toMatchObject({ code: "CONFINEMENT_UNAVAILABLE" });
+    expect(h.baseLaunch).not.toHaveBeenCalled();
+    expect(h.confinedLaunch).not.toHaveBeenCalled();
+  });
+  it("cancels only the revoked token's real process without requesting approval for termination", async () => {
+    // Launcher-selection/lifecycle fixture, not a native L1 qualification.
+    const h = await setup(available, (b) => b.launch.bind(b), "full_control");
+    const first = await h.core.processes.start(scoped, {
+      command: process.execPath,
+      args: ["-e", "setInterval(()=>{},1000)"],
+    });
+    const otherContext: AuthContext = {
+      principal: { ...scoped.principal, tokenAccess: { id: "other", generation: "v1", scopes: ["terminal"] } },
+    };
+    const other = await h.core.processes.start(otherContext, {
+      command: process.execPath,
+      args: ["-e", "setInterval(()=>{},1000)"],
+    });
+    h.core.permissions.runtime.replace({ strict: true, rules: [] });
+    await h.core.processes.cancelToken("token-id", "wrong-generation");
+    await h.core.processes.cancelToken("token-id", "v1");
+    h.core.permissions.runtime.replace({ strict: false, rules: [] });
+    const listing = await h.core.processes.list(local);
+    expect(listing.find((p) => p.id === first.id)?.status).toBe("exited");
+    expect(listing.find((p) => p.id === other.id)?.status).toBe("running");
+  });
+});

@@ -43,6 +43,10 @@ import type {
 } from "./protocol.js";
 import { isValidRemoteId, type RemoteClientRegistry } from "./remote-clients.js";
 import { PRODUCT_METHODS, type ProductMethod } from "./product-protocol.js";
+import { CrotError } from "../core/errors.js";
+import { ProjectSecretPolicy, type ProjectSecretAccess } from "../core/permissions/project-secrets.js";
+import type { ProjectSecretAccessStore } from "./project-secret-access.js";
+import { parseProduct } from "./product-protocol.js";
 import type { ProductRuntime } from "./product-runtime.js";
 import { TrayApprovalProvider, type ApprovalSubscriber } from "./tray-provider.js";
 
@@ -108,6 +112,7 @@ export interface ControlCenterHost {
     preset: UntrustedContentSetting,
     remote?: RemoteProfileOptions,
     workspace?: string,
+    projectSecrets?: ProjectSecretAccess,
   ): Promise<{ core: CrotCore; handle: CoreCompositionHandle }>;
   serviceStatus(): ServiceStatus;
   browserState(): BrowserConnectionState | undefined;
@@ -271,6 +276,15 @@ export class ControlCenter implements RemoteAdmission {
         if (!subscriber)
           return Promise.resolve(refusal("unknown_request", "This connection has not subscribed to approvals."));
         const { requestId, decision, subjectDigest } = request.params;
+        if (decision === "approve-project") {
+          const presented = this.provider.presented(subscriber, requestId, subjectDigest);
+          if (!presented || !this.product)
+            return Promise.resolve(refusal("unknown_request", "This request is no longer pending for this tray."));
+          return this.product.approveProject(
+            presented.subject,
+            () => this.provider.decide(subscriber, requestId, "approve", subjectDigest).ok,
+          ) as Promise<Result>;
+        }
         const result = this.provider.decide(subscriber, requestId, decision, subjectDigest);
         return Promise.resolve(result.ok ? { ok: true } : refusal(result.reason, DECIDE_MESSAGES[result.reason]));
       }
@@ -371,6 +385,77 @@ export class ControlCenter implements RemoteAdmission {
     this.moveProvider(built.handle);
     await previous.shutdown();
     this.stateChanged();
+  }
+
+  /** Owner-only serialized transaction. No running actor or old capability reference survives success. */
+  changeProjectSecretAccess(input: unknown, store: ProjectSecretAccessStore): Promise<Record<string, unknown>> {
+    return this.serial(async () => {
+      const params = parseProduct("security.secretFiles.set", input);
+      if (!params) throw new CrotError("INVALID_INPUT", "Invalid secret-file request");
+      const old = this.host.holder.instance,
+        workspace = old.workspace;
+      if (params.workspace !== workspace.root)
+        throw new CrotError("INVALID_INPUT", "Project changed; refresh the secret-file controls");
+      if (old.permissions.runtime.halted)
+        throw new CrotError("RESOURCE_BUSY", "Restart after emergency stop before changing secret access");
+      const entry = { workspace: workspace.root, path: String(params.path) };
+      const previous = store.policy;
+      const rest = previous.allow.filter((g) => g.workspace !== entry.workspace || g.path !== entry.path);
+      const next = { allow: params.allow ? [...rest, entry] : rest };
+      await ProjectSecretPolicy.create(workspace, next);
+      // Acquire after validation, before the first state write or old-Core cancellation.
+      const lease = this.host.holder.pauseAdmission();
+      old.guard.closeAdmission();
+      let built: { core: CrotCore; handle: CoreCompositionHandle } | undefined;
+      try {
+        await store.stage(next);
+        const stopped = await Promise.allSettled([this.product?.cancelWork(), old.shutdown()]);
+        const failure = stopped.find((r) => r.status === "rejected");
+        if (failure?.status === "rejected") throw failure.reason;
+        const deadline = Date.now() + 5000;
+        while (Date.now() < deadline) {
+          const a = this.host.holder.activity();
+          if (!a.adapterCalls && !a.operationsInFlight && !a.pendingApprovals && !a.runningBackgroundProcesses) break;
+          await new Promise((r) => setTimeout(r, 10));
+        }
+        const remaining = this.host.holder.activity();
+        if (Object.values(remaining).some((n) => n !== 0))
+          throw new CrotError("RESOURCE_BUSY", "Old Core did not fully drain; restart required");
+        const preset = ControlCenter.effectivePreset(this.host.settings, this.host.configuredPreset).effective;
+        built = await this.host.buildCore(preset, this.requestedRemoteProfile(), workspace.root, next);
+        if (old.permissions.runtime.halted)
+          throw new CrotError("RESOURCE_BUSY", "Emergency stop interrupted policy transition");
+        await built.handle.recordControlEvent({
+          kind: "control",
+          id: newAuditEventId(),
+          timestamp: new Date().toISOString(),
+          action: "project_secret_access",
+          actor: { channel: "control" },
+          outcome: "applied",
+          previous: JSON.stringify(previous),
+          value: JSON.stringify(next),
+        });
+        await store.commit(next);
+        if (old.permissions.runtime.halted)
+          throw new CrotError("RESOURCE_BUSY", "Emergency stop interrupted policy transition");
+        lease.install(built.core, built.handle);
+        this.moveProvider(built.handle);
+        lease.release();
+        this.stateChanged();
+        return { ok: true, policy: store.policy, workspace: workspace.root, drained: true };
+      } catch (error) {
+        // Never revive a retired Core, return a false revocation acknowledgement, or reopen admission on failure.
+        old.permissions.runtime.stop();
+        await Promise.allSettled([old.emergencyStop(), this.product?.cancelWork(), old.shutdown()]);
+        try {
+          old.terminateProcessesSync();
+        } catch {
+          /* Native drain failures remain fail-closed. */
+        }
+        if (built) await built.core.shutdown().catch(() => undefined);
+        throw error;
+      }
+    });
   }
 
   private async replaceCore(

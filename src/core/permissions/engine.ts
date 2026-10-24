@@ -1,3 +1,5 @@
+import type { ProjectSecretPolicy } from "./project-secrets.js";
+import { RuntimePermissionState } from "./runtime.js";
 import { DEFAULT_APPROVAL_TIMEOUT_MS, ruleMatches, validateApprovalRules } from "../approvals/rules.js";
 import { presetRules, REMOTE_FULL_CONTROL_RULES, type UntrustedContentSetting } from "../approvals/exposure.js";
 import type { ApprovalRequirement, ApprovalRule } from "../approvals/types.js";
@@ -61,6 +63,10 @@ export interface RemoteProfileSummary {
 }
 
 export interface PermissionEngineOptions {
+  /** Canonical Core workspace, never a request-supplied project identifier. */
+  readonly workspaceRoot?: string;
+  readonly projectSecrets?: ProjectSecretPolicy;
+  readonly runtime?: RuntimePermissionState;
   /**
    * Paths CROT itself depends on (audit log, configuration). Write operations
    * on them, or on any ancestor (delete/move of a parent), are always denied.
@@ -171,14 +177,18 @@ interface Profile {
  *   preset, and their shell commands always need approval.
  */
 export class PermissionEngine {
+  readonly runtime: RuntimePermissionState;
+  readonly workspaceRoot: string | undefined;
   private readonly protectedPaths: readonly string[];
   private readonly secretPaths: readonly string[];
+  private readonly projectSecrets: ProjectSecretPolicy | undefined;
   private readonly contains: (ancestor: string, candidate: string) => boolean;
   private readonly networkPolicy: NetworkPolicy;
   private readonly approvalRules: readonly ApprovalRule[];
   private readonly approvalTimeoutMs: number;
   private readonly untrustedContent: UntrustedContentSetting;
   private readonly localProfile: Profile;
+  private readonly tokenProfile: Profile;
   private readonly remoteDefault: Profile;
   private readonly remoteFullControl: Profile | undefined;
   private readonly fullControlBinding: RemoteFullControlBinding | undefined;
@@ -187,8 +197,11 @@ export class PermissionEngine {
     private readonly policy: PermissionPolicy,
     options: PermissionEngineOptions = {},
   ) {
+    this.runtime = options.runtime ?? new RuntimePermissionState();
+    this.workspaceRoot = options.workspaceRoot;
     this.protectedPaths = options.protectedPaths ?? [];
     this.secretPaths = options.secretPaths ?? [];
+    this.projectSecrets = options.projectSecrets;
     this.contains = options.contains ?? ((a, c) => a === c || c.startsWith(a.endsWith("/") ? a : `${a}/`));
     this.networkPolicy = options.network ?? NetworkPolicy.denyAll();
     const rules = options.approvals?.rules ?? [];
@@ -199,6 +212,13 @@ export class PermissionEngine {
     // Built-in rules are not validated against the policy: a capability that is
     // not granted is simply never authorized, so the rule never fires for it.
     this.localProfile = this.profile(policy, this.untrustedContent);
+    this.tokenProfile = this.profile(
+      Object.freeze({
+        mode: "sandbox" as const,
+        grants: new Set<Capability>([...policy.grants].filter((c) => c !== "filesystem.full")),
+      }),
+      this.untrustedContent === "off" ? "require-approval" : this.untrustedContent,
+    );
     const remoteSetting: UntrustedContentSetting =
       this.untrustedContent === "off" ? "require-approval" : this.untrustedContent;
     this.remoteDefault = this.profile(
@@ -240,6 +260,7 @@ export class PermissionEngine {
   /** The profile a principal is evaluated with. Only Core facts decide it (never principal.client). */
   private profileFor(context: AuthContext): Profile {
     const principal = context.principal;
+    if (principal.tokenAccess) return this.tokenProfile;
     if (principal.kind !== "remote") return this.localProfile;
     const binding = this.fullControlBinding;
     if (
@@ -314,6 +335,26 @@ export class PermissionEngine {
       mode: profile.policy.mode,
       exposed: request.exposed ?? false,
     };
+    // Runtime allow never suppresses mandatory exposure, remote or configured gates.
+    const runtime = this.runtime.policy;
+    const ask =
+      runtime.strict ||
+      (!(
+        (request.paths ?? []).every((p) => p.insideWorkspace) &&
+        runtime.projectGrants?.some((g) => g.workspace === this.workspaceRoot && g.operation === request.operation)
+      ) &&
+        runtime.rules.some(
+          (r) =>
+            r.state === "ask" &&
+            (r.operation === request.operation ||
+              (r.capability !== undefined && request.capabilities.includes(r.capability))),
+        ));
+    if (ask)
+      return {
+        required: true,
+        rule: runtime.strict ? "runtime.strict" : "runtime.ask",
+        timeoutMs: this.approvalTimeoutMs,
+      };
     const rule = profile.rules.find((r) => ruleMatches(r, facts));
     return rule ? { required: true, rule: rule.id, timeoutMs: this.approvalTimeoutMs } : { required: false };
   }
@@ -351,6 +392,34 @@ export class PermissionEngine {
   }
 
   authorize(request: AuthorizationRequest): AuthorizationDecision {
+    if (this.runtime.halted)
+      return { allowed: false, reason: "Emergency stop is active; restart the service to resume.", missing: [] };
+    if (
+      this.runtime.policy.rules.some(
+        (r) =>
+          r.state === "deny" &&
+          ((request.operation !== undefined && r.operation === request.operation) ||
+            r.capability === request.capability),
+      )
+    )
+      return { allowed: false, reason: "Runtime policy denies this operation.", missing: [] };
+    const token = request.context.principal.tokenAccess;
+    if (token) {
+      const scope =
+        request.capability.startsWith("filesystem.") && request.capability !== "filesystem.full"
+          ? "files"
+          : ["shell.execute", "process.manage", "git.read", "git.write"].includes(request.capability)
+            ? "terminal"
+            : request.capability.startsWith("browser.")
+              ? "browser"
+              : undefined;
+      if (!scope || !token.scopes.includes(scope))
+        return {
+          allowed: false,
+          reason: "Client token scope does not permit this capability.",
+          missing: [request.capability],
+        };
+    }
     const policy = this.profileFor(request.context).policy;
     const scope = request.context.principal.kind === "remote" ? ", remote client" : "";
     if (!policy.grants.has(request.capability)) {
@@ -380,6 +449,8 @@ export class PermissionEngine {
         };
       }
     }
+    if ((request.paths ?? []).some((target) => this.projectSecrets?.denies(target)))
+      return { allowed: false, reason: "Project secret file requires explicit owner file access.", missing: [] };
     if (
       (WRITE_CAPABILITIES.has(request.capability) || request.operation === "browser.file_upload") &&
       this.protectedPaths.length > 0

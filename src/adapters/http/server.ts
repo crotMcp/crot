@@ -67,6 +67,8 @@ export interface CrotHttpServerOptions {
   readonly config: CrotHttpServerConfig;
   /** Authenticates every request before it reaches the MCP server or Core. */
   readonly verifier: AccessTokenVerifier;
+  /** Narrowing recheck of verified facts immediately before tracking a request. */
+  readonly principalAdmission?: (principal: Principal) => boolean;
   /** Operator diagnostics (stderr in the CLI). Never receives credentials, bodies or results. */
   readonly log?: (message: string) => void;
   /**
@@ -358,6 +360,7 @@ export class CrotHttpServer {
   private modernInFlight = 0;
   private modernRejected = 0;
   /** Responses of remote requests in flight, per remote client (endRemoteClient). */
+  private readonly principalResponses = new Map<string, Set<ServerResponse>>();
   private readonly remoteResponses = new Map<string, Set<ServerResponse>>();
   private readonly remoteAdmission: RemoteAdmission | undefined;
   private readonly resourceMetadataUrl: (() => string | undefined) | undefined;
@@ -370,6 +373,7 @@ export class CrotHttpServer {
     entryPoint: HttpEntryPoint,
     remoteAdmission: RemoteAdmission | undefined,
     resourceMetadataUrl: (() => string | undefined) | undefined,
+    private readonly principalAdmission: ((principal: Principal) => boolean) | undefined,
   ) {
     this.log = log ?? (() => undefined);
     this.entryPoint = entryPoint;
@@ -405,6 +409,7 @@ export class CrotHttpServer {
       entryPoint,
       options.remoteAdmission,
       options.resourceMetadataUrl,
+      options.principalAdmission,
     );
     await server.listen();
     return server;
@@ -526,6 +531,16 @@ export class CrotHttpServer {
       this.log("http: rejected a credential that does not establish a principal for this entry point");
       return sendError(res, this.challenge(true));
     }
+    if (this.principalAdmission && !this.principalAdmission(principal)) return sendError(res, this.challenge(true));
+    const owner = sessionOwnerKey(principal);
+    let responses = this.principalResponses.get(owner);
+    if (!responses) this.principalResponses.set(owner, (responses = new Set()));
+    responses.add(res);
+    const tracked = responses;
+    res.once("close", () => {
+      tracked.delete(res);
+      if (tracked.size === 0 && this.principalResponses.get(owner) === tracked) this.principalResponses.delete(owner);
+    });
     let remote: string | undefined;
     if (principal.kind === "remote") {
       // principalFromAuthInfo guarantees the fields of a remote principal.
@@ -769,6 +784,17 @@ export class CrotHttpServer {
       set.delete(res);
       if (set.size === 0 && this.remoteResponses.get(remote) === set) this.remoteResponses.delete(remote);
     });
+  }
+
+  /** End the sessions and in-flight requests of an exact verified local principal. */
+  async endPrincipal(principal: Principal): Promise<void> {
+    const owner = sessionOwnerKey(principal);
+    const responses = [...(this.principalResponses.get(owner) ?? [])];
+    this.principalResponses.delete(owner);
+    for (const res of responses) res.destroy();
+    const sessions = [...this.sessions.values()].filter((s) => s.owner === owner);
+    for (const session of sessions) this.sessions.delete(session.id);
+    await Promise.all(sessions.map((s) => s.server.close()));
   }
 
   /**

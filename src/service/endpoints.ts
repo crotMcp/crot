@@ -76,6 +76,7 @@ export function serviceProtectedPaths(stateDir: string): string[] {
     path.join(stateDir, SERVICE_LOG_FILE_NAME),
     // Device state of the tray controls (AD-19): changed only through the control channel.
     path.join(stateDir, SERVICE_SETTINGS_FILE_NAME),
+    path.join(stateDir, "project-secret-access.json"),
     path.join(stateDir, REMOTE_CLIENTS_FILE_NAME),
     // Device binding (WP-28): changed only by pairing and unpairing on the control channel.
     path.join(stateDir, DEVICE_BINDING_FILE_NAME),

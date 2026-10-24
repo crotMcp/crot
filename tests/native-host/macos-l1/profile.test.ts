@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import os from "node:os";
 import path from "node:path";
 import { realpathSync } from "node:fs";
-import { canonicalPath, sbplString, seatbeltProfile } from "../../../src/native-host/macos-l1/profile.js";
+import {
+  canonicalPath,
+  sbplString,
+  seatbeltProfile,
+  projectSecretRule,
+} from "../../../src/native-host/macos-l1/profile.js";
 
 describe("macOS Seatbelt profile compiler", () => {
   it.runIf(process.platform !== "win32")("canonicalizes existing POSIX aliases and absent leaves", () => {
@@ -35,4 +40,20 @@ describe("macOS Seatbelt profile compiler", () => {
     expect(p).toContain('(remote unix-socket (literal "/private/d.sock"))');
     expect(p).toContain("localhost:*");
   });
+  it.runIf(process.platform !== "win32")(
+    "anchors secret rules and escapes project names without recursive grants",
+    () => {
+      const root = canonicalPath(path.join(os.tmpdir(), "crot-[project]+(x)"));
+      const rule = projectSecretRule({ root, allowedPaths: [root + "/.env"] });
+      expect(rule).toContain("(require-not (literal " + sbplString(root + "/.env") + "))");
+      expect(rule).toContain(sbplString("crot-\\[project\\]\\+\\(x\\)").slice(1, -1));
+      expect(rule).toContain("(syscall-number 9) (syscall-number 471)");
+      expect(rule).not.toContain("(subpath ");
+      expect(rule).toContain('(regex "');
+      expect(rule).not.toContain("(regex #");
+      expect(() => projectSecretRule({ root, allowedPaths: [root + "-sibling/.env"] })).toThrow("outside workspace");
+      expect(() => projectSecretRule({ root, allowedPaths: [root] })).toThrow("outside workspace");
+      expect(projectSecretRule({ root: "/", allowedPaths: [] })).toContain("^/([^/]+/)*");
+    },
+  );
 });

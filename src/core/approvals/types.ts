@@ -92,6 +92,8 @@ export interface ApprovalSubjectInput {
 
 /** The immutable, Core-generated description of what runs if the user approves it. */
 export interface ApprovalSubject {
+  /** Canonical workspace bound by Core, included in the presented digest. */
+  readonly workspace?: string;
   readonly operation: string;
   readonly capabilities: readonly Capability[];
   readonly summary: string;

@@ -122,7 +122,7 @@ export type ControlRequest =
       readonly method: "approvals.decide";
       readonly params: {
         readonly requestId: string;
-        readonly decision: "approve" | "reject";
+        readonly decision: "approve" | "approve-project" | "reject";
         readonly subjectDigest?: string;
       };
     }
@@ -408,13 +408,13 @@ export function parseControlRequest(value: unknown): ControlRequest | undefined 
       if (!onlyKeys(p, ["requestId", "decision", "subjectDigest"])) return undefined;
       if (typeof p.requestId !== "string" || p.requestId.length === 0 || p.requestId.length > MAX_REQUEST_ID_LENGTH)
         return undefined;
-      if (p.decision !== "approve" && p.decision !== "reject") return undefined;
+      if (p.decision !== "approve" && p.decision !== "approve-project" && p.decision !== "reject") return undefined;
       if (
         p.subjectDigest !== undefined &&
         (typeof p.subjectDigest !== "string" || !/^[0-9a-f]{64}$/.test(p.subjectDigest))
       )
         return undefined;
-      if (p.decision === "approve" && p.subjectDigest === undefined) return undefined;
+      if (p.decision !== "reject" && p.subjectDigest === undefined) return undefined;
       return {
         t: "request",
         id,

@@ -50,7 +50,72 @@ export async function runServiceScenarios({ real, evaluate, until, size, screens
   await until("document.body.textContent.includes('Service E2E')");
   const state = await real.verify();
   if (state.projects !== 2) throw Error("Real project was not persisted");
+  await writeFile(
+    path.join(real.base, "second", "package.json"),
+    JSON.stringify({ dependencies: { react: "fixture" }, devDependencies: { typescript: "fixture" } }),
+  );
+  real.pauseProjectInspection();
+  await click("Inspect project");
+  await until("document.querySelector('[data-project-inspection]')?.getAttribute('aria-busy')==='true'");
+  await evaluate("document.dispatchEvent(new CustomEvent('crot:language',{detail:'en'}))");
+  await until("document.querySelector('[data-project-inspection]')?.getAttribute('aria-busy')==='true'");
+  real.releaseProjectInspection();
+  await until(
+    "document.querySelector('[data-project-inspection]')?.textContent.includes('Node.js, TypeScript, React')",
+  );
+  await until("document.querySelector('[data-project-inspection]')?.textContent.includes('Listening project ports')");
+  await section("Home");
+  await section("Projects");
+  await until(
+    "document.querySelector('[data-project-inspection]')?.textContent.includes('Node.js, TypeScript, React')",
+  );
+  if (real.inspectionCalls !== 1) throw Error("Rendering replayed a project inspection request");
+  const chosenId = await evaluate("document.getElementById('project-select').value");
+  const initialId = await evaluate(
+    "Array.from(document.getElementById('project-select').options).find(o=>o.textContent==='workspace').value",
+  );
+  const selectWorkspace = async (id, expectedPath) => {
+    await evaluate(
+      `(()=>{const s=document.getElementById('project-select');s.value=${JSON.stringify(id)};s.dispatchEvent(new Event('change',{bubbles:true}));})()`,
+    );
+    await until(`document.querySelector('#project-detail code')?.textContent===${JSON.stringify(expectedPath)}`);
+    if (await evaluate("!!document.querySelector('[data-project-inspection]')"))
+      throw Error("Inspection survived a workspace switch");
+  };
+  await selectWorkspace(initialId, real.workspace);
+  await selectWorkspace(chosenId, path.join(real.base, "second"));
+  if (real.inspectionCalls !== 1) throw Error("Workspace switching replayed an inspection");
+  await click("Inspect project");
+  await until(
+    "document.querySelector('[data-project-inspection]')?.textContent.includes('Node.js, TypeScript, React')",
+  );
+  if (real.inspectionCalls !== 2) throw Error("Explicit inspection did not refresh the snapshot");
   await screenshot("03-projects-real-service");
+  // The shipped renderer uses owner IPC, never a mocked grant response.
+  const secretRoot = path.join(real.base, "second");
+  await writeFile(path.join(secretRoot, ".env"), "ui-owner-private-test");
+  const secretRead = () => evaluate("window.crot.tool('fs_read_file',{path:'.env'})");
+  if (!(await secretRead()).isError) throw Error("Secret was readable without owner grant");
+  await section("Permissions");
+  await until("!!document.getElementById('secret-file-grant')");
+  await evaluate("document.getElementById('secret-file-path').value='.env'");
+  await click("Grant secret-file access");
+  await click("Cancel", "dialog button");
+  if (!(await secretRead()).isError) throw Error("Cancelled confirmation granted secret access");
+  await click("Grant secret-file access");
+  await confirm();
+  await until("!!document.querySelector('[data-secret-path=\".env\"]')");
+  const granted = await secretRead();
+  if (granted.isError || !JSON.stringify(granted).includes("ui-owner-private-test"))
+    throw Error("Confirmed UI grant did not reach Core");
+  await click("Revoke secret-file access");
+  await confirm();
+  await until("!!document.getElementById('secret-file-grant')&&!document.querySelector('[data-secret-path=\".env\"]')");
+  if (!(await secretRead()).isError) throw Error("UI revocation did not reach Core");
+  const secretAudit = await readFile(path.join(real.base, "audit.jsonl"), "utf8");
+  if (!secretAudit.includes('"action":"project_secret_access"') || secretAudit.includes("ui-owner-private-test"))
+    throw Error("Secret-access audit missing or leaking contents");
+  await screenshot("03b-secret-access-real-service");
   await section("Files");
   await fill("File path", path.join(real.base, "second", "proof.txt"));
   await fill("Content", "UI to real CrotService");
@@ -140,6 +205,55 @@ export async function runServiceScenarios({ real, evaluate, until, size, screens
   await screenshot("08-audit-real-service");
   if ((await evaluate("document.body.textContent")).includes("fixture-ui-secret"))
     throw Error("Credential leaked to UI");
+  // Real provider HTTP -> canonical guarded tool -> owner approval in the shared UI -> audit.
+  await real.configureChatApproval();
+  await section("Chat");
+  await until("document.querySelector('select[aria-label=\"Chat provider\"]')");
+  await evaluate(
+    "(()=>{const p=document.querySelector('select[aria-label=\"Chat provider\"]');p.value='Local HTTP';p.dispatchEvent(new Event('change'));})()",
+  );
+  await fill("API base URL", state.endpoint.replace("/provider-probe", "/chat-provider/v1"));
+  await click("Save chat provider");
+  await confirm();
+  await click("Refresh models");
+  await until("document.querySelector('select[aria-label=Model] option[value=ui-model]')");
+  await evaluate(
+    "(()=>{const m=document.querySelector('select[aria-label=Model]');m.value='ui-model';m.dispatchEvent(new Event('change'));const l=Array.from(document.querySelectorAll('label')).find(l=>l.textContent==='fs_write_file');l.querySelector('input').click();})()",
+  );
+  await fill("Message", "Run an approved fixture write");
+  await click("Send message");
+  await until(
+    "document.querySelector('[data-chat-approvals] .card')&&document.body.textContent.includes('Waiting for approved write')",
+  );
+  await screenshot("09-chat-awaiting-real-approval");
+  await click("Allow once", "[data-chat-approvals] button");
+  await until("document.body.textContent.includes('UI streaming tool complete')");
+  const chatEvidence = await real.verifyChat();
+  await fill("Message", "Remember this operation for the project");
+  await click("Send message");
+  await until("document.querySelector('[data-chat-approvals] .card')");
+  await click("Allow for project", "[data-chat-approvals] button");
+  await confirm();
+  await until("!document.querySelector('[data-chat-approvals] .card')");
+  await until(
+    "(async()=>{const p=await window.crot.product('chat.providers');return (await window.crot.product('chat.poll',{id:p.current})).state==='completed';})()",
+  );
+  await fill("Message", "Repeat with the remembered project grant");
+  await click("Send message");
+  await until(
+    "(async()=>{const p=await window.crot.product('chat.providers');return (await window.crot.product('chat.poll',{id:p.current})).state==='completed';})()",
+  );
+  if (await evaluate("!!document.querySelector('[data-chat-approvals] .card')"))
+    throw Error("Project grant was not applied");
+  const grantPolicy = await evaluate("window.crot.product('security.status')");
+  if (!grantPolicy.policy.projectGrants.some((g) => g.operation === "filesystem.write_file"))
+    throw Error("UI project grant was not persisted");
+
+  await screenshot("10-chat-streaming-tool-real-service");
+  await section("Monitoring");
+  await fill("Event type", "filesystem.write_file");
+  await click("Apply filters");
+  await until("document.body.textContent.includes('filesystem.write_file')");
   for (const name of ["Browser", "Settings"]) {
     await section(name);
     await screenshot(name.toLowerCase() + "-real-service");
@@ -150,8 +264,10 @@ export async function runServiceScenarios({ real, evaluate, until, size, screens
       {
         status: "passed",
         scope:
-          "Shipped Chromium UI → test-only IPC bridge → real isolated CrotService; projects/files/git/terminal/connector HTTP/MCP stdio/tasks cancellation/real audit",
+          "Shipped Chromium UI → test-only IPC bridge → real isolated CrotService; projects/files/git/terminal/connector HTTP/MCP stdio/tasks cancellation/real audit/streamed chat with guarded tool approval",
         ...(await real.verify()),
+        ...chatEvidence,
+        ownerSecretConfirmationAndRevocation: true,
       },
       null,
       2,

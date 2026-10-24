@@ -1,5 +1,6 @@
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { AccountService } from "../../src/account-service/service.js";
+import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, stat, unlink } from "node:fs/promises";
 import path from "node:path";
@@ -308,6 +309,607 @@ describe("CROT service (WP-20)", () => {
         maxFrameBytes: 1 << 20,
       }),
     ).rejects.toMatchObject({ reason: "unreachable" });
+  });
+});
+
+describe("Stage A scoped loopback tokens", () => {
+  // Separate authorization, rotation and native process lifecycle contracts. Each
+  // retains the normal 20s budget; one slow native setup cannot consume the other
+  // contracts' budgets. No retries, platform skips or weakened assertions.
+  const setup = async () => {
+    const auditPath = path.join(dirs.outside, "token-audit.jsonl");
+    const started = await startService({
+      config: {
+        permissions: { mode: "full_control" },
+        http: { enabled: true, port: 0 },
+        audit: { sink: "file", path: auditPath },
+      },
+    });
+    const control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    const clients: Client[] = [];
+    const connect = async (token: string) => {
+      const client = new Client({ name: "same self-reported name", version: "1" });
+      clients.push(client);
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(started.service.httpUrl!), {
+          requestInit: { headers: { authorization: `Bearer ${token}` } },
+        }),
+      );
+      return client;
+    };
+    return {
+      control,
+      connect,
+      auditPath,
+      close: async () => {
+        for (const client of clients) await client.close().catch(() => undefined);
+        control.close();
+      },
+    };
+  };
+
+  it("narrows actual HTTP tools independently of the client name and retains workspace ceilings", async (ctx) => {
+    let phase = "service startup";
+    ctx.onTestFailed(() => console.error(`scoped HTTP authorization last phase: ${phase}`));
+    const fixture = await setup(),
+      { control, connect } = fixture;
+    try {
+      phase = "issue independent tokens";
+      const issued = (await control.request("tokens.issue", {
+        name: "file editor",
+        ttlSeconds: 3600,
+        scopes: ["files"],
+      })) as { id: string; token: string };
+      const browserToken = (await control.request("tokens.issue", {
+        name: "browser",
+        ttlSeconds: 3600,
+        scopes: ["browser"],
+      })) as { id: string; token: string };
+      phase = "connect clients with identical reported names";
+      const files = await connect(issued.token),
+        browser = await connect(browserToken.token);
+      phase = "allowed file operation";
+      expect(
+        (await files.callTool({ name: "fs_write_file", arguments: { path: "token.txt", content: "scoped" } })).isError,
+      ).not.toBe(true);
+      phase = "deny cross-scope operation";
+      expect((await browser.callTool({ name: "fs_read_file", arguments: { path: "token.txt" } })).isError).toBe(true);
+      phase = "deny outside-workspace operation";
+      expect(
+        (
+          await files.callTool({
+            name: "fs_read_file",
+            arguments: { path: path.join(dirs.outside, "not-in-workspace") },
+          })
+        ).isError,
+      ).toBe(true);
+    } finally {
+      phase = "client cleanup";
+      await fixture.close();
+    }
+  });
+
+  it("rotation cancels a pending HTTP approval, invalidates old credentials and preserves secret-free audit", async (ctx) => {
+    let phase = "service startup";
+    ctx.onTestFailed(() => console.error(`scoped token rotation last phase: ${phase}`));
+    const fixture = await setup(),
+      { control, connect, auditPath } = fixture;
+    let approval: import("../../src/core/approvals/types.js").PresentedApproval | undefined;
+    try {
+      phase = "issue and connect file token";
+      const issued = (await control.request("tokens.issue", {
+        name: "file editor",
+        ttlSeconds: 3600,
+        scopes: ["files"],
+      })) as { id: string; token: string };
+      const files = await connect(issued.token);
+      expect(
+        (await files.callTool({ name: "fs_write_file", arguments: { path: "token.txt", content: "scoped" } })).isError,
+      ).not.toBe(true);
+      control.onevent = (event) => {
+        if (event.event === "approval.requested") approval = event.approval;
+      };
+      await control.request("approvals.subscribe");
+      await control.request("security.setPolicy", { strict: true, rules: [] });
+      phase = "present pending approval";
+      const pending = files
+        .callTool({ name: "fs_write_file", arguments: { path: "never-written.txt", content: "must cancel" } })
+        .then(
+          (v) => v,
+          () => ({ isError: true }),
+        );
+      await waitFor(() => approval !== undefined);
+      phase = "rotate and assert service-side cancellation";
+      const rotated = (await control.request("tokens.rotate", { id: issued.id })) as { token: string };
+      // The SDK may wait for resumable SSE reconnect after a forced socket close.
+      // Verify the service-side cancellation independently, then dispose that client.
+      const tasks = (await control.request("tasks.list", {})) as { tasks: { state: string; operation: string }[] };
+      expect(tasks.tasks.some((t) => t.operation === "filesystem.writeFile" && t.state === "Cancelled")).toBe(true);
+      phase = "dispose rotated SDK connection";
+      await files.close();
+      phase = "settle cancelled SDK request";
+      expect((await pending).isError).toBe(true);
+      await expect(stat(path.join(dirs.workspace, "never-written.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+      phase = "refuse old credential and admit replacement";
+      await expect(connect(issued.token)).rejects.toThrow();
+      await control.request("security.setPolicy", { strict: false, rules: [] });
+      const fresh = await connect(rotated.token);
+      expect((await fresh.callTool({ name: "fs_read_file", arguments: { path: "token.txt" } })).isError).not.toBe(true);
+      const listing = await control.request("tokens.list", {});
+      expect(JSON.stringify(listing)).not.toContain(rotated.token);
+      expect(JSON.stringify(listing)).not.toMatch(/digest|generation/);
+      phase = "revoke replacement credential";
+      await control.request("tokens.revoke", { id: issued.id });
+      await expect(connect(rotated.token)).rejects.toThrow();
+      phase = "verify redacted audit";
+      const journal = await readFile(auditPath, "utf8");
+      expect(journal).toContain('"token_rotate"');
+      expect(journal).toContain('"token_revoke"');
+      expect(journal).not.toContain(issued.token);
+      expect(journal).not.toContain(rotated.token);
+    } finally {
+      phase = "client cleanup";
+      await fixture.close();
+    }
+  });
+
+  it("terminal revoke cancels its real process under Strict Mode or refuses unconfined fallback", async (ctx) => {
+    let phase = "service startup";
+    ctx.onTestFailed(() => console.error(`scoped terminal revoke last phase: ${phase}`));
+    const fixture = await setup(),
+      { control, connect } = fixture;
+    try {
+      phase = "issue and connect terminal token";
+      const terminalToken = (await control.request("tokens.issue", {
+        name: "runner",
+        ttlSeconds: 3600,
+        scopes: ["terminal"],
+      })) as { id: string; token: string };
+      const runner = await connect(terminalToken.token);
+      phase = "start confined process";
+      const startedProcess = await runner.callTool({
+        name: "process_start",
+        arguments: { command: process.execPath, args: ["-e", "setInterval(()=>{},1000)"] },
+      });
+      phase = "read actual confinement availability";
+      const statusResult = await runner.callTool({ name: "crot_status", arguments: {} });
+      const status = JSON.parse((statusResult.content as { text: string }[])[0]!.text);
+      if (status.confinement.available) {
+        expect(startedProcess.isError).not.toBe(true);
+        // A revoke must not prompt for process.stop, even with Strict Mode enabled.
+        await control.request("security.setPolicy", { strict: true, rules: [] });
+        phase = "revoke process token with Strict Mode enabled";
+        await control.request("tokens.revoke", { id: terminalToken.id });
+        const runnerTasks = (await control.request("tasks.list", {})) as {
+          tasks: { operation: string; state: string }[];
+        };
+        expect(runnerTasks.tasks.some((t) => t.operation === "processes.start" && t.state === "Cancelled")).toBe(true);
+        await control.request("security.setPolicy", { strict: false, rules: [] });
+      } else {
+        expect(startedProcess.isError).toBe(true);
+        expect(JSON.stringify(startedProcess)).toContain("CONFINEMENT_UNAVAILABLE");
+        phase = "revoke token after fail-closed launch refusal";
+        await control.request("tokens.revoke", { id: terminalToken.id });
+      }
+      phase = "reject revoked process credentials";
+      await expect(connect(terminalToken.token)).rejects.toThrow();
+    } finally {
+      phase = "client cleanup";
+      await fixture.close();
+    }
+  });
+});
+
+describe("Stage A real chat provider adapters", () => {
+  it("uses live model endpoints and SSE for all three adapters, executes a guarded tool after approval, stops streaming and protects keys", async () => {
+    const seen: { url: string; body: Record<string, unknown>; authorization?: string; key?: string }[] = [];
+    let slowClosed = false;
+    const provider = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (b: Buffer) => chunks.push(b));
+      req.on("end", () => {
+        const body = chunks.length ? (JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>) : {};
+        const url = req.url ?? "";
+        seen.push({
+          url,
+          body,
+          ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}),
+          ...(typeof req.headers["x-api-key"] === "string" ? { key: req.headers["x-api-key"] } : {}),
+        });
+        if (url.includes("/models")) {
+          res
+            .writeHead(200, { "content-type": "application/json" })
+            .end(JSON.stringify({ data: [{ id: "fixture-model" }], has_more: false }));
+          return;
+        }
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const event = (name: string, data: unknown) =>
+          res.write((name ? `event: ${name}\n` : "") + `data: ${JSON.stringify(data)}\n\n`);
+        const anthropic = url.includes("anthropic"),
+          messages = body.messages as unknown[];
+        if (JSON.stringify(messages).includes("slow-fixture")) {
+          event("", { choices: [{ delta: { content: "Partial before stop" } }] });
+          res.on("close", () => {
+            slowClosed = true;
+          });
+          return;
+        }
+        if (messages.length === 1 && JSON.stringify(body.tools ?? []).includes("fs_write_file")) {
+          const args = JSON.stringify({
+            path: anthropic ? "chat-anthropic.txt" : "chat-openai.txt",
+            content: "approved-from-chat",
+          });
+          if (anthropic) {
+            event("content_block_start", {
+              index: 0,
+              content_block: { type: "tool_use", id: "call_fixture", name: "fs_write_file", input: {} },
+            });
+            event("content_block_delta", { index: 0, delta: { type: "input_json_delta", partial_json: args } });
+            event("message_stop", { type: "message_stop" });
+            res.end();
+          } else {
+            event("", {
+              choices: [
+                {
+                  delta: {
+                    tool_calls: [
+                      { index: 0, id: "call_fixture", function: { name: "fs_write_file", arguments: args } },
+                    ],
+                  },
+                },
+              ],
+            });
+            res.end("data: [DONE]\n\n");
+          }
+          return;
+        }
+        if (anthropic) {
+          event("content_block_delta", { index: 0, delta: { type: "text_delta", text: "Provider response" } });
+          event("message_stop", { type: "message_stop" });
+          res.end();
+        } else {
+          event("", { choices: [{ delta: { content: "Provider response" } }] });
+          res.end("data: [DONE]\n\n");
+        }
+      });
+    });
+    await new Promise<void>((r) => provider.listen(0, "127.0.0.1", r));
+    const port = (provider.address() as { port: number }).port,
+      auditPath = path.join(dirs.outside, "chat-audit.jsonl");
+    const started = await startService({
+      config: {
+        permissions: {
+          mode: "full_control",
+          approvals: { untrustedContent: "off" },
+          network: { allow: [`127.0.0.1:${port}`] },
+        },
+        audit: { sink: "file", path: auditPath },
+      },
+    });
+    const control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    let approval: import("../../src/core/approvals/types.js").PresentedApproval | undefined;
+    try {
+      control.onevent = (e) => {
+        if (e.event === "approval.requested") approval = e.approval;
+      };
+      await control.request("approvals.subscribe");
+      await control.request("security.setPolicy", {
+        strict: false,
+        rules: [{ operation: "filesystem.write_file", state: "ask" }],
+      });
+      for (const [name, segment] of [
+        ["OpenAI", "openai"],
+        ["Anthropic", "anthropic"],
+        ["Local HTTP", "local"],
+      ]) {
+        await control.request("chat.configure", {
+          provider: name,
+          endpoint: `http://127.0.0.1:${port}/${segment}/v1`,
+          ...(name !== "Local HTTP" ? { credential: `fixture-${segment}-key` } : {}),
+        });
+        expect(await control.request("chat.models", { provider: name })).toMatchObject({ models: ["fixture-model"] });
+        approval = undefined;
+        const c = (await control.request("chat.start", {
+          provider: name,
+          model: "fixture-model",
+          message: "Run selected fixture tool",
+          tools: name === "Local HTTP" ? [] : ["fs_write_file"],
+          attachments: [
+            { name: "note.txt", mime: "text/plain", data: Buffer.from("attached fixture text").toString("base64") },
+          ],
+        })) as { id: string };
+        if (name !== "Local HTTP") {
+          await waitFor(() => approval !== undefined);
+          const snapshot = await control.request("chat.poll", { id: c.id });
+          expect(JSON.stringify(snapshot)).toContain('"status":"running"');
+          expect(approval!.subject.operation).toBe("filesystem.write_file");
+          expect(
+            await control.request("approvals.decide", {
+              requestId: approval!.requestId,
+              subjectDigest: approval!.subjectDigest,
+              decision: "approve",
+            }),
+          ).toEqual({ ok: true });
+        }
+        await waitFor(
+          async () => ((await control.request("chat.poll", { id: c.id })) as { state: string }).state !== "running",
+        );
+        expect(await control.request("chat.poll", { id: c.id })).toMatchObject({
+          state: "completed",
+          blocks: expect.arrayContaining([expect.objectContaining({ type: "assistant", text: "Provider response" })]),
+        });
+      }
+      expect(await readFile(path.join(dirs.workspace, "chat-openai.txt"), "utf8")).toBe("approved-from-chat");
+      expect(await readFile(path.join(dirs.workspace, "chat-anthropic.txt"), "utf8")).toBe("approved-from-chat");
+      const slow = (await control.request("chat.start", {
+        provider: "Local HTTP",
+        model: "fixture-model",
+        message: "slow-fixture",
+      })) as { id: string };
+      await waitFor(async () =>
+        JSON.stringify(await control.request("chat.poll", { id: slow.id })).includes("Partial before stop"),
+      );
+      await control.request("chat.stop", { id: slow.id });
+      await waitFor(
+        async () => ((await control.request("chat.poll", { id: slow.id })) as { state: string }).state === "cancelled",
+      );
+      await waitFor(() => slowClosed);
+      const providers = JSON.stringify(await control.request("chat.providers", {}));
+      expect(providers).not.toContain("fixture-openai-key");
+      const metadata = await readFile(path.join(stateDir, "product-state.json"), "utf8"),
+        vault = await readFile(path.join(stateDir, "product-vault.enc"), "utf8"),
+        journal = await readFile(auditPath, "utf8");
+      for (const output of [metadata, vault, journal, started.logs.join("\n")])
+        expect(output).not.toContain("fixture-openai-key");
+      expect(journal).toContain('"filesystem.write_file"');
+      expect(journal).toContain('"status":"approved"');
+      expect(seen.some((r) => r.authorization === "Bearer fixture-openai-key")).toBe(true);
+      expect(seen.some((r) => r.key === "fixture-anthropic-key")).toBe(true);
+      expect(seen.some((r) => JSON.stringify(r.body).includes("attached fixture text"))).toBe(true);
+    } finally {
+      control.close();
+      await started.service.shutdown("chat fixture done");
+      provider.closeAllConnections();
+      await new Promise<void>((r) => provider.close(() => r()));
+    }
+  });
+});
+
+describe("Stage A owner project inspection", () => {
+  it("holds the active workspace while port approval is pending, supports cancellation, and records audit", async () => {
+    const config = {
+      permissions: { mode: "full_control", approvals: { untrustedContent: "off" } },
+      audit: { sink: "file", path: path.join(dirs.outside, "inspection.jsonl") },
+    };
+    await startService({ config });
+    const control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    let pending: import("../../src/core/approvals/types.js").PresentedApproval | undefined;
+    try {
+      const other = (await control.request("projects.open", { path: dirs.outside })) as { project: { id: string } };
+      const otherId = (other.project as { id: string }).id;
+      control.onevent = (event) => {
+        if (event.event === "approval.requested") pending = event.approval;
+      };
+      await control.request("approvals.subscribe");
+      await control.request("security.setPolicy", {
+        strict: false,
+        rules: [{ operation: "process.project_ports", state: "ask" }],
+      });
+      const inspection = control.request("projects.inspect");
+      await waitFor(() => !!pending);
+      expect(pending!.subject.workspace).toBe(dirs.workspace);
+      await expect(control.request("projects.select", { id: otherId })).rejects.toThrow();
+      await control.request("approvals.decide", {
+        requestId: pending!.requestId,
+        subjectDigest: pending!.subjectDigest,
+        decision: "approve",
+      });
+      expect(await inspection).toMatchObject({
+        ok: true,
+        inspection: { workspace: dirs.workspace, manifests: expect.any(Array) },
+      });
+      const audit = await control.request("monitoring.queryAudit", { type: "process.project_ports" });
+      expect(audit).toMatchObject({
+        events: expect.arrayContaining([
+          expect.objectContaining({ type: "process.project_ports", outcome: "success" }),
+        ]),
+      });
+      pending = undefined;
+      const cancelled = control.request("projects.inspect");
+      const refused = expect(cancelled).rejects.toThrow();
+      await waitFor(() => !!pending);
+      const listing = (await control.request("tasks.list", {})) as {
+        tasks: { id: string; operation: string; state: string; retryable: boolean }[];
+      };
+      const task = (listing.tasks as { id: string; operation: string; state: string; retryable: boolean }[]).find(
+        (t) => t.operation === "$project.inspect" && t.state === "Running",
+      )!;
+      expect(task.retryable).toBe(false);
+      await control.request("tasks.cancel", { id: task.id });
+      await refused;
+      await control.request("projects.select", { id: otherId });
+    } finally {
+      control.close();
+    }
+  });
+});
+
+describe("Stage A project approvals", () => {
+  it("binds project grants to pending digests, restores them on restart, and retains strict/deny/revoke gates", async () => {
+    const config = {
+      permissions: { mode: "full_control", approvals: { untrustedContent: "off" } },
+      audit: { sink: "file", path: path.join(dirs.outside, "project-grants.jsonl") },
+    };
+    const started = await startService({ config });
+    let client = await mcpClient(config),
+      control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    let pending: import("../../src/core/approvals/types.js").PresentedApproval | undefined;
+    const subscribe = async () => {
+      control.onevent = (e) => {
+        if (e.event === "approval.requested") pending = e.approval;
+      };
+      await control.request("approvals.subscribe");
+    };
+    const write = (name: string) =>
+      client.callTool({ name: "fs_write_file", arguments: { path: name, content: "approved" } });
+    try {
+      await subscribe();
+      await control.request("security.setPolicy", {
+        strict: false,
+        rules: [{ operation: "filesystem.write_file", state: "ask" }],
+      });
+      const first = write("first.txt");
+      await waitFor(() => !!pending);
+      expect(pending!.subject.workspace).toBe(dirs.workspace);
+      expect(
+        await control.request("approvals.decide", {
+          requestId: pending!.requestId,
+          subjectDigest: "0".repeat(64),
+          decision: "approve-project",
+        }),
+      ).toMatchObject({ ok: false });
+      expect(await control.request("security.status")).toMatchObject({ policy: { rules: [{ state: "ask" }] } });
+      expect(
+        await control.request("approvals.decide", {
+          requestId: pending!.requestId,
+          subjectDigest: pending!.subjectDigest,
+          decision: "approve-project",
+        }),
+      ).toMatchObject({ ok: true });
+      expect((await first).isError).not.toBe(true);
+      pending = undefined;
+      expect((await write("second.txt")).isError).not.toBe(true);
+      expect(pending).toBeUndefined();
+      await client.close();
+      control.close();
+      await started.service.shutdown("restart grant");
+      await startService({ config });
+      client = await mcpClient(config);
+      control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+      await subscribe();
+      const grant = { workspace: dirs.workspace, operation: "filesystem.write_file" };
+      expect(await control.request("security.status")).toMatchObject({ policy: { projectGrants: [grant] } });
+      expect((await write("restored.txt")).isError).not.toBe(true);
+      expect(pending).toBeUndefined();
+      await control.request("security.setPolicy", { strict: true, rules: [] });
+      const strict = write("strict.txt");
+      await waitFor(() => !!pending);
+      await expect(
+        control.request("approvals.decide", {
+          requestId: pending!.requestId,
+          subjectDigest: pending!.subjectDigest,
+          decision: "approve-project",
+        }),
+      ).rejects.toThrow();
+      expect(
+        await control.request("approvals.decide", {
+          requestId: pending!.requestId,
+          subjectDigest: pending!.subjectDigest,
+          decision: "reject",
+        }),
+      ).toMatchObject({ ok: true });
+      expect((await strict).isError).toBe(true);
+      pending = undefined;
+      await control.request("security.setPolicy", {
+        strict: false,
+        rules: [{ operation: "filesystem.write_file", state: "deny" }],
+      });
+      expect((await write("deny.txt")).isError).toBe(true);
+      expect(pending).toBeUndefined();
+      await control.request("security.setPolicy", {
+        strict: false,
+        rules: [{ operation: "filesystem.write_file", state: "ask" }],
+      });
+      await control.request("security.revokeProjectGrant", grant);
+      const revoked = write("revoked.txt");
+      await waitFor(() => !!pending);
+      await control.request("approvals.decide", { requestId: pending!.requestId, decision: "reject" });
+      expect((await revoked).isError).toBe(true);
+      for (const name of ["strict.txt", "deny.txt", "revoked.txt"])
+        await expect(readFile(path.join(dirs.workspace, name))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(path.join(dirs.outside, "project-grants.jsonl"), "utf8")).toContain("projectGrants");
+    } finally {
+      control.close();
+      await client.close();
+    }
+  });
+});
+
+describe("Stage A emergency owner control", () => {
+  it("connects an agent, executes a real task, approves through owner IPC and observes the audit; restores policy on restart", async () => {
+    const config = { audit: { sink: "file", path: path.join(dirs.outside, "stage-a-workflow.jsonl") } };
+    const started = await startService({ config });
+    const client = await mcpClient(config);
+    const control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    let approval: import("../../src/core/approvals/types.js").PresentedApproval | undefined;
+    try {
+      control.onevent = (event) => {
+        if (event.event === "approval.requested") approval = event.approval;
+      };
+      await control.request("approvals.subscribe");
+      expect(await control.request("security.setPolicy", { strict: true, rules: [] })).toMatchObject({ ok: true });
+      const task = client.callTool({
+        name: "fs_write_file",
+        arguments: { path: "approved-stage-a.txt", content: "owner-approved" },
+      });
+      await waitFor(() => approval !== undefined);
+      expect(
+        await control.request("approvals.decide", {
+          requestId: approval!.requestId,
+          decision: "approve",
+          subjectDigest: approval!.subjectDigest,
+        }),
+      ).toEqual({ ok: true });
+      expect((await task).isError).not.toBe(true);
+      expect(await readFile(path.join(dirs.workspace, "approved-stage-a.txt"), "utf8")).toBe("owner-approved");
+      expect(await control.request("monitoring.queryAudit", { type: "filesystem.write_file" })).toMatchObject({
+        ok: true,
+        events: expect.arrayContaining([
+          expect.objectContaining({ type: "filesystem.write_file", outcome: "success" }),
+        ]),
+      });
+    } finally {
+      control.close();
+      await client.close();
+    }
+    await started.service.shutdown("restart policy test");
+    await startService({ config });
+    const restarted = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    try {
+      expect(await restarted.request("security.status")).toMatchObject({
+        ok: true,
+        policy: { strict: true, rules: [] },
+      });
+    } finally {
+      restarted.close();
+    }
+  });
+
+  it("preserves owner diagnostics, closes MCP admission and records kill in the real journal", async () => {
+    const auditPath = path.join(dirs.outside, "emergency-audit.jsonl");
+    const config = { permissions: { mode: "full_control" }, audit: { sink: "file", path: auditPath } };
+    await startService({ config });
+    const client = await mcpClient(config);
+    const control = (await ControlClient.connect({ stateDir, privateFiles }))!;
+    try {
+      const result = await control.request("security.kill");
+      expect(result).toMatchObject({ ok: true, halted: true, audited: true, cleanupComplete: true });
+      expect(await control.request("security.status")).toMatchObject({ ok: true, halted: true });
+      expect(await control.request("security.kill")).toEqual(result);
+      expect((await shimConnect(config)).answer).toMatchObject({ t: "refused", reason: "shutting_down" });
+      const journal = (await readFile(auditPath, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      expect(journal.filter((e) => e.action === "emergency_stop")).toHaveLength(1);
+      expect(await control.request("monitoring.queryAudit", { type: "emergency_stop" })).toMatchObject({
+        ok: true,
+        events: [{ type: "emergency_stop", outcome: "applied" }],
+      });
+    } finally {
+      control.close();
+      await client.close();
+    }
   });
 });
 

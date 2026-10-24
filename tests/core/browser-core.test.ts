@@ -100,7 +100,7 @@ describe("Core browser capability", () => {
       { browser: connection },
     );
     await core.shutdown();
-    await expect(core.browser.listTabs(ctx)).rejects.toMatchObject({ code: "OPERATION_FAILED" });
+    await expect(core.browser.listTabs(ctx)).rejects.toMatchObject({ code: "RESOURCE_BUSY" });
     expect(connection.requests).toBe(0);
   });
 });

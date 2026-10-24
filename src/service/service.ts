@@ -19,6 +19,9 @@
  * The service makes no permission decision: every tool call goes through Core
  * (PermissionEngine, ExecutionGuard, audit) exactly as before.
  */
+import { ClientTokenRegistry, clientTokenPath } from "./client-tokens.js";
+import { RuntimePermissionState } from "../core/permissions/runtime.js";
+import { newAuditEventId } from "../core/audit/audit.js";
 import { newLocalExposureScope } from "../core/auth/principal.js";
 import { ProductRuntime, productPaths } from "./product-runtime.js";
 import type net from "node:net";
@@ -36,6 +39,7 @@ import type { UntrustedContentSetting } from "../core/approvals/exposure.js";
 import { REMOTE_EXPOSURE_FILE_NAME, RemoteExposureStore } from "../core/approvals/index.js";
 import { parseConfig } from "../core/config/load.js";
 import { expandHome } from "../core/config/paths.js";
+import { ProjectSecretAccessStore, projectSecretAccessPath } from "./project-secret-access.js";
 import { CORE_VERSION, CrotCore, type CoreCompositionHandle, type CrotCoreOptions } from "../core/crot-core.js";
 import type { RemoteProfileOptions } from "../core/permissions/engine.js";
 import { CrotError } from "../core/errors.js";
@@ -147,7 +151,10 @@ export class CrotService {
   private endpoints: { service: ServiceEndpoint; control: ServiceEndpoint } | undefined;
   private native: NativeHost | undefined;
   private bridge: BrowserBridge | undefined;
+  private clientTokens: ClientTokenRegistry | undefined;
   private product: ProductRuntime | undefined;
+  private readonly runtimePermissions = new RuntimePermissionState();
+  private killing: Promise<Record<string, unknown>> | undefined;
   private holder: CoreHolder | undefined;
   private control: ControlCenter | undefined;
   private deviceIdentity: DeviceIdentity | undefined;
@@ -381,7 +388,13 @@ export class CrotService {
           `warning: device binding: paired in environment ${paired.environment}, this process uses ${identity.environment.id}; every remote request is refused until the device is paired again`,
         );
       // Secret material (AD-18): neither readable nor modifiable through CROT tools, in any mode.
+      const secretAccess = await ProjectSecretAccessStore.open(
+        projectSecretAccessPath(stateDir),
+        privateFiles,
+        parsed.permissions.projectSecrets,
+      );
       const secretPaths = [
+        projectSecretAccessPath(stateDir),
         ...stateSecretPaths(stateDir),
         ...secrets.store.backend.paths,
         ...(configuredTokenFile ? [configuredTokenFile] : []),
@@ -427,13 +440,17 @@ export class CrotService {
           })
         : undefined;
       const coreOptions: CrotCoreOptions = {
+        runtimePermissions: this.runtimePermissions,
         protectedPaths,
         secretPaths,
         ...(remoteExposureFile ? { remoteExposureFile } : {}),
         ...(remoteExposure ? { remoteExposure } : {}),
         platform: servicePlatform,
         ...(this.bridge ? { browser: this.bridge } : {}),
-        additionalAuthorization: (context, operation) => this.product?.authorize(context, operation),
+        additionalAuthorization: (context, operation) => {
+          this.clientTokens?.authorize(context.principal);
+          this.product?.authorize(context, operation);
+        },
         serviceStatus: () => this.status(),
       };
       const configuredPreset = parsed.permissions.approvals.untrustedContent;
@@ -445,6 +462,7 @@ export class CrotService {
         exposure?: CoreCompositionHandle["exposure"],
         remote?: RemoteProfileOptions,
         workspace = activeWorkspace,
+        projectSecrets = secretAccess.policy,
       ) => {
         let handle: CoreCompositionHandle | undefined;
         const core = await CrotCore.create(
@@ -452,6 +470,7 @@ export class CrotService {
             {
               ...command.config,
               workspace: { ...command.config.workspace, root: workspace },
+              permissions: { ...parsed.permissions, projectSecrets },
               ...(activeAuditPath ? { audit: { ...command.config.audit, path: activeAuditPath } } : {}),
             },
             preset,
@@ -490,7 +509,8 @@ export class CrotService {
         identity,
         remoteExposure,
         configuredPreset,
-        buildCore: (preset, remote, workspace) => build(preset, holder.composition.exposure, remote, workspace),
+        buildCore: (preset, remote, workspace, projectSecrets) =>
+          build(preset, holder.composition.exposure, remote, workspace, projectSecrets),
         serviceStatus: () => this.status(),
         browserState: () => this.bridge?.state(),
         agents: () => ({
@@ -501,12 +521,53 @@ export class CrotService {
         log,
       });
       this.control = control;
+      this.clientTokens = await ClientTokenRegistry.open({
+        file: clientTokenPath(stateDir),
+        privateFiles: servicePlatform.privateFiles,
+        failClosed: () => this.runtimePermissions.stop(),
+        audit: (action, id) =>
+          holder.composition.recordControlEvent({
+            kind: "control",
+            id: newAuditEventId(),
+            timestamp: new Date().toISOString(),
+            action,
+            actor: { channel: "control" },
+            outcome: "applied",
+            value: id,
+          }),
+        invalidate: async (id, generation) => {
+          await Promise.all([
+            this.product?.invalidateToken(id, generation),
+            this.http?.endPrincipal({
+              id: `client-token:${id}:${generation}`,
+              kind: "local",
+              transport: "http",
+              authMethod: "scoped-token",
+              tokenAccess: { id, generation, scopes: [] },
+            }),
+          ]);
+        },
+      });
       this.product = await ProductRuntime.open({
+        tokens: this.clientTokens,
+        secretFiles: {
+          status: () => ({
+            ok: true,
+            workspace: holder.instance.workspace.root,
+            policy: secretAccess.policy,
+            halted: this.runtimePermissions.halted,
+            confinement: holder.instance.status().confinement,
+          }),
+          set: (input) => control.changeProjectSecretAccess(input, secretAccess),
+        },
+        holdActivity: (work) => holder.hold(work),
         stateDir,
         secrets: secrets.store,
         privateFiles: servicePlatform.privateFiles,
         core: () => holder.instance,
         disconnectAgent: (id) => control.disconnectProductAgent(id),
+        emergencyStop: () => this.killAgents(),
+        recordControlEvent: (event) => holder.composition.recordControlEvent(event),
         selectWorkspace: async (root) => {
           await control.selectWorkspace(root);
           activeWorkspace = root;
@@ -627,7 +688,24 @@ export class CrotService {
         `http: access token ${existing ? "read from" : "created in"} ${store.backend.description} (fingerprint ${verifier.fingerprint}); show it with 'crot-mcp secrets show http-token'`,
       );
     }
-    this.http = await CrotHttpServer.start(core, { config: http, verifier, log });
+    const bootstrap = verifier;
+    this.http = await CrotHttpServer.start(core, {
+      config: http,
+      log,
+      principalAdmission: (principal) => {
+        try {
+          this.clientTokens?.authorize(principal);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      verifier: {
+        method: "local-token",
+        verifyAccessToken: async (token) =>
+          (await bootstrap.verifyAccessToken(token)) ?? this.clientTokens?.verifyAccessToken(token),
+      },
+    });
     log(`http: listening on ${this.http.url} (loopback only; bearer token required)`);
   }
 
@@ -702,6 +780,8 @@ export class CrotService {
       readonly environment?: Readonly<Record<string, string>>;
     },
   ): Promise<void> {
+    if (this.runtimePermissions.halted)
+      return this.refuse(shim, "shutting_down", "Emergency stop is active; restart the service to resume.");
     if (hello.version !== SERVICE_PROTOCOL_VERSION) {
       return this.refuse(
         shim,
@@ -974,6 +1054,7 @@ export class CrotService {
     this.deviceIdentity?.cancelPairing();
     await this.tunnel?.close();
     if (this.http) await this.http.close();
+    await this.clientTokens?.close();
     await this.product?.close();
     if (this.holder) await this.holder.instance.shutdown();
     await this.control?.flush();
@@ -985,6 +1066,66 @@ export class CrotService {
       if (this.controlServer) await closeServer(this.controlServer);
       await closeServer(this.serviceServer);
     }
+  }
+
+  /** Emergency owner RPC: never queued behind approvals or long-running product operations. */
+  killAgents(): Promise<Record<string, unknown>> {
+    this.runtimePermissions.stop();
+    return (this.killing ??= this.doKillAgents());
+  }
+
+  private async doKillAgents(): Promise<Record<string, unknown>> {
+    const core = this.holder?.instance;
+    if (!core) return { ok: false, halted: true, message: "Core is unavailable" };
+    // Start all cleanup concurrently. One broken transport must not keep other processes alive.
+    const results = await Promise.allSettled([
+      core.emergencyStop(),
+      this.product?.abortAll(),
+      this.tunnel?.close(),
+      this.http?.close(),
+      ...[...this.shims].map(async (shim) => {
+        try {
+          await shim.close?.();
+        } finally {
+          shim.channel.close();
+        }
+      }),
+    ]);
+    const failed = results.some((r) => r.status === "rejected");
+    if (failed) {
+      try {
+        core.terminateProcessesSync();
+      } catch {
+        this.log("Emergency stop: forced cleanup also failed; service restart required");
+      }
+    }
+    let audited = true;
+    try {
+      await this.holder!.composition.recordControlEvent({
+        kind: "control",
+        id: newAuditEventId(),
+        timestamp: new Date().toISOString(),
+        action: "emergency_stop",
+        actor: { channel: "control" },
+        outcome: "applied",
+        value: true,
+        ...(failed ? { reason: "cleanup_incomplete" } : {}),
+      });
+    } catch {
+      audited = false;
+    }
+    this.control?.stateChanged();
+    return {
+      ok: !failed && audited,
+      halted: true,
+      audited,
+      cleanupComplete: !failed,
+      message: failed
+        ? "Emergency stop latched; some cleanup failed. Restart the service."
+        : !audited
+          ? "Emergency stop latched; audit write failed. Restart the service."
+          : "All agent work stopped. Restart the service to resume.",
+    };
   }
 
   /** Last resort when the graceful shutdown hangs: kill process trees synchronously. */

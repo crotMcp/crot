@@ -1,5 +1,5 @@
 /** Test-only HTTP replacement for Electron IPC. All data/actions use an isolated real CrotService. */
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
@@ -35,7 +35,8 @@ export async function serviceHarness() {
   });
   const bin = path.resolve("dist/bin/crot-mcp.js"),
     config = path.join(base, "config.json");
-  let tool, control, controller, view, endpoint;
+  let tool, control, controller, view, endpoint, inspectionGate, releaseInspection;
+  let inspectionCalls = 0;
   return {
     base,
     workspace,
@@ -71,7 +72,66 @@ export async function serviceHarness() {
       });
       await controller.start();
     },
+    pauseProjectInspection() {
+      inspectionGate = new Promise((resolve) => {
+        releaseInspection = resolve;
+      });
+    },
+    releaseProjectInspection() {
+      releaseInspection?.();
+      inspectionGate = undefined;
+    },
+    get inspectionCalls() {
+      return inspectionCalls;
+    },
+    async configureChatApproval() {
+      await control.request("security.setPolicy", {
+        strict: false,
+        rules: [{ operation: "filesystem.write_file", state: "ask" }],
+      });
+    },
+    async verifyChat() {
+      const content = await readFile(path.join(base, "second", "chat-proof.txt"), "utf8");
+      if (content !== "real-chat-approved") throw Error("Chat tool did not write the approved file");
+      const journal = (await readFile(path.join(base, "audit.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      if (
+        !journal.some(
+          (event) =>
+            event.operation === "filesystem.write_file" &&
+            event.outcome === "success" &&
+            event.approval?.status === "approved",
+        )
+      )
+        throw Error("Approved chat audit missing");
+      const { agents } = await control.request("agents.list");
+      if (!agents.some((agent) => agent.name === "Local HTTP chat")) throw Error("Chat agent identity missing");
+      return { approvedChatWrite: true, registeredChatAgent: true };
+    },
     async handle(req, res, pathname) {
+      if (pathname.startsWith("/chat-provider/")) {
+        if (pathname.endsWith("/models")) {
+          res
+            .writeHead(200, { "content-type": "application/json" })
+            .end(JSON.stringify({ data: [{ id: "ui-model" }] }));
+          return true;
+        }
+        let raw = "";
+        for await (const chunk of req) raw += chunk;
+        const body = JSON.parse(raw);
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        if (body.messages.length === 1) {
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "Waiting for approved write" } }] })}\n\n`);
+          res.write(
+            `data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "ui_call", function: { name: "fs_write_file", arguments: JSON.stringify({ path: "chat-proof.txt", content: "real-chat-approved" }) } }] } }] })}\n\n`,
+          );
+        } else
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "UI streaming tool complete" } }] })}\n\n`);
+        res.end("data: [DONE]\n\n");
+        return true;
+      }
       if (pathname === "/provider-probe") {
         res.writeHead(200, { "content-type": "application/json" }).end('{"ok":true}');
         return true;
@@ -91,9 +151,15 @@ export async function serviceHarness() {
               ? await tool.call(name, input)
               : kind === "product"
                 ? await control.request(name, input)
-                : kind === "action"
-                  ? await controller.startPairing(input)
-                  : true;
+                : kind === "decide"
+                  ? await controller.decide(name, input.decision)
+                  : kind === "action"
+                    ? await controller.startPairing(input)
+                    : true;
+        if (kind === "product" && name === "projects.inspect") {
+          inspectionCalls++;
+          await inspectionGate;
+        }
         res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ value }));
       } catch {
         res
@@ -103,13 +169,14 @@ export async function serviceHarness() {
       return true;
     },
     get shim() {
-      return `window.crot={onView(fn){this.render=fn},async ready(){this.render(await this.request('view'))},async request(kind,name,input={}){const r=await fetch('/real-rpc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind,name,input})});return (await r.json()).value},product(name,input){return this.request('product',name,input)},tool(name,input){return this.request('tool',name,input)},action(name,input){return this.request('action',name,input)},decide:async()=>false,repairL1:async()=>({ok:false})};window.serviceTest=${JSON.stringify({ projectPath: path.join(base, "second"), command: process.execPath, mcpFixture: path.resolve("tests/fixtures/product-mcp.mjs") })};`;
+      return `window.crot={onView(fn){this.render=fn},async ready(){this.render(await this.request('view'));setInterval(async()=>{try{this.render(await this.request('view'))}catch{}},150)},async request(kind,name,input={}){const r=await fetch('/real-rpc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({kind,name,input})});return (await r.json()).value},product(name,input){return this.request('product',name,input)},tool(name,input){return this.request('tool',name,input)},action(name,input){return this.request('action',name,input)},decide(name,decision){return this.request('decide',name,{decision})},repairL1:async()=>({ok:false})};window.serviceTest=${JSON.stringify({ projectPath: path.join(base, "second"), command: process.execPath, mcpFixture: path.resolve("tests/fixtures/product-mcp.mjs") })};`;
     },
     async verify() {
       const r = await control.request("projects.list");
       return { projects: r.projects.length, active: r.active, endpoint };
     },
     async close() {
+      releaseInspection?.();
       controller?.stop();
       control?.close();
       await tool?.close();

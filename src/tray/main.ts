@@ -38,6 +38,7 @@ import { TRAY_CSP, TRAY_ORIGIN, trayAsset } from "./assets.js";
 import { TrayToolClient } from "./tool-client.js";
 import { repairL1 } from "./l1-repair.js";
 import { TrayController } from "./controller.js";
+import { ProjectFolderPicker } from "./project-picker.js";
 import { trayView, type TrayView } from "./view-model.js";
 
 // Linux compatibility: the launcher also passes this before Electron bootstrap.
@@ -126,6 +127,29 @@ function menu(): Menu {
     { label: view.headline, enabled: false },
     { type: "separator" },
     { label: "Open CROT", click: () => showWindow() },
+    {
+      label: "Emergency stop agents",
+      click: () => {
+        void controller
+          .product("security.kill", {})
+          .then((result) => {
+            const r = result as { ok?: boolean; message?: string };
+            dialog
+              .showMessageBox({
+                type: r.ok ? "info" : "warning",
+                title: "Emergency stop",
+                message: r.message ?? "Check the service status.",
+              })
+              .catch(() => undefined);
+          })
+          .catch(() =>
+            dialog.showErrorBox(
+              "Emergency stop unavailable",
+              "Could not reach CrotService. Stop the service from the operating system.",
+            ),
+          );
+      },
+    },
     { label: "Quit tray", click: () => quit() },
   ]);
 }
@@ -218,9 +242,19 @@ function clientKey(p: Record<string, unknown>): { accountId: string; deviceId: s
     : undefined;
 }
 
+const projectFolderPicker = new ProjectFolderPicker();
+
 async function runAction(name: unknown, params: unknown): Promise<boolean> {
   // Fixed owner-UI actions only. Renderer never supplies an external URL or clipboard bytes.
   if (typeof name === "string" && name.startsWith("ui.") && isRecord(params) && Object.keys(params).length === 0) {
+    if (name === "ui.pickProjectFolder") {
+      if (smokeReport || !window) return false;
+      const parent = window;
+      return projectFolderPicker.open({
+        choose: () => dialog.showOpenDialog(parent, { title: "Open project folder", properties: ["openDirectory"] }),
+        product: (method, params) => controller.product(method, params),
+      });
+    }
     if (name === "ui.exportDiagnostics") {
       if (smokeReport || !window) return false;
       const result = await controller.product("monitoring.exportReport", {});
@@ -383,7 +417,12 @@ function registerIpc(): void {
     publish();
   });
   ipcMain.handle("decide", (event, requestId: unknown, decision: unknown) => {
-    if (smokeReport || !fromTray(event) || !isId(requestId) || (decision !== "approve" && decision !== "reject"))
+    if (
+      smokeReport ||
+      !fromTray(event) ||
+      !isId(requestId) ||
+      (decision !== "approve" && decision !== "approve-project" && decision !== "reject")
+    )
       return false;
     return controller.decide(requestId, decision);
   });

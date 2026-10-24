@@ -1,3 +1,7 @@
+import { observeNativePorts } from "./project-ports/observer.js";
+import { loadPortFfi } from "./project-ports/ffi.js";
+import { bindMacosPorts } from "./project-ports/macos.js";
+import { bindWindowsPorts } from "./project-ports/windows.js";
 import { MacosConfinement } from "./macos-l1/confinement.js";
 import { loadWindowsPrivateState } from "./windows-state.js";
 import { WindowsConfinement } from "./windows-l1/confinement.js";
@@ -205,6 +209,31 @@ export class NativeHost {
       privateFiles,
       probeCaseSensitivity: (directory) => base.probeCaseSensitivity(directory),
       ...(confinement ? { confinement } : {}),
+      ...(["macos", "windows"].includes(base.info.os)
+        ? {
+            observeProjectPorts: async (root: string, signal?: AbortSignal) => {
+              if (!isOpen()) throw new Error("Native host is closed");
+              try {
+                const ffi = await loadPortFfi(loadFfi);
+                return await observeNativePorts(
+                  root,
+                  base.info.os === "macos" ? bindMacosPorts(ffi) : bindWindowsPorts(ffi),
+                  signal,
+                );
+              } catch {
+                if (signal?.aborted) throw new Error("Project inspection cancelled");
+                return {
+                  status: "unavailable" as const,
+                  scope: "same-user-workspace-cwd" as const,
+                  listeners: [],
+                  notes: [
+                    "Native project process observation unavailable; missing listeners are not proof that a port is free.",
+                  ],
+                };
+              }
+            },
+          }
+        : {}),
     };
     return new NativeHost(platform, lifecycle, jobs, nativeAcl, notes, windowsLeases, macosLeases);
   }

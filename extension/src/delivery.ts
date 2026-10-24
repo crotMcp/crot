@@ -16,7 +16,8 @@ import { collectInputProbe, installInputProbe, pageVisibility, type PageOutcome 
  *   dispatched.
  * - Delivery check for clicks and drags: a probe in the extension's isolated
  *   world counts trusted pointer / mouse events that reach the tab's
- *   documents while the input is dispatched. If every probed document is
+ *   documents while the input is dispatched. A click requires a trusted activation
+ *   (click/auxclick/contextmenu), not merely a press and release in different documents. If every probed document is
  *   still there and none saw an event (and the action neither navigated nor
  *   opened a tab), the command fails instead of reporting success.
  *
@@ -30,7 +31,7 @@ const VISIBLE_POLL_MS = 50;
 export const HIDDEN_MESSAGE =
   "The tab's page is not visible (the browser window may be minimized or hidden), and the browser does not deliver input to hidden pages. Show the browser window and try again.";
 export const NOT_DELIVERED_MESSAGE =
-  "The input was not delivered: no pointer event reached the page. Nothing changed on the page; take a new browser_snapshot and try again.";
+  "The input was not delivered: the expected pointer or activation event did not reach a surviving page document. The page may have received partial input; inspect a new browser_snapshot before deciding whether to retry.";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -121,10 +122,14 @@ export interface InputProbe {
 
 let nonceCounter = 0;
 
-export async function startInputProbe(inject: Inject, tabId: number): Promise<InputProbe> {
+export async function startInputProbe(
+  inject: Inject,
+  tabId: number,
+  completion: "pointer" | "activation" = "pointer",
+): Promise<InputProbe> {
   const nonce =
     Date.now().toString(36) + "-" + (++nonceCounter).toString(36) + "-" + Math.random().toString(36).slice(2);
-  const installed = await inject(tabId, installInputProbe, [nonce], true);
+  const installed = await inject(tabId, installInputProbe, [nonce, completion], true);
   const frames = new Set((installed ?? []).filter((r) => valueOf<boolean>(r) === true).map((r) => r.frameId));
   return {
     async delivered(): Promise<boolean> {

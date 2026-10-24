@@ -58,9 +58,31 @@ export function principalFromAuthInfo(
   if (entry === "loopback") {
     // An OAuth token for this device is refused on loopback (AD-21 point 8, last row).
     if (authMethod === OAUTH_AUTH_METHOD) return undefined;
+    let tokenAccess: Principal["tokenAccess"];
+    if (authMethod === "scoped-token") {
+      if (
+        !nonEmpty(extra.tokenId) ||
+        !nonEmpty(extra.tokenGeneration) ||
+        authInfo.scopes.length === 0 ||
+        authInfo.scopes.some((s) => !["files", "terminal", "browser"].includes(s))
+      )
+        return undefined;
+      tokenAccess = Object.freeze({
+        id: extra.tokenId,
+        generation: extra.tokenGeneration,
+        scopes: Object.freeze([...authInfo.scopes]) as readonly ("files" | "terminal" | "browser")[],
+      });
+    }
     return client
-      ? { id: subject, kind: "local", transport: HTTP_TRANSPORT, authMethod, client }
-      : { id: subject, kind: "local", transport: HTTP_TRANSPORT, authMethod };
+      ? {
+          ...(tokenAccess ? { tokenAccess } : {}),
+          id: subject,
+          kind: "local",
+          transport: HTTP_TRANSPORT,
+          authMethod,
+          client,
+        }
+      : { ...(tokenAccess ? { tokenAccess } : {}), id: subject, kind: "local", transport: HTTP_TRANSPORT, authMethod };
   }
   // Relay: only an OAuth access token for this device (AD-15 point 4, AD-21
   // point 3) — never the local token or another credential — and a remote
@@ -92,6 +114,8 @@ export function sessionOwnerKey(principal: Principal): string {
     principal.accountId ?? null,
     principal.deviceId ?? null,
     principal.clientId ?? null,
+    principal.tokenAccess?.id ?? null,
+    principal.tokenAccess?.generation ?? null,
   ]);
 }
 

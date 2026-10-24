@@ -1,8 +1,9 @@
 import path from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
 import { expect, it } from "vitest";
 import { createPrivateFileProtection } from "../../src/core/platform/private-files.js";
 import { prepareSecretStore } from "../../src/service/secrets/store.js";
-import { ProductRuntime } from "../../src/service/product-runtime.js";
+import { ProductRuntime, productPaths } from "../../src/service/product-runtime.js";
 import { createTestCore, makeTempDirs, testContext } from "../helpers.js";
 
 it("cancels a background process even when its ID arrives after task cancellation", async () => {
@@ -53,6 +54,125 @@ it("cancels a background process even when its ID arrives after task cancellatio
   } finally {
     release();
     await execution?.catch(() => undefined);
+    await runtime?.close();
+    await core.shutdown();
+    await dirs.cleanup();
+  }
+});
+
+it("policy persistence fails closed on audit failure and recovers an interrupted pre-audit snapshot", async () => {
+  const dirs = await makeTempDirs();
+  const core = await createTestCore({ workspace: { root: dirs.workspace } });
+  const privateFiles = createPrivateFileProtection(process.platform === "win32");
+  const stateDir = path.join(dirs.outside, "security-state");
+  const { store } = await prepareSecretStore({ stateDir, privateFiles, preference: "file" });
+  let runtime: ProductRuntime | undefined,
+    staged = "",
+    refuse = false;
+  const host = {
+    stateDir,
+    privateFiles,
+    secrets: store,
+    core: () => core,
+    selectWorkspace: async () => {},
+    recordControlEvent: async () => {
+      staged = await readFile(productPaths(stateDir)[0]!, "utf8");
+      if (refuse) throw new Error("audit unavailable");
+    },
+  };
+  try {
+    runtime = await ProductRuntime.open(host);
+    const policy = { strict: true, rules: [] };
+    refuse = true;
+    await expect(runtime.request("security.setPolicy", policy)).rejects.toThrow("audit unavailable");
+    expect(core.permissions.runtime.policy.strict).toBe(false);
+    expect(JSON.parse(await readFile(productPaths(stateDir)[0]!, "utf8")).security.strict).toBe(false);
+    refuse = false;
+    await runtime.request("security.setPolicy", policy);
+    expect(core.permissions.runtime.policy.strict).toBe(true);
+    expect(JSON.parse(staged).securityPrevious.strict).toBe(false);
+    await runtime.close();
+    runtime = undefined;
+    // Model a crash after staging but before the audit/commit boundary.
+    await writeFile(productPaths(stateDir)[0]!, staged);
+    runtime = await ProductRuntime.open(host);
+    expect(core.permissions.runtime.policy.strict).toBe(false);
+    const persisted = JSON.parse(await readFile(productPaths(stateDir)[0]!, "utf8"));
+    expect(persisted.security.strict).toBe(false);
+    expect(persisted.securityPrevious).toBeUndefined();
+  } finally {
+    await runtime?.close();
+    await core.shutdown();
+    await dirs.cleanup();
+  }
+});
+
+it("never activates a project grant after cancellation, unavailable audit or interrupted commit", async () => {
+  const dirs = await makeTempDirs(),
+    core = await createTestCore({ workspace: { root: dirs.workspace } });
+  const privateFiles = createPrivateFileProtection(process.platform === "win32"),
+    stateDir = path.join(dirs.outside, "grants-state");
+  const { store } = await prepareSecretStore({ stateDir, privateFiles, preference: "file" });
+  let runtime: ProductRuntime | undefined,
+    auditFails = false,
+    staged = "",
+    decisions = 0;
+  const host = {
+    stateDir,
+    privateFiles,
+    secrets: store,
+    core: () => core,
+    selectWorkspace: async () => {},
+    recordControlEvent: async () => {
+      staged = await readFile(productPaths(stateDir)[0]!, "utf8");
+      if (auditFails) throw Error("audit unavailable");
+    },
+  };
+  const subject: import("../../src/core/approvals/types.js").ApprovalSubject = {
+    workspace: dirs.workspace,
+    operation: "filesystem.write_file",
+    capabilities: ["filesystem.write"],
+    paths: [],
+    network: [],
+    effects: [],
+    summary: "write",
+    principal: testContext.principal,
+    mode: "sandbox",
+    rule: "runtime.ask",
+  };
+  try {
+    runtime = await ProductRuntime.open(host);
+    await runtime.request("security.setPolicy", {
+      strict: false,
+      rules: [{ operation: "filesystem.write_file", state: "ask" }],
+    });
+    await expect(
+      runtime.approveProject(subject, () => {
+        decisions++;
+        return false;
+      }),
+    ).rejects.toThrow(/no longer pending/);
+    expect(decisions).toBe(1);
+    expect(core.permissions.runtime.policy.projectGrants).toBeUndefined();
+    auditFails = true;
+    await expect(
+      runtime.approveProject(subject, () => {
+        decisions++;
+        return true;
+      }),
+    ).rejects.toThrow("audit unavailable");
+    expect(decisions).toBe(1);
+    expect(core.permissions.runtime.policy.projectGrants).toBeUndefined();
+    auditFails = false;
+    await runtime.close();
+    runtime = undefined;
+    await writeFile(productPaths(stateDir)[0]!, staged);
+    runtime = await ProductRuntime.open(host);
+    expect(core.permissions.runtime.policy.projectGrants).toBeUndefined();
+    const stored = JSON.parse(await readFile(productPaths(stateDir)[0]!, "utf8"));
+    expect(stored.security.projectGrants).toBeUndefined();
+    expect(stored.securityPrevious).toBeUndefined();
+  } finally {
     await runtime?.close();
     await core.shutdown();
     await dirs.cleanup();

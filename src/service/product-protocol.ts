@@ -1,5 +1,9 @@
 /** Owner-only product configuration RPCs. Tool execution is never accepted as arbitrary RPC. */
+import { ChatConfigureSchema, ChatProviderSchema, ChatStartSchema } from "./chat-protocol.js";
+import { TokenIssueSchema } from "./client-tokens.js";
 import { z } from "zod";
+import { ProjectSecretRelativePathSchema } from "../core/permissions/project-secrets.js";
+import { ProjectGrantSchema, RuntimePolicySchema } from "../core/permissions/runtime.js";
 const id = z.string().min(1).max(256);
 const list = z.array(id).max(256);
 const grants = { projects: list.default([]), agents: list.default([]) };
@@ -14,6 +18,25 @@ const filter = z
   })
   .strict();
 export const PRODUCT_SCHEMAS = {
+  "chat.providers": z.object({}).strict(),
+  "chat.configure": ChatConfigureSchema,
+  "chat.models": z.object({ provider: ChatProviderSchema }).strict(),
+  "chat.start": ChatStartSchema,
+  "chat.poll": z.object({ id }).strict(),
+  "chat.stop": z.object({ id }).strict(),
+  "tokens.list": z.object({}).strict(),
+  "tokens.issue": TokenIssueSchema,
+  "tokens.rotate": z.object({ id }).strict(),
+  "tokens.revoke": z.object({ id }).strict(),
+  "security.secretFiles.status": z.object({}).strict(),
+  "security.secretFiles.set": z
+    .object({ workspace: z.string().min(1).max(4096), path: ProjectSecretRelativePathSchema, allow: z.boolean() })
+    .strict(),
+  "security.status": z.object({}).strict(),
+  "security.kill": z.object({}).strict(),
+  "security.setPolicy": RuntimePolicySchema,
+  "security.revokeProjectGrant": ProjectGrantSchema,
+  "projects.inspect": z.object({}).strict(),
   "projects.list": z.object({}).strict(),
   "projects.create": z.object({ path: z.string().min(1).max(4096), name: id.optional() }).strict(),
   "projects.open": z.object({ path: z.string().min(1).max(4096), name: id.optional() }).strict(),

@@ -229,8 +229,22 @@ describe.runIf(linux)("browser v1 E2E: layout and frames (manual run 2)", () => 
     const shadowed = frameButtons(snap).find((e) => frameOf(snap, e).origin === server.crossOrigin)!;
     expect(shadowed).toBeDefined();
     const before = events("frame-click").length;
+    await witness!.inputEvidence(tabId, true);
     await h.ok<ControlResult>(client(), "browser_click", { tabId, ref: shadowed.ref });
-    await waitEvent("frame-click", before + 1);
+    try {
+      await waitEvent("frame-click", before + 1);
+      expect(events("frame-click").at(-1)!.query.get("trusted")).toBe("1");
+      const evidence = (await witness!.inputEvidence(tabId)) as {
+        result: { url: string; events: { type: string; target: string; trusted: boolean }[] };
+      }[];
+      const target = evidence.find((f) => f.result.url.includes("shadow=1"))!;
+      for (const type of ["pointerdown", "pointerup", "click"])
+        expect(target.result.events).toContainEqual(
+          expect.objectContaining({ type, target: "frame-button", trusted: true }),
+        );
+    } catch (error) {
+      throw new Error(String(error) + "; input evidence: " + JSON.stringify(await witness!.inputEvidence(tabId)));
+    }
   });
 
   it("text ref (includeText) can be hovered; a wrapped link is clicked", async () => {

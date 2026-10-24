@@ -175,6 +175,7 @@ export function stateSecretPaths(stateDir: string): string[] {
     dpapiDirectory(stateDir),
     path.join(stateDir, "product-vault.enc"),
     path.join(stateDir, "product-state.json"),
+    path.join(stateDir, "client-tokens.json"),
   ];
 }
 

@@ -955,7 +955,7 @@ export function createCommandHandlers(api: ChromeApi, options: CommandOptions = 
         const modifiers = modifiersParam(params.modifiers);
         return control(params, context, ["button", "clickCount", "modifiers"], async (tabId, node) => {
           const point = await actionablePoint(node.channel, tabId, node.backendNodeId);
-          const probe = await startInputProbe(inject, tabId);
+          const probe = await startInputProbe(inject, tabId, "activation");
           await clickAt(cdp, tabId, point, {
             button: button as MouseButton,
             clickCount,

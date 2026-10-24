@@ -21,6 +21,14 @@ import {
  * Resolves a hostname to every address the connection may use. Replaceable
  * for tests and embedding; the default uses the operating system resolver.
  */
+/** Trusted in-process observer; never part of network_request's JSON schema.
+ * Invoked only inside the same guarded, pinned, bounded response path as buffered reads.
+ */
+export interface NetworkStreamObserver {
+  start?(status: number, contentType: string): void;
+  data(chunk: Buffer): void;
+}
+
 export type HostResolver = (hostname: string) => Promise<readonly string[]>;
 
 type NetworkLimits = Pick<
@@ -83,7 +91,11 @@ export class NetworkService {
     this.resolver = options.resolver ?? systemResolver;
   }
 
-  async request(context: AuthContext, input: NetworkRequestInput): Promise<NetworkResponse> {
+  async request(
+    context: AuthContext,
+    input: NetworkRequestInput,
+    observer?: NetworkStreamObserver,
+  ): Promise<NetworkResponse> {
     const req = parseInput(NetworkRequestInputSchema, input);
     const timeoutMs = req.timeoutMs ?? this.limits.defaultNetworkTimeoutMs;
     if (timeoutMs > this.limits.maxNetworkTimeoutMs) {
@@ -131,7 +143,7 @@ export class NetworkService {
               ],
             },
           },
-          () => this.send(current, target, method, headers, body, maxBytes, deadline, context.signal),
+          () => this.send(current, target, method, headers, body, maxBytes, deadline, context.signal, observer),
         );
         const location = response.location;
         if (req.followRedirects && REDIRECT_STATUSES.has(response.status) && location !== undefined) {
@@ -246,6 +258,7 @@ export class NetworkService {
     maxBytes: number,
     deadline: number,
     signal?: AbortSignal,
+    observer?: NetworkStreamObserver,
   ): Promise<RawResponse> {
     this.assertOpen();
     const addresses = target.addresses ?? [];
@@ -302,10 +315,21 @@ export class NetworkService {
         ...(secure && target.hostKind === "name" ? { servername: target.host } : {}),
       };
       const request = transport.request(options, (res) => {
+        try {
+          observer?.start?.(res.statusCode ?? 0, String(res.headers["content-type"] ?? ""));
+        } catch (error) {
+          finish(error);
+          res.destroy();
+          return;
+        }
         const chunks: Buffer[] = [];
         let size = 0;
         let truncated = false;
-        const done = () =>
+        const done = () => {
+          if (signal?.aborted) {
+            finish(new CrotError("OPERATION_FAILED", "Network request cancelled"));
+            return;
+          }
           finish(undefined, {
             status: res.statusCode ?? 0,
             statusText: res.statusMessage ?? "",
@@ -315,11 +339,20 @@ export class NetworkService {
             truncated,
             remoteAddress: res.socket?.remoteAddress ?? first.text,
           });
+        };
         res.on("data", (chunk: Buffer) => {
           if (truncated) return;
           const room = maxBytes - size;
           if (chunk.length > room) {
-            chunks.push(chunk.subarray(0, room));
+            const accepted = chunk.subarray(0, room);
+            chunks.push(accepted);
+            try {
+              if (accepted.length) observer?.data(accepted);
+            } catch (error) {
+              finish(error);
+              res.destroy();
+              return;
+            }
             size = maxBytes;
             truncated = true;
             done();
@@ -328,6 +361,12 @@ export class NetworkService {
           }
           chunks.push(chunk);
           size += chunk.length;
+          try {
+            observer?.data(chunk);
+          } catch (error) {
+            finish(error);
+            res.destroy();
+          }
         });
         res.on("end", done);
         res.on("error", (e) => finish(e));
