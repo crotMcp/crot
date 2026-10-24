@@ -203,11 +203,33 @@ describe("actionability (AD-16 point 6)", () => {
     const wheeled = () => page.input().some((s) => (s.params as { type?: string }).type === "mouseWheel");
     page.hit = () => (wheeled() ? 3 : 4);
     expect(await actionablePoint(cdp, 1, 2)).toEqual({ x: 20, y: 20 });
-    const wheels = page.input().map((s) => s.params as Record<string, unknown>);
+    const wheels = page
+      .input()
+      .map((s) => s.params as Record<string, unknown>)
+      .filter((p) => p.type === "mouseWheel");
     expect(wheels).toEqual([{ type: "mouseWheel", x: 20, y: 20, deltaX: 0, deltaY: -280 }]);
     page.hit = () => 4;
     const error = await failure(actionablePoint(cdp, 1, 2));
     expect(error.message).toBe("The element is not actionable: obscured (covered by div#overlay).");
+  });
+
+  it("rechecks coverage, position and disabled state after hover and never presses a changed target", async () => {
+    for (const change of ["position", "covered", "disabled"] as const) {
+      const { page, cdp } = setup();
+      const answer = page.answer.bind(page);
+      page.chrome.debugger.respond = (_tab, method, params) => {
+        if (method === "Input.dispatchMouseEvent" && (params as { type?: string })?.type === "mouseMoved") {
+          if (change === "position") page.quads[2] = [[50, 10, 70, 10, 70, 30, 50, 30]];
+          if (change === "covered") page.hit = () => 4;
+          if (change === "disabled")
+            page.ax[2] = { role: "button", properties: [{ name: "disabled", value: { value: true } }] };
+        }
+        return answer(method, params as Record<string, unknown>);
+      };
+      const error = await failure(actionablePoint(cdp, 1, 2));
+      expect(error.code).toBe("INVALID_INPUT");
+      expect(page.input().every((s) => (s.params as { type: string }).type !== "mousePressed")).toBe(true);
+    }
   });
 
   it("hit-tests in document coordinates: the scroll offset is added to the viewport point", async () => {
@@ -347,7 +369,7 @@ describe("select and check", () => {
     expect(await selectInto(cdp, 1, 9, ["Cherry"], linux)).toEqual({ selected: ["c"] });
     const keys = page
       .input()
-      .filter((s) => (s.params as { type: string }).type !== "keyUp")
+      .filter((s) => s.method === "Input.dispatchKeyEvent" && (s.params as { type: string }).type !== "keyUp")
       .map((s) => (s.params as { key: string }).key);
     expect(keys).toEqual(["Home", "ArrowDown"]);
   });

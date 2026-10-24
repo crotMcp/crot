@@ -18,6 +18,7 @@ const MAX_BYTES = 1024 * 1024;
 const MAX_PIDS = 8192;
 const MAX_PROJECT_PIDS = 128;
 const MAX_FDS = 32768;
+const MAX_LISTENERS = 512;
 const inside = (root: string, target: string) => {
   const relative = path.relative(root, target);
   return relative === "" || (!relative.startsWith(".." + path.sep) && relative !== ".." && !path.isAbsolute(relative));
@@ -133,6 +134,10 @@ export async function observeProjectPorts(root: string, signal?: AbortSignal): P
   result.listeners = [...new Map(result.listeners.map((p) => [`${p.pid}:${p.address}:${p.port}`, p])).values()].sort(
     (a, b) => a.port - b.port || a.pid - b.pid,
   );
+  if (result.listeners.length > MAX_LISTENERS) {
+    result.listeners = result.listeners.slice(0, MAX_LISTENERS);
+    partial();
+  }
   result.notes.push(
     "Point-in-time TCP listeners of same-user processes whose current directory belongs to the workspace; in the service network namespace; not a network permission or a scan of remote hosts.",
   );

@@ -443,6 +443,8 @@ export const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  * the wrapper lives only in the test's DevTools session of the worker.
  */
 export interface CdpWitness {
+  /** Test-only trusted-input evidence in isolated fixture documents, never shipped. */
+  inputEvidence(tabId: number, reset?: boolean): Promise<unknown>;
   /** Methods the extension sent since install(), in order. */
   methods(): Promise<string[]>;
   /** Whether a debugger (the extension's; the witness never attaches to pages) is attached to the page target with this URL prefix. */
@@ -555,6 +557,10 @@ export async function watchExtensionCdp(sb: Sandbox): Promise<CdpWitness> {
         `chrome.windows.create({url: ${JSON.stringify(url)}}).then(w => ({tabId:w.tabs[0].id, windowId:w.id}))`,
       ),
     closeWindow: (windowId) => evaluate<void>(`chrome.windows.remove(${windowId})`),
+    inputEvidence: (tabId, reset = false) =>
+      evaluate(
+        `chrome.scripting.executeScript({target:{tabId:${tabId},allFrames:true},world:"ISOLATED",func:(reset)=>{if(reset){globalThis.__crotE2eInput=[];if(!globalThis.__crotE2eInputInstalled){globalThis.__crotE2eInputInstalled=true;for(const type of ['pointerdown','pointerup','click'])addEventListener(type,e=>globalThis.__crotE2eInput.push({type:e.type,trusted:e.isTrusted,target:e.composedPath()[0]?.id,tag:e.composedPath()[0]?.tagName,x:e.clientX,y:e.clientY,scrollY}),true);}}const button=document.getElementById('frame-button');const box=button?.getBoundingClientRect();return {url:location.href,scrollX,scrollY,width:innerWidth,height:innerHeight,button:box?{x:box.x,y:box.y,width:box.width,height:box.height}:null,status:document.getElementById('frame-status')?.textContent,events:globalThis.__crotE2eInput};},args:[${reset}]})`,
+      ),
     methods: () => evaluate<string[]>("globalThis.__crotE2eCdpMethods.slice()"),
     pageAttached: async (urlPrefix) => {
       const { targetInfos } = await send<{

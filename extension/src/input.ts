@@ -138,6 +138,8 @@ function quadCenter(quad: readonly number[]): { point: Point; area: number } {
 export const OBSCURED_ATTEMPTS = 4;
 export const OBSCURED_RETRY_MS = 150;
 const SCROLL_SETTLE_MS = 1_000;
+/** Give Chromium compositor/OOPIF hit routing time to publish after scrolling and entering the frame. */
+const POINTER_ROUTE_SETTLE_MS = 100;
 const TEXT_NODE = 3;
 
 /**
@@ -173,7 +175,19 @@ export async function actionablePoint(
     covered = await coveredBy(cdp, tabId, backendNodeId, point);
   }
   if (covered !== undefined) throw notActionable("obscured", covered);
-  return point;
+  // DOM layout can already report the scrolled iframe while Chromium's compositor still routes
+  // the first press to its owner. Enter it with a move only (never retry a press), then revalidate
+  // the actual target before any button is pressed. Hover may itself change layout or disabled state.
+  await cdp.send(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
+  await sleep(POINTER_ROUTE_SETTLE_MS);
+  const settled = await visiblePoint(cdp, tabId, backendNodeId);
+  if (Math.abs(settled.x - point.x) > 1 || Math.abs(settled.y - point.y) > 1)
+    throw notActionable("not visible", "layout changed while preparing input");
+  if (options.requireEnabled !== false && truthy(property(await axOf(cdp, tabId, backendNodeId), "disabled")))
+    throw notActionable("disabled");
+  covered = await coveredBy(cdp, tabId, backendNodeId, settled);
+  if (covered !== undefined) throw notActionable("obscured", covered);
+  return settled;
 }
 
 /** The centre of the element's first visible box, inside the viewport, or "not visible". */

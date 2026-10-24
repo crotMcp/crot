@@ -194,7 +194,7 @@ describe("Browser v1 commands", () => {
     const mouse = fake.debugger.sent
       .filter((s) => s.method === "Input.dispatchMouseEvent")
       .map((s) => (s.params as { type: string }).type);
-    expect(mouse).toEqual(["mouseMoved", "mousePressed", "mouseReleased"]);
+    expect(mouse).toEqual(["mouseMoved", "mouseMoved", "mousePressed", "mouseReleased"]);
     // Only the delivery checks run in the page (isolated world): visibility, then the input probe.
     expect(fake.injections.map((i) => i.func.name)).toEqual([
       "pageVisibility",
@@ -247,6 +247,20 @@ describe("Browser v1 commands", () => {
     const error = await rejects(handlers["page.click"]({ tabId: 1, selector: "button", clickCount: 1 }, context));
     expect(error.code).toBe("OPERATION_FAILED");
     expect(error.message).toMatch(/not delivered/);
+  });
+
+  it("refuses false click success when down/up arrive but no trusted activation occurs", async () => {
+    const { fake, handlers } = setup();
+    fake.inputEvents = 2;
+    fake.activationEvents = 0;
+    const error = await rejects(handlers["page.click"]({ tabId: 1, selector: "button", clickCount: 1 }, context));
+    expect(error.code).toBe("OPERATION_FAILED");
+    expect(error.message).toContain("partial input");
+    expect(fake.injections.find((i) => i.func.name === "installInputProbe")?.args[1]).toBe("activation");
+    const presses = fake.debugger.sent.filter(
+      (s) => s.method === "Input.dispatchMouseEvent" && (s.params as { type: string }).type === "mousePressed",
+    );
+    expect(presses).toHaveLength(1); // never replay a possibly delivered press
   });
 
   it("keeps the legacy selector form on the page function", async () => {

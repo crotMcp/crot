@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { clickElement, readPageContent, typeIntoElement } from "../src/page-functions.js";
+import {
+  clickElement,
+  collectInputProbe,
+  installInputProbe,
+  readPageContent,
+  typeIntoElement,
+} from "../src/page-functions.js";
 
 /**
  * chrome.scripting.executeScript serializes `func` and runs its source in the
@@ -245,5 +251,35 @@ describe("page functions", () => {
     expect(editor.textContent).toBe("old+1");
     expect(type("#ed", "new", true)).toEqual({ ok: true, value: null });
     expect(editor.textContent).toBe("new");
+  });
+});
+
+describe("serialized input-delivery probe", () => {
+  it("requires trusted activation for clicks, never treating split pointer events as completion", () => {
+    installDom();
+    const events = new EventTarget();
+    Object.defineProperty(globalThis, "window", { value: events, configurable: true, writable: true });
+    const install = serialized(installInputProbe),
+      collect = serialized(collectInputProbe);
+    const send = (type: string, trusted: boolean) => {
+      const event = new Event(type);
+      Object.defineProperty(event, "isTrusted", { value: trusted });
+      events.dispatchEvent(event);
+    };
+    install("split", "activation");
+    send("pointerdown", true);
+    send("pointerup", true);
+    send("click", false);
+    expect(collect("split")).toEqual({ ok: true, value: 0 });
+    install("click", "activation");
+    send("click", true);
+    expect(collect("click")).toEqual({ ok: true, value: 1 });
+    install("context", "activation");
+    send("contextmenu", true);
+    expect(collect("context")).toEqual({ ok: true, value: 1 });
+    install("drag");
+    send("pointerdown", true);
+    send("pointerup", true);
+    expect(collect("drag")).toEqual({ ok: true, value: 2 });
   });
 });

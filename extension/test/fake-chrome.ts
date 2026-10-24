@@ -176,6 +176,9 @@ export class FakeChrome {
   visibility: (tabId: number) => string = (tabId) => (this.tabsById.get(tabId)?.active ? "visible" : "hidden");
   /** Trusted pointer events the page sees while an input probe runs (0: input not delivered). */
   inputEvents = 1;
+  /** Override activation count to model down/up arriving without a click. */
+  activationEvents: number | undefined;
+  private probeCompletion: unknown;
   private probeNonce: string | undefined;
   private nextId = 100;
 
@@ -230,11 +233,19 @@ export class FakeChrome {
         return { ok: true, value: this.visibility(injection.target.tabId) };
       case "installInputProbe":
         this.probeNonce = injection.args[0] as string;
+        this.probeCompletion = injection.args[1];
         return { ok: true, value: true };
       case "collectInputProbe": {
         const match = this.probeNonce === injection.args[0];
         this.probeNonce = undefined;
-        return { ok: true, value: match ? this.inputEvents : null };
+        return {
+          ok: true,
+          value: match
+            ? this.probeCompletion === "activation"
+              ? (this.activationEvents ?? this.inputEvents)
+              : this.inputEvents
+            : null,
+        };
       }
       default:
         return undefined;

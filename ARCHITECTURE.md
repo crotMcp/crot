@@ -5474,7 +5474,8 @@ observes `/proc` TCP LISTEN sockets in the service network namespace and matches
 socket descriptors to same-user processes whose canonical cwd is inside that
 workspace. It never reads environment variables, command lines or process memory.
 PID start time and cwd are rechecked before publishing. PID/FD/project-process
-counts, table sizes and elapsed scan time are bounded. Inaccessible, oversized
+counts, table sizes and elapsed scan time are bounded; the owner response contains
+at most 512 unique listeners and reports partial if truncated. Inaccessible, oversized
 or truncated observations report partial/unavailable, never "all ports free".
 This is a point-in-time association, not proof of future port availability,
 exclusive project ownership, network authorization or discovery of another
@@ -5487,3 +5488,32 @@ manifest evidence and observer status after an explicit Inspect project action;
 there is no hidden script execution on navigation or automatic widening of
 network permissions. These observations do not implement the outstanding L1
 application-secret filename policy.
+
+
+### AD-48. Prepare compositor routing before trusted pointer input
+
+A real Chromium regression exposed a scroll/OOPIF routing race: DOM geometry and
+hit tests already located a button in a cross-origin shadow iframe, but the first
+pointerdown still reached its parent iframe element and pointerup reached the
+button. No click was generated. A broad pointer-count delivery probe incorrectly
+accepted that partial input as click completion. Test-only isolated-world event
+evidence reproduces the different trusted down/up recipients; it is never shipped
+or used as a privileged production page-reading API.
+
+After ordinary enabled/visibility/coverage checks, actionablePoint now sends a
+move only, gives compositor routing a bounded 100 ms preparation interval, and
+rechecks position, enabled state and coverage before any press. A moved, disabled
+or covered target is refused, not clicked at its former coordinates. This is
+preparation, not a retry of input; a possibly delivered press is never repeated.
+Click delivery requires a trusted activation (click/auxclick/contextmenu/dblclick),
+not merely pointer events split across documents. Drag retains the pointer-event
+probe. A failed delivery no longer claims nothing changed: it warns that partial
+input may have happened and asks for inspection before any decision to retry.
+Existing navigation/document replacement uncertainty is unchanged. The probe is
+not an assertion that a site's business operation succeeded.
+
+The real regression checks trusted pointerdown, pointerup and click on the actual
+shadow-frame button in addition to its server event. Unit tests separately
+serialize and execute the isolated-world probe, reject fake/untrusted clicks and
+split pointer-only completion, revalidate hover-induced layout/coverage/disabled
+changes, and assert that failure never replays a press.
