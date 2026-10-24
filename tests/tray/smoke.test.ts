@@ -11,7 +11,7 @@ import { ControlClient } from "../../src/service/control-client.js";
 import type { ControlOverview } from "../../src/service/protocol.js";
 import { CrotService } from "../../src/service/service.js";
 import { BRAND_ICONS } from "../../src/ui/brand-icons.js";
-import { mascotData } from "../../src/ui/mascot.js";
+import { mascotData, wordmarkData } from "../../src/ui/mascot.js";
 import { isWindows, makeTempDirs, testContext, waitFor, type TempDirs } from "../helpers.js";
 
 /**
@@ -160,7 +160,13 @@ describe.skipIf(launch.problem !== undefined && !onCi)("WP-22: Electron tray smo
     expect(page.api).toEqual(["action", "decide", "onView", "product", "ready", "repairL1", "tool"]);
     expect(page.links).toBe(0);
     // The new UI uses bundled images, never arbitrary remote or approval-provided markup.
-    const allowedImages = new Set([mascotData(), mascotData(true), ...Object.values(BRAND_ICONS)]);
+    const allowedImages = new Set([
+      mascotData(),
+      mascotData(true),
+      mascotData(false, true),
+      wordmarkData(),
+      ...Object.values(BRAND_ICONS),
+    ]);
     expect(page.images).toBeInstanceOf(Array);
     expect((page.images as string[]).length).toBeGreaterThan(0);
     for (const image of page.images as string[]) expect(allowedImages.has(image)).toBe(true);

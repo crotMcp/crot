@@ -75,3 +75,22 @@ configuration and failed; configured runs are recorded separately.
 Reports, logs and presentation captures are provided in the delivery evidence
 archive, not packaged into the production renderer. Original attached references
 remain unchanged under `reference/`.
+
+## PR #4 native-smoke correction
+
+GitHub CI run `40061753725` exposed a stale image allowlist at
+`tests/tray/smoke.test.ts:166` on Linux and macOS, Node 20/22. The new outlined
+wordmark was a trusted bundled image, but the old allowlist admitted only the
+mascot and vendor marks. The renderer/security boundary was not the failure.
+
+The correction adds only the exact `wordmarkData()` and dark `mascotData()`
+variants to the existing allowlist. It does not accept arbitrary data URLs,
+remote images or approval-provided markup; the pending approval must still remain
+undecided after the smoke run.
+
+For this follow-up Xvfb and GTK were installed in the Linux test environment.
+The actual Electron smoke test then ran locally (not skipped): 1 file / 1 test
+passed. Earlier no-DISPLAY skips above describe the initial verification only.
+Native signing/installers and Windows/macOS visual qualification are still not
+inferred from this Linux smoke result. The correction's final CI status must be
+read at its own revision; the initial PR's Chromium and four Linux L1 jobs passed.
