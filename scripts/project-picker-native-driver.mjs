@@ -118,9 +118,55 @@ export async function nativePickerDriver(electron, output, until) {
             } else if (input.operation === "choose") {
               if (directory !== input.selected)
                 throw Error("Native folder chooser has not navigated to the selected directory");
-              if (!defaultIsButton || !boolean(defaultButton, selector("isEnabled")))
-                throw Error("Native chooser default button is unavailable");
-              schedule(defaultButton, "performClick:", null);
+              if (defaultIsButton && boolean(defaultButton, selector("isEnabled"))) {
+                schedule(defaultButton, "performClick:", null);
+              } else {
+                // Since macOS 10.15 NSOpenPanel draws controls in an XPC service;
+                // its proxy window need not have a local defaultButtonCell.
+                // Deliver native Return to this panel's real window, not a
+                // guessed private selector or a synthesized modal return value.
+                const point = koffi.struct({ x: "double", y: "double" });
+                const keyEvent = objc.func("void *", "objc_msgSend", [
+                  "void *",
+                  "void *",
+                  "unsigned long",
+                  point,
+                  "unsigned long",
+                  "double",
+                  "long",
+                  "void *",
+                  "void *",
+                  "void *",
+                  "bool",
+                  "unsigned short",
+                ]);
+                const characters = string(cls("NSString"), selector("stringWithUTF8String:"), "\r");
+                const windowNumber = count(panel, selector("windowNumber"));
+                const timestamp = objc.func("double objc_msgSend(void *, void *)")(
+                  id0(cls("NSProcessInfo"), selector("processInfo")),
+                  selector("systemUptime"),
+                );
+                for (const type of [10, 11]) {
+                  const event = keyEvent(
+                    cls("NSEvent"),
+                    selector(
+                      "keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:",
+                    ),
+                    type,
+                    { x: 0, y: 0 },
+                    0,
+                    timestamp,
+                    windowNumber,
+                    null,
+                    characters,
+                    characters,
+                    false,
+                    36,
+                  );
+                  if (!event) throw Error("AppKit did not create the native Return event");
+                  schedule(app, "sendEvent:", event);
+                }
+              }
             }
             return { visible: true, found, directory, mainThread, defaultTitle };
           },
@@ -170,9 +216,32 @@ Add-Type -AssemblyName UIAutomationTypes
 Add-Type -TypeDefinition @'
 using System;
 using System.Text;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.ComponentModel;
 public static class NativePickerWindow {
  public delegate bool EnumCallback(IntPtr h,IntPtr p);
+ [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] struct ProcessEntry {
+  public uint size,usage,pid; public UIntPtr heap; public uint module,threads,parent; public int priority; public uint flags;
+  [MarshalAs(UnmanagedType.ByValTStr,SizeConst=260)] public string name;
+ }
+ [DllImport("kernel32.dll",SetLastError=true)] static extern IntPtr CreateToolhelp32Snapshot(uint flags,uint pid);
+ [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool Process32FirstW(IntPtr h,ref ProcessEntry p);
+ [DllImport("kernel32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern bool Process32NextW(IntPtr h,ref ProcessEntry p);
+ [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+ public static HashSet<uint> Family(uint root) {
+  var h=CreateToolhelp32Snapshot(2,0); if(h==new IntPtr(-1))throw new Win32Exception(Marshal.GetLastWin32Error());
+  var parents=new Dictionary<uint,uint>();
+  try {
+   var p=new ProcessEntry();p.size=(uint)Marshal.SizeOf(typeof(ProcessEntry));
+   if(!Process32FirstW(h,ref p))throw new Win32Exception(Marshal.GetLastWin32Error());
+   do {if(parents.Count>=16384)throw new InvalidOperationException("Process inventory bound exceeded");parents[p.pid]=p.parent;}while(Process32NextW(h,ref p));
+   int error=Marshal.GetLastWin32Error();if(error!=18)throw new Win32Exception(error);
+  }finally{CloseHandle(h);}
+  var family=new HashSet<uint>();family.Add(root);
+  for(int i=0;i<6;i++)foreach(var p in parents)if(family.Contains(p.Value))family.Add(p.Key);
+  return family;
+ }
  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumCallback cb,IntPtr p);
  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);
@@ -185,12 +254,7 @@ $script:owned=@()
 $script:visibleDialogs=@()
 # Electron's file dialog may be hosted by a child utility process. Restrict the
 # family to descendants of this exact live Electron main process, never title alone.
-$family=[System.Collections.Generic.HashSet[uint32]]::new()
-[void]$family.Add([uint32]${pid})
-$processes=@(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId)
-for($level=0;$level -lt 6;$level++){
- foreach($p in $processes){if($family.Contains([uint32]$p.ParentProcessId)){[void]$family.Add([uint32]$p.ProcessId)}}
-}
+$family=[NativePickerWindow]::Family([uint32]${pid})
 $callback=[NativePickerWindow+EnumCallback]{param([IntPtr]$h,[IntPtr]$unused)
  if(-not [NativePickerWindow]::IsWindowVisible($h)){return $true}
  [uint32]$ownerPid=0;[uint32]$windowPid=0
@@ -233,11 +297,28 @@ if('${operation}' -eq 'choose'){
 $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 'invoked'
 `;
-      const { stdout } = await exec(
-        powershell,
-        ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
-        { timeout: 10000, maxBuffer: 65536, windowsHide: true },
-      );
+      let stdout;
+      try {
+        ({ stdout } = await exec(
+          powershell,
+          ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
+          { timeout: 10000, maxBuffer: 65536, windowsHide: true },
+        ));
+      } catch (error) {
+        // Node's default message embeds the whole encoded script, exhausting
+        // GitHub's 4 KiB annotation before the useful native error appears.
+        const failure = {
+          operation,
+          mainPid: pid,
+          code: error.code,
+          killed: error.killed,
+          signal: error.signal,
+          stderr: String(error.stderr || "").slice(-2200),
+          stdout: String(error.stdout || "").slice(-600),
+        };
+        lastObservation = failure;
+        throw Error("Native Windows picker driver: " + JSON.stringify(failure));
+      }
       lastObservation = { operation, mainPid: pid, native: stdout.trim() };
       return stdout.trim();
     };

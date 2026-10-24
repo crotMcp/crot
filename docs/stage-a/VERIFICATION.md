@@ -567,3 +567,29 @@ process descendants/Win32 owners for utility-hosted native dialogs. Failure
 metadata retains bounded process/owner IDs and renderer notices; unrelated
 windows cannot be driven just because their title matches. This is still a
 native candidate, not a Windows acceptance result.
+
+
+Candidate `dceae760` actual macOS cancellation/state preservation passed, and
+folder navigation reached the exact fixture path, but confirmation FAILED:
+the proxy panel has no local default NSButton. AppKit documents that modern
+NSOpenPanel controls are drawn in another process
+(https://developer.apple.com/documentation/appkit/nsopenpanel?language=objc).
+The follow-up retains enabled default-button invocation when available and
+otherwise sends native NSEvent Return down/up to the actual panel window via
+NSApplication, letting AppKit route the action to its remote controls. It does
+not fabricate modal responses or selection URLs and does not request or
+bypass external Accessibility/TCC rights. Exact service/UI/audit assertions
+are unchanged. Native success is still required.
+
+Complete local `dceae760` recheck: main 2311 passed /222 host-inapplicable
+skips; extension 196 passed; Chromium browser 58 passed /3 existing placeholder
+skips; shipped UI QA completed without failure. These Linux results do not
+qualify macOS/Windows acceptance.
+
+
+`dceae760` actual Windows Node 20 FAILED inside the PowerShell driver; the
+encoded command exhausted GitHub's bounded annotation before native stderr.
+The next driver reports bounded code/signal/stderr/stdout without repeating
+its encoded source. Process-family discovery uses a bounded native Toolhelp32
+snapshot rather than introducing CIM/WMI module auto-discovery. This is a
+candidate correction plus diagnostics, not an assertion that Windows passed.
