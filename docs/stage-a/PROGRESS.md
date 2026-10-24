@@ -25,20 +25,39 @@ No B/C work or merge is authorized by this progress record.
   streaming, bounded text/image attachments, cancellation and opt-in tool calls.
   Header and inline chat share the existing approval queue. Keys use the vault;
   provider fixtures do not qualify live vendor accounts. See AD-45.
+- Digest-bound Allow once / Allow for project / Reject through the one existing
+  approval broker. Exact workspace/operation grants persist in protected policy,
+  survive restart, can be revoked separately, and never override Strict Mode,
+  runtime deny, mandatory gates or hard capability/workspace ceilings. See AD-46.
+- Owner project inspection reads fixed manifests through FileSystemService,
+  reports bounded stack evidence, and observes actual Linux same-user/project-cwd
+  TCP listeners through a separately guarded process operation. Cancellable tasks,
+  audit and the idle workspace-switch barrier cover the whole workflow. See AD-47.
+- Fixed a real Chromium scroll/OOPIF input race: prepare routing with a move,
+  revalidate before pressing, require trusted activation for click delivery, and
+  never replay a press. The real test asserts down/up/click in the target iframe,
+  not only a broad pointer count. See AD-48.
 
 ## Still required before Stage A acceptance / PR #5
 
-- Native folder-picker OS smoke, stack and project-owned port discovery, explicit
-  secret access with enforcement at the L1 process boundary.
-- Final chat UI/integration qualification, including refusal/cancellation paths
-  and the complete UI user journey; project-persistent approval remains open.
-- Allow once / allow for project / deny decisions through the existing broker.
-- The service-level connect → task → owner approval → audit integration test
-  and shipped Chromium chat → real CrotService → inline approval → actual file
-  write → audit journey pass. Native Electron/OS and final complete-Stage-A
-  journey qualification are still distinct gates.
-- Full check, extension and Chromium E2E plus observed green remote CI for the
-  final candidate SHA. A local source test is not remote CI evidence.
+- **General application-secret protection is not implemented at the L1 process
+  boundary. Do not rely on this branch to protect arbitrary project `.env`,
+  `*.pem` or `*.key` files from child commands.** Existing CROT service-secret
+  protection remains distinct. Explicit owner access/revocation must also be
+  implemented, not represented by a decorative UI control.
+- Native folder-picker Electron/OS smoke and native macOS/Windows project-owned
+  port observation. Their current port result is explicitly unavailable; Linux
+  results are point-in-time evidence, not proof that unlisted ports are free.
+- Final complete-Stage-A native qualification and observed green remote CI for
+  the final candidate SHA. Local checks and Chromium's test-only IPC bridge do
+  not qualify native Electron dialogs, native L1 on other OSes or GitHub CI.
+
+The real-service connect → task → owner approval → audit integration and shipped
+Chromium chat → real CrotService → inline approval → actual write → audit journey
+pass. The same UI also verifies project-persistent approval and a later action
+without another request, and real manifest inspection. No live provider/Relay
+account is claimed qualified by local fixtures. B/C remain unstarted; PR #5 is
+not yet opened and no PR was merged by the agent.
 
 See [verification](VERIFICATION.md) for observed command results and explicit
 qualification limits. This is not
